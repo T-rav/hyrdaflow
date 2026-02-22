@@ -459,10 +459,13 @@ If you discover a reusable pattern or insight during exploration that would help
 
 MEMORY_SUGGESTION_START
 title: Short descriptive title
+type: knowledge | config | instruction | code
 learning: What was learned and why it matters
 context: How it was discovered (reference issue/PR numbers)
 MEMORY_SUGGESTION_END
 
+Types: knowledge (passive insight), config (suggests config change), instruction (new agent instruction), code (suggests code change).
+Actionable types (config, instruction, code) will be routed for human approval.
 Only suggest genuinely valuable learnings — not trivial observations.
 """
 

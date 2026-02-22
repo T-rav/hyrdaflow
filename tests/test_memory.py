@@ -10,11 +10,13 @@ import pytest
 
 from memory import (
     MemorySyncWorker,
+    _parse_memory_type,
     build_memory_issue_body,
     file_memory_suggestion,
     load_memory_digest,
     parse_memory_suggestion,
 )
+from models import MEMORY_TYPE_DISPLAY_ORDER, MemoryType
 from state import StateTracker
 from tests.helpers import ConfigFactory
 
@@ -41,6 +43,8 @@ class TestParseMemorySuggestion:
             result["learning"] == "Running make lint first catches formatting issues."
         )
         assert result["context"] == "Discovered during implementation of issue #42."
+        # Default type when missing
+        assert result["type"] == "knowledge"
 
     def test_no_block_returns_none(self) -> None:
         transcript = "Just regular output with no suggestion"
@@ -108,6 +112,165 @@ class TestParseMemorySuggestion:
         assert result["context"] == ""
 
 
+# --- Memory type parsing tests ---
+
+
+class TestParseMemoryType:
+    """Tests for _parse_memory_type normalisation."""
+
+    def test_parse_memory_type__knowledge(self) -> None:
+        assert _parse_memory_type("knowledge") == MemoryType.KNOWLEDGE
+
+    def test_parse_memory_type__config(self) -> None:
+        assert _parse_memory_type("config") == MemoryType.CONFIG
+
+    def test_parse_memory_type__instruction(self) -> None:
+        assert _parse_memory_type("instruction") == MemoryType.INSTRUCTION
+
+    def test_parse_memory_type__code(self) -> None:
+        assert _parse_memory_type("code") == MemoryType.CODE
+
+    def test_parse_memory_type__case_insensitive(self) -> None:
+        assert _parse_memory_type("CONFIG") == MemoryType.CONFIG
+        assert _parse_memory_type("Knowledge") == MemoryType.KNOWLEDGE
+        assert _parse_memory_type("CODE") == MemoryType.CODE
+
+    def test_parse_memory_type__with_whitespace(self) -> None:
+        assert _parse_memory_type("  config  ") == MemoryType.CONFIG
+
+    def test_parse_memory_type__empty_defaults_to_knowledge(self) -> None:
+        assert _parse_memory_type("") == MemoryType.KNOWLEDGE
+
+    def test_parse_memory_type__unknown_defaults_to_knowledge(self) -> None:
+        assert _parse_memory_type("banana") == MemoryType.KNOWLEDGE
+        assert _parse_memory_type("foobar") == MemoryType.KNOWLEDGE
+
+
+class TestParseMemorySuggestionType:
+    """Tests for type field parsing in MEMORY_SUGGESTION blocks."""
+
+    def test_parse_memory_suggestion__type_knowledge(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "type: knowledge\n"
+            "learning: A learning\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "knowledge"
+
+    def test_parse_memory_suggestion__type_config(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "type: config\n"
+            "learning: A config suggestion\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "config"
+
+    def test_parse_memory_suggestion__type_instruction(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "type: instruction\n"
+            "learning: An instruction\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "instruction"
+
+    def test_parse_memory_suggestion__type_code(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "type: code\n"
+            "learning: A code suggestion\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "code"
+
+    def test_parse_memory_suggestion__missing_type_defaults_to_knowledge(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "learning: A learning\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "knowledge"
+
+    def test_parse_memory_suggestion__invalid_type_defaults_to_knowledge(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "type: banana\n"
+            "learning: A learning\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "knowledge"
+
+    def test_parse_memory_suggestion__empty_type_defaults_to_knowledge(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Test\n"
+            "type: \n"
+            "learning: A learning\n"
+            "context: ctx\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is not None
+        assert result["type"] == "knowledge"
+
+
+class TestMemoryTypeEnum:
+    """Tests for the MemoryType enum and its is_actionable classmethod."""
+
+    def test_memory_type__values(self) -> None:
+        assert MemoryType.KNOWLEDGE.value == "knowledge"
+        assert MemoryType.CONFIG.value == "config"
+        assert MemoryType.INSTRUCTION.value == "instruction"
+        assert MemoryType.CODE.value == "code"
+
+    def test_memory_type__is_actionable_knowledge(self) -> None:
+        assert MemoryType.is_actionable(MemoryType.KNOWLEDGE) is False
+
+    def test_memory_type__is_actionable_config(self) -> None:
+        assert MemoryType.is_actionable(MemoryType.CONFIG) is True
+
+    def test_memory_type__is_actionable_instruction(self) -> None:
+        assert MemoryType.is_actionable(MemoryType.INSTRUCTION) is True
+
+    def test_memory_type__is_actionable_code(self) -> None:
+        assert MemoryType.is_actionable(MemoryType.CODE) is True
+
+    def test_memory_type_display_order__contains_all_types(self) -> None:
+        assert set(MEMORY_TYPE_DISPLAY_ORDER) == set(MemoryType)
+
+    def test_memory_type_display_order__actionable_first(self) -> None:
+        """Actionable types should come before knowledge in display order."""
+        knowledge_idx = MEMORY_TYPE_DISPLAY_ORDER.index(MemoryType.KNOWLEDGE)
+        for mtype in [MemoryType.CONFIG, MemoryType.INSTRUCTION, MemoryType.CODE]:
+            assert MEMORY_TYPE_DISPLAY_ORDER.index(mtype) < knowledge_idx
+
+
 # --- build_memory_issue_body tests ---
 
 
@@ -125,6 +288,8 @@ class TestBuildMemoryIssueBody:
         assert "**Learning:** Always run lint first" in body
         assert "**Context:** Found during issue #42" in body
         assert "**Source:** planner during issue #42" in body
+        # Default type
+        assert "**Type:** knowledge" in body
 
     def test_includes_source_and_reference(self) -> None:
         body = build_memory_issue_body(
@@ -134,6 +299,25 @@ class TestBuildMemoryIssueBody:
             reference="PR #99",
         )
         assert "reviewer during PR #99" in body
+
+    def test_build_memory_issue_body__includes_type(self) -> None:
+        body = build_memory_issue_body(
+            learning="Increase timeout",
+            context="CI failures",
+            source="reviewer",
+            reference="PR #10",
+            memory_type="config",
+        )
+        assert "**Type:** config" in body
+
+    def test_build_memory_issue_body__default_type_is_knowledge(self) -> None:
+        body = build_memory_issue_body(
+            learning="Something",
+            context="Somewhere",
+            source="agent",
+            reference="issue #1",
+        )
+        assert "**Type:** knowledge" in body
 
 
 # --- load_memory_digest tests ---
@@ -237,9 +421,9 @@ class TestMemorySyncWorkerBuildDigest:
     """Tests for digest building."""
 
     def test_sorts_newest_first(self) -> None:
-        learnings = [
-            (1, "Old learning", "2024-01-01T00:00:00"),
-            (2, "New learning", "2024-06-01T00:00:00"),
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Old learning", "2024-01-01T00:00:00", MemoryType.KNOWLEDGE),
+            (2, "New learning", "2024-06-01T00:00:00", MemoryType.KNOWLEDGE),
         ]
         # Pre-sorted newest-first (caller's responsibility)
         learnings_sorted = sorted(learnings, key=lambda x: x[2], reverse=True)
@@ -250,21 +434,67 @@ class TestMemorySyncWorkerBuildDigest:
         assert pos_new < pos_old
 
     def test_formats_with_separators(self) -> None:
-        learnings = [
-            (1, "Learning one", "2024-01-01"),
-            (2, "Learning two", "2024-01-02"),
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Learning config", "2024-01-01", MemoryType.CONFIG),
+            (2, "Learning knowledge", "2024-01-02", MemoryType.KNOWLEDGE),
         ]
         digest = MemorySyncWorker._build_digest(learnings)
         assert "---" in digest
 
     def test_header_includes_count(self) -> None:
-        learnings = [
-            (1, "Learning one", "2024-01-01"),
-            (2, "Learning two", "2024-01-02"),
-            (3, "Learning three", "2024-01-03"),
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Learning one", "2024-01-01", MemoryType.KNOWLEDGE),
+            (2, "Learning two", "2024-01-02", MemoryType.KNOWLEDGE),
+            (3, "Learning three", "2024-01-03", MemoryType.KNOWLEDGE),
         ]
         digest = MemorySyncWorker._build_digest(learnings)
         assert "3 learnings" in digest
+
+    def test_build_digest__groups_by_type(self) -> None:
+        """Learnings should be grouped by type with section headers."""
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "A knowledge item", "2024-01-01", MemoryType.KNOWLEDGE),
+            (2, "A config suggestion", "2024-01-02", MemoryType.CONFIG),
+            (3, "An instruction", "2024-01-03", MemoryType.INSTRUCTION),
+            (4, "A code change", "2024-01-04", MemoryType.CODE),
+        ]
+        digest = MemorySyncWorker._build_digest(learnings)
+        assert "### Config" in digest
+        assert "### Instruction" in digest
+        assert "### Code" in digest
+        assert "### Knowledge" in digest
+
+    def test_build_digest__actionable_before_knowledge(self) -> None:
+        """Actionable type sections should appear before knowledge."""
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Knowledge item", "2024-01-01", MemoryType.KNOWLEDGE),
+            (2, "Config item", "2024-01-02", MemoryType.CONFIG),
+        ]
+        digest = MemorySyncWorker._build_digest(learnings)
+        config_pos = digest.index("### Config")
+        knowledge_pos = digest.index("### Knowledge")
+        assert config_pos < knowledge_pos
+
+    def test_build_digest__skips_empty_type_sections(self) -> None:
+        """Type sections with no learnings should not appear."""
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Knowledge only", "2024-01-01", MemoryType.KNOWLEDGE),
+        ]
+        digest = MemorySyncWorker._build_digest(learnings)
+        assert "### Knowledge" in digest
+        assert "### Config" not in digest
+        assert "### Instruction" not in digest
+        assert "### Code" not in digest
+
+    def test_build_digest__single_type_no_separator(self) -> None:
+        """When all learnings are the same type, no --- separator needed."""
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Item A", "2024-01-01", MemoryType.KNOWLEDGE),
+            (2, "Item B", "2024-01-02", MemoryType.KNOWLEDGE),
+        ]
+        digest = MemorySyncWorker._build_digest(learnings)
+        # Only one type section, so no ---
+        assert "---" not in digest
 
 
 class TestMemorySyncWorkerCompactDigest:
@@ -274,8 +504,8 @@ class TestMemorySyncWorkerCompactDigest:
     async def test_under_limit_no_truncation(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
         worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings = [
-            (1, "Short learning", "2024-01-01"),
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Short learning", "2024-01-01", MemoryType.KNOWLEDGE),
         ]
         result = await worker._compact_digest(learnings, max_chars=10000)
         assert "truncated" not in result
@@ -284,14 +514,25 @@ class TestMemorySyncWorkerCompactDigest:
     async def test_dedup_removes_near_duplicates(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
         worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings = [
+        learnings: list[MemorySyncWorker._TypedLearning] = [
             (
                 1,
                 "Always run make lint before make test to catch formatting",
                 "2024-01-01",
+                MemoryType.KNOWLEDGE,
             ),
-            (2, "Always run make lint before make test to catch issues", "2024-01-02"),
-            (3, "Use atomic writes for state persistence", "2024-01-03"),
+            (
+                2,
+                "Always run make lint before make test to catch issues",
+                "2024-01-02",
+                MemoryType.KNOWLEDGE,
+            ),
+            (
+                3,
+                "Use atomic writes for state persistence",
+                "2024-01-03",
+                MemoryType.KNOWLEDGE,
+            ),
         ]
         result = await worker._compact_digest(learnings, max_chars=10000)
         # Should have deduped the similar lint learnings
@@ -302,11 +543,12 @@ class TestMemorySyncWorkerCompactDigest:
         """When dedup isn't enough, the worker calls a cheap model for summarisation."""
         config = ConfigFactory.create(repo_root=tmp_path)
         worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings = [
+        learnings: list[MemorySyncWorker._TypedLearning] = [
             (
                 i,
                 f"A very long learning about topic number {i} " * 10,
                 f"2024-01-{i:02d}",
+                MemoryType.KNOWLEDGE,
             )
             for i in range(1, 20)
         ]
@@ -325,11 +567,12 @@ class TestMemorySyncWorkerCompactDigest:
         """If the model call fails, fall back to truncation."""
         config = ConfigFactory.create(repo_root=tmp_path)
         worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings = [
+        learnings: list[MemorySyncWorker._TypedLearning] = [
             (
                 i,
                 f"A very long learning about topic number {i} " * 10,
                 f"2024-01-{i:02d}",
+                MemoryType.KNOWLEDGE,
             )
             for i in range(1, 20)
         ]
@@ -338,6 +581,21 @@ class TestMemorySyncWorkerCompactDigest:
         result = await worker._compact_digest(learnings, max_chars=500)
         assert len(result) <= 520  # 500 + truncation marker
         assert "truncated" in result
+
+    @pytest.mark.asyncio
+    async def test_compact_digest__preserves_type_grouping(
+        self, tmp_path: Path
+    ) -> None:
+        """Compacted digest should still group by type."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Config learning alpha", "2024-01-01", MemoryType.CONFIG),
+            (2, "Knowledge learning beta", "2024-01-02", MemoryType.KNOWLEDGE),
+        ]
+        result = await worker._compact_digest(learnings, max_chars=10000)
+        assert "### Config" in result
+        assert "### Knowledge" in result
 
 
 class TestMemorySyncWorkerSync:
@@ -819,6 +1077,37 @@ class TestMemoryPRManager:
 # --- Orchestrator tests ---
 
 
+class TestExtractMemoryType:
+    """Tests for _extract_memory_type from issue bodies."""
+
+    def test_extract_memory_type__knowledge(self) -> None:
+        body = "## Memory Suggestion\n\n**Type:** knowledge\n\n**Learning:** Foo\n"
+        assert MemorySyncWorker._extract_memory_type(body) == MemoryType.KNOWLEDGE
+
+    def test_extract_memory_type__config(self) -> None:
+        body = "## Memory Suggestion\n\n**Type:** config\n\n**Learning:** Foo\n"
+        assert MemorySyncWorker._extract_memory_type(body) == MemoryType.CONFIG
+
+    def test_extract_memory_type__instruction(self) -> None:
+        body = "## Memory Suggestion\n\n**Type:** instruction\n\n**Learning:** Foo\n"
+        assert MemorySyncWorker._extract_memory_type(body) == MemoryType.INSTRUCTION
+
+    def test_extract_memory_type__code(self) -> None:
+        body = "## Memory Suggestion\n\n**Type:** code\n\n**Learning:** Foo\n"
+        assert MemorySyncWorker._extract_memory_type(body) == MemoryType.CODE
+
+    def test_extract_memory_type__missing_defaults_to_knowledge(self) -> None:
+        body = "## Memory Suggestion\n\n**Learning:** Foo\n"
+        assert MemorySyncWorker._extract_memory_type(body) == MemoryType.KNOWLEDGE
+
+    def test_extract_memory_type__empty_body(self) -> None:
+        assert MemorySyncWorker._extract_memory_type("") == MemoryType.KNOWLEDGE
+
+    def test_extract_memory_type__unrecognised_defaults_to_knowledge(self) -> None:
+        body = "**Type:** banana\n\n**Learning:** Foo\n"
+        assert MemorySyncWorker._extract_memory_type(body) == MemoryType.KNOWLEDGE
+
+
 class TestFileSuggestionSetsOrigin:
     """Tests that file_memory_suggestion sets hitl_origin on created issues."""
 
@@ -886,6 +1175,234 @@ class TestFileSuggestionSetsOrigin:
 
         # No hitl_origin should be set when create_issue fails
         assert state.get_hitl_origin(0) is None
+
+
+class TestFileMemorySuggestionRouting:
+    """Tests for memory type routing in file_memory_suggestion."""
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__knowledge_type_cause(
+        self, tmp_path: Path
+    ) -> None:
+        """Knowledge type should use the standard 'Memory suggestion' cause."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=100)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Knowledge insight\n"
+            "type: knowledge\n"
+            "learning: A passive insight\n"
+            "context: During review\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "reviewer", "PR #10", config, mock_prs, state
+        )
+
+        assert state.get_hitl_cause(100) == "Memory suggestion"
+        # Body should include type
+        call_body = mock_prs.create_issue.call_args.args[1]
+        assert "**Type:** knowledge" in call_body
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__config_type_actionable_cause(
+        self, tmp_path: Path
+    ) -> None:
+        """Config type should use actionable cause and HITL routing."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=101)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Increase CI timeout\n"
+            "type: config\n"
+            "learning: CI timeout too low\n"
+            "context: During implementation\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "implementer", "issue #5", config, mock_prs, state
+        )
+
+        assert state.get_hitl_cause(101) == "Actionable memory suggestion (config)"
+        call_body = mock_prs.create_issue.call_args.args[1]
+        assert "**Type:** config" in call_body
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__instruction_type_actionable_cause(
+        self, tmp_path: Path
+    ) -> None:
+        """Instruction type should use actionable cause."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=102)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Add lint step\n"
+            "type: instruction\n"
+            "learning: Always lint first\n"
+            "context: During review\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "reviewer", "PR #20", config, mock_prs, state
+        )
+
+        assert state.get_hitl_cause(102) == "Actionable memory suggestion (instruction)"
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__code_type_actionable_cause(
+        self, tmp_path: Path
+    ) -> None:
+        """Code type should use actionable cause."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=103)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Refactor helper\n"
+            "type: code\n"
+            "learning: Should refactor shared helper\n"
+            "context: During implementation\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "implementer", "issue #30", config, mock_prs, state
+        )
+
+        assert state.get_hitl_cause(103) == "Actionable memory suggestion (code)"
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__missing_type_defaults_to_knowledge(
+        self, tmp_path: Path
+    ) -> None:
+        """When type is missing, should default to knowledge cause."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=104)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Some insight\n"
+            "learning: Discovered something\n"
+            "context: During work\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "implementer", "issue #40", config, mock_prs, state
+        )
+
+        assert state.get_hitl_cause(104) == "Memory suggestion"
+
+
+class TestSyncWithTypedIssues:
+    """Tests for MemorySyncWorker.sync with typed issue bodies."""
+
+    @pytest.mark.asyncio
+    async def test_sync__typed_issues_produce_grouped_digest(
+        self, tmp_path: Path
+    ) -> None:
+        """Sync with typed issues should produce a digest grouped by type."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+
+        worker = MemorySyncWorker(config, state, bus)
+        issues = [
+            {
+                "number": 10,
+                "title": "[Memory] Config change",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Type:** config\n\n"
+                    "**Learning:** Increase timeout\n\n"
+                    "**Context:** CI failures\n"
+                ),
+                "createdAt": "2024-06-01T00:00:00Z",
+            },
+            {
+                "number": 20,
+                "title": "[Memory] Knowledge item",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Type:** knowledge\n\n"
+                    "**Learning:** Use type hints\n\n"
+                    "**Context:** Code review\n"
+                ),
+                "createdAt": "2024-05-01T00:00:00Z",
+            },
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats["item_count"] == 2
+        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
+        content = digest_path.read_text()
+        assert "### Config" in content
+        assert "### Knowledge" in content
+        # Config should come before Knowledge
+        assert content.index("### Config") < content.index("### Knowledge")
+
+    @pytest.mark.asyncio
+    async def test_sync__untyped_issues_default_to_knowledge(
+        self, tmp_path: Path
+    ) -> None:
+        """Issues without a Type field should be grouped under Knowledge."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+
+        worker = MemorySyncWorker(config, state, bus)
+        issues = [
+            {
+                "number": 10,
+                "title": "[Memory] Legacy item",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Learning:** Old learning without type\n\n"
+                    "**Context:** Before types existed\n"
+                ),
+                "createdAt": "2024-01-01T00:00:00Z",
+            },
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats["item_count"] == 1
+        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
+        content = digest_path.read_text()
+        assert "### Knowledge" in content
+        assert "### Config" not in content
 
 
 # --- Orchestrator tests ---

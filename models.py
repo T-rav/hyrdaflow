@@ -554,6 +554,35 @@ class BackgroundWorkerState(TypedDict):
     enabled: NotRequired[bool]  # added by get_bg_worker_states()
 
 
+class MemoryType(StrEnum):
+    """Classification of a memory suggestion.
+
+    - ``knowledge``: Passive insight — stored in digest for agent awareness.
+    - ``config``: Suggests a configuration change — routed through HITL approval.
+    - ``instruction``: Suggests a new agent instruction — routed through HITL approval.
+    - ``code``: Suggests a code change — routed through HITL approval.
+    """
+
+    KNOWLEDGE = "knowledge"
+    CONFIG = "config"
+    INSTRUCTION = "instruction"
+    CODE = "code"
+
+    @classmethod
+    def is_actionable(cls, memory_type: MemoryType) -> bool:
+        """Return True if the memory type requires HITL approval."""
+        return memory_type in (cls.CONFIG, cls.INSTRUCTION, cls.CODE)
+
+
+# Ordered list for digest grouping (actionable types first, then knowledge).
+MEMORY_TYPE_DISPLAY_ORDER: list[MemoryType] = [
+    MemoryType.CONFIG,
+    MemoryType.INSTRUCTION,
+    MemoryType.CODE,
+    MemoryType.KNOWLEDGE,
+]
+
+
 class MemoryIssueData(TypedDict):
     """Shape of issue dicts passed to ``MemorySyncWorker.sync``."""
 
