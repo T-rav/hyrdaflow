@@ -143,8 +143,23 @@ async def file_memory_suggestion(
     )
     title = f"[Memory] {suggestion['title']}"
 
-    if config.memory_auto_approve:
-        # Skip HITL — label directly for memory sync pickup
+    # --- Routing matrix (auto_approve x is_actionable) ---
+    #
+    # | auto_approve | is_actionable | Behaviour                                  |
+    # |--------------|---------------|--------------------------------------------|
+    # | False        | False (know.) | Normal improve flow (improve_label, no HITL)|
+    # | False        | True  (cfg…)  | HITL route (improve + hitl labels)          |
+    # | True         | False (know.) | Auto-approve (memory_label, skip HITL)      |
+    # | True         | True  (cfg…)  | HITL route (actionable always needs review) |
+    #
+    # Actionable types (config, instruction, code) ALWAYS go through HITL
+    # regardless of the auto_approve toggle, because they propose changes
+    # that require human judgement.
+
+    is_actionable = MemoryType.is_actionable(memory_type)
+
+    if config.memory_auto_approve and not is_actionable:
+        # Auto-approve path — knowledge-only; label for direct memory sync pickup
         labels = list(config.memory_label)
         issue_num = await prs.create_issue(title, body, labels)
         if issue_num:
@@ -153,22 +168,27 @@ async def file_memory_suggestion(
                 issue_num,
                 suggestion["title"],
             )
-    else:
-        # Actionable types get HITL routing for human approval
-        if MemoryType.is_actionable(memory_type):
-            labels = list(config.improve_label) + list(config.hitl_label)
-            hitl_cause = f"Actionable memory suggestion ({memory_type.value})"
-        else:
-            labels = list(config.improve_label) + list(config.hitl_label)
-            hitl_cause = "Memory suggestion"
-
+    elif is_actionable:
+        # Actionable types always require HITL review (even with auto-approve on)
+        labels = list(config.improve_label) + list(config.hitl_label)
+        hitl_cause = f"Actionable memory suggestion ({memory_type.value})"
         issue_num = await prs.create_issue(title, body, labels)
         if issue_num:
             state.set_hitl_origin(issue_num, config.improve_label[0])
             state.set_hitl_cause(issue_num, hitl_cause)
             logger.info(
-                "Filed %s memory suggestion as issue #%d: %s",
+                "Filed actionable %s memory suggestion as issue #%d: %s",
                 memory_type.value,
+                issue_num,
+                suggestion["title"],
+            )
+    else:
+        # Knowledge type with auto-approve off — normal improve flow, no HITL
+        labels = list(config.improve_label)
+        issue_num = await prs.create_issue(title, body, labels)
+        if issue_num:
+            logger.info(
+                "Filed knowledge memory suggestion as issue #%d: %s",
                 issue_num,
                 suggestion["title"],
             )
