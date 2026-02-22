@@ -29,11 +29,15 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_merge_conflict_fix_attempts", "HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", 3),
     ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 60),
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
+    ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
+    ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
+    ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
+    ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -44,7 +48,28 @@ _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
 _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("docker_read_only_root", "HYDRAFLOW_DOCKER_READ_ONLY_ROOT", True),
     ("docker_no_new_privileges", "HYDRAFLOW_DOCKER_NO_NEW_PRIVILEGES", True),
+    (
+        "transcript_summarization_enabled",
+        "HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED",
+        True,
+    ),
 ]
+
+# Label env var overrides — maps env key → (field_name, default_value)
+_ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
+    "HYDRAFLOW_LABEL_FIND": ("find_label", ["hydraflow-find"]),
+    "HYDRAFLOW_LABEL_PLAN": ("planner_label", ["hydraflow-plan"]),
+    "HYDRAFLOW_LABEL_READY": ("ready_label", ["hydraflow-ready"]),
+    "HYDRAFLOW_LABEL_REVIEW": ("review_label", ["hydraflow-review"]),
+    "HYDRAFLOW_LABEL_HITL": ("hitl_label", ["hydraflow-hitl"]),
+    "HYDRAFLOW_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydraflow-hitl-active"]),
+    "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
+    "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
+    "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
+    "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
+    "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
+    "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
+}
 
 
 class HydraFlowConfig(BaseModel):
@@ -539,324 +564,203 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label
         """
-        # Paths
-        if self.repo_root == Path("."):
-            self.repo_root = _find_repo_root()
-        if self.worktree_base == Path("."):
-            self.worktree_base = self.repo_root.parent / "hydraflow-worktrees"
-        if self.state_file == Path("."):
-            self.state_file = self.repo_root / ".hydraflow" / "state.json"
-        if self.event_log_path == Path("."):
-            self.event_log_path = self.repo_root / ".hydraflow" / "events.jsonl"
-
-        # Repo slug: env var → git remote → empty
-        if not self.repo:
-            self.repo = os.environ.get(
-                "HYDRAFLOW_GITHUB_REPO", ""
-            ) or _detect_repo_slug(self.repo_root)
-
-        # GitHub token: explicit value → HYDRAFLOW_GH_TOKEN env var → inherited GH_TOKEN
-        if not self.gh_token:
-            env_token = os.environ.get("HYDRAFLOW_GH_TOKEN", "")
-            if env_token:
-                object.__setattr__(self, "gh_token", env_token)
-
-        # Git identity: explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env var
-        if not self.git_user_name:
-            env_name = os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
-            if env_name:
-                object.__setattr__(self, "git_user_name", env_name)
-        if not self.git_user_email:
-            env_email = os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
-            if env_email:
-                object.__setattr__(self, "git_user_email", env_email)
-
-        # Data-driven env var overrides (int fields)
-        for field, env_key, default in _ENV_INT_OVERRIDES:
-            if getattr(self, field) == default:
-                env_val = os.environ.get(env_key)
-                if env_val is not None:
-                    with contextlib.suppress(ValueError):
-                        object.__setattr__(self, field, int(env_val))
-
-        # Data-driven env var overrides (str fields)
-        for field, env_key, default in _ENV_STR_OVERRIDES:
-            if getattr(self, field) == default:
-                env_val = os.environ.get(env_key)
-                if env_val is not None:
-                    object.__setattr__(self, field, env_val)
-
-        # Data-driven env var overrides (float fields)
-        for field, env_key, default in _ENV_FLOAT_OVERRIDES:
-            if getattr(self, field) == default:
-                env_val = os.environ.get(env_key)
-                if env_val is not None:
-                    with contextlib.suppress(ValueError):
-                        new_val = float(env_val)
-                        for constraint in HydraFlowConfig.model_fields[field].metadata:
-                            ge = getattr(constraint, "ge", None)
-                            le = getattr(constraint, "le", None)
-                            if ge is not None and new_val < ge:
-                                raise ValueError(
-                                    f"{env_key}={new_val} is below minimum {ge}"
-                                )
-                            if le is not None and new_val > le:
-                                raise ValueError(
-                                    f"{env_key}={new_val} is above maximum {le}"
-                                )
-                        object.__setattr__(self, field, new_val)
-
-        # Data-driven env var overrides (bool fields)
-        for field, env_key, default in _ENV_BOOL_OVERRIDES:
-            if getattr(self, field) == default:
-                env_val = os.environ.get(env_key)
-                if env_val is not None:
-                    object.__setattr__(
-                        self,
-                        field,
-                        env_val.lower() not in ("0", "false", "no"),
-                    )
-
-        # Literal-typed env var overrides (validated before setting)
-        if self.execution_mode == "host":
-            env_exec = os.environ.get("HYDRAFLOW_EXECUTION_MODE")
-            if env_exec in ("host", "docker"):
-                object.__setattr__(self, "execution_mode", env_exec)
-
-        if self.docker_network_mode == "bridge":
-            env_net = os.environ.get("HYDRAFLOW_DOCKER_NETWORK_MODE")
-            if env_net in ("bridge", "none", "host"):
-                object.__setattr__(self, "docker_network_mode", env_net)
-
-        # Lite plan labels (comma-separated list, special-case)
-        env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")
-        if env_lite_labels is not None and self.lite_plan_labels == [
-            "bug",
-            "typo",
-            "docs",
-        ]:
-            parsed = [lbl.strip() for lbl in env_lite_labels.split(",") if lbl.strip()]
-            if parsed:
-                object.__setattr__(self, "lite_plan_labels", parsed)
-
-        # Review fix attempts override
-        if self.max_review_fix_attempts == 2:  # still at default
-            env_review_fix = os.environ.get("HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS")
-            if env_review_fix is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "max_review_fix_attempts", int(env_review_fix)
-                    )
-
-        # Min review findings override
-        if self.min_review_findings == 3:  # still at default
-            env_min_findings = os.environ.get("HYDRAFLOW_MIN_REVIEW_FINDINGS")
-            if env_min_findings is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "min_review_findings", int(env_min_findings)
-                    )
-
-        # Agent prompt config overrides
-        env_test_cmd = os.environ.get("HYDRAFLOW_TEST_COMMAND")
-        if env_test_cmd is not None and self.test_command == "make test":
-            object.__setattr__(self, "test_command", env_test_cmd)
-
-        env_max_body = os.environ.get("HYDRAFLOW_MAX_ISSUE_BODY_CHARS")
-        if env_max_body is not None and self.max_issue_body_chars == 10_000:
-            with contextlib.suppress(ValueError):
-                object.__setattr__(self, "max_issue_body_chars", int(env_max_body))
-
-        env_max_diff = os.environ.get("HYDRAFLOW_MAX_REVIEW_DIFF_CHARS")
-        if env_max_diff is not None and self.max_review_diff_chars == 15_000:
-            with contextlib.suppress(ValueError):
-                object.__setattr__(self, "max_review_diff_chars", int(env_max_diff))
-
-        # gh retry override
-        if self.gh_max_retries == 3:  # still at default
-            env_retries = os.environ.get("HYDRAFLOW_GH_MAX_RETRIES")
-            if env_retries is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(self, "gh_max_retries", int(env_retries))
-
-        # issue attempt cap override
-        if self.max_issue_attempts == 3:  # still at default
-            env_issue_attempts = os.environ.get("HYDRAFLOW_MAX_ISSUE_ATTEMPTS")
-            if env_issue_attempts is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "max_issue_attempts", int(env_issue_attempts)
-                    )
-
-        # Memory sync interval override
-        if self.memory_sync_interval == 3600:  # still at default
-            env_mem_sync = os.environ.get("HYDRAFLOW_MEMORY_SYNC_INTERVAL")
-            if env_mem_sync is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(self, "memory_sync_interval", int(env_mem_sync))
-
-        # Metrics sync interval override
-        if self.metrics_sync_interval == 7200:  # still at default
-            env_metrics_sync = os.environ.get("HYDRAFLOW_METRICS_SYNC_INTERVAL")
-            if env_metrics_sync is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "metrics_sync_interval", int(env_metrics_sync)
-                    )
-
-        # merge conflict fix attempts override
-        if self.max_merge_conflict_fix_attempts == 3:  # still at default
-            env_attempts = os.environ.get("HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS")
-            if env_attempts is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "max_merge_conflict_fix_attempts", int(env_attempts)
-                    )
-
-        # Data poll interval override
-        if self.data_poll_interval == 60:  # still at default
-            env_data_poll = os.environ.get("HYDRAFLOW_DATA_POLL_INTERVAL")
-            if env_data_poll is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(self, "data_poll_interval", int(env_data_poll))
-
-        # Transcript summarization overrides
-        env_ts_enabled = os.environ.get("HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED")
-        if env_ts_enabled is not None and self.transcript_summarization_enabled is True:
-            object.__setattr__(
-                self,
-                "transcript_summarization_enabled",
-                env_ts_enabled.lower() not in ("0", "false", "no"),
-            )
-
-        env_ts_model = os.environ.get("HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL")
-        if env_ts_model is not None and self.transcript_summary_model == "haiku":
-            object.__setattr__(self, "transcript_summary_model", env_ts_model)
-
-        if self.max_transcript_summary_chars == 50_000:  # still at default
-            env_ts_chars = os.environ.get("HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS")
-            if env_ts_chars is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "max_transcript_summary_chars", int(env_ts_chars)
-                    )
-
-        # PR unstick interval override
-        if self.pr_unstick_interval == 3600:  # still at default
-            env_unstick = os.environ.get("HYDRAFLOW_PR_UNSTICK_INTERVAL")
-            if env_unstick is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(self, "pr_unstick_interval", int(env_unstick))
-
-        # PR unstick batch size override
-        if self.pr_unstick_batch_size == 10:  # still at default
-            env_batch = os.environ.get("HYDRAFLOW_PR_UNSTICK_BATCH_SIZE")
-            if env_batch is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(self, "pr_unstick_batch_size", int(env_batch))
-
-        # Docker resource limit overrides (validated fields handled manually
-        # because str/int overrides need format/bounds validation that
-        # the data-driven tables don't provide)
-        if self.docker_memory_limit == "4g":  # still at default
-            env_mem = os.environ.get("HYDRAFLOW_DOCKER_MEMORY_LIMIT")
-            if env_mem is not None:
-                if not re.fullmatch(r"\d+[bkmg]", env_mem, re.IGNORECASE):
-                    msg = f"Invalid HYDRAFLOW_DOCKER_MEMORY_LIMIT '{env_mem}'; expected digits followed by b/k/m/g (e.g., '4g', '512m')"
-                    raise ValueError(msg)
-                object.__setattr__(self, "docker_memory_limit", env_mem)
-
-        if self.docker_tmp_size == "1g":  # still at default
-            env_tmp = os.environ.get("HYDRAFLOW_DOCKER_TMP_SIZE")
-            if env_tmp is not None:
-                if not re.fullmatch(r"\d+[bkmg]", env_tmp, re.IGNORECASE):
-                    msg = f"Invalid HYDRAFLOW_DOCKER_TMP_SIZE '{env_tmp}'; expected digits followed by b/k/m/g (e.g., '1g', '512m')"
-                    raise ValueError(msg)
-                object.__setattr__(self, "docker_tmp_size", env_tmp)
-
-        if self.docker_pids_limit == 256:  # still at default
-            env_pids = os.environ.get("HYDRAFLOW_DOCKER_PIDS_LIMIT")
-            if env_pids is not None:
-                try:
-                    pids_val = int(env_pids)
-                except ValueError:
-                    pass
-                else:
-                    if not (16 <= pids_val <= 4096):
-                        msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"
-                        raise ValueError(msg)
-                    object.__setattr__(self, "docker_pids_limit", pids_val)
-
-        # Label env var overrides (only apply when still at the default)
-        _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
-            "HYDRAFLOW_LABEL_FIND": ("find_label", ["hydraflow-find"]),
-            "HYDRAFLOW_LABEL_PLAN": ("planner_label", ["hydraflow-plan"]),
-            "HYDRAFLOW_LABEL_READY": ("ready_label", ["hydraflow-ready"]),
-            "HYDRAFLOW_LABEL_REVIEW": ("review_label", ["hydraflow-review"]),
-            "HYDRAFLOW_LABEL_HITL": ("hitl_label", ["hydraflow-hitl"]),
-            "HYDRAFLOW_LABEL_HITL_ACTIVE": (
-                "hitl_active_label",
-                ["hydraflow-hitl-active"],
-            ),
-            "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
-            "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
-            "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
-            "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
-            "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
-            "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
-        }
-        for env_key, (field_name, default_val) in _ENV_LABEL_MAP.items():
-            current = getattr(self, field_name)
-            env_val = os.environ.get(env_key)
-            if env_val is not None and current == default_val:
-                # Empty string → empty list (scan-all mode); otherwise split on comma
-                labels = (
-                    [part.strip() for part in env_val.split(",") if part.strip()]
-                    if env_val
-                    else []
-                )
-                object.__setattr__(self, field_name, labels)
-
-        # Validate Docker availability when execution_mode is "docker"
-        if self.execution_mode == "docker":
-            import shutil  # noqa: PLC0415
-
-            if shutil.which("docker") is None:
-                msg = (
-                    "execution_mode is 'docker' but the 'docker' command "
-                    "was not found on PATH"
-                )
-                raise ValueError(msg)
-
-        # Docker execution overrides (PR #545)
-        env_docker_enabled = os.environ.get("HYDRA_DOCKER_ENABLED")
-        if env_docker_enabled is not None and self.docker_enabled is False:
-            object.__setattr__(
-                self,
-                "docker_enabled",
-                env_docker_enabled.lower() in ("1", "true", "yes"),
-            )
-
-        env_docker_image = os.environ.get("HYDRA_DOCKER_IMAGE")
-        if (
-            env_docker_image is not None
-            and self.docker_image == "ghcr.io/t-rav/hydraflow-agent:latest"
-        ):
-            object.__setattr__(self, "docker_image", env_docker_image)
-
-        env_docker_network = os.environ.get("HYDRA_DOCKER_NETWORK")
-        if env_docker_network is not None and not self.docker_network:
-            object.__setattr__(self, "docker_network", env_docker_network)
-
-        if self.docker_spawn_delay == 2.0:  # still at default
-            env_spawn_delay = os.environ.get("HYDRA_DOCKER_SPAWN_DELAY")
-            if env_spawn_delay is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(
-                        self, "docker_spawn_delay", float(env_spawn_delay)
-                    )
-
+        _resolve_paths(self)
+        _resolve_repo_and_identity(self)
+        _apply_env_overrides(self)
+        _validate_docker(self)
         return self
+
+
+def _resolve_paths(config: HydraFlowConfig) -> None:
+    """Resolve repo_root, worktree_base, state_file, and event_log_path."""
+    if config.repo_root == Path("."):
+        config.repo_root = _find_repo_root()
+    if config.worktree_base == Path("."):
+        config.worktree_base = config.repo_root.parent / "hydraflow-worktrees"
+    if config.state_file == Path("."):
+        config.state_file = config.repo_root / ".hydraflow" / "state.json"
+    if config.event_log_path == Path("."):
+        config.event_log_path = config.repo_root / ".hydraflow" / "events.jsonl"
+
+
+def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
+    """Resolve repo slug, GitHub token, and git identity from env vars."""
+    # Repo slug: env var → git remote → empty
+    if not config.repo:
+        config.repo = os.environ.get("HYDRAFLOW_GITHUB_REPO", "") or _detect_repo_slug(
+            config.repo_root
+        )
+
+    # GitHub token: explicit value → HYDRAFLOW_GH_TOKEN env var → inherited GH_TOKEN
+    if not config.gh_token:
+        env_token = os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+        if env_token:
+            object.__setattr__(config, "gh_token", env_token)
+
+    # Git identity: explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env var
+    if not config.git_user_name:
+        env_name = os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
+        if env_name:
+            object.__setattr__(config, "git_user_name", env_name)
+    if not config.git_user_email:
+        env_email = os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
+        if env_email:
+            object.__setattr__(config, "git_user_email", env_email)
+
+
+def _apply_env_overrides(config: HydraFlowConfig) -> None:
+    """Apply all data-driven and special-case env var overrides."""
+    # Data-driven env var overrides (int fields)
+    for field, env_key, default in _ENV_INT_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                with contextlib.suppress(ValueError):
+                    object.__setattr__(config, field, int(env_val))
+
+    # Data-driven env var overrides (str fields)
+    for field, env_key, default in _ENV_STR_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                object.__setattr__(config, field, env_val)
+
+    # Data-driven env var overrides (float fields)
+    for field, env_key, default in _ENV_FLOAT_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                with contextlib.suppress(ValueError):
+                    new_val = float(env_val)
+                    for constraint in HydraFlowConfig.model_fields[field].metadata:
+                        ge = getattr(constraint, "ge", None)
+                        le = getattr(constraint, "le", None)
+                        if ge is not None and new_val < ge:
+                            raise ValueError(
+                                f"{env_key}={new_val} is below minimum {ge}"
+                            )
+                        if le is not None and new_val > le:
+                            raise ValueError(
+                                f"{env_key}={new_val} is above maximum {le}"
+                            )
+                    object.__setattr__(config, field, new_val)
+
+    # Data-driven env var overrides (bool fields)
+    for field, env_key, default in _ENV_BOOL_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                object.__setattr__(
+                    config,
+                    field,
+                    env_val.lower() not in ("0", "false", "no"),
+                )
+
+    # Literal-typed env var overrides (validated before setting)
+    if config.execution_mode == "host":
+        env_exec = os.environ.get("HYDRAFLOW_EXECUTION_MODE")
+        if env_exec in ("host", "docker"):
+            object.__setattr__(config, "execution_mode", env_exec)
+
+    if config.docker_network_mode == "bridge":
+        env_net = os.environ.get("HYDRAFLOW_DOCKER_NETWORK_MODE")
+        if env_net in ("bridge", "none", "host"):
+            object.__setattr__(config, "docker_network_mode", env_net)
+
+    # Lite plan labels (comma-separated list, special-case)
+    env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")
+    if env_lite_labels is not None and config.lite_plan_labels == [
+        "bug",
+        "typo",
+        "docs",
+    ]:
+        parsed = [lbl.strip() for lbl in env_lite_labels.split(",") if lbl.strip()]
+        if parsed:
+            object.__setattr__(config, "lite_plan_labels", parsed)
+
+    # Docker resource limit overrides (validated fields handled manually
+    # because str/int overrides need format/bounds validation that
+    # the data-driven tables don't provide)
+    if config.docker_memory_limit == "4g":  # still at default
+        env_mem = os.environ.get("HYDRAFLOW_DOCKER_MEMORY_LIMIT")
+        if env_mem is not None:
+            if not re.fullmatch(r"\d+[bkmg]", env_mem, re.IGNORECASE):
+                msg = f"Invalid HYDRAFLOW_DOCKER_MEMORY_LIMIT '{env_mem}'; expected digits followed by b/k/m/g (e.g., '4g', '512m')"
+                raise ValueError(msg)
+            object.__setattr__(config, "docker_memory_limit", env_mem)
+
+    if config.docker_tmp_size == "1g":  # still at default
+        env_tmp = os.environ.get("HYDRAFLOW_DOCKER_TMP_SIZE")
+        if env_tmp is not None:
+            if not re.fullmatch(r"\d+[bkmg]", env_tmp, re.IGNORECASE):
+                msg = f"Invalid HYDRAFLOW_DOCKER_TMP_SIZE '{env_tmp}'; expected digits followed by b/k/m/g (e.g., '1g', '512m')"
+                raise ValueError(msg)
+            object.__setattr__(config, "docker_tmp_size", env_tmp)
+
+    if config.docker_pids_limit == 256:  # still at default
+        env_pids = os.environ.get("HYDRAFLOW_DOCKER_PIDS_LIMIT")
+        if env_pids is not None:
+            try:
+                pids_val = int(env_pids)
+            except ValueError:
+                pass
+            else:
+                if not (16 <= pids_val <= 4096):
+                    msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"
+                    raise ValueError(msg)
+                object.__setattr__(config, "docker_pids_limit", pids_val)
+
+    # Label env var overrides (only apply when still at the default)
+    for env_key, (field_name, default_val) in _ENV_LABEL_MAP.items():
+        current = getattr(config, field_name)
+        env_val = os.environ.get(env_key)
+        if env_val is not None and current == default_val:
+            # Empty string → empty list (scan-all mode); otherwise split on comma
+            labels = (
+                [part.strip() for part in env_val.split(",") if part.strip()]
+                if env_val
+                else []
+            )
+            object.__setattr__(config, field_name, labels)
+
+    # Docker execution overrides (PR #545)
+    env_docker_enabled = os.environ.get("HYDRA_DOCKER_ENABLED")
+    if env_docker_enabled is not None and config.docker_enabled is False:
+        object.__setattr__(
+            config,
+            "docker_enabled",
+            env_docker_enabled.lower() in ("1", "true", "yes"),
+        )
+
+    env_docker_image = os.environ.get("HYDRA_DOCKER_IMAGE")
+    if (
+        env_docker_image is not None
+        and config.docker_image == "ghcr.io/t-rav/hydraflow-agent:latest"
+    ):
+        object.__setattr__(config, "docker_image", env_docker_image)
+
+    env_docker_network = os.environ.get("HYDRA_DOCKER_NETWORK")
+    if env_docker_network is not None and not config.docker_network:
+        object.__setattr__(config, "docker_network", env_docker_network)
+
+    if config.docker_spawn_delay == 2.0:  # still at default
+        env_spawn_delay = os.environ.get("HYDRA_DOCKER_SPAWN_DELAY")
+        if env_spawn_delay is not None:
+            with contextlib.suppress(ValueError):
+                object.__setattr__(config, "docker_spawn_delay", float(env_spawn_delay))
+
+
+def _validate_docker(config: HydraFlowConfig) -> None:
+    """Validate Docker availability when execution_mode is 'docker'."""
+    if config.execution_mode == "docker":
+        import shutil  # noqa: PLC0415
+
+        if shutil.which("docker") is None:
+            msg = (
+                "execution_mode is 'docker' but the 'docker' command "
+                "was not found on PATH"
+            )
+            raise ValueError(msg)
 
 
 def _find_repo_root() -> Path:
