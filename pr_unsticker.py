@@ -207,7 +207,9 @@ class PRUnsticker:
             )
 
             try:
-                prompt = build_conflict_prompt(issue.url, pr_url, last_error, attempt)
+                prompt = build_conflict_prompt(
+                    issue.url, pr_url, last_error, attempt, config=self._config
+                )
                 cmd = self._agents._build_command(wt_path)
                 transcript = await self._agents._execute(
                     cmd, prompt, wt_path, issue_number

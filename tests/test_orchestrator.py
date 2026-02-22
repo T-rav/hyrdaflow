@@ -1036,6 +1036,65 @@ class TestConcurrentLoops:
 
 
 # ---------------------------------------------------------------------------
+# Manifest refresh loop integration
+# ---------------------------------------------------------------------------
+
+
+class TestManifestRefreshIntegration:
+    """Tests for manifest refresh loop wired into the orchestrator."""
+
+    def test_manifest_refresh_loop_exists(self, config: HydraFlowConfig) -> None:
+        """Orchestrator should have a _manifest_refresh_loop attribute."""
+        from manifest_refresh_loop import ManifestRefreshLoop
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch._manifest_refresh_loop, ManifestRefreshLoop)
+
+    def test_manifest_refresh_bg_loop_method_exists(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Orchestrator should have a _manifest_refresh_bg_loop async method."""
+        orch = HydraFlowOrchestrator(config)
+        assert hasattr(orch, "_manifest_refresh_bg_loop")
+        assert asyncio.iscoroutinefunction(orch._manifest_refresh_bg_loop)
+
+    @pytest.mark.asyncio
+    async def test_manifest_refresh_loop_runs_in_supervisor(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """The manifest refresh loop should run as part of _supervise_loops."""
+        orch = HydraFlowOrchestrator(config)
+        orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        _mock_fetcher_noop(orch)
+
+        manifest_ran = False
+
+        async def tracking_manifest_loop() -> None:
+            nonlocal manifest_ran
+            manifest_ran = True
+            orch._stop_event.set()
+
+        orch._manifest_refresh_bg_loop = tracking_manifest_loop  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        await orch.run()
+
+        assert manifest_ran
+
+    def test_get_bg_worker_interval_returns_manifest_interval(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """get_bg_worker_interval should return manifest_refresh_interval."""
+        orch = HydraFlowOrchestrator(config)
+        assert (
+            orch.get_bg_worker_interval("manifest_refresh")
+            == config.manifest_refresh_interval
+        )
+
+
+# ---------------------------------------------------------------------------
 # HITL correction tracking
 # ---------------------------------------------------------------------------
 

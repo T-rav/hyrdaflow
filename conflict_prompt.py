@@ -9,12 +9,18 @@ additional context it needs via ``gh`` CLI.
 
 from __future__ import annotations
 
+from config import HydraFlowConfig
+from manifest import load_project_manifest
+from memory import load_memory_digest
+
 
 def build_conflict_prompt(
     issue_url: str,
     pr_url: str,
     last_error: str | None,
     attempt: int,
+    *,
+    config: HydraFlowConfig | None = None,
 ) -> str:
     """Build a conflict resolution prompt.
 
@@ -39,6 +45,15 @@ def build_conflict_prompt(
         "Resolve all conflicts, then run `make quality` to verify "
         "everything passes. Do not push."
     )
+
+    # --- Project manifest & memory digest ---
+    if config is not None:
+        manifest = load_project_manifest(config)
+        if manifest:
+            sections.append(f"## Project Context\n\n{manifest}")
+        digest = load_memory_digest(config)
+        if digest:
+            sections.append(f"## Accumulated Learnings\n\n{digest}")
 
     # --- Previous attempt error ---
     if last_error and attempt > 1:

@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import get_default_runner
+from manifest import load_project_manifest
+from memory import load_memory_digest
 from models import GitHubIssue, HITLResult
 from runner_utils import stream_claude_process, terminate_processes
 from subprocess_util import CreditExhaustedError
@@ -185,11 +187,23 @@ class HITLRunner:
             "#{issue}", f"#{issue.number}"
         )
 
+        # Project manifest injection
+        manifest_section = ""
+        manifest = load_project_manifest(self._config)
+        if manifest:
+            manifest_section = f"\n\n## Project Context\n\n{manifest}"
+
+        # Memory digest injection
+        memory_section = ""
+        digest = load_memory_digest(self._config)
+        if digest:
+            memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
+
         return f"""You are applying a human-in-the-loop correction for GitHub issue #{issue.number}.
 
 ## Issue: {issue.title}
 
-{issue.body}
+{issue.body}{manifest_section}{memory_section}
 
 ## Escalation Reason
 

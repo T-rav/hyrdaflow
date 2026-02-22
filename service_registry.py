@@ -18,6 +18,8 @@ from hitl_runner import HITLRunner
 from implement_phase import ImplementPhase
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
+from manifest import ProjectManifestManager
+from manifest_refresh_loop import ManifestRefreshLoop
 from memory import MemorySyncWorker
 from memory_sync_loop import MemorySyncLoop
 from metrics_sync_loop import MetricsSyncLoop
@@ -81,6 +83,7 @@ class ServiceRegistry:
     memory_sync_bg: MemorySyncLoop
     metrics_sync_bg: MetricsSyncLoop
     pr_unsticker_loop: PRUnstickerLoop
+    manifest_refresh_loop: ManifestRefreshLoop
 
 
 @dataclass
@@ -208,6 +211,18 @@ def build_services(
         enabled_cb=callbacks.is_bg_worker_enabled,
         sleep_fn=callbacks.sleep_or_stop,
     )
+    manifest_manager = ProjectManifestManager(config)
+    manifest_refresh_loop = ManifestRefreshLoop(
+        config,
+        manifest_manager,
+        state,
+        bus,
+        stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
 
     return ServiceRegistry(
         worktrees=worktrees,
@@ -237,4 +252,5 @@ def build_services(
         memory_sync_bg=memory_sync_bg,
         metrics_sync_bg=metrics_sync_bg,
         pr_unsticker_loop=pr_unsticker_loop,
+        manifest_refresh_loop=manifest_refresh_loop,
     )

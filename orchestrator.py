@@ -113,6 +113,7 @@ class HydraFlowOrchestrator:
         self._memory_sync_bg = svc.memory_sync_bg
         self._metrics_sync_bg = svc.metrics_sync_bg
         self._pr_unsticker_loop = svc.pr_unsticker_loop
+        self._manifest_refresh_loop = svc.manifest_refresh_loop
 
     @property
     def event_bus(self) -> EventBus:
@@ -293,6 +294,8 @@ class HydraFlowOrchestrator:
             return self._config.metrics_sync_interval
         if name == "pr_unsticker":
             return self._config.pr_unstick_interval
+        if name == "manifest_refresh":
+            return self._config.manifest_refresh_interval
         return self._config.poll_interval
 
     async def _publish_status(self) -> None:
@@ -427,6 +430,7 @@ class HydraFlowOrchestrator:
             ("memory_sync", self._memory_sync_loop),
             ("metrics", self._metrics_sync_loop),
             ("pr_unsticker", self._pr_unsticker_loop.run),
+            ("manifest_refresh", self._manifest_refresh_bg_loop),
         ]
         tasks: dict[str, asyncio.Task[None]] = {}
         for name, factory in loop_factories:
@@ -575,6 +579,10 @@ class HydraFlowOrchestrator:
     async def _metrics_sync_loop(self) -> None:
         """Continuously aggregate and persist metrics snapshots."""
         await self._metrics_sync_bg.run()
+
+    async def _manifest_refresh_bg_loop(self) -> None:
+        """Continuously rescan the repo and update the project manifest."""
+        await self._manifest_refresh_loop.run()
 
     async def _do_implement_work(self) -> None:
         """Work function for the implement loop."""

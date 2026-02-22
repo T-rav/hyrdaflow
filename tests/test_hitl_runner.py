@@ -119,6 +119,50 @@ class TestBuildPrompt:
         assert "MEMORY_SUGGESTION_START" in prompt
         assert "MEMORY_SUGGESTION_END" in prompt
 
+    def test_prompt_includes_project_context_when_manifest_exists(
+        self, config, event_bus
+    ) -> None:
+        """Manifest content appears in prompt as ## Project Context."""
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = config.repo_root / ".hydraflow" / "memory" / "manifest.md"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("## Project Manifest\npython, make, pytest")
+
+        runner = HITLRunner(config, event_bus)
+        issue = IssueFactory.create(number=42)
+        prompt = runner._build_prompt(issue, "Fix", "CI failed")
+        assert "## Project Context" in prompt
+        assert "python, make, pytest" in prompt
+
+    def test_prompt_omits_project_context_when_no_manifest(self, hitl_runner) -> None:
+        """Without a manifest file, ## Project Context is not in the prompt."""
+        issue = IssueFactory.create(number=42)
+        prompt = hitl_runner._build_prompt(issue, "Fix", "CI failed")
+        assert "## Project Context" not in prompt
+
+    def test_prompt_includes_accumulated_learnings_when_digest_exists(
+        self, config, event_bus
+    ) -> None:
+        """Memory digest content appears in prompt as ## Accumulated Learnings."""
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        digest_path = config.repo_root / ".hydraflow" / "memory" / "digest.md"
+        digest_path.parent.mkdir(parents=True, exist_ok=True)
+        digest_path.write_text("## Memory Digest\nAlways check edge cases")
+
+        runner = HITLRunner(config, event_bus)
+        issue = IssueFactory.create(number=42)
+        prompt = runner._build_prompt(issue, "Fix", "CI failed")
+        assert "## Accumulated Learnings" in prompt
+        assert "Always check edge cases" in prompt
+
+    def test_prompt_omits_accumulated_learnings_when_no_digest(
+        self, hitl_runner
+    ) -> None:
+        """Without a digest file, ## Accumulated Learnings is not in the prompt."""
+        issue = IssueFactory.create(number=42)
+        prompt = hitl_runner._build_prompt(issue, "Fix", "CI failed")
+        assert "## Accumulated Learnings" not in prompt
+
 
 # ---------------------------------------------------------------------------
 # Command building

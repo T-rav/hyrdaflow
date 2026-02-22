@@ -455,6 +455,99 @@ class TestManifestConfig:
 
 
 # ---------------------------------------------------------------------------
+# Prompt injection in agent runners
+# ---------------------------------------------------------------------------
+
+
+class TestManifestInjectionInRunners:
+    """Verify that all agent runners inject ## Project Context when manifest exists."""
+
+    def test_agent_runner__injects_manifest(self, tmp_path: Path) -> None:
+        """AgentRunner._build_prompt includes ## Project Context from manifest."""
+        from agent import AgentRunner
+        from events import EventBus
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = config.repo_root / ".hydraflow" / "memory" / "manifest.md"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("## Project Manifest\npython, make")
+
+        runner = AgentRunner(config, EventBus())
+        from models import GitHubIssue
+
+        issue = GitHubIssue(
+            number=1,
+            title="Test",
+            body="body",
+            labels=[],
+            comments=[],
+        )
+        prompt = runner._build_prompt(issue)
+        assert "## Project Context" in prompt
+        assert "python, make" in prompt
+
+    def test_hitl_runner__injects_manifest(self, tmp_path: Path) -> None:
+        """HITLRunner._build_prompt includes ## Project Context from manifest."""
+        from events import EventBus
+        from hitl_runner import HITLRunner
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = config.repo_root / ".hydraflow" / "memory" / "manifest.md"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("## Project Manifest\nrust, cargo")
+
+        runner = HITLRunner(config, EventBus())
+        from models import GitHubIssue
+
+        issue = GitHubIssue(
+            number=1,
+            title="Test",
+            body="body",
+            labels=[],
+            comments=[],
+        )
+        prompt = runner._build_prompt(issue, "fix it", "CI failed")
+        assert "## Project Context" in prompt
+        assert "rust, cargo" in prompt
+
+    def test_conflict_prompt__injects_manifest_with_config(
+        self, tmp_path: Path
+    ) -> None:
+        """build_conflict_prompt includes ## Project Context when config is given."""
+        from conflict_prompt import build_conflict_prompt
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = config.repo_root / ".hydraflow" / "memory" / "manifest.md"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("## Project Manifest\ngo, make")
+
+        prompt = build_conflict_prompt(
+            "https://github.com/org/repo/issues/1",
+            "https://github.com/org/repo/pull/2",
+            None,
+            1,
+            config=config,
+        )
+        assert "## Project Context" in prompt
+        assert "go, make" in prompt
+
+    def test_conflict_prompt__omits_manifest_without_config(self) -> None:
+        """build_conflict_prompt omits ## Project Context without config."""
+        from conflict_prompt import build_conflict_prompt
+
+        prompt = build_conflict_prompt(
+            "https://github.com/org/repo/issues/1",
+            "https://github.com/org/repo/pull/2",
+            None,
+            1,
+        )
+        assert "## Project Context" not in prompt
+
+
+# ---------------------------------------------------------------------------
 # Marker consolidation verification
 # ---------------------------------------------------------------------------
 
