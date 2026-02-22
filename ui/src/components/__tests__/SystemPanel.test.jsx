@@ -183,30 +183,36 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Pipeline Poller')).toBeInTheDocument()
       expect(screen.getByText('Memory Manager')).toBeInTheDocument()
       expect(screen.getByText('Metrics Munger')).toBeInTheDocument()
-      // Count On/Off buttons — should only be non-system bg workers (no pipeline loops)
+      // Count On/Off buttons — should be non-system bg workers + memory auto-approve toggle
       const allToggleButtons = [...screen.getAllByText('On'), ...screen.getAllByText('Off')]
       const nonSystemBgCount = BACKGROUND_WORKERS.filter(w => !w.system).length
-      expect(allToggleButtons.length).toBe(nonSystemBgCount)
+      expect(allToggleButtons.length).toBe(nonSystemBgCount + 1)
     })
 
     it('does not show toggle buttons when onToggleBgWorker is not provided', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      // No worker toggle On buttons, but memory auto-approve toggle shows Off
       expect(screen.queryByText('On')).not.toBeInTheDocument()
-      expect(screen.queryByText('Off')).not.toBeInTheDocument()
+      const offButtons = screen.getAllByText('Off')
+      expect(offButtons.length).toBe(1) // only memory auto-approve toggle
     })
 
     it('shows Off button for disabled workers when orchestrator running', () => {
       const onToggle = vi.fn()
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running', backgroundWorkers: mockBgWorkers }))
       render(<SystemPanel backgroundWorkers={mockBgWorkers} onToggleBgWorker={onToggle} />)
-      expect(screen.getByText('Off')).toBeInTheDocument()
+      const offButtons = screen.getAllByText('Off')
+      expect(offButtons.length).toBeGreaterThanOrEqual(1)
     })
 
     it('clicking Off toggles to enabled', () => {
       const onToggle = vi.fn()
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running', backgroundWorkers: mockBgWorkers }))
       render(<SystemPanel backgroundWorkers={mockBgWorkers} onToggleBgWorker={onToggle} />)
-      fireEvent.click(screen.getByText('Off'))
+      // Click the worker Off button (not the memory auto-approve toggle)
+      const offButtons = screen.getAllByText('Off')
+      const workerOffButton = offButtons.find(btn => btn.dataset.testid !== 'memory-auto-approve-toggle')
+      fireEvent.click(workerOffButton)
       expect(onToggle).toHaveBeenCalledWith('review_insights', true)
     })
 
@@ -238,7 +244,8 @@ describe('SystemPanel', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ backgroundWorkers: disabledWorkers }))
       render(<SystemPanel backgroundWorkers={disabledWorkers} onToggleBgWorker={onToggle} />)
       const offButtons = screen.getAllByText('Off')
-      expect(offButtons.length).toBe(2)
+      // 2 disabled background workers + 1 memory auto-approve toggle (default off)
+      expect(offButtons.length).toBe(3)
     })
   })
 
