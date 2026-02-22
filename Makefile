@@ -6,8 +6,11 @@ PROJECT_ROOT := $(abspath $(HYDRAFLOW_DIR))
 # Load .env if present (export all variables)
 -include $(PROJECT_ROOT)/.env
 export
-VENV := $(PROJECT_ROOT)/venv
+VENV := $(PROJECT_ROOT)/.venv
 UV := VIRTUAL_ENV=$(VENV) uv run --active
+
+# Stamp file to track when deps were last synced
+DEPS_STAMP := $(VENV)/.deps-synced
 
 # CLI argument passthrough
 READY_LABEL ?= hydraflow-ready
@@ -35,7 +38,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean test test-fast test-cov lint lint-check typecheck security quality quality-full install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test
+.PHONY: help run dev dry-run clean test test-fast test-cov lint lint-check typecheck security quality quality-full install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
 
 help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
@@ -125,40 +128,47 @@ status:
 		echo "$(YELLOW)No state file found (HydraFlow has not run yet)$(RESET)"; \
 	fi
 
-test:
+$(DEPS_STAMP): pyproject.toml
+	@echo "$(BLUE)Syncing dependencies...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && uv sync --all-extras
+	@touch $(DEPS_STAMP)
+
+deps: $(DEPS_STAMP)
+
+test: deps
 	@echo "$(BLUE)Running HydraFlow unit tests...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/
 	@echo "$(GREEN)All tests passed$(RESET)"
 
-test-fast:
+test-fast: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x --tb=short
 
-test-cov:
+test-cov: deps
 	@echo "$(BLUE)Running HydraFlow tests with coverage...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -v --cov=. --cov-fail-under=70 --cov-report=term-missing --cov-report=html:htmlcov -p no:xdist
 	@echo "$(GREEN)All tests passed with coverage$(RESET)"
 
-lint:
+lint: deps
 	@echo "$(BLUE)Linting HydraFlow (auto-fix)...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && $(UV) ruff check . --fix && $(UV) ruff format .
 	@echo "$(GREEN)Linting complete$(RESET)"
 
-lint-check:
+lint-check: deps
 	@echo "$(BLUE)Checking HydraFlow linting...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && $(UV) ruff check . && $(UV) ruff format . --check
 	@echo "$(GREEN)Lint check passed$(RESET)"
 
-typecheck:
+typecheck: deps
 	@echo "$(BLUE)Running Pyright type checks...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && $(UV) pyright
 	@echo "$(GREEN)Type check passed$(RESET)"
 
-security:
+security: deps
 	@echo "$(BLUE)Running Bandit security scan...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && $(UV) bandit -c pyproject.toml -r . --severity-level medium
 	@echo "$(GREEN)Security scan passed$(RESET)"
 
-quality:
+quality: deps
 	@echo "$(BLUE)Running quality checks in parallel...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && ( \
 		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \
