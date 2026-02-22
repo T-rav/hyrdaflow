@@ -9,40 +9,18 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from acceptance_criteria import AcceptanceCriteriaGenerator
-from agent import AgentRunner
 from config import HydraFlowConfig
-from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
-from execution import get_default_runner
-from hitl_phase import HITLPhase
-from hitl_runner import HITLRunner
-from implement_phase import ImplementPhase
-from issue_fetcher import IssueFetcher
-from issue_store import IssueStore
-from memory import MemorySyncWorker, file_memory_suggestion
-from memory_sync_loop import MemorySyncLoop
-from metrics_sync_loop import MetricsSyncLoop
+from memory import file_memory_suggestion
 from models import BackgroundWorkerState, Phase, SessionLog
-from plan_phase import PlanPhase
-from planner import PlannerRunner
-from pr_manager import PRManager
-from pr_unsticker import PRUnsticker
-from pr_unsticker_loop import PRUnstickerLoop
-from retrospective import RetrospectiveCollector
-from review_phase import ReviewPhase
-from reviewer import ReviewRunner
-from run_recorder import RunRecorder
+from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
-from transcript_summarizer import TranscriptSummarizer
-from triage import TriageRunner
-from triage_phase import TriagePhase
-from verification_judge import VerificationJudge
-from worktree import WorktreeManager
 
 if TYPE_CHECKING:
+    from issue_store import IssueStore
     from metrics_manager import MetricsManager
+    from run_recorder import RunRecorder
 
 logger = logging.getLogger("hydraflow.orchestrator")
 
@@ -64,23 +42,6 @@ class HydraFlowOrchestrator:
         self._config = config
         self._bus = event_bus or EventBus()
         self._state = state or StateTracker(config.state_file)
-        self._worktrees = WorktreeManager(config)
-        self._subprocess_runner = get_default_runner()
-        self._agents = AgentRunner(config, self._bus, runner=self._subprocess_runner)
-        self._planners = PlannerRunner(
-            config, self._bus, runner=self._subprocess_runner
-        )
-        self._prs = PRManager(config, self._bus)
-        self._reviewers = ReviewRunner(
-            config, self._bus, runner=self._subprocess_runner
-        )
-        self._hitl_runner = HITLRunner(
-            config, self._bus, runner=self._subprocess_runner
-        )
-        self._triage = TriageRunner(config, self._bus)
-        self._summarizer = TranscriptSummarizer(
-            config, self._prs, self._bus, self._state
-        )
         self._dashboard: object | None = None
         # Pending human-input requests: {issue_number: question}
         self._human_input_requests: dict[int, str] = {}
@@ -109,123 +70,49 @@ class HydraFlowOrchestrator:
         self._current_session: SessionLog | None = None
         self._session_issue_results: dict[int, bool] = {}
 
-        # Centralized issue store and fetcher
-        self._fetcher = IssueFetcher(config)
-        self._store = IssueStore(config, self._fetcher, self._bus)
+        # Build all services via the factory
+        svc = build_services(
+            config,
+            self._bus,
+            self._state,
+            self._stop_event,
+            OrchestratorCallbacks(
+                sync_active_issue_numbers=self._sync_active_issue_numbers,
+                update_bg_worker_status=self.update_bg_worker_status,
+                is_bg_worker_enabled=self.is_bg_worker_enabled,
+                sleep_or_stop=self._sleep_or_stop,
+                get_bg_worker_interval=self.get_bg_worker_interval,
+            ),
+        )
 
-        # Delegate phases to focused modules
-        self._triager = TriagePhase(
-            config,
-            self._state,
-            self._store,
-            self._triage,
-            self._prs,
-            self._bus,
-            self._stop_event,
-        )
-        self._planner_phase = PlanPhase(
-            config,
-            self._state,
-            self._store,
-            self._planners,
-            self._prs,
-            self._bus,
-            self._stop_event,
-        )
-        self._hitl_phase = HITLPhase(
-            config,
-            self._state,
-            self._store,
-            self._fetcher,
-            self._worktrees,
-            self._hitl_runner,
-            self._prs,
-            self._bus,
-            self._stop_event,
-            active_issues_cb=self._sync_active_issue_numbers,
-        )
-        self._run_recorder = RunRecorder(config)
-        self._implementer = ImplementPhase(
-            config,
-            self._state,
-            self._worktrees,
-            self._agents,
-            self._prs,
-            self._store,
-            self._stop_event,
-            run_recorder=self._run_recorder,
-        )
-        from metrics_manager import MetricsManager
-
-        self._metrics_manager = MetricsManager(
-            config, self._state, self._prs, self._bus
-        )
-        self._pr_unsticker = PRUnsticker(
-            config,
-            self._state,
-            self._bus,
-            self._prs,
-            self._agents,
-            self._worktrees,
-            self._fetcher,
-        )
-        self._memory_sync = MemorySyncWorker(config, self._state, self._bus)
-        self._retrospective = RetrospectiveCollector(config, self._state, self._prs)
-        self._ac_generator = AcceptanceCriteriaGenerator(
-            config, self._prs, self._bus, runner=self._subprocess_runner
-        )
-        self._verification_judge = VerificationJudge(
-            config, self._bus, runner=self._subprocess_runner
-        )
-        self._epic_checker = EpicCompletionChecker(config, self._prs, self._fetcher)
-        self._reviewer = ReviewPhase(
-            config,
-            self._state,
-            self._worktrees,
-            self._reviewers,
-            self._prs,
-            self._stop_event,
-            self._store,
-            agents=self._agents,
-            event_bus=self._bus,
-            retrospective=self._retrospective,
-            ac_generator=self._ac_generator,
-            verification_judge=self._verification_judge,
-            transcript_summarizer=self._summarizer,
-            epic_checker=self._epic_checker,
-        )
-        self._memory_sync_bg = MemorySyncLoop(
-            config,
-            self._fetcher,
-            self._memory_sync,
-            self._bus,
-            self._stop_event,
-            status_cb=self.update_bg_worker_status,
-            enabled_cb=self.is_bg_worker_enabled,
-            sleep_fn=self._sleep_or_stop,
-            interval_cb=self.get_bg_worker_interval,
-        )
-        self._metrics_sync_bg = MetricsSyncLoop(
-            config,
-            self._store,
-            self._metrics_manager,
-            self._bus,
-            self._stop_event,
-            status_cb=self.update_bg_worker_status,
-            enabled_cb=self.is_bg_worker_enabled,
-            sleep_fn=self._sleep_or_stop,
-            interval_cb=self.get_bg_worker_interval,
-        )
-        self._pr_unsticker_loop = PRUnstickerLoop(
-            config,
-            self._pr_unsticker,
-            self._prs,
-            self._bus,
-            self._stop_event,
-            status_cb=self.update_bg_worker_status,
-            enabled_cb=self.is_bg_worker_enabled,
-            sleep_fn=self._sleep_or_stop,
-        )
+        # Expose services as instance attributes for backward compatibility
+        self._worktrees = svc.worktrees
+        self._subprocess_runner = svc.subprocess_runner
+        self._agents = svc.agents
+        self._planners = svc.planners
+        self._prs = svc.prs
+        self._reviewers = svc.reviewers
+        self._hitl_runner = svc.hitl_runner
+        self._triage = svc.triage
+        self._summarizer = svc.summarizer
+        self._fetcher = svc.fetcher
+        self._store = svc.store
+        self._triager = svc.triager
+        self._planner_phase = svc.planner_phase
+        self._hitl_phase = svc.hitl_phase
+        self._run_recorder = svc.run_recorder
+        self._implementer = svc.implementer
+        self._metrics_manager = svc.metrics_manager
+        self._pr_unsticker = svc.pr_unsticker
+        self._memory_sync = svc.memory_sync
+        self._retrospective = svc.retrospective
+        self._ac_generator = svc.ac_generator
+        self._verification_judge = svc.verification_judge
+        self._epic_checker = svc.epic_checker
+        self._reviewer = svc.reviewer
+        self._memory_sync_bg = svc.memory_sync_bg
+        self._metrics_sync_bg = svc.metrics_sync_bg
+        self._pr_unsticker_loop = svc.pr_unsticker_loop
 
     @property
     def event_bus(self) -> EventBus:
