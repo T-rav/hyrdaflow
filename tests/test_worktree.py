@@ -587,7 +587,7 @@ class TestFetchAndMergeMain:
 
 
 class TestMergeMain:
-    """Tests for WorktreeManager.rebase."""
+    """Tests for WorktreeManager.merge_main."""
 
     @pytest.mark.asyncio
     async def test_merge_main_success_returns_true(
