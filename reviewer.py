@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
-from escalation_gate import should_escalate_debug
+from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from events import EventType, HydraFlowEvent
 from models import GitHubIssue, PRInfo, ReviewerStatus, ReviewResult, ReviewVerdict
 from runner_constants import MEMORY_SUGGESTION_PROMPT
@@ -447,12 +447,6 @@ Diff snippet:
         summary = summary_match.group(1).strip() if summary_match else ""
         return risk, confidence, escalate, summary, parse_failed
 
-    @staticmethod
-    def _high_risk_diff_touched(diff: str) -> bool:
-        patterns = ("/auth", "/security", "/payment", "migration", "infra/")
-        diff_lower = diff.lower()
-        return any(p in diff_lower for p in patterns)
-
     async def _run_precheck_context(
         self, pr: PRInfo, issue: GitHubIssue, diff: str, worktree_path: Path
     ) -> str:
@@ -493,7 +487,7 @@ Diff snippet:
             retry_count=max_subskill,
             max_subskill_attempts=max_subskill,
             risk=risk,
-            high_risk_files_touched=self._high_risk_diff_touched(diff),
+            high_risk_files_touched=high_risk_diff_touched(diff),
         )
 
         context_lines = [

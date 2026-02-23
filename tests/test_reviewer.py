@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from base_runner import BaseRunner
+from escalation_gate import EscalationDecision
 from events import EventType
 from models import ReviewerStatus, ReviewVerdict
 from reviewer import ReviewRunner
@@ -1428,53 +1429,6 @@ class TestParsePrecheckTranscript:
 
 
 # ---------------------------------------------------------------------------
-# _high_risk_diff_touched
-# ---------------------------------------------------------------------------
-
-
-class TestHighRiskDiffTouched:
-    """Tests for ReviewRunner._high_risk_diff_touched."""
-
-    def test_auth_path_returns_true(self) -> None:
-        assert (
-            ReviewRunner._high_risk_diff_touched("diff --git a/src/auth/login.py")
-            is True
-        )
-
-    def test_security_path_returns_true(self) -> None:
-        assert (
-            ReviewRunner._high_risk_diff_touched("modified /security/tokens.py") is True
-        )
-
-    def test_payment_path_returns_true(self) -> None:
-        assert (
-            ReviewRunner._high_risk_diff_touched("changes in /payment/stripe.py")
-            is True
-        )
-
-    def test_migration_returns_true(self) -> None:
-        assert ReviewRunner._high_risk_diff_touched("alembic migration script") is True
-
-    def test_infra_path_returns_true(self) -> None:
-        assert ReviewRunner._high_risk_diff_touched("infra/ terraform changes") is True
-
-    def test_normal_diff_returns_false(self) -> None:
-        assert (
-            ReviewRunner._high_risk_diff_touched(
-                "diff --git a/src/utils.py b/src/utils.py"
-            )
-            is False
-        )
-
-    def test_case_insensitive(self) -> None:
-        assert ReviewRunner._high_risk_diff_touched("diff /AUTH/login.py") is True
-        assert ReviewRunner._high_risk_diff_touched("MIGRATION script") is True
-
-    def test_empty_diff_returns_false(self) -> None:
-        assert ReviewRunner._high_risk_diff_touched("") is False
-
-
-# ---------------------------------------------------------------------------
 # _build_subskill_command / _build_debug_command
 # ---------------------------------------------------------------------------
 
@@ -1758,3 +1712,64 @@ class TestRunPrecheckContext:
         # The debug transcript in the output should be truncated to 1000 chars
         assert "D" * 1000 in result
         assert "D" * 1001 not in result
+
+
+# ---------------------------------------------------------------------------
+# _run_precheck_context — high-risk files
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_precheck_passes_high_risk_true_for_auth_diff(
+    event_bus, pr_info, issue, tmp_path
+):
+    cfg = ConfigFactory.create(max_subskill_attempts=1)
+    runner = _make_runner(cfg, event_bus)
+
+    precheck_transcript = (
+        "PRECHECK_RISK: high\n"
+        "PRECHECK_CONFIDENCE: 0.5\n"
+        "PRECHECK_ESCALATE: no\n"
+        "PRECHECK_SUMMARY: auth change\n"
+    )
+    auth_diff = "diff --git a/src/auth/login.py b/src/auth/login.py\n+pass"
+
+    with (
+        patch.object(runner, "_execute", AsyncMock(return_value=precheck_transcript)),
+        patch(
+            "reviewer.should_escalate_debug",
+            return_value=EscalationDecision(escalate=False, reasons=[]),
+        ) as mock_escalate,
+    ):
+        await runner._run_precheck_context(pr_info, issue, auth_diff, tmp_path)
+
+    mock_escalate.assert_called_once()
+    assert mock_escalate.call_args[1]["high_risk_files_touched"] is True
+
+
+@pytest.mark.asyncio
+async def test_precheck_passes_high_risk_false_for_safe_diff(
+    event_bus, pr_info, issue, tmp_path
+):
+    cfg = ConfigFactory.create(max_subskill_attempts=1)
+    runner = _make_runner(cfg, event_bus)
+
+    precheck_transcript = (
+        "PRECHECK_RISK: low\n"
+        "PRECHECK_CONFIDENCE: 0.9\n"
+        "PRECHECK_ESCALATE: no\n"
+        "PRECHECK_SUMMARY: safe change\n"
+    )
+    safe_diff = "diff --git a/src/utils.py b/src/utils.py\n+def helper(): pass"
+
+    with (
+        patch.object(runner, "_execute", AsyncMock(return_value=precheck_transcript)),
+        patch(
+            "reviewer.should_escalate_debug",
+            return_value=EscalationDecision(escalate=False, reasons=[]),
+        ) as mock_escalate,
+    ):
+        await runner._run_precheck_context(pr_info, issue, safe_diff, tmp_path)
+
+    mock_escalate.assert_called_once()
+    assert mock_escalate.call_args[1]["high_risk_files_touched"] is False

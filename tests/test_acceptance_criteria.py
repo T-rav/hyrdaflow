@@ -22,8 +22,10 @@ from acceptance_criteria import (
     _VERIFY_START,
     AcceptanceCriteriaGenerator,
 )
+from escalation_gate import EscalationDecision
 from models import VerificationCriteria
 from tests.conftest import IssueFactory
+from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -508,8 +510,6 @@ class TestBuildCommand:
     def test_includes_budget_when_budget_set(
         self, config: HydraFlowConfig, event_bus, tmp_path: Path
     ) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             ac_budget_usd=1.5,
             repo_root=tmp_path / "repo",
@@ -530,8 +530,6 @@ class TestBuildCommand:
         assert "--max-budget-usd" not in cmd
 
     def test_supports_codex_backend(self, config: HydraFlowConfig, event_bus) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(ac_tool="codex", ac_model="gpt-5-codex")
         gen, _ = _make_generator(cfg, event_bus)
         cmd = gen._build_command()
@@ -762,8 +760,6 @@ class TestBuildSubskillAndDebugCommands:
         assert cmd[idx + 1] == "haiku"
 
     def test_subskill_command_codex_backend(self, event_bus) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(subskill_tool="codex", subskill_model="gpt-4")
         gen, _ = _make_generator(cfg, event_bus)
         cmd = gen._build_subskill_command()
@@ -779,8 +775,6 @@ class TestBuildSubskillAndDebugCommands:
         assert cmd[idx + 1] == "opus"
 
     def test_debug_command_codex_backend(self, event_bus) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(debug_tool="codex", debug_model="gpt-5")
         gen, _ = _make_generator(cfg, event_bus)
         cmd = gen._build_debug_command()
@@ -826,13 +820,11 @@ class TestRunPrecheckContext:
     async def test_disabled_when_max_subskill_zero(self, config, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         issue = IssueFactory.create()
-        result = await gen._run_precheck_context(issue, 42, 101, "diff summary")
+        result = await gen._run_precheck_context(issue, 42, 101, "diff summary", "")
         assert result == "Low-tier precheck disabled."
 
     @pytest.mark.asyncio
     async def test_success_no_escalation(self, event_bus, tmp_path) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             subskill_confidence_threshold=0.7,
@@ -856,7 +848,7 @@ class TestRunPrecheckContext:
             new_callable=AsyncMock,
             return_value=valid_transcript,
         ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff")
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
 
         assert "Precheck risk: low" in result
         assert "Precheck confidence: 0.95" in result
@@ -866,8 +858,6 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_retries_on_parse_failure(self, event_bus, tmp_path) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_subskill_attempts=3,
             debug_escalation_enabled=False,
@@ -891,7 +881,7 @@ class TestRunPrecheckContext:
             new_callable=AsyncMock,
             side_effect=[garbage, garbage, valid_transcript],
         ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff")
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
 
         assert mock_stream.call_count == 3
         assert "Precheck risk: low" in result
@@ -899,8 +889,6 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_escalates_to_debug(self, event_bus, tmp_path) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             debug_escalation_enabled=True,
@@ -926,7 +914,7 @@ class TestRunPrecheckContext:
             new_callable=AsyncMock,
             side_effect=[high_risk_transcript, debug_transcript],
         ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff")
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
 
         assert mock_stream.call_count == 2
         assert "Precheck risk: high" in result
@@ -937,8 +925,6 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_no_debug_when_max_debug_zero(self, event_bus, tmp_path) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             debug_escalation_enabled=True,
@@ -963,7 +949,7 @@ class TestRunPrecheckContext:
             new_callable=AsyncMock,
             return_value=high_risk_transcript,
         ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff")
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
 
         assert mock_stream.call_count == 1
         assert "Debug escalation: yes" in result
@@ -971,8 +957,6 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_exception_returns_fallback(self, event_bus, tmp_path) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             repo_root=tmp_path / "repo",
@@ -987,7 +971,7 @@ class TestRunPrecheckContext:
             new_callable=AsyncMock,
             side_effect=RuntimeError("subprocess crashed"),
         ):
-            result = await gen._run_precheck_context(issue, 42, 101, "diff")
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
 
         assert (
             result == "Low-tier precheck failed; continuing without precheck context."
@@ -997,8 +981,6 @@ class TestRunPrecheckContext:
     async def test_debug_transcript_truncated_to_1000_chars(
         self, event_bus, tmp_path
     ) -> None:
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             debug_escalation_enabled=True,
@@ -1024,7 +1006,95 @@ class TestRunPrecheckContext:
             new_callable=AsyncMock,
             side_effect=[high_risk_transcript, long_debug],
         ):
-            result = await gen._run_precheck_context(issue, 42, 101, "diff")
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
 
         assert "D" * 1000 in result
         assert "D" * 1001 not in result
+
+
+# ---------------------------------------------------------------------------
+# TestPrecheckHighRiskFiles
+# ---------------------------------------------------------------------------
+
+
+HIGH_RISK_DIFF = """\
+diff --git a/src/auth/login.py b/src/auth/login.py
+index abc123..def456 100644
+--- a/src/auth/login.py
++++ b/src/auth/login.py
+@@ -1,3 +1,8 @@
++def new_login():
++    pass
+"""
+
+SAFE_DIFF = """\
+diff --git a/src/utils.py b/src/utils.py
+index abc123..def456 100644
+--- a/src/utils.py
++++ b/src/utils.py
+@@ -1,3 +1,8 @@
++def helper():
++    pass
+"""
+
+
+class TestPrecheckHighRiskFiles:
+    """Verify _run_precheck_context passes high_risk_files_touched correctly."""
+
+    @pytest.mark.asyncio
+    async def test_high_risk_diff_passes_true(self, event_bus) -> None:
+        cfg = ConfigFactory.create(max_subskill_attempts=1)
+        gen, _ = _make_generator(cfg, event_bus)
+        issue = IssueFactory.create()
+
+        precheck_transcript = (
+            "PRECHECK_RISK: high\n"
+            "PRECHECK_CONFIDENCE: 0.5\n"
+            "PRECHECK_ESCALATE: no\n"
+            "PRECHECK_SUMMARY: risky auth change\n"
+        )
+
+        with (
+            patch(
+                "acceptance_criteria.stream_claude_process",
+                new_callable=AsyncMock,
+                return_value=precheck_transcript,
+            ),
+            patch(
+                "acceptance_criteria.should_escalate_debug",
+                return_value=EscalationDecision(escalate=False, reasons=[]),
+            ) as mock_escalate,
+        ):
+            await gen._run_precheck_context(issue, 42, 101, "summary", HIGH_RISK_DIFF)
+
+        mock_escalate.assert_called_once()
+        assert mock_escalate.call_args[1]["high_risk_files_touched"] is True
+
+    @pytest.mark.asyncio
+    async def test_safe_diff_passes_false(self, event_bus) -> None:
+        cfg = ConfigFactory.create(max_subskill_attempts=1)
+        gen, _ = _make_generator(cfg, event_bus)
+        issue = IssueFactory.create()
+
+        precheck_transcript = (
+            "PRECHECK_RISK: low\n"
+            "PRECHECK_CONFIDENCE: 0.9\n"
+            "PRECHECK_ESCALATE: no\n"
+            "PRECHECK_SUMMARY: safe change\n"
+        )
+
+        with (
+            patch(
+                "acceptance_criteria.stream_claude_process",
+                new_callable=AsyncMock,
+                return_value=precheck_transcript,
+            ),
+            patch(
+                "acceptance_criteria.should_escalate_debug",
+                return_value=EscalationDecision(escalate=False, reasons=[]),
+            ) as mock_escalate,
+        ):
+            await gen._run_precheck_context(issue, 42, 101, "summary", SAFE_DIFF)
+
+        mock_escalate.assert_called_once()
+        assert mock_escalate.call_args[1]["high_risk_files_touched"] is False

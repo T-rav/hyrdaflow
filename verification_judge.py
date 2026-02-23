@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from config import HydraFlowConfig
-from escalation_gate import should_escalate_debug
+from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from events import EventBus, EventType, HydraFlowEvent
 from execution import get_default_runner
 from models import (
@@ -452,7 +452,7 @@ Diff excerpt:
             retry_count=self._config.max_subskill_attempts,
             max_subskill_attempts=self._config.max_subskill_attempts,
             risk=risk,
-            high_risk_files_touched=False,
+            high_risk_files_touched=high_risk_diff_touched(diff),
         )
 
         context = [

@@ -130,7 +130,7 @@ class TestRunRecorder:
         recorder = self._make_recorder(tmp_path)
 
         # Create two runs manually with known timestamps
-        runs_dir = tmp_path / "repo" / ".hydra" / "runs" / "42"
+        runs_dir = tmp_path / "repo" / ".hydraflow" / "runs" / "42"
         for ts in ("20260101T100000Z", "20260101T200000Z"):
             run_dir = runs_dir / ts
             run_dir.mkdir(parents=True)
@@ -145,7 +145,7 @@ class TestRunRecorder:
     def test_get_latest_returns_most_recent(self, tmp_path: Path) -> None:
         recorder = self._make_recorder(tmp_path)
 
-        runs_dir = tmp_path / "repo" / ".hydra" / "runs" / "42"
+        runs_dir = tmp_path / "repo" / ".hydraflow" / "runs" / "42"
         for ts in ("20260101T100000Z", "20260101T200000Z"):
             run_dir = runs_dir / ts
             run_dir.mkdir(parents=True)
@@ -192,7 +192,7 @@ class TestRunRecorder:
 
     def test_skips_corrupt_manifest(self, tmp_path: Path) -> None:
         recorder = self._make_recorder(tmp_path)
-        runs_dir = tmp_path / "repo" / ".hydra" / "runs" / "42" / "20260101T000000Z"
+        runs_dir = tmp_path / "repo" / ".hydraflow" / "runs" / "42" / "20260101T000000Z"
         runs_dir.mkdir(parents=True)
         (runs_dir / "manifest.json").write_text("not valid json {{{")
 
@@ -201,7 +201,7 @@ class TestRunRecorder:
 
     def test_runs_dir_property(self, tmp_path: Path) -> None:
         recorder = self._make_recorder(tmp_path)
-        assert recorder.runs_dir == tmp_path / "repo" / ".hydra" / "runs"
+        assert recorder.runs_dir == tmp_path / "repo" / ".hydraflow" / "runs"
 
 
 # ---------------------------------------------------------------------------

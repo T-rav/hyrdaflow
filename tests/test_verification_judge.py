@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from escalation_gate import EscalationDecision
 from events import EventBus, EventType
 from models import (
     CriterionResult,
@@ -1087,6 +1088,73 @@ class TestTerminate:
     def test_no_active_processes(self, config):
         judge = _make_judge(config)
         judge.terminate()  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# TestPrecheckHighRiskFiles
+# ---------------------------------------------------------------------------
+
+
+HIGH_RISK_DIFF = (
+    "diff --git a/src/auth/login.py b/src/auth/login.py\n+def login(): pass\n"
+)
+SAFE_DIFF = "diff --git a/src/utils.py b/src/utils.py\n+def helper(): pass\n"
+
+
+class TestPrecheckHighRiskFiles:
+    """Verify _run_precheck_context passes high_risk_files_touched correctly."""
+
+    @pytest.mark.asyncio
+    async def test_high_risk_diff_passes_true(self, tmp_path) -> None:
+        cfg = ConfigFactory.create(max_subskill_attempts=1, repo_root=tmp_path)
+        judge = VerificationJudge(cfg, EventBus())
+
+        precheck_transcript = (
+            "PRECHECK_RISK: high\n"
+            "PRECHECK_CONFIDENCE: 0.5\n"
+            "PRECHECK_ESCALATE: no\n"
+            "PRECHECK_SUMMARY: risky auth change\n"
+        )
+
+        with (
+            patch.object(
+                judge, "_execute", AsyncMock(return_value=precheck_transcript)
+            ),
+            patch(
+                "verification_judge.should_escalate_debug",
+                return_value=EscalationDecision(escalate=False, reasons=[]),
+            ) as mock_escalate,
+        ):
+            await judge._run_precheck_context(42, "criteria text", HIGH_RISK_DIFF)
+
+        mock_escalate.assert_called_once()
+        assert mock_escalate.call_args[1]["high_risk_files_touched"] is True
+
+    @pytest.mark.asyncio
+    async def test_safe_diff_passes_false(self, tmp_path) -> None:
+        cfg = ConfigFactory.create(max_subskill_attempts=1, repo_root=tmp_path)
+        judge = VerificationJudge(cfg, EventBus())
+
+        precheck_transcript = (
+            "PRECHECK_RISK: low\n"
+            "PRECHECK_CONFIDENCE: 0.9\n"
+            "PRECHECK_ESCALATE: no\n"
+            "PRECHECK_SUMMARY: safe change\n"
+        )
+
+        with (
+            patch.object(
+                judge, "_execute", AsyncMock(return_value=precheck_transcript)
+            ),
+            patch(
+                "verification_judge.should_escalate_debug",
+                return_value=EscalationDecision(escalate=False, reasons=[]),
+            ) as mock_escalate,
+        ):
+            await judge._run_precheck_context(42, "criteria text", SAFE_DIFF)
+
+        mock_escalate.assert_called_once()
+        assert mock_escalate.call_args[1]["high_risk_files_touched"] is False
 
 
 # ---------------------------------------------------------------------------
