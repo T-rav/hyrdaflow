@@ -267,7 +267,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
         <PendingIntentCard key={`pending-${i}`} intent={intent} />
       ))}
 
-      {totalIssues > 0 && <PipelineFlow stageGroups={stageGroups} />}
+      <PipelineFlow stageGroups={stageGroups} />
 
       {stageGroups.map(({ stage, issues: stageIssues }) => {
         const status = stageStatus[stage.key] || {}
