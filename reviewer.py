@@ -2,26 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from config import HydraFlowConfig
+from base_runner import BaseRunner
 from escalation_gate import should_escalate_debug
-from events import EventBus, EventType, HydraFlowEvent
-from execution import get_default_runner
-from manifest import load_project_manifest
-from memory import load_memory_digest
+from events import EventType, HydraFlowEvent
 from models import GitHubIssue, PRInfo, ReviewerStatus, ReviewResult, ReviewVerdict
-from runner_utils import stream_claude_process, terminate_processes
+from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
-
-if TYPE_CHECKING:
-    from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.reviewer")
 
@@ -39,23 +31,14 @@ _JUNK_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-class ReviewRunner:
+class ReviewRunner(BaseRunner):
     """Launches a ``claude -p`` process to review a pull request.
 
     The reviewer reads the PR diff, checks code quality and test
     coverage, optionally makes fixes, and returns a verdict.
     """
 
-    def __init__(
-        self,
-        config: HydraFlowConfig,
-        event_bus: EventBus,
-        runner: SubprocessRunner | None = None,
-    ) -> None:
-        self._config = config
-        self._bus = event_bus
-        self._active_procs: set[asyncio.subprocess.Process] = set()
-        self._runner = runner or get_default_runner()
+    _log = logger
 
     async def review(
         self,
@@ -104,7 +87,9 @@ class ReviewRunner:
                 pr, issue, diff, precheck_context=precheck_context
             )
             before_sha = await self._get_head_sha(worktree_path)
-            transcript = await self._execute(cmd, prompt, worktree_path, pr.number)
+            transcript = await self._execute(
+                cmd, prompt, worktree_path, {"pr": pr.number, "source": "reviewer"}
+            )
             result.transcript = transcript
 
             # Parse the verdict from the transcript
@@ -115,7 +100,7 @@ class ReviewRunner:
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
 
             # Persist to disk
-            self._save_transcript(pr.number, transcript)
+            self._save_transcript("review-pr", pr.number, transcript)
 
         except CreditExhaustedError:
             raise
@@ -188,12 +173,14 @@ class ReviewRunner:
             cmd = self._build_command(worktree_path)
             prompt = self._build_ci_fix_prompt(pr, issue, failure_summary, attempt)
             before_sha = await self._get_head_sha(worktree_path)
-            transcript = await self._execute(cmd, prompt, worktree_path, pr.number)
+            transcript = await self._execute(
+                cmd, prompt, worktree_path, {"pr": pr.number, "source": "reviewer"}
+            )
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            self._save_transcript(pr.number, transcript)
+            self._save_transcript("review-pr", pr.number, transcript)
         except CreditExhaustedError:
             raise
         except Exception as exc:
@@ -313,17 +300,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         min_findings = self._config.min_review_findings
 
-        # Project manifest injection
-        manifest_section = ""
-        manifest = load_project_manifest(self._config)
-        if manifest:
-            manifest_section = f"\n\n## Project Context\n\n{manifest}"
-
-        # Memory digest injection
-        memory_section = ""
-        digest = load_memory_digest(self._config)
-        if digest:
-            memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
+        manifest_section, memory_section = self._inject_manifest_and_memory()
 
         return f"""You are reviewing PR #{pr.number} which implements issue #{issue.number}.
 
@@ -400,21 +377,7 @@ Example:
 VERDICT: APPROVE
 SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
 
-## Optional: Memory Suggestion
-
-If you discover a reusable pattern or insight during this review that would help future agent runs, you may output ONE suggestion:
-
-MEMORY_SUGGESTION_START
-title: Short descriptive title
-type: knowledge | config | instruction | code
-learning: What was learned and why it matters
-context: How it was discovered (reference issue/PR numbers)
-MEMORY_SUGGESTION_END
-
-Types: knowledge (passive insight), config (suggests config change), instruction (new agent instruction), code (suggests code change).
-Actionable types (config, instruction, code) will be routed for human approval.
-Only suggest genuinely valuable learnings — not trivial observations.
-"""
+{MEMORY_SUGGESTION_PROMPT.format(context="review")}"""
 
     def _build_subskill_command(self) -> list[str]:
         return build_agent_command(
@@ -508,7 +471,7 @@ Diff snippet:
                     self._build_subskill_command(),
                     prompt,
                     worktree_path,
-                    pr.number,
+                    {"pr": pr.number, "source": "reviewer"},
                 )
                 (
                     risk,
@@ -549,7 +512,7 @@ Diff snippet:
                 self._build_debug_command(),
                 debug_prompt,
                 worktree_path,
-                pr.number,
+                {"pr": pr.number, "source": "reviewer"},
             )
             context_lines.append("Debug precheck transcript:")
             context_lines.append(debug_transcript[:1000])
@@ -607,45 +570,6 @@ Diff snippet:
                 return sanitized
 
         return "No summary provided"
-
-    def terminate(self) -> None:
-        """Kill all active reviewer subprocesses."""
-        terminate_processes(self._active_procs)
-
-    async def _execute(
-        self,
-        cmd: list[str],
-        prompt: str,
-        worktree_path: Path,
-        pr_number: int,
-    ) -> str:
-        """Run the claude review process."""
-        return await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=worktree_path,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data={"pr": pr_number, "source": "reviewer"},
-            logger=logger,
-            runner=self._runner,
-        )
-
-    def _save_transcript(self, pr_number: int, transcript: str) -> None:
-        """Write the review transcript to .hydraflow/logs/ for post-mortem review."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            path = log_dir / f"review-pr-{pr_number}.txt"
-            path.write_text(transcript)
-            logger.info("Review transcript saved to %s", path, extra={"pr": pr_number})
-        except OSError:
-            logger.warning(
-                "Could not save transcript to %s",
-                log_dir,
-                exc_info=True,
-                extra={"pr": pr_number},
-            )
 
     async def _get_head_sha(self, worktree_path: Path) -> str | None:
         """Return the current HEAD commit SHA in the worktree."""

@@ -142,7 +142,10 @@ class MergeConflictResolver:
                 )
                 cmd = self._agents._build_command(wt_path)
                 transcript = await self._agents._execute(
-                    cmd, prompt, wt_path, issue.number
+                    cmd,
+                    prompt,
+                    wt_path,
+                    {"issue": issue.number, "source": "merge_conflict"},
                 )
 
                 self._save_conflict_transcript(

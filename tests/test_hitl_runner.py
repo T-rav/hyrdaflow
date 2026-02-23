@@ -10,10 +10,26 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from base_runner import BaseRunner
 from config import HydraFlowConfig
 from events import EventBus, EventType
 from hitl_runner import HITLRunner, _classify_cause
 from tests.conftest import HITLResultFactory, IssueFactory
+
+# ---------------------------------------------------------------------------
+# Inheritance
+# ---------------------------------------------------------------------------
+
+
+class TestHITLRunnerInheritance:
+    """HITLRunner must extend BaseRunner."""
+
+    def test_inherits_from_base_runner(self, hitl_runner) -> None:
+        assert isinstance(hitl_runner, BaseRunner)
+
+    def test_has_terminate_method(self, hitl_runner) -> None:
+        assert callable(hitl_runner.terminate)
+
 
 # ---------------------------------------------------------------------------
 # Cause classification
@@ -337,7 +353,7 @@ class TestSaveTranscript:
 
     def test_saves_transcript_to_disk(self, hitl_runner, config) -> None:
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        hitl_runner._save_transcript(42, "test transcript content")
+        hitl_runner._save_transcript("hitl-issue", 42, "test transcript content")
 
         path = config.repo_root / ".hydraflow" / "logs" / "hitl-issue-42.txt"
         assert path.exists()
@@ -350,7 +366,7 @@ class TestSaveTranscript:
         runner = HITLRunner(config, EventBus())
 
         with patch.object(Path, "write_text", side_effect=OSError("disk full")):
-            runner._save_transcript(42, "transcript")  # should not raise
+            runner._save_transcript("hitl-issue", 42, "transcript")  # should not raise
 
         assert "Could not save transcript" in caplog.text
 
@@ -367,7 +383,7 @@ class TestTerminate:
         hitl_runner.terminate()  # Should not raise
 
     def test_terminate_calls_terminate_processes(self, hitl_runner) -> None:
-        with patch("hitl_runner.terminate_processes") as mock_term:
+        with patch("base_runner.terminate_processes") as mock_term:
             hitl_runner.terminate()
             mock_term.assert_called_once_with(hitl_runner._active_procs)
 

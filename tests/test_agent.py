@@ -13,9 +13,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent import AgentRunner
+from base_runner import BaseRunner
 from events import EventBus, EventType
 from models import WorkerStatus
 from tests.helpers import ConfigFactory, make_streaming_proc
+
+# ---------------------------------------------------------------------------
+# Inheritance
+# ---------------------------------------------------------------------------
+
+
+class TestAgentRunnerInheritance:
+    """AgentRunner must extend BaseRunner."""
+
+    def test_inherits_from_base_runner(self, config, event_bus: EventBus) -> None:
+        runner = AgentRunner(config, event_bus)
+        assert isinstance(runner, BaseRunner)
+
+    def test_has_terminate_method(self, config, event_bus: EventBus) -> None:
+        runner = AgentRunner(config, event_bus)
+        assert callable(runner.terminate)
+
 
 # ---------------------------------------------------------------------------
 # Helpers (agent-specific)
@@ -1140,7 +1158,7 @@ class TestSaveTranscript:
             branch="agent/issue-42",
             transcript="This is the agent transcript",
         )
-        runner._save_transcript(result)
+        runner._save_transcript("issue", result.issue_number, result.transcript)
 
         expected_path = config.repo_root / ".hydraflow" / "logs" / "issue-42.txt"
         assert expected_path.exists()
@@ -1162,7 +1180,7 @@ class TestSaveTranscript:
             branch="agent/issue-7",
             transcript="output",
         )
-        runner._save_transcript(result)
+        runner._save_transcript("issue", result.issue_number, result.transcript)
 
         assert log_dir.is_dir()
 
@@ -1180,7 +1198,7 @@ class TestSaveTranscript:
             branch="agent/issue-123",
             transcript="content",
         )
-        runner._save_transcript(result)
+        runner._save_transcript("issue", result.issue_number, result.transcript)
 
         log_file = config.repo_root / ".hydraflow" / "logs" / "issue-123.txt"
         assert log_file.exists()
@@ -1200,7 +1218,9 @@ class TestSaveTranscript:
         )
 
         with patch.object(Path, "write_text", side_effect=OSError("disk full")):
-            runner._save_transcript(result)  # should not raise
+            runner._save_transcript(
+                "issue", result.issue_number, result.transcript
+            )  # should not raise
 
         assert "Could not save transcript" in caplog.text
 
@@ -1578,7 +1598,7 @@ class TestExecuteStreaming:
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             transcript = await runner._execute(
-                ["claude", "-p"], "prompt", tmp_path, issue.number
+                ["claude", "-p"], "prompt", tmp_path, {"issue": issue.number}
             )
 
         assert transcript == output
@@ -1593,7 +1613,9 @@ class TestExecuteStreaming:
         mock_create = make_streaming_proc(returncode=0, stdout=output)
 
         with patch("asyncio.create_subprocess_exec", mock_create):
-            await runner._execute(["claude", "-p"], "prompt", tmp_path, issue.number)
+            await runner._execute(
+                ["claude", "-p"], "prompt", tmp_path, {"issue": issue.number}
+            )
 
         events = event_bus.get_history()
         transcript_events = [e for e in events if e.type == EventType.TRANSCRIPT_LINE]
@@ -1615,7 +1637,9 @@ class TestExecuteStreaming:
         mock_create = make_streaming_proc(returncode=0, stdout=output)
 
         with patch("asyncio.create_subprocess_exec", mock_create):
-            await runner._execute(["claude", "-p"], "prompt", tmp_path, issue.number)
+            await runner._execute(
+                ["claude", "-p"], "prompt", tmp_path, {"issue": issue.number}
+            )
 
         events = event_bus.get_history()
         transcript_events = [e for e in events if e.type == EventType.TRANSCRIPT_LINE]
@@ -1631,11 +1655,14 @@ class TestExecuteStreaming:
             returncode=1, stdout="output", stderr="error details"
         )
 
+        mock_logger = MagicMock()
         with (
             patch("asyncio.create_subprocess_exec", mock_create),
-            patch("agent.logger") as mock_logger,
+            patch.object(runner, "_log", mock_logger),
         ):
-            await runner._execute(["claude", "-p"], "prompt", tmp_path, issue.number)
+            await runner._execute(
+                ["claude", "-p"], "prompt", tmp_path, {"issue": issue.number}
+            )
 
         mock_logger.warning.assert_called_once()
 
@@ -1648,7 +1675,9 @@ class TestExecuteStreaming:
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
         with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
-            await runner._execute(["claude", "-p"], "prompt", tmp_path, issue.number)
+            await runner._execute(
+                ["claude", "-p"], "prompt", tmp_path, {"issue": issue.number}
+            )
 
         kwargs = mock_exec.call_args[1]
         assert kwargs["limit"] == 1024 * 1024

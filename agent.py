@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
@@ -10,28 +9,28 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from config import HydraFlowConfig
+from base_runner import BaseRunner
 from events import EventBus, EventType, HydraFlowEvent
-from execution import get_default_runner
-from manifest import load_project_manifest
-from memory import load_memory_digest
 from models import GitHubIssue, WorkerResult, WorkerStatus
 from review_insights import ReviewInsightStore, get_common_feedback_section
-from runner_utils import stream_claude_process, terminate_processes
+from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
 
 if TYPE_CHECKING:
+    from config import HydraFlowConfig
     from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.agent")
 
 
-class AgentRunner:
+class AgentRunner(BaseRunner):
     """Launches a ``claude -p`` process to implement a GitHub issue.
 
     The agent works inside an isolated git worktree and commits its
     changes but does **not** push or create PRs.
     """
+
+    _log = logger
 
     def __init__(
         self,
@@ -39,11 +38,8 @@ class AgentRunner:
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
     ) -> None:
-        self._config = config
-        self._bus = event_bus
-        self._active_procs: set[asyncio.subprocess.Process] = set()
+        super().__init__(config, event_bus, runner)
         self._insights = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
-        self._runner = runner or get_default_runner()
 
     async def run(
         self,
@@ -77,7 +73,9 @@ class AgentRunner:
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
             prompt = self._build_prompt(issue, review_feedback=review_feedback)
-            transcript = await self._execute(cmd, prompt, worktree_path, issue.number)
+            transcript = await self._execute(
+                cmd, prompt, worktree_path, {"issue": issue.number}
+            )
             result.transcript = transcript
 
             # Mandatory pre-quality self-review/correction loop
@@ -139,47 +137,16 @@ class AgentRunner:
 
         # Persist transcript to disk
         try:
-            self._save_transcript(result)
+            self._save_transcript("issue", result.issue_number, result.transcript)
         except OSError:
             logger.warning(
                 "Failed to save transcript for issue #%d",
                 result.issue_number,
                 exc_info=True,
+                extra={"issue": result.issue_number},
             )
 
         return result
-
-    def _save_transcript(self, result: WorkerResult) -> None:
-        """Write the transcript to .hydraflow/logs/ for post-mortem review."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            path = log_dir / f"issue-{result.issue_number}.txt"
-            path.write_text(result.transcript)
-            logger.info(
-                "Transcript saved to %s",
-                path,
-                extra={"issue": result.issue_number},
-            )
-        except OSError:
-            logger.warning(
-                "Could not save transcript to %s",
-                log_dir,
-                exc_info=True,
-                extra={"issue": result.issue_number},
-            )
-
-    def _build_command(self, worktree_path: Path) -> list[str]:
-        """Construct the implementation CLI invocation.
-
-        The working directory is set via ``cwd`` in the subprocess call,
-        not via a CLI flag.
-        """
-        return build_agent_command(
-            tool=self._config.implementation_tool,
-            model=self._config.model,
-            budget_usd=self._config.max_budget_usd,
-        )
 
     @staticmethod
     def _extract_plan_comment(comments: list[str]) -> tuple[str, list[str]]:
@@ -306,17 +273,7 @@ class AgentRunner:
 
         feedback_section = self._get_review_feedback_section()
 
-        # Project manifest injection
-        manifest_section = ""
-        manifest = load_project_manifest(self._config)
-        if manifest:
-            manifest_section = f"\n\n## Project Context\n\n{manifest}"
-
-        # Memory digest injection
-        memory_section = ""
-        digest = load_memory_digest(self._config)
-        if digest:
-            memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
+        manifest_section, memory_section = self._inject_manifest_and_memory()
 
         # Truncate issue body if too long
         body = issue.body
@@ -368,44 +325,7 @@ class AgentRunner:
 - Ensure `make quality` passes before committing.
 - If you encounter issues, commit what works with a descriptive message.
 
-## Optional: Memory Suggestion
-
-If you discover a reusable pattern or insight during this implementation that would help future agent runs, you may output ONE suggestion:
-
-MEMORY_SUGGESTION_START
-title: Short descriptive title
-type: knowledge | config | instruction | code
-learning: What was learned and why it matters
-context: How it was discovered (reference issue/PR numbers)
-MEMORY_SUGGESTION_END
-
-Types: knowledge (passive insight), config (suggests config change), instruction (new agent instruction), code (suggests code change).
-Actionable types (config, instruction, code) will be routed for human approval.
-Only suggest genuinely valuable learnings — not trivial observations.
-"""
-
-    def terminate(self) -> None:
-        """Kill all active agent subprocesses."""
-        terminate_processes(self._active_procs)
-
-    async def _execute(
-        self,
-        cmd: list[str],
-        prompt: str,
-        worktree_path: Path,
-        issue_number: int,
-    ) -> str:
-        """Run the claude process and stream its output."""
-        return await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=worktree_path,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data={"issue": issue_number},
-            logger=logger,
-            runner=self._runner,
-        )
+{MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
 
     async def _verify_result(
         self, worktree_path: Path, branch: str
@@ -421,21 +341,7 @@ Only suggest genuinely valuable learnings — not trivial observations.
             return False, "No commits found on branch"
 
         # Run the full quality gate
-        try:
-            result = await self._runner.run_simple(
-                ["make", "quality"],
-                cwd=str(worktree_path),
-                timeout=3600,
-            )
-        except FileNotFoundError:
-            return False, "make not found — cannot run quality checks"
-        except TimeoutError:
-            return False, "make quality timed out after 3600s"
-        if result.returncode != 0:
-            output = "\n".join(filter(None, [result.stdout, result.stderr]))
-            return False, f"`make quality` failed:\n{output[-3000:]}"
-
-        return True, "OK"
+        return await self._verify_quality(worktree_path)
 
     def _build_quality_fix_prompt(
         self,
@@ -557,7 +463,7 @@ SUMMARY: <one-line summary>
             review_prompt = self._build_pre_quality_review_prompt(issue, attempt)
             review_cmd = self._build_pre_quality_review_command()
             review_transcript = await self._execute(
-                review_cmd, review_prompt, worktree_path, issue.number
+                review_cmd, review_prompt, worktree_path, {"issue": issue.number}
             )
             review_ok, review_summary = self._parse_skill_result(
                 review_transcript, "PRE_QUALITY_REVIEW_RESULT"
@@ -566,7 +472,7 @@ SUMMARY: <one-line summary>
             run_tool_prompt = self._build_pre_quality_run_tool_prompt(issue, attempt)
             run_tool_cmd = self._build_command(worktree_path)
             run_tool_transcript = await self._execute(
-                run_tool_cmd, run_tool_prompt, worktree_path, issue.number
+                run_tool_cmd, run_tool_prompt, worktree_path, {"issue": issue.number}
             )
             run_tool_ok, run_tool_summary = self._parse_skill_result(
                 run_tool_transcript, "RUN_TOOL_RESULT"
@@ -614,7 +520,7 @@ SUMMARY: <one-line summary>
 
             prompt = self._build_quality_fix_prompt(issue, last_error, attempt)
             cmd = self._build_command(worktree_path)
-            await self._execute(cmd, prompt, worktree_path, issue.number)
+            await self._execute(cmd, prompt, worktree_path, {"issue": issue.number})
 
             success, verify_msg = await self._verify_result(worktree_path, branch)
             if success:

@@ -11,10 +11,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from base_runner import BaseRunner
 from events import EventType
 from models import ReviewerStatus, ReviewVerdict
 from reviewer import ReviewRunner
 from tests.helpers import ConfigFactory, make_streaming_proc
+
+# ---------------------------------------------------------------------------
+# Inheritance
+# ---------------------------------------------------------------------------
+
+
+class TestReviewRunnerInheritance:
+    """ReviewRunner must extend BaseRunner."""
+
+    def test_inherits_from_base_runner(self, config, event_bus) -> None:
+        runner = ReviewRunner(config, event_bus)
+        assert isinstance(runner, BaseRunner)
+
+    def test_has_terminate_method(self, config, event_bus) -> None:
+        runner = ReviewRunner(config, event_bus)
+        assert callable(runner.terminate)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -514,7 +532,7 @@ def test_save_transcript_writes_to_correct_path(event_bus, tmp_path):
     runner = ReviewRunner(config=cfg, event_bus=event_bus)
     transcript = "This is the review transcript."
 
-    runner._save_transcript(42, transcript)
+    runner._save_transcript("review-pr", 42, transcript)
 
     expected_path = tmp_path / ".hydraflow" / "logs" / "review-pr-42.txt"
     assert expected_path.exists()
@@ -527,7 +545,7 @@ def test_save_transcript_creates_log_directory(event_bus, tmp_path):
     log_dir = tmp_path / ".hydraflow" / "logs"
     assert not log_dir.exists()
 
-    runner._save_transcript(7, "transcript content")
+    runner._save_transcript("review-pr", 7, "transcript content")
 
     assert log_dir.exists()
     assert log_dir.is_dir()
@@ -538,7 +556,7 @@ def test_save_transcript_handles_oserror(event_bus, tmp_path, caplog):
     runner = ReviewRunner(config=cfg, event_bus=event_bus)
 
     with patch.object(Path, "write_text", side_effect=OSError("disk full")):
-        runner._save_transcript(42, "transcript")  # should not raise
+        runner._save_transcript("review-pr", 42, "transcript")  # should not raise
 
     assert "Could not save transcript" in caplog.text
 
@@ -890,7 +908,7 @@ async def test_execute_returns_transcript(config, event_bus, pr_info, tmp_path):
             ["claude", "-p"],
             "review prompt",
             tmp_path,
-            pr_info.number,
+            {"pr": pr_info.number, "source": "reviewer"},
         )
 
     assert transcript == expected_output
@@ -909,7 +927,7 @@ async def test_execute_publishes_transcript_line_events(
             ["claude", "-p"],
             "prompt",
             tmp_path,
-            pr_info.number,
+            {"pr": pr_info.number, "source": "reviewer"},
         )
 
     events = event_bus.get_history()
@@ -932,7 +950,12 @@ async def test_execute_uses_large_stream_limit(config, event_bus, pr_info, tmp_p
     mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
     with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
-        await runner._execute(["claude", "-p"], "prompt", tmp_path, pr_info.number)
+        await runner._execute(
+            ["claude", "-p"],
+            "prompt",
+            tmp_path,
+            {"pr": pr_info.number, "source": "reviewer"},
+        )
 
     kwargs = mock_exec.call_args[1]
     assert kwargs["limit"] == 1024 * 1024
