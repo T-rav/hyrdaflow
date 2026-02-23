@@ -420,10 +420,9 @@ describe('StreamCard transcript rendering', () => {
   it('does not render TranscriptPreview when card is collapsed', () => {
     const issue = makeIssue({ overallStatus: 'active' })
     render(<StreamCard issue={issue} defaultExpanded={false} transcript={['line 1']} />)
-    // Inline transcript column should still be visible (even when collapsed)
-    expect(screen.getByTestId('transcript-preview-inline')).toBeInTheDocument()
-    // But the expanded body transcript should not be visible
+    // No transcript should be visible when collapsed
     expect(screen.queryByTestId('transcript-preview')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('transcript-preview-inline')).not.toBeInTheDocument()
   })
 
   it('defaults transcript to empty array when not provided', () => {
@@ -433,52 +432,3 @@ describe('StreamCard transcript rendering', () => {
   })
 })
 
-describe('StreamCard inline transcript column', () => {
-  it('shows inline transcript column for active cards without expanding', () => {
-    const issue = makeIssue({ overallStatus: 'active' })
-    render(<StreamCard issue={issue} transcript={['line 1', 'line 2']} />)
-    expect(screen.getByTestId('inline-transcript-column')).toBeInTheDocument()
-    expect(screen.getByTestId('transcript-preview-inline')).toBeInTheDocument()
-  })
-
-  it('does not show inline transcript column for done cards', () => {
-    const issue = makeIssue({ overallStatus: 'done' })
-    render(<StreamCard issue={issue} transcript={['line 1']} />)
-    expect(screen.queryByTestId('inline-transcript-column')).not.toBeInTheDocument()
-  })
-
-  it('does not show inline transcript column for failed cards', () => {
-    const issue = makeIssue({ overallStatus: 'failed' })
-    render(<StreamCard issue={issue} transcript={['line 1']} />)
-    expect(screen.queryByTestId('inline-transcript-column')).not.toBeInTheDocument()
-  })
-
-  it('does not show inline transcript column when transcript is empty', () => {
-    const issue = makeIssue({ overallStatus: 'active' })
-    render(<StreamCard issue={issue} transcript={[]} />)
-    expect(screen.queryByTestId('inline-transcript-column')).not.toBeInTheDocument()
-  })
-
-  it('renders two-column layout with flex display when active with transcript', () => {
-    const issue = makeIssue({ overallStatus: 'active' })
-    const { container } = render(<StreamCard issue={issue} transcript={['line 1', 'line 2']} />)
-    const cardInner = container.querySelector('[style*="flex-wrap"]')
-    expect(cardInner).not.toBeNull()
-    expect(cardInner.style.display).toBe('flex')
-  })
-
-  it('does not use two-column layout when card is inactive', () => {
-    const issue = makeIssue({ overallStatus: 'done' })
-    const { container } = render(<StreamCard issue={issue} transcript={['line 1']} />)
-    const cardInner = container.querySelector('[style*="flex-wrap"]')
-    expect(cardInner).toBeNull()
-  })
-
-  it('shows inline transcript lines from transcript prop', () => {
-    const issue = makeIssue({ overallStatus: 'active' })
-    render(<StreamCard issue={issue} transcript={['Building...', 'Tests pass', 'Done']} />)
-    expect(screen.getByText('Building...')).toBeInTheDocument()
-    expect(screen.getByText('Tests pass')).toBeInTheDocument()
-    expect(screen.getByText('Done')).toBeInTheDocument()
-  })
-})

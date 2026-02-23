@@ -97,63 +97,52 @@ export function StreamCard({ issue, intent, defaultExpanded, onViewTranscript, o
     ? `1px solid ${theme.cardActiveBorder}`
     : `1px solid ${theme.border}`
 
-  const showInlineTranscript = isActive && transcript.length > 0 && !expanded
-
   return (
     <div style={{ ...styles.card, border: cardBorder }}>
       <style>{pulseKeyframes}</style>
-      <div style={showInlineTranscript ? styles.cardInner : undefined}>
-        <div style={showInlineTranscript ? styles.cardLeft : undefined}>
-          <div style={styles.header} onClick={toggle}>
-            <div style={styles.headerLeft}>
-              {issue.issueUrl ? (
-                <a
-                  style={styles.issueLink}
-                  href={issue.issueUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  #{issue.issueNumber}
-                </a>
-              ) : (
-                <span style={styles.issueNum}>#{issue.issueNumber}</span>
-              )}
-              <span style={styles.title}>{intent?.text || issue.title}</span>
-            </div>
-            <div style={styles.headerRight}>
-              {meta && (
-                <span style={{
-                  ...styles.stageBadge,
-                  background: meta.subtleColor,
-                  color: meta.color,
-                  borderColor: meta.color,
-                }}>
-                  {meta.label}
-                </span>
-              )}
-              {totalDuration && <span style={styles.duration}>{totalDuration}</span>}
-              <StatusDot status={issue.overallStatus} />
-              {issue.pr && (
-                <a
-                  style={styles.prLink}
-                  href={issue.pr.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  PR #{issue.pr.number}
-                </a>
-              )}
-              <span style={styles.arrow}>{expanded ? '\u25BE' : '\u25B8'}</span>
-            </div>
-          </div>
+      <div style={styles.header} onClick={toggle}>
+        <div style={styles.headerLeft}>
+          {issue.issueUrl ? (
+            <a
+              style={styles.issueLink}
+              href={issue.issueUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              #{issue.issueNumber}
+            </a>
+          ) : (
+            <span style={styles.issueNum}>#{issue.issueNumber}</span>
+          )}
+          <span style={styles.title}>{intent?.text || issue.title}</span>
         </div>
-        {showInlineTranscript && (
-          <div style={styles.inlineTranscriptColumn} data-testid="inline-transcript-column">
-            <TranscriptPreview transcript={transcript} maxCollapsedLines={5} inline />
-          </div>
-        )}
+        <div style={styles.headerRight}>
+          {meta && (
+            <span style={{
+              ...styles.stageBadge,
+              background: meta.subtleColor,
+              color: meta.color,
+              borderColor: meta.color,
+            }}>
+              {meta.label}
+            </span>
+          )}
+          {totalDuration && <span style={styles.duration}>{totalDuration}</span>}
+          <StatusDot status={issue.overallStatus} />
+          {issue.pr && (
+            <a
+              style={styles.prLink}
+              href={issue.pr.url || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              PR #{issue.pr.number}
+            </a>
+          )}
+          <span style={styles.arrow}>{expanded ? '\u25BE' : '\u25B8'}</span>
+        </div>
       </div>
 
       {expanded && (
@@ -319,25 +308,6 @@ const styles = {
     borderRadius: 8,
     marginBottom: 8,
     overflow: 'hidden',
-  },
-  cardInner: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    minWidth: 0,
-  },
-  cardLeft: {
-    flex: '1 1 200px',
-    minWidth: 0,
-  },
-  inlineTranscriptColumn: {
-    flex: '1 1 200px',
-    minWidth: 0,
-    padding: '8px 12px',
-    borderLeft: `1px solid ${theme.border}`,
-    maxHeight: 120,
-    overflowY: 'auto',
-    fontFamily: 'monospace',
-    fontSize: 10,
   },
   header: {
     display: 'flex',
