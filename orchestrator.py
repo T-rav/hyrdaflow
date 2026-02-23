@@ -380,11 +380,19 @@ class HydraFlowOrchestrator:
                 recovered,
             )
 
-        # Restore interrupted issues from a previous stop
+        # Restore interrupted issues from a previous stop.
+        # Remove them from crash-recovery tracking sets so the IssueStore
+        # can route each issue to the correct pipeline stage based on its
+        # current GitHub labels.
         interrupted = self._state.get_interrupted_issues()
         if interrupted:
+            for issue_num in interrupted:
+                self._recovered_issues.discard(issue_num)
+                self._active_impl_issues.discard(issue_num)
+                self._active_review_issues.discard(issue_num)
+                self._hitl_phase.active_hitl_issues.discard(issue_num)
             logger.info(
-                "Restoring %d interrupted issue(s) from previous stop: %s",
+                "Restored %d interrupted issue(s) for re-processing: %s",
                 len(interrupted),
                 interrupted,
             )

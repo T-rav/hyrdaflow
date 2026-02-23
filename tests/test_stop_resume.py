@@ -287,62 +287,112 @@ class TestOrchestratorResume:
     """Tests for restoring interrupted issues on restart."""
 
     @pytest.mark.asyncio
-    async def test_restart_restores_interrupted_plan_issues(
+    async def test_restart_removes_plan_issue_from_active_tracking(
         self, tmp_path: Path
     ) -> None:
-        """Interrupted planning issue is logged on restore."""
+        """Interrupted plan issue is removed from crash-recovery sets."""
         orch = _make_orchestrator(tmp_path)
+        # Simulate crash recovery adding issue to _active_impl_issues
+        orch._state.set_active_issue_numbers([42])
         orch._state.set_interrupted_issues({42: "plan"})
 
-        # Call run() but stop immediately
         orch._stop_event.set()
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
-        # Interrupted issues should be cleared after restore
+        # Issue should be cleared from active tracking so IssueStore can re-route
+        assert 42 not in orch._active_impl_issues
+        assert 42 not in orch._recovered_issues
         assert orch._state.get_interrupted_issues() == {}
 
     @pytest.mark.asyncio
-    async def test_restart_restores_interrupted_implement_issues(
+    async def test_restart_removes_implement_issue_from_active_tracking(
         self, tmp_path: Path
     ) -> None:
-        """Interrupted implementing issue is restored and cleared."""
+        """Interrupted implement issue is removed from _active_impl_issues."""
         orch = _make_orchestrator(tmp_path)
+        orch._state.set_active_issue_numbers([10])
         orch._state.set_interrupted_issues({10: "implement"})
 
         orch._stop_event.set()
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
+        assert 10 not in orch._active_impl_issues
+        assert 10 not in orch._recovered_issues
         assert orch._state.get_interrupted_issues() == {}
 
     @pytest.mark.asyncio
-    async def test_restart_restores_interrupted_review_issues(
+    async def test_restart_removes_review_issue_from_active_tracking(
         self, tmp_path: Path
     ) -> None:
-        """Interrupted reviewing issue is restored and cleared."""
+        """Interrupted review issue is removed from all active tracking sets."""
         orch = _make_orchestrator(tmp_path)
+        orch._state.set_active_issue_numbers([99])
         orch._state.set_interrupted_issues({99: "review"})
 
         orch._stop_event.set()
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
+        assert 99 not in orch._active_impl_issues
+        assert 99 not in orch._active_review_issues
+        assert 99 not in orch._recovered_issues
         assert orch._state.get_interrupted_issues() == {}
 
     @pytest.mark.asyncio
-    async def test_restart_clears_interrupted_issues_after_restore(
+    async def test_restart_removes_hitl_issue_from_active_tracking(
         self, tmp_path: Path
     ) -> None:
-        """interrupted_issues is cleared after successful restoration."""
+        """Interrupted HITL issue is removed from hitl_phase active set."""
         orch = _make_orchestrator(tmp_path)
+        orch._state.set_active_issue_numbers([33])
+        orch._state.set_interrupted_issues({33: "hitl"})
+
+        orch._stop_event.set()
+        with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
+            await orch.run()
+
+        assert 33 not in orch._active_impl_issues
+        assert 33 not in orch._hitl_phase.active_hitl_issues
+        assert orch._state.get_interrupted_issues() == {}
+
+    @pytest.mark.asyncio
+    async def test_restart_clears_all_interrupted_issues_from_tracking(
+        self, tmp_path: Path
+    ) -> None:
+        """Multiple interrupted issues across phases are all unblocked."""
+        orch = _make_orchestrator(tmp_path)
+        orch._state.set_active_issue_numbers([1, 2, 3])
         orch._state.set_interrupted_issues({1: "plan", 2: "implement", 3: "review"})
 
         orch._stop_event.set()
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
+        # All interrupted issues must be removed from active tracking
+        assert not orch._active_impl_issues & {1, 2, 3}
+        assert not orch._active_review_issues & {1, 2, 3}
+        assert not orch._recovered_issues & {1, 2, 3}
         assert orch._state.get_interrupted_issues() == {}
+
+    @pytest.mark.asyncio
+    async def test_restart_non_interrupted_recovered_issues_keep_grace_period(
+        self, tmp_path: Path
+    ) -> None:
+        """Crash-recovered issues NOT in interrupted_issues keep their grace period."""
+        orch = _make_orchestrator(tmp_path)
+        # Issue 42 was interrupted; issue 77 was just crash-recovered
+        orch._state.set_active_issue_numbers([42, 77])
+        orch._state.set_interrupted_issues({42: "implement"})
+
+        orch._stop_event.set()
+        with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
+            await orch.run()
+
+        # Issue 42 unblocked; issue 77 still in grace period
+        assert 42 not in orch._active_impl_issues
+        assert 77 in orch._active_impl_issues
 
 
 # ---------------------------------------------------------------------------
