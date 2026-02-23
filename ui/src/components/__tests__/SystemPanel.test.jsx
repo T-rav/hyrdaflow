@@ -478,6 +478,24 @@ describe('SystemPanel', () => {
       expect(screen.queryByText('triage')).not.toBeInTheDocument()
       expect(screen.queryByText('total')).not.toBeInTheDocument()
     })
+
+    it('shows both error details and log stream when error worker has events', () => {
+      // Tests the detailsErrorCompact vs detailsError branching: when recentEvents.length > 0,
+      // compact style must be used so the log stream below it is not visually clipped.
+      const events = [
+        { timestamp: '2026-02-20T10:30:00Z', type: 'background_worker_status', data: { worker: 'retrospective', status: 'error', details: { err: 'timeout' } } },
+      ]
+      const errorWorkers = [
+        { name: 'retrospective', status: 'error', enabled: true, last_run: null, details: { error: 'Connection timeout' } },
+      ]
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running', events }))
+      render(<SystemPanel backgroundWorkers={errorWorkers} />)
+      // Error details section must still render
+      expect(screen.getByText('Connection timeout')).toBeInTheDocument()
+      // Log stream must also render alongside error details (not suppressed)
+      const retroCard = screen.getByTestId('worker-card-retrospective')
+      expect(within(retroCard).getByTestId('worker-log-stream')).toBeInTheDocument()
+    })
   })
 })
 
