@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 
@@ -2535,10 +2535,10 @@ class TestPostRunHooks:
         orch._summarizer.summarize_and_comment.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_passes_correct_args_to_both_callees(
+    async def test_passes_correct_args_to_memory_suggestion(
         self, config: HydraFlowConfig
     ) -> None:
-        """Verify argument forwarding to both callees."""
+        """Verify argument forwarding to file_memory_suggestion."""
         orch = HydraFlowOrchestrator(config)
         orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
 
@@ -2555,17 +2555,37 @@ class TestPostRunHooks:
                 duration_seconds=3.5,
                 log_file="logs/issue-7.txt",
             )
-            args = mock_mem.call_args[0]
-            assert args[0] == "tx"
-            assert args[1] == "implementer"
-            assert args[2] == "issue #7"
-        kw = orch._summarizer.summarize_and_comment.call_args.kwargs
-        assert kw["transcript"] == "tx"
-        assert kw["issue_number"] == 7
-        assert kw["phase"] == "implement"
-        assert kw["status"] == "failed"
-        assert kw["duration_seconds"] == 3.5
-        assert kw["log_file"] == "logs/issue-7.txt"
+            mock_mem.assert_awaited_once_with(
+                "tx", "implementer", "issue #7", ANY, ANY, ANY
+            )
+
+    @pytest.mark.asyncio
+    async def test_passes_correct_args_to_summarize(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify argument forwarding to summarize_and_comment."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch("orchestrator.file_memory_suggestion", new_callable=AsyncMock):
+            await orch._post_run_hooks(
+                transcript="tx",
+                source="implementer",
+                reference="issue #7",
+                issue_number=7,
+                phase="implement",
+                status="failed",
+                duration_seconds=3.5,
+                log_file="logs/issue-7.txt",
+            )
+        orch._summarizer.summarize_and_comment.assert_awaited_once_with(
+            transcript="tx",
+            issue_number=7,
+            phase="implement",
+            status="failed",
+            duration_seconds=3.5,
+            log_file="logs/issue-7.txt",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2577,10 +2597,10 @@ class TestStartSession:
     """Tests for the extracted _start_session helper."""
 
     @pytest.mark.asyncio
-    async def test_creates_session_log_and_publishes_event(
+    async def test_creates_session_log_with_correct_repo(
         self, config: HydraFlowConfig
     ) -> None:
-        """_start_session should create a SessionLog, save it, and publish SESSION_START."""
+        """_start_session should create a SessionLog with the correct repo and clear results."""
         bus = EventBus()
         orch = HydraFlowOrchestrator(config, event_bus=bus)
 
@@ -2589,6 +2609,15 @@ class TestStartSession:
         assert orch._current_session is not None
         assert orch._current_session.repo == config.repo
         assert orch._session_issue_results == {}
+
+    @pytest.mark.asyncio
+    async def test_publishes_session_start_event(self, config: HydraFlowConfig) -> None:
+        """_start_session should publish a SESSION_START event with the repo."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+
         events = [e for e in bus.get_history() if e.type == EventType.SESSION_START]
         assert len(events) == 1
         assert events[0].data["repo"] == config.repo
@@ -2609,10 +2638,22 @@ class TestEndSession:
     """Tests for the extracted _end_session helper."""
 
     @pytest.mark.asyncio
-    async def test_closes_session_and_publishes_event(
+    async def test_publishes_session_end_event(self, config: HydraFlowConfig) -> None:
+        """_end_session should publish exactly one SESSION_END event."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+        await orch._end_session()
+
+        end_events = [e for e in bus.get_history() if e.type == EventType.SESSION_END]
+        assert len(end_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_session_end_event_contains_correct_issue_counts(
         self, config: HydraFlowConfig
     ) -> None:
-        """_end_session should close the session, compute counts, and publish SESSION_END."""
+        """_end_session event payload should reflect correct succeeded/failed/processed counts."""
         bus = EventBus()
         orch = HydraFlowOrchestrator(config, event_bus=bus)
 
@@ -2621,9 +2662,9 @@ class TestEndSession:
 
         await orch._end_session()
 
-        end_events = [e for e in bus.get_history() if e.type == EventType.SESSION_END]
-        assert len(end_events) == 1
-        data = end_events[0].data
+        data = next(
+            e.data for e in bus.get_history() if e.type == EventType.SESSION_END
+        )
         assert data["issues_succeeded"] == 2
         assert data["issues_failed"] == 1
         assert set(data["issues_processed"]) == {10, 20, 30}
