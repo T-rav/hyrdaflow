@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 
@@ -2428,3 +2428,375 @@ class TestTranscriptSummaryFiling:
 
         # Both calls should have been attempted despite the first one failing
         assert orch._summarizer.summarize_and_comment.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# _post_run_hooks — deduplicated memory + summary helper
+# ---------------------------------------------------------------------------
+
+
+class TestPostRunHooks:
+    """Tests for the extracted _post_run_hooks helper."""
+
+    @pytest.mark.asyncio
+    async def test_calls_memory_suggestion_and_summarize(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Happy path: both memory suggestion and summarize are called."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_mem:
+            await orch._post_run_hooks(
+                transcript="some transcript",
+                source="implementer",
+                reference="issue #42",
+                issue_number=42,
+                phase="implement",
+                status="success",
+                duration_seconds=10.0,
+                log_file=".hydraflow/logs/issue-42.txt",
+            )
+            mock_mem.assert_awaited_once()
+        orch._summarizer.summarize_and_comment.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_memory_suggestion_failure_does_not_block_summarize(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Exception in memory suggestion must not prevent summarize."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ):
+            await orch._post_run_hooks(
+                transcript="transcript",
+                source="implementer",
+                reference="issue #1",
+                issue_number=1,
+                phase="implement",
+                status="success",
+                duration_seconds=5.0,
+                log_file="log.txt",
+            )
+        orch._summarizer.summarize_and_comment.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_summarize_failure_does_not_propagate(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Exception in summarize must not propagate to caller."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("summarize failed")
+        )
+
+        with patch("orchestrator.file_memory_suggestion", new_callable=AsyncMock):
+            # Should not raise
+            await orch._post_run_hooks(
+                transcript="transcript",
+                source="reviewer",
+                reference="PR #99",
+                issue_number=99,
+                phase="review",
+                status="completed",
+                duration_seconds=2.0,
+                log_file="log.txt",
+            )
+
+    @pytest.mark.asyncio
+    async def test_skips_summarize_when_issue_number_zero(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When issue_number is 0 (review edge case), summarize is skipped."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_mem:
+            await orch._post_run_hooks(
+                transcript="transcript",
+                source="reviewer",
+                reference="PR #50",
+                issue_number=0,
+                phase="review",
+                status="completed",
+                duration_seconds=1.0,
+                log_file="log.txt",
+            )
+            mock_mem.assert_awaited_once()
+        orch._summarizer.summarize_and_comment.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_passes_correct_args_to_memory_suggestion(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify argument forwarding to file_memory_suggestion."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_mem:
+            await orch._post_run_hooks(
+                transcript="tx",
+                source="implementer",
+                reference="issue #7",
+                issue_number=7,
+                phase="implement",
+                status="failed",
+                duration_seconds=3.5,
+                log_file="logs/issue-7.txt",
+            )
+            mock_mem.assert_awaited_once_with(
+                "tx", "implementer", "issue #7", ANY, ANY, ANY
+            )
+
+    @pytest.mark.asyncio
+    async def test_passes_correct_args_to_summarize(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify argument forwarding to summarize_and_comment."""
+        orch = HydraFlowOrchestrator(config)
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch("orchestrator.file_memory_suggestion", new_callable=AsyncMock):
+            await orch._post_run_hooks(
+                transcript="tx",
+                source="implementer",
+                reference="issue #7",
+                issue_number=7,
+                phase="implement",
+                status="failed",
+                duration_seconds=3.5,
+                log_file="logs/issue-7.txt",
+            )
+        orch._summarizer.summarize_and_comment.assert_awaited_once_with(
+            transcript="tx",
+            issue_number=7,
+            phase="implement",
+            status="failed",
+            duration_seconds=3.5,
+            log_file="logs/issue-7.txt",
+        )
+
+
+# ---------------------------------------------------------------------------
+# _start_session / _end_session / _restore_state — extracted from run()
+# ---------------------------------------------------------------------------
+
+
+class TestStartSession:
+    """Tests for the extracted _start_session helper."""
+
+    @pytest.mark.asyncio
+    async def test_creates_session_log_with_correct_repo(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_start_session should create a SessionLog with the correct repo and clear results."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+
+        assert orch._current_session is not None
+        assert orch._current_session.repo == config.repo
+        assert orch._session_issue_results == {}
+
+    @pytest.mark.asyncio
+    async def test_publishes_session_start_event(self, config: HydraFlowConfig) -> None:
+        """_start_session should publish a SESSION_START event with the repo."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+
+        events = [e for e in bus.get_history() if e.type == EventType.SESSION_START]
+        assert len(events) == 1
+        assert events[0].data["repo"] == config.repo
+
+    @pytest.mark.asyncio
+    async def test_sets_bus_session_id(self, config: HydraFlowConfig) -> None:
+        """_start_session should set the session id on the event bus."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+
+        assert orch._current_session is not None
+        assert bus._active_session_id == orch._current_session.id
+
+
+class TestEndSession:
+    """Tests for the extracted _end_session helper."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_session_end_event(self, config: HydraFlowConfig) -> None:
+        """_end_session should publish exactly one SESSION_END event."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+        await orch._end_session()
+
+        end_events = [e for e in bus.get_history() if e.type == EventType.SESSION_END]
+        assert len(end_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_session_end_event_contains_correct_issue_counts(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_end_session event payload should reflect correct succeeded/failed/processed counts."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+        orch._session_issue_results = {10: True, 20: False, 30: True}
+
+        await orch._end_session()
+
+        data = next(
+            e.data for e in bus.get_history() if e.type == EventType.SESSION_END
+        )
+        assert data["issues_succeeded"] == 2
+        assert data["issues_failed"] == 1
+        assert set(data["issues_processed"]) == {10, 20, 30}
+
+    @pytest.mark.asyncio
+    async def test_noop_when_no_current_session(self, config: HydraFlowConfig) -> None:
+        """_end_session should be a no-op when _current_session is None."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        # No session started — should not raise or publish
+        await orch._end_session()
+
+        end_events = [e for e in bus.get_history() if e.type == EventType.SESSION_END]
+        assert len(end_events) == 0
+
+    @pytest.mark.asyncio
+    async def test_clears_session_state(self, config: HydraFlowConfig) -> None:
+        """_end_session should clear _current_session and bus session_id."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+
+        await orch._start_session()
+        await orch._end_session()
+
+        assert orch._current_session is None
+        assert bus._active_session_id is None
+
+
+class TestRestoreState:
+    """Tests for the extracted _restore_state helper."""
+
+    def test_restores_intervals_and_crash_recovery(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_restore_state should load saved intervals and active issues."""
+        orch = HydraFlowOrchestrator(config)
+        orch._state.set_worker_intervals({"memory_sync": 120})
+        orch._state.set_active_issue_numbers([10, 20])
+
+        orch._restore_state()
+
+        assert orch._bg_worker_intervals.get("memory_sync") == 120
+        assert orch._recovered_issues == {10, 20}
+        assert 10 in orch._active_impl_issues
+        assert 20 in orch._active_impl_issues
+
+    def test_clears_interrupted_issues(self, config: HydraFlowConfig) -> None:
+        """_restore_state should remove interrupted issues from all tracking sets."""
+        orch = HydraFlowOrchestrator(config)
+        # Simulate crash recovery state
+        orch._state.set_active_issue_numbers([10, 20])
+        orch._state.set_interrupted_issues({10: "implement", 20: "review"})
+        # Pre-populate review and HITL sets so the discard calls are actually exercised
+        orch._active_review_issues.update([10, 20])
+        orch._hitl_phase.active_hitl_issues.update([10, 20])
+
+        orch._restore_state()
+
+        # Interrupted issues removed from all four tracking sets
+        assert 10 not in orch._recovered_issues
+        assert 20 not in orch._recovered_issues
+        assert 10 not in orch._active_impl_issues
+        assert 20 not in orch._active_impl_issues
+        assert 10 not in orch._active_review_issues
+        assert 20 not in orch._active_review_issues
+        assert 10 not in orch._hitl_phase.active_hitl_issues
+        assert 20 not in orch._hitl_phase.active_hitl_issues
+
+
+# ---------------------------------------------------------------------------
+# _handle_loop_exception — extracted from _supervise_loops
+# ---------------------------------------------------------------------------
+
+
+class TestHandleLoopException:
+    """Tests for the extracted _handle_loop_exception helper."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_sets_stop_and_flag(self, config: HydraFlowConfig) -> None:
+        """AuthenticationError should set _auth_failed and stop_event."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+        tasks: dict[str, asyncio.Task[None]] = {}
+        factories: list = []
+
+        await orch._handle_loop_exception(
+            "plan", AuthenticationError("401"), tasks, factories
+        )
+
+        assert orch._auth_failed is True
+        assert orch._stop_event.is_set()
+        alerts = [e for e in bus.get_history() if e.type == EventType.SYSTEM_ALERT]
+        assert len(alerts) == 1
+        assert "authentication" in alerts[0].data["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_credit_error_delegates_to_pause(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CreditExhaustedError should delegate to _pause_for_credits."""
+        from subprocess_util import CreditExhaustedError
+
+        orch = HydraFlowOrchestrator(config)
+        orch._pause_for_credits = AsyncMock()  # type: ignore[method-assign]
+        tasks: dict[str, asyncio.Task[None]] = {}
+        factories: list = [("plan", AsyncMock())]
+        exc = CreditExhaustedError("limit reached")
+
+        await orch._handle_loop_exception("plan", exc, tasks, factories)
+
+        orch._pause_for_credits.assert_awaited_once_with(exc, "plan", tasks, factories)
+
+    @pytest.mark.asyncio
+    async def test_generic_error_restarts_loop(self, config: HydraFlowConfig) -> None:
+        """Generic exception should restart the crashed loop task."""
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+        tasks: dict[str, asyncio.Task[None]] = {}
+
+        async def dummy_loop() -> None:
+            await asyncio.sleep(100)
+
+        factories: list = [("plan", dummy_loop)]
+
+        await orch._handle_loop_exception(
+            "plan", RuntimeError("boom"), tasks, factories
+        )
+
+        assert "plan" in tasks
+        assert not tasks["plan"].done()
+        tasks["plan"].cancel()
+        error_events = [e for e in bus.get_history() if e.type == EventType.ERROR]
+        assert len(error_events) == 1
+        assert "plan" in error_events[0].data["source"]

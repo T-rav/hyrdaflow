@@ -4868,3 +4868,121 @@ class TestWaitAndFixCIEdgeCases:
         assert len(results) == 1
         # PR should NOT have been merged due to CI failure
         assert results[0].merged is False
+
+
+# ---------------------------------------------------------------------------
+# _handle_self_fix_re_review — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestHandleSelfFixReReview:
+    """Direct tests for the extracted _handle_self_fix_re_review helper."""
+
+    def _setup(
+        self, config: HydraFlowConfig
+    ) -> tuple[ReviewPhase, PRInfo, GitHubIssue, Path]:
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+        phase._prs.get_pr_diff = AsyncMock(return_value="updated diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+        return phase, pr, issue, wt
+
+    @pytest.mark.asyncio
+    async def test_approve_upgrades_result_and_updates_diff(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Re-review APPROVE should return the new result and updated diff."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=True
+        )
+        approved = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=False
+        )
+        phase._reviewers.review = AsyncMock(return_value=approved)
+
+        result, diff = await phase._handle_self_fix_re_review(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.APPROVE
+        assert diff == "updated diff"
+
+    @pytest.mark.asyncio
+    async def test_non_approve_preserves_original_result(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Re-review non-APPROVE should return the original result unchanged."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=True
+        )
+        still_bad = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        phase._reviewers.review = AsyncMock(return_value=still_bad)
+
+        result, _ = await phase._handle_self_fix_re_review(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result is original
+
+    @pytest.mark.asyncio
+    async def test_non_approve_still_updates_diff(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Re-review non-APPROVE should still return the refreshed diff for post-merge hooks."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=True
+        )
+        still_bad = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        phase._reviewers.review = AsyncMock(return_value=still_bad)
+
+        _, diff = await phase._handle_self_fix_re_review(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert diff == "updated diff"
+
+    @pytest.mark.asyncio
+    async def test_pushes_fixes_on_re_review(self, config: HydraFlowConfig) -> None:
+        """Re-review with fixes_made=True should push the additional fixes."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=True
+        )
+        re_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=True
+        )
+        phase._reviewers.review = AsyncMock(return_value=re_result)
+
+        await phase._handle_self_fix_re_review(pr, issue, wt, original, "old diff", 0)
+
+        phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch)
+
+    @pytest.mark.asyncio
+    async def test_exception_falls_back_gracefully(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Exception during re-review should return original result and original diff."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=True
+        )
+        phase._reviewers.review = AsyncMock(
+            side_effect=RuntimeError("transient failure")
+        )
+
+        result, diff = await phase._handle_self_fix_re_review(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result is original
+        assert diff == "old diff"
