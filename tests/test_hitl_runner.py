@@ -380,7 +380,7 @@ class TestTerminate:
 class TestHITLResult:
     """Tests for the HITLResult Pydantic model."""
 
-    def test_hitl_result_defaults_to_not_success_with_empty_transcript(self) -> None:
+    def test_hitl_result_failure_has_empty_transcript_and_zero_duration(self) -> None:
         result = HITLResultFactory.create(success=False)
         assert result.issue_number == 42
         assert result.success is False
