@@ -12,6 +12,7 @@ from tests.helpers import ConfigFactory
 from transcript_summarizer import (
     TranscriptSummarizer,
     _truncate_transcript,
+    build_phase_summary_comment,
     build_transcript_summary_body,
 )
 
@@ -63,6 +64,64 @@ class TestBuildTranscriptSummaryBody:
         assert "Duration" not in body
 
 
+# --- build_phase_summary_comment tests ---
+
+
+class TestBuildPhaseSummaryComment:
+    """Tests for formatting phase summary issue comments."""
+
+    def test_includes_phase_header_status_and_summary(self) -> None:
+        body = build_phase_summary_comment(
+            phase="implement",
+            status="success",
+            summary_content="### Key Decisions\n- Used factory pattern",
+            duration_seconds=90.0,
+            log_file=".hydraflow/logs/issue-42.txt",
+        )
+        assert "## Phase Summary: Implement" in body
+        assert "**Status:** success" in body
+        assert "**Duration:** 90s" in body
+        assert "### Key Decisions" in body
+        assert "Used factory pattern" in body
+
+    def test_includes_collapsible_transcript_reference(self) -> None:
+        body = build_phase_summary_comment(
+            phase="plan",
+            status="success",
+            summary_content="Summary",
+            log_file=".hydraflow/logs/plan-issue-42.txt",
+        )
+        assert "<details>" in body
+        assert "<summary>Full transcript</summary>" in body
+        assert "`.hydraflow/logs/plan-issue-42.txt`" in body
+        assert "</details>" in body
+
+    def test_no_log_file_omits_details(self) -> None:
+        body = build_phase_summary_comment(
+            phase="review",
+            status="failed",
+            summary_content="Summary",
+        )
+        assert "<details>" not in body
+        assert "Full transcript" not in body
+
+    def test_no_duration_omits_field(self) -> None:
+        body = build_phase_summary_comment(
+            phase="plan",
+            status="success",
+            summary_content="Summary",
+        )
+        assert "Duration" not in body
+
+    def test_footer_present(self) -> None:
+        body = build_phase_summary_comment(
+            phase="review",
+            status="completed",
+            summary_content="Summary",
+        )
+        assert "Auto-generated phase summary (review)" in body
+
+
 # --- _truncate_transcript tests ---
 
 
@@ -92,16 +151,233 @@ class TestTruncateTranscript:
         assert result == text
 
 
-# --- TranscriptSummarizer tests ---
+# --- TranscriptSummarizer.summarize_and_comment tests ---
 
 
-class TestTranscriptSummarizer:
-    """Tests for the main TranscriptSummarizer class."""
+class TestSummarizeAndComment:
+    """Tests for comment-based transcript summaries."""
 
     @pytest.mark.asyncio
-    async def test_summarize_publishes_issue(self, tmp_path: Path) -> None:
-        """Happy path: model returns summary, issue is created."""
+    async def test_happy_path_posts_comment(self, tmp_path: Path) -> None:
+        """Model returns summary, post_comment called on correct issue."""
         config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"### Key Decisions\n- Used factory pattern\n", b"")
+        )
+
+        import asyncio as _asyncio
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                _asyncio,
+                "create_subprocess_exec",
+                AsyncMock(return_value=mock_proc),
+            )
+            result = await summarizer.summarize_and_comment(
+                transcript="x" * 1000,
+                issue_number=42,
+                phase="implement",
+                status="success",
+                duration_seconds=60.0,
+                log_file=".hydraflow/logs/issue-42.txt",
+            )
+
+        assert result is True
+        prs.post_comment.assert_awaited_once()
+        call_args = prs.post_comment.call_args
+        assert call_args[0][0] == 42
+        body = call_args[0][1]
+        assert "Phase Summary: Implement" in body
+        assert "**Status:** success" in body
+        assert "Key Decisions" in body
+
+    @pytest.mark.asyncio
+    async def test_emits_transcript_summary_event(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
+
+        import asyncio as _asyncio
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                _asyncio,
+                "create_subprocess_exec",
+                AsyncMock(return_value=mock_proc),
+            )
+            await summarizer.summarize_and_comment(
+                transcript="x" * 1000,
+                issue_number=42,
+                phase="review",
+            )
+
+        bus.publish.assert_called_once()
+        event = bus.publish.call_args[0][0]
+        assert event.type == EventType.TRANSCRIPT_SUMMARY
+        assert event.data["source_issue"] == 42
+        assert event.data["phase"] == "review"
+        assert event.data["posted_as"] == "comment"
+
+    @pytest.mark.asyncio
+    async def test_skips_when_disabled(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summarization_enabled=False
+        )
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
+
+        assert result is False
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_empty_transcript(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+
+        for empty in ("", "   ", "\n\n"):
+            result = await summarizer.summarize_and_comment(
+                transcript=empty, issue_number=42, phase="implement"
+            )
+            assert result is False
+
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_short_transcript(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 499, issue_number=42, phase="implement"
+        )
+
+        assert result is False
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_model_failure(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 1
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+
+        import asyncio as _asyncio
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                _asyncio,
+                "create_subprocess_exec",
+                AsyncMock(return_value=mock_proc),
+            )
+            result = await summarizer.summarize_and_comment(
+                transcript="x" * 1000, issue_number=42, phase="implement"
+            )
+
+        assert result is False
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handles_post_comment_failure(self, tmp_path: Path) -> None:
+        """post_comment raises, but summarize_and_comment returns False (no crash)."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock(side_effect=RuntimeError("network error"))
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
+
+        import asyncio as _asyncio
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                _asyncio,
+                "create_subprocess_exec",
+                AsyncMock(return_value=mock_proc),
+            )
+            result = await summarizer.summarize_and_comment(
+                transcript="x" * 1000, issue_number=42, phase="implement"
+            )
+
+        assert result is False
+
+
+# --- TranscriptSummarizer.summarize_and_publish tests ---
+
+
+class TestSummarizeAndPublish:
+    """Tests for issue-based transcript summaries (legacy, gated by config)."""
+
+    @pytest.mark.asyncio
+    async def test_noop_when_flag_is_off(self, tmp_path: Path) -> None:
+        """Default config (transcript_summary_as_issue=False) returns None immediately."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.create_issue = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
+
+        assert result is None
+        prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_publishes_issue_when_flag_is_on(self, tmp_path: Path) -> None:
+        """With transcript_summary_as_issue=True, original behavior is preserved."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=999)
         bus = MagicMock()
@@ -141,8 +417,10 @@ class TestTranscriptSummarizer:
         assert "Key Decisions" in call_args[0][1]
 
     @pytest.mark.asyncio
-    async def test_summarize_sets_hitl_origin_and_cause(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_sets_hitl_origin_and_cause(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=123)
         bus = MagicMock()
@@ -171,8 +449,10 @@ class TestTranscriptSummarizer:
         state.set_hitl_cause.assert_called_once_with(123, "Transcript summary")
 
     @pytest.mark.asyncio
-    async def test_summarize_emits_event(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_emits_event(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=999)
         bus = MagicMock()
@@ -205,9 +485,11 @@ class TestTranscriptSummarizer:
         assert event.data["summary_issue"] == 999
 
     @pytest.mark.asyncio
-    async def test_summarize_skips_when_disabled(self, tmp_path: Path) -> None:
+    async def test_skips_when_disabled(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(
-            repo_root=tmp_path, transcript_summarization_enabled=False
+            repo_root=tmp_path,
+            transcript_summary_as_issue=True,
+            transcript_summarization_enabled=False,
         )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
@@ -223,8 +505,10 @@ class TestTranscriptSummarizer:
         prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_summarize_skips_empty_transcript(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_skips_empty_transcript(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()
@@ -241,8 +525,10 @@ class TestTranscriptSummarizer:
         prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_summarize_skips_short_transcript(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_skips_short_transcript(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()
@@ -257,9 +543,11 @@ class TestTranscriptSummarizer:
         prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_summarize_truncates_long_transcript(self, tmp_path: Path) -> None:
+    async def test_truncates_long_transcript(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(
-            repo_root=tmp_path, max_transcript_summary_chars=10_000
+            repo_root=tmp_path,
+            transcript_summary_as_issue=True,
+            max_transcript_summary_chars=10_000,
         )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=1)
@@ -299,8 +587,10 @@ class TestTranscriptSummarizer:
         assert len(stdin_data) < 50_000
 
     @pytest.mark.asyncio
-    async def test_summarize_handles_model_failure(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_handles_model_failure(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()
@@ -328,8 +618,10 @@ class TestTranscriptSummarizer:
         prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_summarize_handles_timeout(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_handles_timeout(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()
@@ -360,8 +652,10 @@ class TestTranscriptSummarizer:
         prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_summarize_handles_subprocess_error(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_handles_subprocess_error(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()
@@ -385,9 +679,11 @@ class TestTranscriptSummarizer:
         prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_summarize_dry_run(self, tmp_path: Path) -> None:
+    async def test_dry_run(self, tmp_path: Path) -> None:
         """In dry-run, create_issue returns 0 — summarizer handles gracefully."""
-        config = ConfigFactory.create(repo_root=tmp_path, dry_run=True)
+        config = ConfigFactory.create(
+            repo_root=tmp_path, dry_run=True, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=0)
         bus = MagicMock()
@@ -422,6 +718,7 @@ class TestTranscriptSummarizer:
         """Labels should be improve_label + hitl_label, same as memory suggestions."""
         config = ConfigFactory.create(
             repo_root=tmp_path,
+            transcript_summary_as_issue=True,
             improve_label=["custom-improve"],
             hitl_label=["custom-hitl"],
         )
@@ -454,9 +751,11 @@ class TestTranscriptSummarizer:
         assert labels == ["custom-improve", "custom-hitl"]
 
     @pytest.mark.asyncio
-    async def test_summarize_empty_model_output(self, tmp_path: Path) -> None:
+    async def test_empty_model_output(self, tmp_path: Path) -> None:
         """If the model returns empty output, no issue should be created."""
-        config = ConfigFactory.create(repo_root=tmp_path)
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_as_issue=True
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()

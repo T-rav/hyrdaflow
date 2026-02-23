@@ -14,6 +14,7 @@ from models import GitHubIssue, PlanResult
 from planner import PlannerRunner
 from pr_manager import PRManager
 from state import StateTracker
+from transcript_summarizer import TranscriptSummarizer
 
 logger = logging.getLogger("hydraflow.plan_phase")
 
@@ -30,6 +31,7 @@ class PlanPhase:
         prs: PRManager,
         bus: EventBus,
         stop_event: asyncio.Event,
+        transcript_summarizer: TranscriptSummarizer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -38,6 +40,7 @@ class PlanPhase:
         self._prs = prs
         self._bus = bus
         self._stop_event = stop_event
+        self._summarizer = transcript_summarizer
 
     async def plan_issues(self) -> list[PlanResult]:
         """Run planning agents on issues from the plan queue."""
@@ -183,6 +186,30 @@ class PlanPhase:
                         except Exception:
                             logger.exception(
                                 "Failed to file memory suggestion for issue #%d",
+                                issue.number,
+                            )
+
+                    # Post transcript summary comment on the original issue
+                    if self._summarizer and result.transcript:
+                        if result.retry_attempted:
+                            ts_status = "escalated"
+                        elif result.success:
+                            ts_status = "success"
+                        else:
+                            ts_status = "failed"
+                        try:
+                            await self._summarizer.summarize_and_comment(
+                                transcript=result.transcript,
+                                issue_number=issue.number,
+                                phase="plan",
+                                status=ts_status,
+                                issue_title=issue.title,
+                                duration_seconds=result.duration_seconds,
+                                log_file=f".hydraflow/logs/plan-issue-{issue.number}.txt",
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to post transcript summary for issue #%d",
                                 issue.number,
                             )
 

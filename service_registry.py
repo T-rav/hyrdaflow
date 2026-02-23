@@ -125,7 +125,16 @@ def build_services(
 
     # Phase coordinators
     triager = TriagePhase(config, state, store, triage, prs, bus, stop_event)
-    planner_phase = PlanPhase(config, state, store, planners, prs, bus, stop_event)
+    planner_phase = PlanPhase(
+        config,
+        state,
+        store,
+        planners,
+        prs,
+        bus,
+        stop_event,
+        transcript_summarizer=summarizer,
+    )
     hitl_phase = HITLPhase(
         config,
         state,

@@ -43,6 +43,8 @@ def make_issue(
 
 def _make_phase(
     config: HydraFlowConfig,
+    *,
+    summarizer: AsyncMock | None = None,
 ) -> tuple[PlanPhase, StateTracker, AsyncMock, AsyncMock, IssueStore, asyncio.Event]:
     """Build a PlanPhase with mock dependencies.
 
@@ -61,7 +63,16 @@ def _make_phase(
     prs.create_issue = AsyncMock(return_value=99)
     prs.close_issue = AsyncMock()
     stop_event = asyncio.Event()
-    phase = PlanPhase(config, state, store, planners, prs, bus, stop_event)
+    phase = PlanPhase(
+        config,
+        state,
+        store,
+        planners,
+        prs,
+        bus,
+        stop_event,
+        transcript_summarizer=summarizer,
+    )
     return phase, state, planners, prs, store, stop_event
 
 
@@ -623,3 +634,148 @@ class TestPlanPhaseAlreadySatisfied:
         add_calls = [c.args for c in prs.add_labels.call_args_list]
         ready_calls = [c for c in add_calls if config.ready_label[0] in c[1]]
         assert len(ready_calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# Plan phase — transcript summary comments
+# ---------------------------------------------------------------------------
+
+
+class TestPlanPhaseTranscriptSummary:
+    """Tests for transcript summary comments after plan phase."""
+
+    @pytest.mark.asyncio
+    async def test_successful_plan_calls_summarize_and_comment(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After successful plan, summarize_and_comment is called with phase=plan."""
+        mock_summarizer = AsyncMock()
+        mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
+        phase, _state, planners, prs, store, _stop = _make_phase(
+            config, summarizer=mock_summarizer
+        )
+        issue = make_issue(42, title="Fix bug")
+        plan_result = PlanResult(
+            issue_number=42,
+            success=True,
+            plan="Step 1: Do the thing",
+            summary="Plan done",
+            transcript="x" * 1000,
+            duration_seconds=30.0,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.plan_issues()
+
+        mock_summarizer.summarize_and_comment.assert_awaited_once()
+        call_kwargs = mock_summarizer.summarize_and_comment.call_args
+        assert call_kwargs.kwargs["phase"] == "plan"
+        assert call_kwargs.kwargs["status"] == "success"
+        assert call_kwargs.kwargs["issue_title"] == "Fix bug"
+        assert call_kwargs.kwargs["duration_seconds"] == 30.0
+        assert ".hydraflow/logs/plan-issue-42.txt" in call_kwargs.kwargs["log_file"]
+
+    @pytest.mark.asyncio
+    async def test_failed_plan_escalation_calls_summarize_with_escalated(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After HITL escalation, status should be 'escalated'."""
+        mock_summarizer = AsyncMock()
+        mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
+        phase, _state, planners, prs, store, _stop = _make_phase(
+            config, summarizer=mock_summarizer
+        )
+        issue = make_issue(42)
+        plan_result = PlanResult(
+            issue_number=42,
+            success=False,
+            retry_attempted=True,
+            transcript="x" * 1000,
+            validation_errors=["Missing section"],
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.plan_issues()
+
+        mock_summarizer.summarize_and_comment.assert_awaited_once()
+        assert (
+            mock_summarizer.summarize_and_comment.call_args.kwargs["status"]
+            == "escalated"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failed_plan_calls_summarize_with_failed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After plan failure (no retry), status should be 'failed'."""
+        mock_summarizer = AsyncMock()
+        mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
+        phase, _state, planners, prs, store, _stop = _make_phase(
+            config, summarizer=mock_summarizer
+        )
+        issue = make_issue(42)
+        plan_result = PlanResult(
+            issue_number=42,
+            success=False,
+            transcript="x" * 1000,
+            error="Agent crashed",
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.plan_issues()
+
+        mock_summarizer.summarize_and_comment.assert_awaited_once()
+        assert (
+            mock_summarizer.summarize_and_comment.call_args.kwargs["status"] == "failed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_empty_transcript_skips_summarize(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When transcript is empty, summarize_and_comment is NOT called."""
+        mock_summarizer = AsyncMock()
+        mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
+        phase, _state, planners, prs, store, _stop = _make_phase(
+            config, summarizer=mock_summarizer
+        )
+        issue = make_issue(42)
+        plan_result = PlanResult(
+            issue_number=42,
+            success=True,
+            plan="The plan",
+            summary="Done",
+            transcript="",
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.plan_issues()
+
+        mock_summarizer.summarize_and_comment.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_summarizer_does_not_crash(self, config: HydraFlowConfig) -> None:
+        """When transcript_summarizer is None, no crash occurs."""
+        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        issue = make_issue(42)
+        plan_result = PlanResult(
+            issue_number=42,
+            success=True,
+            plan="The plan",
+            summary="Done",
+            transcript="x" * 1000,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        # Should not raise
+        await phase.plan_issues()
