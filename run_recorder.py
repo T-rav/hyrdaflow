@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-logger = logging.getLogger("hydra.run_recorder")
+logger = logging.getLogger("hydraflow.run_recorder")
 
 
 class RunManifest(BaseModel):
