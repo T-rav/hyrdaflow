@@ -1748,6 +1748,55 @@ class TestDeleteSessionCorruptLines:
         assert "Skipping corrupt session line" in caplog.text
 
 
+# ---------------------------------------------------------------------------
+# Last Reviewed SHA Tracking
+# ---------------------------------------------------------------------------
+
+
+class TestLastReviewedSha:
+    """Tests for set/get/clear_last_reviewed_sha."""
+
+    def test_set_and_get_returns_stored_sha(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "abc123def456")
+        assert tracker.get_last_reviewed_sha(42) == "abc123def456"
+
+    def test_get_returns_none_when_unset(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_last_reviewed_sha(99) is None
+
+    def test_clear_removes_entry(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "abc123")
+        tracker.clear_last_reviewed_sha(42)
+        assert tracker.get_last_reviewed_sha(42) is None
+
+    def test_clear_nonexistent_is_noop(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.clear_last_reviewed_sha(999)  # should not raise
+        assert tracker.get_last_reviewed_sha(999) is None
+
+    def test_persists_across_reload(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "sha256hash")
+        # Reload from disk
+        tracker2 = make_tracker(tmp_path)
+        assert tracker2.get_last_reviewed_sha(42) == "sha256hash"
+
+    def test_overwrite_updates_sha(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "old_sha")
+        tracker.set_last_reviewed_sha(42, "new_sha")
+        assert tracker.get_last_reviewed_sha(42) == "new_sha"
+
+    def test_multiple_issues_independent(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(1, "sha_one")
+        tracker.set_last_reviewed_sha(2, "sha_two")
+        assert tracker.get_last_reviewed_sha(1) == "sha_one"
+        assert tracker.get_last_reviewed_sha(2) == "sha_two"
+
+
 class TestPruneSessionsCorruptLines:
     """Verify prune_sessions skips corrupt JSONL lines with debug logging."""
 

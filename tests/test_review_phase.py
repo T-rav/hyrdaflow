@@ -4986,3 +4986,139 @@ class TestHandleSelfFixReReview:
 
         assert result is original
         assert diff == "old diff"
+
+
+# ---------------------------------------------------------------------------
+# Skip Guard: No new commits since last review
+# ---------------------------------------------------------------------------
+
+
+class TestSkipGuardNoNewCommits:
+    """Tests for the SHA-based skip guard in _review_one_inner."""
+
+    @pytest.mark.asyncio
+    async def test_skip_review_when_no_new_commits(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """PR with same SHA as last review should be skipped."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Store a SHA to simulate a previous review
+        phase._state.set_last_reviewed_sha(pr.issue_number, "abc123")
+
+        # get_pr_head_sha returns the same SHA
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="abc123")
+
+        result = await phase._review_one_inner(0, pr, {issue.number: issue})
+
+        assert "Skipped" in result.summary
+        assert "no new commits" in result.summary
+        # Review agent should NOT be called
+        phase._reviewers.review.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_review_proceeds_with_new_commits(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """PR with different SHA should proceed with review."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Store old SHA
+        phase._state.set_last_reviewed_sha(pr.issue_number, "old_sha")
+
+        # Current SHA is different
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="new_sha")
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {issue.number: issue})
+
+        # Review should have proceeded
+        phase._reviewers.review.assert_awaited_once()
+        assert "Skipped" not in result.summary
+
+    @pytest.mark.asyncio
+    async def test_review_proceeds_when_no_prior_sha(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """PR with no stored SHA (first review) should proceed normally."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # No stored SHA — first review
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="some_sha")
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {issue.number: issue})
+
+        phase._reviewers.review.assert_awaited_once()
+        assert "Skipped" not in result.summary
+
+    @pytest.mark.asyncio
+    async def test_sha_updated_after_review(self, config: HydraFlowConfig) -> None:
+        """After a successful review, the SHA should be recorded in state."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Return different SHAs: pre-review SHA, then post-review SHA
+        phase._prs.get_pr_head_sha = AsyncMock(
+            side_effect=["pre_review_sha", "post_review_sha"]
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase._review_one_inner(0, pr, {issue.number: issue})
+
+        stored = phase._state.get_last_reviewed_sha(pr.issue_number)
+        assert stored == "post_review_sha"
+
+    @pytest.mark.asyncio
+    async def test_review_proceeds_when_sha_fetch_fails(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Empty SHA from get_pr_head_sha should skip guard (fail-open)."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Store a SHA — but the fetch returns empty (failure)
+        phase._state.set_last_reviewed_sha(pr.issue_number, "some_sha")
+
+        # Fail-open: first call returns "" (skip guard bypassed),
+        # second call also returns "" (no SHA stored)
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="")
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {issue.number: issue})
+
+        # Review should have proceeded (fail-open)
+        phase._reviewers.review.assert_awaited_once()
+        assert "Skipped" not in result.summary

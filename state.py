@@ -211,6 +211,22 @@ class StateTracker:
         self._data.interrupted_issues = {}
         self.save()
 
+    # --- last reviewed SHA tracking ---
+
+    def set_last_reviewed_sha(self, issue_number: int, sha: str) -> None:
+        """Record the last-reviewed commit SHA for *issue_number*."""
+        self._data.last_reviewed_shas[str(issue_number)] = sha
+        self.save()
+
+    def get_last_reviewed_sha(self, issue_number: int) -> str | None:
+        """Return the last-reviewed commit SHA for *issue_number*, or *None*."""
+        return self._data.last_reviewed_shas.get(str(issue_number))
+
+    def clear_last_reviewed_sha(self, issue_number: int) -> None:
+        """Clear the last-reviewed commit SHA for *issue_number*."""
+        self._data.last_reviewed_shas.pop(str(issue_number), None)
+        self.save()
+
     # --- worker result metadata ---
 
     def set_worker_result_meta(self, issue_number: int, meta: dict[str, Any]) -> None:

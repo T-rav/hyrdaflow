@@ -3146,3 +3146,187 @@ class TestListHitlItemsExceptionHandling:
 
         assert result == []
         assert "Failed to fetch HITL items" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# get_pr_head_sha
+# ---------------------------------------------------------------------------
+
+
+class TestGetPrHeadSha:
+    """Tests for PRManager.get_pr_head_sha."""
+
+    @pytest.mark.asyncio
+    async def test_returns_sha_on_success(self, config, event_bus, tmp_path) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        sha = "abc123def456789"
+        mock_create = _make_subprocess_mock(
+            returncode=0, stdout=json.dumps({"headRefOid": sha})
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_head_sha(101)
+
+        assert result == sha
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_string_on_failure(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_head_sha(101)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_string_in_dry_run(self, dry_config, event_bus) -> None:
+        mgr = _make_manager(dry_config, event_bus)
+        result = await mgr.get_pr_head_sha(101)
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# get_pr_reviews
+# ---------------------------------------------------------------------------
+
+
+class TestGetPrReviews:
+    """Tests for PRManager.get_pr_reviews."""
+
+    @pytest.mark.asyncio
+    async def test_returns_reviews_on_success(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        reviews = [
+            {
+                "author": "bot-user",
+                "state": "APPROVED",
+                "submitted_at": "2026-01-01T00:00:00Z",
+                "commit_id": "abc123",
+            }
+        ]
+        mock_create = _make_subprocess_mock(returncode=0, stdout=json.dumps(reviews))
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_reviews(101)
+
+        assert len(result) == 1
+        assert result[0]["author"] == "bot-user"
+        assert result[0]["state"] == "APPROVED"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_on_failure(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = _make_subprocess_mock(returncode=1, stderr="error")
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_reviews(101)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_in_dry_run(self, dry_config, event_bus) -> None:
+        mgr = _make_manager(dry_config, event_bus)
+        result = await mgr.get_pr_reviews(101)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_pr_comments
+# ---------------------------------------------------------------------------
+
+
+class TestGetPrComments:
+    """Tests for PRManager.get_pr_comments."""
+
+    @pytest.mark.asyncio
+    async def test_returns_comments_on_success(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        comments = [{"author": "bot-user", "created_at": "2026-01-01T00:00:00Z"}]
+        mock_create = _make_subprocess_mock(returncode=0, stdout=json.dumps(comments))
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_comments(101)
+
+        assert len(result) == 1
+        assert result[0]["author"] == "bot-user"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_on_failure(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = _make_subprocess_mock(returncode=1, stderr="error")
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_comments(101)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_in_dry_run(self, dry_config, event_bus) -> None:
+        mgr = _make_manager(dry_config, event_bus)
+        result = await mgr.get_pr_comments(101)
+        assert result == []

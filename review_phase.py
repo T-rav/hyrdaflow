@@ -183,6 +183,24 @@ class ReviewPhase:
                 summary="Issue not found",
             )
 
+        # Skip guard: avoid re-reviewing when no new commits since last review
+        current_sha = await self._prs.get_pr_head_sha(pr.number)
+        if current_sha:
+            stored_sha = self._state.get_last_reviewed_sha(pr.issue_number)
+            if stored_sha and stored_sha == current_sha:
+                logger.info(
+                    "PR #%d (issue #%d): skipping review — no new commits since "
+                    "last review (SHA %s)",
+                    pr.number,
+                    pr.issue_number,
+                    current_sha[:12],
+                )
+                return ReviewResult(
+                    pr_number=pr.number,
+                    issue_number=pr.issue_number,
+                    summary="Skipped — no new commits since last review",
+                )
+
         wt_path = self._config.worktree_base / f"issue-{pr.issue_number}"
         if not wt_path.exists():
             wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
@@ -215,6 +233,12 @@ class ReviewPhase:
         self._state.mark_pr(pr.number, result.verdict.value)
         self._state.mark_issue(pr.issue_number, "reviewed")
         self._state.record_review_verdict(result.verdict.value, result.fixes_made)
+
+        # Record the current remote HEAD SHA so the skip guard works next cycle
+        post_review_sha = await self._prs.get_pr_head_sha(pr.number)
+        if post_review_sha:
+            self._state.set_last_reviewed_sha(pr.issue_number, post_review_sha)
+
         if result.duration_seconds > 0:
             self._state.record_review_duration(result.duration_seconds)
         await self._record_review_insight(result)

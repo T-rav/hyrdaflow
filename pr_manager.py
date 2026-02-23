@@ -652,6 +652,80 @@ class PRManager:
 
         return False, f"Timeout after {timeout}s"
 
+    # --- PR activity query helpers ---
+
+    async def get_pr_head_sha(self, pr_number: int) -> str:
+        """Fetch the HEAD commit SHA for *pr_number*.
+
+        Returns the SHA string, or empty string on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch HEAD SHA for PR #%d", pr_number)
+            return ""
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "headRefOid",
+            )
+            data = json.loads(raw)
+            return data.get("headRefOid", "")
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch HEAD SHA for PR #%d: %s", pr_number, exc)
+            return ""
+
+    async def get_pr_reviews(self, pr_number: int) -> list[dict[str, str]]:
+        """Fetch reviews for *pr_number* with author info.
+
+        Returns a list of dicts with ``author``, ``state``, ``submitted_at``,
+        and ``commit_id`` keys.  Returns ``[]`` on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch reviews for PR #%d", pr_number)
+            return []
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/pulls/{pr_number}/reviews",
+                "--jq",
+                "[.[] | {author: .user.login, state: .state, submitted_at: .submitted_at, commit_id: .commit_id}]",
+            )
+            return json.loads(raw)  # type: ignore[no-any-return]
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch reviews for PR #%d: %s", pr_number, exc)
+            return []
+
+    async def get_pr_comments(self, pr_number: int) -> list[dict[str, str]]:
+        """Fetch issue-level comments for *pr_number* with author info.
+
+        Returns a list of dicts with ``author`` and ``created_at`` keys.
+        Returns ``[]`` on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch comments for PR #%d", pr_number)
+            return []
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/issues/{pr_number}/comments",
+                "--jq",
+                "[.[] | {author: .user.login, created_at: .created_at}]",
+            )
+            return json.loads(raw)  # type: ignore[no-any-return]
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch comments for PR #%d: %s", pr_number, exc)
+            return []
+
     # --- dashboard query helpers ---
 
     async def list_open_prs(self, labels: list[str]) -> list[PRListItem]:
