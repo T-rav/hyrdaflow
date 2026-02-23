@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock
 
 if TYPE_CHECKING:
@@ -42,6 +43,69 @@ def make_streaming_proc(
     mock_proc.stderr.read = AsyncMock(return_value=stderr.encode())
     mock_proc.wait = AsyncMock(return_value=returncode)
     return AsyncMock(return_value=mock_proc)
+
+
+def instant_sleep_factory(stop_event: asyncio.Event):
+    """Return a sleep function that stops the loop after 2 sleep cycles.
+
+    Used by background worker loop tests to prevent infinite loops.
+    """
+    call_count = 0
+
+    async def sleep(_seconds: int | float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            stop_event.set()
+        await asyncio.sleep(0)
+
+    return sleep
+
+
+class BgLoopDeps(NamedTuple):
+    """Common dependencies for background worker loop tests."""
+
+    config: Any  # HydraFlowConfig
+    bus: Any  # EventBus
+    stop_event: asyncio.Event
+    status_cb: MagicMock
+    enabled_cb: Callable[[str], bool]
+    sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+
+
+def make_bg_loop_deps(
+    tmp_path: Path,
+    *,
+    enabled: bool = True,
+    **config_overrides: Any,
+) -> BgLoopDeps:
+    """Create common dependencies for background worker loop tests.
+
+    Returns a BgLoopDeps NamedTuple with config, bus, stop_event,
+    status_cb, enabled_cb, and sleep_fn — the 6 constructor args
+    shared by all background loop classes.
+
+    Pass interval overrides via config_overrides, e.g.:
+        make_bg_loop_deps(tmp_path, memory_sync_interval=30)
+    """
+    from events import EventBus
+
+    config = ConfigFactory.create(
+        repo_root=tmp_path / "repo",
+        **config_overrides,
+    )
+    bus = EventBus()
+    stop_event = asyncio.Event()
+    sleep_fn = instant_sleep_factory(stop_event)
+
+    return BgLoopDeps(
+        config=config,
+        bus=bus,
+        stop_event=stop_event,
+        status_cb=MagicMock(),
+        enabled_cb=lambda _name: enabled,
+        sleep_fn=sleep_fn,
+    )
 
 
 class ConfigFactory:

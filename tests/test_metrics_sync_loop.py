@@ -11,9 +11,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from events import EventBus, EventType
+from events import EventType
 from metrics_sync_loop import MetricsSyncLoop
-from tests.helpers import ConfigFactory
+from tests.helpers import make_bg_loop_deps
 
 
 def _make_loop(
@@ -24,10 +24,7 @@ def _make_loop(
     sync_error: Exception | None = None,
 ) -> tuple[MetricsSyncLoop, asyncio.Event]:
     """Build a MetricsSyncLoop with test-friendly defaults."""
-    config = ConfigFactory.create(
-        repo_root=tmp_path / "repo",
-        metrics_sync_interval=interval,
-    )
+    deps = make_bg_loop_deps(tmp_path, enabled=enabled, metrics_sync_interval=interval)
 
     store = MagicMock()
     store.get_queue_stats = MagicMock(return_value={"queued": 0})
@@ -38,29 +35,17 @@ def _make_loop(
     else:
         metrics_manager.sync = AsyncMock(return_value={"issues_processed": 5})
 
-    bus = EventBus()
-    stop_event = asyncio.Event()
-
-    call_count = 0
-
-    async def instant_sleep(_seconds: int | float) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count >= 2:
-            stop_event.set()
-        await asyncio.sleep(0)
-
     loop = MetricsSyncLoop(
-        config=config,
+        config=deps.config,
         store=store,
         metrics_manager=metrics_manager,
-        event_bus=bus,
-        stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
-        sleep_fn=instant_sleep,
+        event_bus=deps.bus,
+        stop_event=deps.stop_event,
+        status_cb=deps.status_cb,
+        enabled_cb=deps.enabled_cb,
+        sleep_fn=deps.sleep_fn,
     )
-    return loop, stop_event
+    return loop, deps.stop_event
 
 
 class TestMetricsSyncLoopRun:

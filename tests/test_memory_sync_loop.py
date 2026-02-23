@@ -11,9 +11,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from events import EventBus, EventType
+from events import EventType
 from memory_sync_loop import MemorySyncLoop
-from tests.helpers import ConfigFactory
+from tests.helpers import make_bg_loop_deps
 
 
 def _make_loop(
@@ -24,10 +24,7 @@ def _make_loop(
     sync_error: Exception | None = None,
 ) -> tuple[MemorySyncLoop, asyncio.Event]:
     """Build a MemorySyncLoop with test-friendly defaults."""
-    config = ConfigFactory.create(
-        repo_root=tmp_path / "repo",
-        memory_sync_interval=interval,
-    )
+    deps = make_bg_loop_deps(tmp_path, enabled=enabled, memory_sync_interval=interval)
 
     fetcher = MagicMock()
     fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
@@ -39,29 +36,17 @@ def _make_loop(
         memory_sync.sync = AsyncMock(return_value={"total": 0, "updated": 0})
     memory_sync.publish_sync_event = AsyncMock()
 
-    bus = EventBus()
-    stop_event = asyncio.Event()
-
-    call_count = 0
-
-    async def instant_sleep(_seconds: int | float) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count >= 2:
-            stop_event.set()
-        await asyncio.sleep(0)
-
     loop = MemorySyncLoop(
-        config=config,
+        config=deps.config,
         fetcher=fetcher,
         memory_sync=memory_sync,
-        event_bus=bus,
-        stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
-        sleep_fn=instant_sleep,
+        event_bus=deps.bus,
+        stop_event=deps.stop_event,
+        status_cb=deps.status_cb,
+        enabled_cb=deps.enabled_cb,
+        sleep_fn=deps.sleep_fn,
     )
-    return loop, stop_event
+    return loop, deps.stop_event
 
 
 class TestMemorySyncLoopRun:
