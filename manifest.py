@@ -100,6 +100,23 @@ def detect_languages(repo_root: Path) -> list[str]:
     return languages
 
 
+def detect_language(repo_root: Path) -> str:
+    """Detect the primary language of a repository from marker files.
+
+    Returns ``"python"``, ``"javascript"``, ``"mixed"``, or ``"unknown"``.
+    """
+    has_python = any((repo_root / m).exists() for m in PYTHON_MARKERS)
+    has_js = any((repo_root / m).exists() for m in JS_MARKERS)
+
+    if has_python and has_js:
+        return "mixed"
+    if has_python:
+        return "python"
+    if has_js:
+        return "javascript"
+    return "unknown"
+
+
 def detect_build_systems(repo_root: Path) -> list[str]:
     """Detect build systems present in the repository."""
     systems: list[str] = []

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from makefile_scaffold import (
     ScaffoldResult,
-    detect_language,
     generate_makefile,
     merge_makefile,
     parse_makefile,
@@ -17,37 +16,11 @@ from makefile_scaffold import (
 class TestDetectLanguage:
     """Tests for detect_language()."""
 
-    def test_detects_python_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        assert detect_language(tmp_path) == "python"
+    def test_detect_language_is_imported_from_manifest(self) -> None:
+        from makefile_scaffold import detect_language
+        from manifest import detect_language as manifest_detect_language
 
-    def test_detects_python_repo_from_setup_py(self, tmp_path: Path) -> None:
-        (tmp_path / "setup.py").touch()
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_python_repo_from_setup_cfg(self, tmp_path: Path) -> None:
-        (tmp_path / "setup.cfg").touch()
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_python_repo_from_requirements_txt(self, tmp_path: Path) -> None:
-        (tmp_path / "requirements.txt").touch()
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_javascript_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").touch()
-        assert detect_language(tmp_path) == "javascript"
-
-    def test_detects_typescript_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "tsconfig.json").touch()
-        assert detect_language(tmp_path) == "javascript"
-
-    def test_detects_mixed_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        (tmp_path / "package.json").touch()
-        assert detect_language(tmp_path) == "mixed"
-
-    def test_detects_unknown_repo(self, tmp_path: Path) -> None:
-        assert detect_language(tmp_path) == "unknown"
+        assert detect_language is manifest_detect_language
 
 
 class TestParseMakefile:
