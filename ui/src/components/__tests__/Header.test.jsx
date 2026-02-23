@@ -66,7 +66,7 @@ describe('Header component', () => {
 
   it('renders without errors', () => {
     render(<Header {...defaultProps} />)
-    expect(screen.getByText('HYDRA')).toBeInTheDocument()
+    expect(screen.getByText('HYDRAFLOW')).toBeInTheDocument()
   })
 
   it('renders Start button when idle', () => {
@@ -134,7 +134,7 @@ describe('Header component', () => {
 
   it('left section has flexShrink 0 to prevent collapsing', () => {
     render(<Header {...defaultProps} />)
-    const logo = screen.getByText('HYDRA')
+    const logo = screen.getByText('HYDRAFLOW')
     // logo is inside logoGroup -> left div; go up two levels past logoGroup
     const leftDiv = logo.parentElement.parentElement
     expect(leftDiv.style.flexShrink).toBe('0')
