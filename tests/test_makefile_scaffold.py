@@ -25,7 +25,7 @@ class TestParseMakefile:
         assert "pytest" in result["test"]
 
     def test_handles_targets_with_dependencies(self) -> None:
-        content = "quality: lint-check typecheck test\n\ntest:\n\tpytest\n"
+        content = "quality: quality-lite test\n\ntest:\n\tpytest\n"
         result = parse_makefile(content)
         assert "quality" in result
         assert "test" in result
@@ -92,7 +92,8 @@ class TestGenerateMakefile:
 
     def test_quality_target_chains_dependencies(self) -> None:
         content = generate_makefile("python")
-        assert "quality: lint-check typecheck test" in content
+        assert "quality-lite: lint-check typecheck security" in content
+        assert "quality: quality-lite test" in content
 
     def test_includes_phony_declaration(self) -> None:
         content = generate_makefile("python")
@@ -100,7 +101,9 @@ class TestGenerateMakefile:
         assert "lint" in content
         assert "lint-check" in content
         assert "typecheck" in content
+        assert "security" in content
         assert "test" in content
+        assert "quality-lite" in content
         assert "quality" in content
 
     def test_unknown_language_returns_empty(self) -> None:
@@ -184,11 +187,20 @@ class TestMergeMakefile:
         _, warnings = merge_makefile(existing, "python")
         assert any("quality" in w for w in warnings)
 
+    def test_warns_on_different_quality_lite_prerequisites(self) -> None:
+        # quality-lite: exists but chains different targets — should warn
+        existing = "quality-lite: lint-check typecheck\n"
+        _, warnings = merge_makefile(existing, "python")
+        assert any("quality-lite" in w for w in warnings)
+
     def test_no_warning_when_quality_deps_match(self) -> None:
         # quality: exists with correct chain — no warning
-        existing = "quality: lint-check typecheck test\n"
+        existing = (
+            "quality-lite: lint-check typecheck security\nquality: quality-lite test\n"
+        )
         _, warnings = merge_makefile(existing, "python")
         assert not any("quality" in w for w in warnings)
+        assert not any("quality-lite" in w for w in warnings)
 
     def test_handles_makefile_without_phony(self) -> None:
         existing = "clean:\n\trm -rf dist\n"

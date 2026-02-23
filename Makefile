@@ -38,7 +38,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean test test-fast test-cov lint lint-check typecheck security quality quality-full install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
+.PHONY: help run dev dry-run clean test test-fast test-cov lint lint-check typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
 
 help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
@@ -55,8 +55,8 @@ help:
 	@echo "  make lint-check     Check linting (no fix)"
 	@echo "  make typecheck      Run Pyright type checks"
 	@echo "  make security       Run Bandit security scan"
-	@echo "  make quality        Lint + typecheck + test (parallel)"
-	@echo "  make quality-full   quality + security scan"
+	@echo "  make quality-lite   Lint + typecheck + security (parallel)"
+	@echo "  make quality        quality-lite + test (parallel)"
 	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
 	@echo "  make prep           Scan + scaffold CI/tests, then run fix/hooks/tests"
 	@echo "  make setup          Install git hooks + Claude/Codex assets"
@@ -174,6 +174,7 @@ quality: deps
 	@cd $(HYDRAFLOW_DIR) && ( \
 		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \
 		$(UV) pyright && echo "[typecheck OK]" & \
+		$(UV) bandit -c pyproject.toml -r . --severity-level medium && echo "[security OK]" & \
 		PYTHONPATH=. $(UV) pytest tests/ && echo "[tests OK]" & \
 		wait_result=0; \
 		for job in $$(jobs -p); do wait $$job || wait_result=1; done; \
@@ -181,8 +182,17 @@ quality: deps
 	)
 	@echo "$(GREEN)HydraFlow quality pipeline passed$(RESET)"
 
-quality-full: quality security
-	@echo "$(GREEN)HydraFlow full quality pipeline passed$(RESET)"
+quality-lite: deps
+	@echo "$(BLUE)Running lightweight quality checks...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && ( \
+		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \
+		$(UV) pyright && echo "[typecheck OK]" & \
+		$(UV) bandit -c pyproject.toml -r . --severity-level medium && echo "[security OK]" & \
+		wait_result=0; \
+		for job in $$(jobs -p); do wait $$job || wait_result=1; done; \
+		exit $$wait_result; \
+	)
+	@echo "$(GREEN)HydraFlow lightweight quality checks passed$(RESET)"
 
 install:
 	@echo "$(BLUE)Installing HydraFlow dashboard dependencies...$(RESET)"
@@ -254,8 +264,8 @@ setup:
 		fi; \
 	fi
 	@echo "$(GREEN)Setup complete$(RESET)"
-	@echo "  pre-commit: lint check on staged Python files"
-	@echo "  pre-push:   full quality gate (lint + typecheck + security + tests)"
+	@echo "  pre-commit: make lint-check (when staged Python files exist)"
+	@echo "  pre-push:   make quality-lite"
 
 REPO_SLUG := $(shell git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]||;s|\.git$$||')
 
