@@ -43,6 +43,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
     ("harness_insight_window", "HYDRAFLOW_HARNESS_INSIGHT_WINDOW", 20),
     ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
+    ("max_runtime_log_chars", "HYDRAFLOW_MAX_RUNTIME_LOG_CHARS", 8_000),
+    ("max_ci_log_chars", "HYDRAFLOW_MAX_CI_LOG_CHARS", 12_000),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -74,6 +76,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
     ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
+    ("inject_runtime_logs", "HYDRAFLOW_INJECT_RUNTIME_LOGS", False),
 ]
 
 # Label env var overrides — maps env key → (field_name, default_value)
@@ -386,6 +389,24 @@ class HydraFlowConfig(BaseModel):
     memory_auto_approve: bool = Field(
         default=False,
         description="When True, memory suggestions skip HITL and go directly to the sync queue",
+    )
+
+    # Observability context injection
+    inject_runtime_logs: bool = Field(
+        default=False,
+        description="Inject runtime application logs into agent context (opt-in)",
+    )
+    max_runtime_log_chars: int = Field(
+        default=8_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for runtime log injection",
+    )
+    max_ci_log_chars: int = Field(
+        default=12_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for CI failure log injection",
     )
 
     # Manifest detection

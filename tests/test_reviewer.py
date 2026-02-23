@@ -1744,3 +1744,84 @@ async def test_precheck_passes_high_risk_false_for_safe_diff(
 
     mock_escalate.assert_called_once()
     assert mock_escalate.call_args[1]["high_risk_files_touched"] is False
+
+
+# _build_ci_fix_prompt — CI log injection
+# ---------------------------------------------------------------------------
+
+
+def test_build_ci_fix_prompt_includes_ci_logs_when_provided(config, event_bus):
+    """Prompt should include Full CI Failure Logs section when ci_logs is provided."""
+    from tests.conftest import IssueFactory, PRInfoFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = IssueFactory.create()
+
+    prompt = runner._build_ci_fix_prompt(
+        pr, issue, "Failed checks: Build", attempt=1, ci_logs="Error in main.py:42"
+    )
+
+    assert "## Full CI Failure Logs" in prompt
+    assert "Error in main.py:42" in prompt
+
+
+def test_build_ci_fix_prompt_excludes_ci_logs_when_empty(config, event_bus):
+    """Prompt should NOT include CI logs section when ci_logs is empty."""
+    from tests.conftest import IssueFactory, PRInfoFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = IssueFactory.create()
+
+    prompt = runner._build_ci_fix_prompt(pr, issue, "Failed checks: Build", attempt=1)
+
+    assert "## Full CI Failure Logs" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# _build_review_prompt — runtime log injection
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_bus):
+    """Review prompt includes Runtime Logs section when enabled and logs exist."""
+    from tests.conftest import IssueFactory, PRInfoFactory
+
+    config = ConfigFactory.create(
+        inject_runtime_logs=True,
+        repo_root=tmp_path,
+    )
+    log_dir = tmp_path / ".hydraflow" / "logs"
+    log_dir.mkdir(parents=True)
+    (log_dir / "hydraflow.log").write_text("INFO: ok\nERROR: failed\n")
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = IssueFactory.create()
+
+    with (
+        patch("base_runner.load_project_manifest", return_value=""),
+        patch("base_runner.load_memory_digest", return_value=""),
+    ):
+        prompt = runner._build_review_prompt(pr, issue, "diff --git a/foo.py")
+
+    assert "## Recent Application Logs" in prompt
+    assert "ERROR: failed" in prompt
+
+
+def test_build_review_prompt_excludes_runtime_logs_when_disabled(config, event_bus):
+    """Review prompt does NOT include runtime logs when disabled."""
+    from tests.conftest import IssueFactory, PRInfoFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = IssueFactory.create()
+
+    with (
+        patch("base_runner.load_project_manifest", return_value=""),
+        patch("base_runner.load_memory_digest", return_value=""),
+    ):
+        prompt = runner._build_review_prompt(pr, issue, "diff --git a/foo.py")
+
+    assert "## Recent Application Logs" not in prompt
