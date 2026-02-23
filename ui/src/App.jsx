@@ -66,7 +66,7 @@ function AppContent() {
 
   // Auto-select the first active worker when none is selected
   useEffect(() => {
-    if (selectedWorker !== null && (workers[selectedWorker] || (typeof selectedWorker === 'string' && selectedWorker.startsWith('bg-')))) return
+    if (selectedWorker !== null && workers[selectedWorker]) return
     const active = Object.entries(workers).find(
       ([, w]) => ACTIVE_STATUSES.includes(w.status)
     )
@@ -88,22 +88,6 @@ function AppContent() {
       await fetch('/api/control/stop', { method: 'POST' })
     } catch { /* ignore */ }
   }, [])
-
-  const handleViewTranscript = useCallback((key) => {
-    if (typeof key === 'string' && key.startsWith('bg-')) {
-      setSelectedWorker(key)
-    } else {
-      const numKey = Number(key)
-      if (workers[numKey]) {
-        setSelectedWorker(numKey)
-      } else if (workers[`plan-${key}`]) {
-        setSelectedWorker(`plan-${key}`)
-      } else if (workers[`triage-${key}`]) {
-        setSelectedWorker(`triage-${key}`)
-      }
-    }
-    setActiveTab('transcript')
-  }, [workers])
 
   const handleRequestChanges = useCallback(async (issueNumber, feedback, stage) => {
     const ok = await requestChanges(issueNumber, feedback, stage)
@@ -158,7 +142,7 @@ function AppContent() {
               <TranscriptView workers={workers} selectedWorker={selectedWorker} />
             )}
             {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
-            {activeTab === 'system' && <SystemPanel backgroundWorkers={backgroundWorkers} onToggleBgWorker={toggleBgWorker} onViewLog={handleViewTranscript} onUpdateInterval={updateBgWorkerInterval} />}
+            {activeTab === 'system' && <SystemPanel backgroundWorkers={backgroundWorkers} onToggleBgWorker={toggleBgWorker} onUpdateInterval={updateBgWorkerInterval} />}
             {activeTab === 'metrics' && <MetricsPanel />}
           </div>
         </div>

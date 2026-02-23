@@ -298,7 +298,7 @@ describe('SystemPanel', () => {
       expect(dot.style.background).toBe('var(--red)')
     })
 
-    it('shows pipeline stage counts as details when orchestrator running', () => {
+    it('does not show pipeline stage counts as details when orchestrator running (log stream only)', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({
         pipelinePollerLastRun: '2026-02-20T10:00:00Z',
         orchestratorStatus: 'running',
@@ -311,13 +311,9 @@ describe('SystemPanel', () => {
         },
       }))
       render(<SystemPanel backgroundWorkers={[]} />)
-      // Pipeline poller card shows stage keys as detail labels
-      expect(screen.getByText('triage')).toBeInTheDocument()
-      expect(screen.getByText('plan')).toBeInTheDocument()
-      expect(screen.getByText('implement')).toBeInTheDocument()
-      expect(screen.getByText('review')).toBeInTheDocument()
-      expect(screen.getByText('hitl')).toBeInTheDocument()
-      expect(screen.getByText('total')).toBeInTheDocument()
+      // Pipeline poller card should NOT show stage keys as detail labels
+      expect(screen.queryByText('triage')).not.toBeInTheDocument()
+      expect(screen.queryByText('total')).not.toBeInTheDocument()
     })
   })
 
@@ -395,28 +391,6 @@ describe('SystemPanel', () => {
     })
   })
 
-  describe('View Log link', () => {
-    it('shows View Log link on each background worker card when onViewLog provided', () => {
-      render(<SystemPanel backgroundWorkers={mockBgWorkers} onViewLog={() => {}} />)
-      for (const def of BACKGROUND_WORKERS) {
-        expect(screen.getByTestId(`view-log-${def.key}`)).toBeInTheDocument()
-        expect(screen.getByTestId(`view-log-${def.key}`)).toHaveTextContent('View Log')
-      }
-    })
-
-    it('does not show View Log link when onViewLog is not provided', () => {
-      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-      expect(screen.queryByText('View Log')).not.toBeInTheDocument()
-    })
-
-    it('clicking View Log calls onViewLog with bg-prefixed key', () => {
-      const onViewLog = vi.fn()
-      render(<SystemPanel backgroundWorkers={mockBgWorkers} onViewLog={onViewLog} />)
-      fireEvent.click(screen.getByTestId('view-log-memory_sync'))
-      expect(onViewLog).toHaveBeenCalledWith('bg-memory_sync')
-    })
-  })
-
   describe('Worker Log Stream integration', () => {
     it('renders log stream when background_worker_status events exist for a worker', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({
@@ -461,6 +435,66 @@ describe('SystemPanel', () => {
       const stream = screen.getByTestId('worker-log-stream')
       // Formatted line includes status and details joined by middle dot (·)
       expect(stream.textContent).toContain('ok · items: 5')
+    })
+
+    it('filters events by worker key so each card only shows its own events', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        orchestratorStatus: 'running',
+        events: [
+          { timestamp: '2026-02-20T10:00:02Z', type: 'background_worker_status', data: { worker: 'memory_sync', status: 'ok', details: { items: 5 } } },
+          { timestamp: '2026-02-20T10:00:01Z', type: 'background_worker_status', data: { worker: 'metrics', status: 'ok', details: { cpu: 42 } } },
+          { timestamp: '2026-02-20T10:00:00Z', type: 'background_worker_status', data: { worker: 'memory_sync', status: 'ok', details: { items: 3 } } },
+        ],
+      }))
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      const memorySyncCard = screen.getByTestId('worker-card-memory_sync')
+      const memorySyncStream = within(memorySyncCard).getByTestId('worker-log-stream')
+      // memory_sync card should contain its own events but not metrics events
+      expect(memorySyncStream.textContent).toContain('items: 5')
+      expect(memorySyncStream.textContent).toContain('items: 3')
+      expect(memorySyncStream.textContent).not.toContain('cpu: 42')
+    })
+
+    it('Pipeline Poller shows log stream but no stats/details', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        orchestratorStatus: 'running',
+        pipelinePollerLastRun: '2026-02-20T10:00:00Z',
+        pipelineIssues: {
+          triage: [{ number: 1 }],
+          plan: [{ number: 2 }, { number: 3 }],
+          implement: [],
+          review: [{ number: 4 }],
+          hitl: [{ number: 5 }],
+        },
+        events: [
+          { timestamp: '2026-02-20T10:30:00Z', type: 'background_worker_status', data: { worker: 'pipeline_poller', status: 'ok', details: { polled: 5 } } },
+        ],
+      }))
+      render(<SystemPanel backgroundWorkers={[]} />)
+      const pollerCard = screen.getByTestId('worker-card-pipeline_poller')
+      // Log stream should render inside pipeline_poller card
+      expect(within(pollerCard).getByTestId('worker-log-stream')).toBeInTheDocument()
+      // Pipeline stage counts should NOT render as detail rows
+      expect(screen.queryByText('triage')).not.toBeInTheDocument()
+      expect(screen.queryByText('total')).not.toBeInTheDocument()
+    })
+
+    it('shows both error details and log stream when error worker has events', () => {
+      // Tests the detailsErrorCompact vs detailsError branching: when recentEvents.length > 0,
+      // compact style must be used so the log stream below it is not visually clipped.
+      const events = [
+        { timestamp: '2026-02-20T10:30:00Z', type: 'background_worker_status', data: { worker: 'retrospective', status: 'error', details: { err: 'timeout' } } },
+      ]
+      const errorWorkers = [
+        { name: 'retrospective', status: 'error', enabled: true, last_run: null, details: { error: 'Connection timeout' } },
+      ]
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running', events }))
+      render(<SystemPanel backgroundWorkers={errorWorkers} />)
+      // Error details section must still render
+      expect(screen.getByText('Connection timeout')).toBeInTheDocument()
+      // Log stream must also render alongside error details (not suppressed)
+      const retroCard = screen.getByTestId('worker-card-retrospective')
+      expect(within(retroCard).getByTestId('worker-log-stream')).toBeInTheDocument()
     })
   })
 })
