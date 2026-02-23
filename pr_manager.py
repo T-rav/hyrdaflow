@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -587,6 +588,75 @@ class PRManager:
         except (RuntimeError, json.JSONDecodeError) as exc:
             logger.warning("Could not fetch CI checks for PR #%d: %s", pr_number, exc)
             return []
+
+    _RUN_ID_PATTERN = re.compile(r"/actions/runs/(\d+)")
+
+    async def fetch_ci_failure_logs(self, pr_number: int) -> str:
+        """Fetch full CI failure logs for *pr_number*.
+
+        Queries check runs, extracts run IDs from failed checks, and
+        fetches their ``--log-failed`` output.  Returns the concatenated
+        log text (one section per failed check) or an empty string on
+        error or in dry-run mode.
+        """
+        if self._config.dry_run:
+            return ""
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "checks",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "name,state,detailsUrl",
+            )
+            checks = json.loads(raw)
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch CI checks for PR #%d: %s", pr_number, exc)
+            return ""
+
+        # Collect run IDs from failed checks
+        seen_run_ids: set[str] = set()
+        failed_names: list[tuple[str, str]] = []  # (name, run_id)
+        for check in checks:
+            state = check.get("state", "").upper()
+            if state in self._PASSING_STATES or state in self._PENDING_STATES:
+                continue
+            details_url = check.get("detailsUrl", "")
+            if not details_url:
+                continue
+            match = self._RUN_ID_PATTERN.search(details_url)
+            if not match:
+                continue
+            run_id = match.group(1)
+            if run_id not in seen_run_ids:
+                seen_run_ids.add(run_id)
+                failed_names.append((check.get("name", "unknown"), run_id))
+
+        if not failed_names:
+            return ""
+
+        sections: list[str] = []
+        for name, run_id in failed_names:
+            try:
+                log_output = await self._run_gh(
+                    "gh",
+                    "run",
+                    "view",
+                    run_id,
+                    "--repo",
+                    self._repo,
+                    "--log-failed",
+                )
+                if log_output.strip():
+                    sections.append(f"### {name} (run {run_id})\n\n{log_output}")
+            except RuntimeError as exc:
+                logger.debug("Could not fetch log for run %s: %s", run_id, exc)
+
+        return "\n\n".join(sections)
 
     _PASSING_STATES = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
     _PENDING_STATES = frozenset(

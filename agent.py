@@ -275,6 +275,15 @@ class AgentRunner(BaseRunner):
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
+        # Runtime log injection (opt-in)
+        log_section = ""
+        if self._config.inject_runtime_logs:
+            from log_context import load_runtime_logs  # noqa: PLC0415
+
+            logs = load_runtime_logs(self._config)
+            if logs:
+                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+
         # Truncate issue body if too long
         body = issue.body
         max_body = self._config.max_issue_body_chars
@@ -290,7 +299,7 @@ class AgentRunner(BaseRunner):
 
 ## Issue: {issue.title}
 
-{body}{plan_section}{review_feedback_section}{comments_section}{manifest_section}{memory_section}
+{body}{plan_section}{review_feedback_section}{comments_section}{manifest_section}{memory_section}{log_section}
 
 ## Instructions
 

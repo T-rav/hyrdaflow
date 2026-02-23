@@ -507,3 +507,91 @@ class TestWaitAndFixCIEdgeCases:
         assert len(results) == 1
         # PR should NOT have been merged due to CI failure
         assert results[0].merged is False
+
+
+# ---------------------------------------------------------------------------
+# wait_and_fix_ci — CI log injection
+# ---------------------------------------------------------------------------
+
+
+class TestWaitAndFixCIWithLogs:
+    """Tests for CI log injection in wait_and_fix_ci."""
+
+    @pytest.mark.asyncio
+    async def test_fetches_ci_logs_when_enabled(self, tmp_path: Path) -> None:
+        """When inject_runtime_logs is True, fetch_ci_failure_logs is called."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(
+            inject_runtime_logs=True,
+            max_ci_fix_attempts=1,
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "state.json",
+        )
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        issue = IssueFactory.create()
+        result = ReviewResultFactory.create()
+        wt = tmp_path / "wt" / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        # First call: wait_for_ci fails; second: CI fix; third: wait_for_ci passes
+        phase._prs.wait_for_ci = AsyncMock(
+            side_effect=[
+                (False, "Failed checks: Build"),
+                (True, "All 1 checks passed"),
+            ]
+        )
+        phase._prs.fetch_ci_failure_logs = AsyncMock(
+            return_value="Error in test.py line 10"
+        )
+        fix_result = ReviewResultFactory.create(fixes_made=True)
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.push_branch = AsyncMock(return_value=True)
+
+        passed = await phase.wait_and_fix_ci(pr, issue, wt, result, 0)
+
+        assert passed is True
+        phase._prs.fetch_ci_failure_logs.assert_awaited_once_with(pr.number)
+        # Verify ci_logs was passed through to fix_ci
+        call_kwargs = phase._reviewers.fix_ci.call_args.kwargs
+        assert "ci_logs" in call_kwargs
+        assert "Error in test.py" in call_kwargs["ci_logs"]
+
+    @pytest.mark.asyncio
+    async def test_skips_ci_logs_when_disabled(
+        self, config: HydraFlowConfig, tmp_path: Path
+    ) -> None:
+        """When inject_runtime_logs is False, fetch_ci_failure_logs is NOT called."""
+        from tests.helpers import ConfigFactory
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        issue = IssueFactory.create()
+        result = ReviewResultFactory.create()
+        wt = tmp_path / "wt" / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        phase._prs.wait_for_ci = AsyncMock(
+            side_effect=[
+                (False, "Failed checks: Build"),
+                (True, "All 1 checks passed"),
+            ]
+        )
+        phase._prs.fetch_ci_failure_logs = AsyncMock(return_value="")
+        fix_result = ReviewResultFactory.create(fixes_made=True)
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.push_branch = AsyncMock(return_value=True)
+
+        # Need max_ci_fix_attempts > 0
+        phase._config = ConfigFactory.create(
+            max_ci_fix_attempts=1,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+
+        await phase.wait_and_fix_ci(pr, issue, wt, result, 0)
+
+        phase._prs.fetch_ci_failure_logs.assert_not_awaited()

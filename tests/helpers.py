@@ -219,6 +219,9 @@ class ConfigFactory:
         transcript_summary_as_issue: bool = False,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
+        inject_runtime_logs: bool = False,
+        max_runtime_log_chars: int = 8_000,
+        max_ci_log_chars: int = 12_000,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -344,6 +347,9 @@ class ConfigFactory:
             transcript_summary_as_issue=transcript_summary_as_issue,
             harness_insight_window=harness_insight_window,
             harness_pattern_threshold=harness_pattern_threshold,
+            inject_runtime_logs=inject_runtime_logs,
+            max_runtime_log_chars=max_runtime_log_chars,
+            max_ci_log_chars=max_ci_log_chars,
         )
 
 

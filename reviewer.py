@@ -136,6 +136,7 @@ class ReviewRunner(BaseRunner):
         failure_summary: str,
         attempt: int = 1,
         worker_id: int = 0,
+        ci_logs: str = "",
     ) -> ReviewResult:
         """Run an agent to fix CI failures.
 
@@ -171,7 +172,9 @@ class ReviewRunner(BaseRunner):
 
         try:
             cmd = self._build_command(worktree_path)
-            prompt = self._build_ci_fix_prompt(pr, issue, failure_summary, attempt)
+            prompt = self._build_ci_fix_prompt(
+                pr, issue, failure_summary, attempt, ci_logs=ci_logs
+            )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
                 cmd, prompt, worktree_path, {"pr": pr.number, "source": "reviewer"}
@@ -211,14 +214,19 @@ class ReviewRunner(BaseRunner):
         issue: GitHubIssue,
         failure_summary: str,
         attempt: int,
+        ci_logs: str = "",
     ) -> str:
         """Build a focused prompt for fixing CI failures."""
+        ci_logs_section = ""
+        if ci_logs:
+            ci_logs_section = f"\n\n## Full CI Failure Logs\n\n```\n{ci_logs}\n```"
+
         test_cmd = self._config.test_command
         return f"""You are fixing CI failures on PR #{pr.number} (issue #{issue.number}: {issue.title}).
 
 ## CI Failure Summary
 
-{failure_summary}
+{failure_summary}{ci_logs_section}
 
 ## Fix Attempt {attempt}
 
@@ -302,11 +310,20 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
+        # Runtime log injection (opt-in)
+        log_section = ""
+        if self._config.inject_runtime_logs:
+            from log_context import load_runtime_logs  # noqa: PLC0415
+
+            logs = load_runtime_logs(self._config)
+            if logs:
+                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+
         return f"""You are reviewing PR #{pr.number} which implements issue #{issue.number}.
 
 ## Issue: {issue.title}
 
-{issue.body}{manifest_section}{memory_section}
+{issue.body}{manifest_section}{memory_section}{log_section}
 
 ## Precheck Context
 

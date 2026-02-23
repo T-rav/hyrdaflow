@@ -3132,3 +3132,102 @@ class TestListHitlItemsExceptionHandling:
 
         assert result == []
         assert "Failed to fetch HITL items" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# fetch_ci_failure_logs
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCiFailureLogs:
+    """Tests for PRManager.fetch_ci_failure_logs."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
+        """Dry-run mode returns empty string."""
+        manager = _make_manager(dry_config, event_bus)
+        result = await manager.fetch_ci_failure_logs(101)
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_no_failed_checks(self, config, event_bus):
+        """All passing checks returns empty string."""
+        manager = _make_manager(config, event_bus)
+        checks_json = json.dumps(
+            [
+                {"name": "Build", "state": "SUCCESS", "detailsUrl": ""},
+                {"name": "Lint", "state": "SUCCESS", "detailsUrl": ""},
+            ]
+        )
+        mock_create = _make_subprocess_mock(returncode=0, stdout=checks_json)
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_ci_failure_logs(101)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_fetches_log_for_failed_check(self, config, event_bus):
+        """Fetches log output for a failed check with a valid detailsUrl."""
+        manager = _make_manager(config, event_bus)
+        checks_json = json.dumps(
+            [
+                {
+                    "name": "Build & Test",
+                    "state": "FAILURE",
+                    "detailsUrl": "https://github.com/org/repo/actions/runs/12345/job/67890",
+                },
+            ]
+        )
+
+        call_count = 0
+
+        async def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            mock_proc = AsyncMock()
+            mock_proc.wait = AsyncMock(return_value=0)
+            mock_proc.returncode = 0
+            if call_count == 1:
+                # First call: gh pr checks
+                stdout = checks_json.encode()
+            else:
+                # Second call: gh run view --log-failed
+                stdout = (
+                    b"Error in test_foo.py line 42\nAssertionError: expected 1 got 2\n"
+                )
+            mock_proc.communicate = AsyncMock(return_value=(stdout, b""))
+            return mock_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=side_effect):
+            result = await manager.fetch_ci_failure_logs(101)
+
+        assert "Build & Test" in result
+        assert "12345" in result
+
+    @pytest.mark.asyncio
+    async def test_handles_missing_details_url(self, config, event_bus):
+        """Check without detailsUrl is skipped gracefully."""
+        manager = _make_manager(config, event_bus)
+        checks_json = json.dumps(
+            [
+                {"name": "External", "state": "FAILURE", "detailsUrl": ""},
+            ]
+        )
+        mock_create = _make_subprocess_mock(returncode=0, stdout=checks_json)
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_ci_failure_logs(101)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_handles_gh_error_gracefully(self, config, event_bus):
+        """RuntimeError from gh returns empty string."""
+        manager = _make_manager(config, event_bus)
+        mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_ci_failure_logs(101)
+
+        assert result == ""
