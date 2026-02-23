@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ACTIVE_STATUSES, PIPELINE_STAGES, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS } from '../../constants'
+import { ACTIVE_STATUSES, PIPELINE_STAGES, PIPELINE_LOOPS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS } from '../../constants'
 import { theme } from '../../theme'
 
 describe('ACTIVE_STATUSES', () => {
@@ -105,6 +105,22 @@ describe('PIPELINE_STAGES', () => {
   it('has unique keys', () => {
     const keys = PIPELINE_STAGES.map(s => s.key)
     expect(new Set(keys).size).toBe(keys.length)
+  })
+})
+
+describe('PIPELINE_LOOPS', () => {
+  it('has entries for all non-merged pipeline stages', () => {
+    const stageKeys = PIPELINE_STAGES.filter(s => s.key !== 'merged').map(s => s.key)
+    expect(PIPELINE_LOOPS.map(l => l.key)).toEqual(stageKeys)
+  })
+
+  it('every loop has key, label, color, and dimColor properties', () => {
+    for (const loop of PIPELINE_LOOPS) {
+      expect(loop).toHaveProperty('key')
+      expect(loop).toHaveProperty('label')
+      expect(loop).toHaveProperty('color')
+      expect(loop).toHaveProperty('dimColor')
+    }
   })
 })
 

@@ -47,7 +47,7 @@ export function Header({
       <div style={styles.left}>
         <img src="/hydraflow-logo-small.png" alt="HydraFlow" style={styles.logoImg} />
         <div style={styles.logoGroup}>
-          <span style={styles.logo}>HYDRA</span>
+          <span style={styles.logo}>HYDRAFLOW</span>
           <span style={styles.subtitle}>Intent in.</span>
           <span style={styles.subtitle}>Software out.</span>
         </div>

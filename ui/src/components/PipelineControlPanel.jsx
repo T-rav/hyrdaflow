@@ -96,7 +96,7 @@ function PipelineWorkerCard({ workerKey, worker }) {
 }
 
 export function PipelineControlPanel({ onToggleBgWorker }) {
-  const { workers, stageStatus, hitlItems } = useHydraFlow()
+  const { workers, stageStatus, hitlItems, config } = useHydraFlow()
 
   const pipelineWorkers = Object.entries(workers || {}).filter(
     ([, w]) => w.role && ACTIVE_STATUSES.includes(w.status)
@@ -113,6 +113,8 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
           const status = stageStatus[loop.key] || {}
           const enabled = status.enabled !== false
           const activeCount = status.workerCount || 0
+          const configKey = stageConfigKey[loop.key]
+          const maxWorkers = configKey ? config?.[configKey] : null
           return (
             <div key={loop.key} style={styles.loopChip}>
               <span style={enabled ? loopDotLit[loop.key] : loopDotDim[loop.key]} />
@@ -121,10 +123,10 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
                 style={enabled && activeCount > 0 ? loopCountActive[loop.key] : loopCountDim}
                 data-testid={`loop-count-${loop.key}`}
               >
-                {activeCount}
+                {maxWorkers != null ? `${activeCount}/${maxWorkers}` : activeCount}
               </span>
               <span style={styles.loopCountLabel}>
-                {activeCount === 1 ? 'worker' : 'workers'}
+                {activeCount === 1 && maxWorkers == null ? 'worker' : 'workers'}
               </span>
               {onToggleBgWorker && (
                 <button
@@ -211,7 +213,7 @@ const styles = {
   loopCount: {
     fontSize: 10,
     fontWeight: 700,
-    minWidth: 14,
+    minWidth: 28,
     textAlign: 'center',
   },
   loopCountLabel: {
@@ -361,6 +363,9 @@ const styles = {
     overflowY: 'auto',
   },
 }
+
+// Pre-computed configKey lookup from PIPELINE_STAGES (single source of truth for stage metadata)
+const stageConfigKey = Object.fromEntries(PIPELINE_STAGES.map(s => [s.key, s.configKey]))
 
 // Pre-computed role badge style variants — keyed by role string (avoids object spread in render loops)
 const roleBadgeByRole = Object.fromEntries(

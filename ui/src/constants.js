@@ -33,7 +33,7 @@ export const STREAM_CARD_STATUSES = ['active', 'queued', 'done', 'failed', 'hitl
  * Pipeline loop definitions — core processing loops that can be toggled on/off.
  */
 export const PIPELINE_LOOPS = [
-  { key: 'triage',    label: 'Triage',    color: theme.triageGreen, dimColor: theme.greenSubtle },
+  { key: 'triage',    label: 'Triage',    color: theme.triageGreen, dimColor: theme.greenSubtle  },
   { key: 'plan',      label: 'Plan',      color: theme.purple,      dimColor: theme.purpleSubtle },
   { key: 'implement', label: 'Implement', color: theme.accent,      dimColor: theme.accentSubtle },
   { key: 'review',    label: 'Review',    color: theme.orange,      dimColor: theme.orangeSubtle },
