@@ -193,7 +193,13 @@ class TestPrUnstickerReturnType:
             fetcher=MagicMock(),
         )
         result = await unsticker.unstick([])
-        assert set(result.keys()) == {"processed", "resolved", "failed", "skipped"}
+        assert set(result.keys()) == {
+            "processed",
+            "resolved",
+            "failed",
+            "skipped",
+            "merged",
+        }
         for val in result.values():
             assert isinstance(val, int)
 

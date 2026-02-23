@@ -537,6 +537,7 @@ class ControlStatusConfig(BaseModel):
     batch_size: int = 0
     model: str = ""
     memory_auto_approve: bool = False
+    unstick_max_workers: int = 3
 
 
 class ControlStatusResponse(BaseModel):
@@ -613,6 +614,7 @@ class UnstickResult(TypedDict):
     resolved: int
     failed: int
     skipped: int
+    merged: int
 
 
 class MetricsSyncResult(TypedDict, total=False):

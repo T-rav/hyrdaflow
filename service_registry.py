@@ -171,7 +171,15 @@ def build_services(
 
     metrics_manager = MetricsManager(config, state, prs, event_bus)
     pr_unsticker = PRUnsticker(
-        config, state, event_bus, prs, agents, worktrees, fetcher
+        config,
+        state,
+        event_bus,
+        prs,
+        agents,
+        worktrees,
+        fetcher,
+        hitl_runner=hitl_runner,
+        stop_event=stop_event,
     )
     memory_sync = MemorySyncWorker(config, state, event_bus, runner=subprocess_runner)
     retrospective = RetrospectiveCollector(config, state, prs)

@@ -52,6 +52,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
     ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
     ("error_output_max_chars", "HYDRAFLOW_ERROR_OUTPUT_MAX_CHARS", 3000),
+    ("unstick_max_workers", "HYDRAFLOW_UNSTICK_MAX_WORKERS", 3),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -84,6 +85,8 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
     ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
     ("inject_runtime_logs", "HYDRAFLOW_INJECT_RUNTIME_LOGS", False),
+    ("unstick_auto_merge", "HYDRAFLOW_UNSTICK_AUTO_MERGE", True),
+    ("unstick_all_causes", "HYDRAFLOW_UNSTICK_ALL_CAUSES", True),
 ]
 
 # Label env var overrides — maps env key → (field_name, default_value)
@@ -559,6 +562,20 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=50,
         description="Max HITL items to process per unsticker cycle",
+    )
+    unstick_auto_merge: bool = Field(
+        default=True,
+        description="Auto-merge PRs after fixing and CI passes",
+    )
+    unstick_all_causes: bool = Field(
+        default=True,
+        description="Process all HITL causes (not just merge conflicts)",
+    )
+    unstick_max_workers: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Max parallel fix workers for the PR unsticker",
     )
 
     # Session retention
