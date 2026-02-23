@@ -1,7 +1,7 @@
 {
-  "name": "hyrda-ui",
+  "name": "hydraflow-ui",
   "version": "1.0.0",
-  "description": "Hydra dashboard — Intent in. Software out.",
+  "description": "HydraFlow dashboard — Intent in. Software out.",
   "private": true,
   "dependencies": {
     "lucide-react": "^0.263.1",

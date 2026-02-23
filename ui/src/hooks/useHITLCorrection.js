@@ -24,5 +24,12 @@ export function useHITLCorrection() {
     return resp.ok
   }, [])
 
-  return { submitCorrection, skipIssue, closeIssue }
+  const approveAsMemory = useCallback(async (issueNumber) => {
+    const resp = await fetch(`/api/hitl/${issueNumber}/approve-memory`, {
+      method: 'POST',
+    })
+    return resp.ok
+  }, [])
+
+  return { submitCorrection, skipIssue, closeIssue, approveAsMemory }
 }

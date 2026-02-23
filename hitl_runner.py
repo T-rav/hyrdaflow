@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from pathlib import Path
 
-from config import HydraConfig
-from events import EventBus, EventType, HydraEvent
+from base_runner import BaseRunner
+from events import EventType, HydraFlowEvent
 from models import GitHubIssue, HITLResult
-from runner_utils import stream_claude_process, terminate_processes
+from runner_constants import MEMORY_SUGGESTION_PROMPT
+from subprocess_util import CreditExhaustedError
 
-logger = logging.getLogger("hydra.hitl_runner")
+logger = logging.getLogger("hydraflow.hitl_runner")
 
 # Prompt instructions keyed by escalation cause category.
 _CAUSE_INSTRUCTIONS: dict[str, str] = {
@@ -65,7 +65,7 @@ def _classify_cause(cause: str) -> str:
     return "default"
 
 
-class HITLRunner:
+class HITLRunner(BaseRunner):
     """Launches a ``claude -p`` process to apply HITL corrections.
 
     Accepts an issue, human-provided correction text, and the
@@ -73,10 +73,7 @@ class HITLRunner:
     agent inside the issue's worktree.
     """
 
-    def __init__(self, config: HydraConfig, event_bus: EventBus) -> None:
-        self._config = config
-        self._bus = event_bus
-        self._active_procs: set[asyncio.subprocess.Process] = set()
+    _log = logger
 
     async def run(
         self,
@@ -94,7 +91,7 @@ class HITLRunner:
         result = HITLResult(issue_number=issue.number)
 
         await self._bus.publish(
-            HydraEvent(
+            HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
                 data={
                     "issue": issue.number,
@@ -114,7 +111,9 @@ class HITLRunner:
         try:
             cmd = self._build_command(worktree_path)
             prompt = self._build_prompt(issue, correction, cause)
-            transcript = await self._execute(cmd, prompt, worktree_path, issue.number)
+            transcript = await self._execute(
+                cmd, prompt, worktree_path, {"issue": issue.number, "source": "hitl"}
+            )
             result.transcript = transcript
 
             success, verify_msg = await self._verify_quality(worktree_path)
@@ -122,8 +121,10 @@ class HITLRunner:
             if not success:
                 result.error = verify_msg
 
-            self._save_transcript(issue.number, transcript)
+            self._save_transcript("hitl-issue", issue.number, transcript)
 
+        except CreditExhaustedError:
+            raise
         except Exception as exc:
             result.success = False
             result.error = str(exc)
@@ -133,7 +134,7 @@ class HITLRunner:
 
         status = "done" if result.success else "failed"
         await self._bus.publish(
-            HydraEvent(
+            HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
                 data={
                     "issue": issue.number,
@@ -147,23 +148,6 @@ class HITLRunner:
 
         return result
 
-    def _build_command(self, worktree_path: Path) -> list[str]:
-        """Construct the ``claude`` CLI invocation for HITL."""
-        cmd = [
-            "claude",
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--model",
-            self._config.model,
-            "--verbose",
-            "--permission-mode",
-            "bypassPermissions",
-        ]
-        if self._config.max_budget_usd > 0:
-            cmd.extend(["--max-budget-usd", str(self._config.max_budget_usd)])
-        return cmd
-
     def _build_prompt(self, issue: GitHubIssue, correction: str, cause: str) -> str:
         """Build the HITL prompt with cause-specific instructions and human guidance."""
         cause_key = _classify_cause(cause)
@@ -171,11 +155,13 @@ class HITLRunner:
             "#{issue}", f"#{issue.number}"
         )
 
+        manifest_section, memory_section = self._inject_manifest_and_memory()
+
         return f"""You are applying a human-in-the-loop correction for GitHub issue #{issue.number}.
 
 ## Issue: {issue.title}
 
-{issue.body}
+{issue.body}{manifest_section}{memory_section}
 
 ## Escalation Reason
 
@@ -196,54 +182,5 @@ class HITLRunner:
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
 - Ensure `make quality` passes before committing.
-"""
 
-    def terminate(self) -> None:
-        """Kill all active HITL subprocesses."""
-        terminate_processes(self._active_procs)
-
-    async def _execute(
-        self,
-        cmd: list[str],
-        prompt: str,
-        worktree_path: Path,
-        issue_number: int,
-    ) -> str:
-        """Run the claude process and stream its output."""
-        return await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=worktree_path,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data={"issue": issue_number, "source": "hitl"},
-            logger=logger,
-        )
-
-    async def _verify_quality(self, worktree_path: Path) -> tuple[bool, str]:
-        """Run ``make quality`` and return ``(success, error_output)``."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "make",
-                "quality",
-                cwd=str(worktree_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                output = stdout.decode(errors="replace") + stderr.decode(
-                    errors="replace"
-                )
-                return False, f"`make quality` failed:\n{output[-3000:]}"
-        except FileNotFoundError:
-            return False, "make not found — cannot run quality checks"
-        return True, "OK"
-
-    def _save_transcript(self, issue_number: int, transcript: str) -> None:
-        """Write the HITL transcript to .hydra/logs/ for post-mortem review."""
-        log_dir = self._config.repo_root / ".hydra" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        path = log_dir / f"hitl-issue-{issue_number}.txt"
-        path.write_text(transcript)
-        logger.info("HITL transcript saved to %s", path, extra={"issue": issue_number})
+{MEMORY_SUGGESTION_PROMPT.format(context="correction")}"""

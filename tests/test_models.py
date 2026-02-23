@@ -1,27 +1,33 @@
-"""Tests for dx/hydra/models.py."""
+"""Tests for dx/hydraflow/models.py."""
 
 from __future__ import annotations
 
 import pytest
 
-# conftest.py already inserts the hydra package directory into sys.path
+# conftest.py already inserts the hydraflow package directory into sys.path
 from models import (
     BatchResult,
     ControlStatusConfig,
     ControlStatusResponse,
     GitHubIssue,
     HITLItem,
+    JudgeResult,
+    LifetimeStats,
     NewIssueSpec,
     Phase,
     PlannerStatus,
     PlanResult,
     PRInfo,
     PRListItem,
+    ReviewerStatus,
     ReviewResult,
     ReviewVerdict,
+    StateData,
+    VerificationCriterion,
     WorkerResult,
     WorkerStatus,
 )
+from tests.conftest import ReviewResultFactory
 
 # ---------------------------------------------------------------------------
 # GitHubIssue
@@ -193,7 +199,7 @@ class TestGitHubIssue:
             "number": 42,
             "title": "Improve widget",
             "body": "The widget is slow.",
-            "labels": [{"name": "hydra-ready"}, {"name": "perf"}],
+            "labels": [{"name": "hydraflow-ready"}, {"name": "perf"}],
             "comments": [{"body": "LGTM"}, {"body": "Needs tests"}],
             "url": "https://github.com/org/repo/issues/42",
         }
@@ -205,7 +211,7 @@ class TestGitHubIssue:
         assert issue.number == 42
         assert issue.title == "Improve widget"
         assert issue.body == "The widget is slow."
-        assert issue.labels == ["hydra-ready", "perf"]
+        assert issue.labels == ["hydraflow-ready", "perf"]
         assert issue.comments == ["LGTM", "Needs tests"]
         assert issue.url == "https://github.com/org/repo/issues/42"
 
@@ -334,6 +340,14 @@ class TestPlanResult:
         result = PlanResult(issue_number=1, retry_attempted=True)
         assert result.retry_attempted is True
 
+    def test_already_satisfied_defaults_to_false(self) -> None:
+        result = PlanResult(issue_number=1)
+        assert result.already_satisfied is False
+
+    def test_already_satisfied_can_be_set(self) -> None:
+        result = PlanResult(issue_number=1, already_satisfied=True)
+        assert result.already_satisfied is True
+
     def test_all_fields_set(self) -> None:
         result = PlanResult(
             issue_number=7,
@@ -380,9 +394,11 @@ class TestWorkerStatus:
         [
             (WorkerStatus.QUEUED, "queued"),
             (WorkerStatus.RUNNING, "running"),
+            (WorkerStatus.PRE_QUALITY_REVIEW, "pre_quality_review"),
             (WorkerStatus.TESTING, "testing"),
             (WorkerStatus.COMMITTING, "committing"),
             (WorkerStatus.QUALITY_FIX, "quality_fix"),
+            (WorkerStatus.MERGE_FIX, "merge_fix"),
             (WorkerStatus.DONE, "done"),
             (WorkerStatus.FAILED, "failed"),
         ],
@@ -395,9 +411,9 @@ class TestWorkerStatus:
         # Assert
         assert isinstance(WorkerStatus.DONE, str)
 
-    def test_all_seven_members_present(self) -> None:
+    def test_all_nine_members_present(self) -> None:
         # Assert
-        assert len(WorkerStatus) == 7
+        assert len(WorkerStatus) == 9
 
     def test_lookup_by_value(self) -> None:
         # Act
@@ -447,6 +463,10 @@ class TestWorkerResult:
     def test_duration_seconds_defaults_to_zero(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
         assert result.duration_seconds == pytest.approx(0.0)
+
+    def test_pre_quality_review_attempts_defaults_to_zero(self) -> None:
+        result = WorkerResult(issue_number=1, branch="b")
+        assert result.pre_quality_review_attempts == 0
 
     def test_pr_info_defaults_to_none(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
@@ -573,6 +593,38 @@ class TestPRInfo:
 
 
 # ---------------------------------------------------------------------------
+# ReviewerStatus
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerStatus:
+    """Tests for the ReviewerStatus enum."""
+
+    @pytest.mark.parametrize(
+        "member, expected_value",
+        [
+            (ReviewerStatus.REVIEWING, "reviewing"),
+            (ReviewerStatus.DONE, "done"),
+            (ReviewerStatus.FAILED, "failed"),
+            (ReviewerStatus.FIXING, "fixing"),
+            (ReviewerStatus.FIX_DONE, "fix_done"),
+        ],
+    )
+    def test_enum_values(self, member: ReviewerStatus, expected_value: str) -> None:
+        assert member.value == expected_value
+
+    def test_enum_is_string_subclass(self) -> None:
+        assert isinstance(ReviewerStatus.DONE, str)
+
+    def test_all_members_present(self) -> None:
+        assert len(ReviewerStatus) == 5
+
+    def test_lookup_by_value(self) -> None:
+        status = ReviewerStatus("reviewing")
+        assert status is ReviewerStatus.REVIEWING
+
+
+# ---------------------------------------------------------------------------
 # ReviewVerdict
 # ---------------------------------------------------------------------------
 
@@ -684,6 +736,19 @@ class TestReviewResult:
         review = ReviewResult(pr_number=1, issue_number=1)
         assert review.ci_fix_attempts == 0
 
+    def test_duration_seconds_defaults_to_zero(self) -> None:
+        review = ReviewResult(pr_number=1, issue_number=1)
+        assert review.duration_seconds == pytest.approx(0.0)
+
+    def test_duration_seconds_can_be_set(self) -> None:
+        review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=45.5)
+        assert review.duration_seconds == pytest.approx(45.5)
+
+    def test_duration_seconds_in_serialization(self) -> None:
+        review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=30.0)
+        data = review.model_dump()
+        assert data["duration_seconds"] == pytest.approx(30.0)
+
     def test_ci_passed_can_be_set_true(self) -> None:
         review = ReviewResult(pr_number=1, issue_number=1, ci_passed=True)
         assert review.ci_passed is True
@@ -785,7 +850,9 @@ class TestBatchResult:
             PRInfo(number=100, issue_number=1, branch="agent/issue-1"),
         ]
         review_results = [
-            ReviewResult(pr_number=100, issue_number=1, verdict=ReviewVerdict.APPROVE),
+            ReviewResultFactory.create(
+                pr_number=100, issue_number=1, verdict=ReviewVerdict.APPROVE
+            ),
         ]
         merged_prs = [100]
 
@@ -921,7 +988,7 @@ class TestPRListItem:
         item = PRListItem(pr=42)
         assert item.pr == 42
 
-    def test_defaults(self) -> None:
+    def test_pr_list_item_defaults_to_empty_branch_and_no_draft(self) -> None:
         item = PRListItem(pr=1)
         assert item.issue == 0
         assert item.branch == ""
@@ -971,7 +1038,7 @@ class TestHITLItem:
         item = HITLItem(issue=42)
         assert item.issue == 42
 
-    def test_defaults(self) -> None:
+    def test_hitl_item_defaults_to_empty_title_and_pending_status(self) -> None:
         item = HITLItem(issue=1)
         assert item.title == ""
         assert item.issueUrl == ""
@@ -1031,14 +1098,16 @@ class TestHITLItem:
             "branch": "agent/issue-10",
             "cause": "test failure",
             "status": "processing",
+            "isMemorySuggestion": False,
         }
 
     def test_serialization_defaults_include_new_fields(self) -> None:
-        """model_dump includes cause and status even with defaults."""
+        """model_dump includes cause, status, and isMemorySuggestion even with defaults."""
         item = HITLItem(issue=1)
         data = item.model_dump()
         assert data["cause"] == ""
         assert data["status"] == "pending"
+        assert data["isMemorySuggestion"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -1068,12 +1137,12 @@ class TestControlStatusConfig:
     def test_all_fields_set(self) -> None:
         cfg = ControlStatusConfig(
             repo="org/repo",
-            ready_label=["hydra-ready"],
-            find_label=["hydra-find"],
-            planner_label=["hydra-plan"],
-            review_label=["hydra-review"],
-            hitl_label=["hydra-hitl"],
-            fixed_label=["hydra-fixed"],
+            ready_label=["hydraflow-ready"],
+            find_label=["hydraflow-find"],
+            planner_label=["hydraflow-plan"],
+            review_label=["hydraflow-review"],
+            hitl_label=["hydraflow-hitl"],
+            fixed_label=["hydraflow-fixed"],
             max_workers=4,
             max_planners=2,
             max_reviewers=1,
@@ -1081,7 +1150,7 @@ class TestControlStatusConfig:
             model="opus",
         )
         assert cfg.repo == "org/repo"
-        assert cfg.ready_label == ["hydra-ready"]
+        assert cfg.ready_label == ["hydraflow-ready"]
         assert cfg.max_workers == 4
         assert cfg.model == "opus"
 
@@ -1116,7 +1185,7 @@ class TestControlStatusResponse:
         """Verify nested config serializes correctly."""
         cfg = ControlStatusConfig(
             repo="org/repo",
-            ready_label=["hydra-ready"],
+            ready_label=["hydraflow-ready"],
             max_workers=2,
             batch_size=15,
             model="sonnet",
@@ -1125,7 +1194,181 @@ class TestControlStatusResponse:
         data = resp.model_dump()
         assert data["status"] == "running"
         assert data["config"]["repo"] == "org/repo"
-        assert data["config"]["ready_label"] == ["hydra-ready"]
+        assert data["config"]["ready_label"] == ["hydraflow-ready"]
         assert data["config"]["max_workers"] == 2
         assert data["config"]["batch_size"] == 15
         assert data["config"]["model"] == "sonnet"
+
+
+# ---------------------------------------------------------------------------
+# LifetimeStats
+# ---------------------------------------------------------------------------
+
+
+class TestLifetimeStats:
+    """Tests for the LifetimeStats model."""
+
+    def test_new_volume_counter_defaults(self) -> None:
+        stats = LifetimeStats()
+        assert stats.total_quality_fix_rounds == 0
+        assert stats.total_ci_fix_rounds == 0
+        assert stats.total_hitl_escalations == 0
+        assert stats.total_review_request_changes == 0
+        assert stats.total_review_approvals == 0
+        assert stats.total_reviewer_fixes == 0
+
+    def test_new_timing_defaults(self) -> None:
+        stats = LifetimeStats()
+        assert stats.total_implementation_seconds == pytest.approx(0.0)
+        assert stats.total_review_seconds == pytest.approx(0.0)
+
+    def test_fired_thresholds_default(self) -> None:
+        stats = LifetimeStats()
+        assert stats.fired_thresholds == []
+
+    def test_fired_thresholds_are_independent_between_instances(self) -> None:
+        a = LifetimeStats()
+        b = LifetimeStats()
+        a.fired_thresholds.append("test")
+        assert b.fired_thresholds == []
+
+    def test_serialization_roundtrip_with_new_fields(self) -> None:
+        stats = LifetimeStats(
+            issues_completed=10,
+            total_quality_fix_rounds=5,
+            total_implementation_seconds=120.5,
+            fired_thresholds=["quality_fix_rate"],
+        )
+        json_str = stats.model_dump_json()
+        restored = LifetimeStats.model_validate_json(json_str)
+        assert restored == stats
+
+    def test_backward_compat_missing_new_fields(self) -> None:
+        """Old data without new fields should get zero defaults."""
+        old_data = {"issues_completed": 3, "prs_merged": 1, "issues_created": 0}
+        stats = LifetimeStats.model_validate(old_data)
+        assert stats.issues_completed == 3
+        assert stats.total_quality_fix_rounds == 0
+        assert stats.total_implementation_seconds == 0.0
+        assert stats.fired_thresholds == []
+
+
+# ---------------------------------------------------------------------------
+# VerificationCriterion
+# ---------------------------------------------------------------------------
+
+
+class TestVerificationCriterion:
+    """Tests for the VerificationCriterion model."""
+
+    def test_basic_instantiation(self) -> None:
+        cr = VerificationCriterion(
+            description="Tests pass", passed=True, details="All 10 pass"
+        )
+        assert cr.description == "Tests pass"
+        assert cr.passed is True
+        assert cr.details == "All 10 pass"
+
+    def test_details_defaults_to_empty(self) -> None:
+        cr = VerificationCriterion(description="Lint", passed=False)
+        assert cr.details == ""
+
+    def test_serialization_round_trip(self) -> None:
+        cr = VerificationCriterion(
+            description="Type check", passed=True, details="Clean"
+        )
+        data = cr.model_dump()
+        restored = VerificationCriterion.model_validate(data)
+        assert restored == cr
+
+
+# ---------------------------------------------------------------------------
+# JudgeResult
+# ---------------------------------------------------------------------------
+
+
+class TestJudgeResult:
+    """Tests for the JudgeResult model."""
+
+    def test_all_passed_when_all_criteria_pass(self) -> None:
+        judge = JudgeResult(
+            issue_number=42,
+            pr_number=101,
+            criteria=[
+                VerificationCriterion(description="A", passed=True),
+                VerificationCriterion(description="B", passed=True),
+            ],
+        )
+        assert judge.all_passed is True
+        assert judge.failed_criteria == []
+
+    def test_all_passed_false_when_some_fail(self) -> None:
+        judge = JudgeResult(
+            issue_number=42,
+            pr_number=101,
+            criteria=[
+                VerificationCriterion(description="A", passed=True),
+                VerificationCriterion(description="B", passed=False, details="Failed"),
+            ],
+        )
+        assert judge.all_passed is False
+        assert len(judge.failed_criteria) == 1
+        assert judge.failed_criteria[0].description == "B"
+
+    def test_all_passed_true_when_no_criteria(self) -> None:
+        judge = JudgeResult(issue_number=42, pr_number=101, criteria=[])
+        assert judge.all_passed is True
+
+    def test_failed_criteria_returns_only_failures(self) -> None:
+        judge = JudgeResult(
+            issue_number=42,
+            pr_number=101,
+            criteria=[
+                VerificationCriterion(description="A", passed=False),
+                VerificationCriterion(description="B", passed=True),
+                VerificationCriterion(description="C", passed=False),
+            ],
+        )
+        failed = judge.failed_criteria
+        assert len(failed) == 2
+        assert {c.description for c in failed} == {"A", "C"}
+
+    def test_judge_result_defaults_to_empty_criteria_instructions_and_summary(
+        self,
+    ) -> None:
+        judge = JudgeResult(issue_number=1, pr_number=2)
+        assert judge.criteria == []
+        assert judge.verification_instructions == ""
+        assert judge.summary == ""
+
+    def test_serialization_round_trip(self) -> None:
+        judge = JudgeResult(
+            issue_number=42,
+            pr_number=101,
+            criteria=[VerificationCriterion(description="X", passed=True)],
+            verification_instructions="Step 1",
+            summary="Good",
+        )
+        data = judge.model_dump()
+        restored = JudgeResult.model_validate(data)
+        assert restored.issue_number == judge.issue_number
+        assert restored.criteria[0].description == "X"
+        assert restored.verification_instructions == "Step 1"
+
+
+# ---------------------------------------------------------------------------
+# StateData - verification_issues field
+# ---------------------------------------------------------------------------
+
+
+class TestStateDataVerificationIssues:
+    """Tests for the verification_issues field on StateData."""
+
+    def test_defaults_to_empty_dict(self) -> None:
+        data = StateData()
+        assert data.verification_issues == {}
+
+    def test_accepts_verification_issues(self) -> None:
+        data = StateData(verification_issues={"42": 500, "99": 501})
+        assert data.verification_issues["42"] == 500
+        assert data.verification_issues["99"] == 501

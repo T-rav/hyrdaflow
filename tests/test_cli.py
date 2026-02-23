@@ -19,7 +19,7 @@ class TestParseLabelArg:
     """Tests for the _parse_label_arg helper."""
 
     def test_single_label(self) -> None:
-        assert _parse_label_arg("hydra-ready") == ["hydra-ready"]
+        assert _parse_label_arg("hydraflow-ready") == ["hydraflow-ready"]
 
     def test_comma_separated_labels(self) -> None:
         assert _parse_label_arg("foo,bar") == ["foo", "bar"]
@@ -52,21 +52,29 @@ class TestParseArgs:
             "max_hitl_workers",
             "max_budget_usd",
             "model",
+            "implementation_tool",
             "review_model",
+            "review_tool",
             "review_budget_usd",
             "ci_check_timeout",
             "ci_poll_interval",
             "max_ci_fix_attempts",
+            "max_pre_quality_review_attempts",
             "review_label",
             "hitl_label",
             "hitl_active_label",
             "fixed_label",
             "find_label",
             "planner_label",
+            "improve_label",
+            "triage_tool",
             "planner_model",
+            "planner_tool",
             "planner_budget_usd",
             "repo",
             "main_branch",
+            "ac_tool",
+            "verification_judge_tool",
             "dashboard_port",
             "gh_token",
         ]
@@ -82,9 +90,9 @@ class TestParseArgs:
         assert args.clean is False
 
     def test_log_file_default(self) -> None:
-        """--log-file should default to .hydra/logs/hydra.log."""
+        """--log-file should default to .hydraflow/logs/hydraflow.log."""
         args = parse_args([])
-        assert args.log_file == ".hydra/logs/hydra.log"
+        assert args.log_file == ".hydraflow/logs/hydraflow.log"
 
     def test_log_file_explicit_value(self) -> None:
         """An explicit --log-file value should be preserved."""
@@ -109,54 +117,72 @@ class TestParseArgs:
 
 
 # ---------------------------------------------------------------------------
-# build_config — integration with HydraConfig
+# build_config — integration with HydraFlowConfig
 # ---------------------------------------------------------------------------
 
 
-class TestBuildConfig:
-    """Tests for build_config() converting CLI args → HydraConfig."""
+_CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
+    ("ready_label", ["hydraflow-ready"]),
+    ("batch_size", 15),
+    ("max_workers", 3),
+    ("max_planners", 1),
+    ("max_reviewers", 5),
+    ("max_hitl_workers", 1),
+    ("hitl_active_label", ["hydraflow-hitl-active"]),
+    ("max_budget_usd", pytest.approx(0)),
+    ("implementation_tool", "claude"),
+    ("model", "opus"),
+    ("review_tool", "claude"),
+    ("review_model", "sonnet"),
+    ("review_budget_usd", pytest.approx(0)),
+    ("ci_check_timeout", 600),
+    ("ci_poll_interval", 30),
+    ("max_ci_fix_attempts", 2),
+    ("max_pre_quality_review_attempts", 1),
+    ("review_label", ["hydraflow-review"]),
+    ("hitl_label", ["hydraflow-hitl"]),
+    ("fixed_label", ["hydraflow-fixed"]),
+    ("find_label", ["hydraflow-find"]),
+    ("planner_label", ["hydraflow-plan"]),
+    ("improve_label", ["hydraflow-improve"]),
+    ("triage_tool", "claude"),
+    ("planner_tool", "claude"),
+    ("planner_model", "opus"),
+    ("planner_budget_usd", pytest.approx(0)),
+    ("ac_tool", "claude"),
+    ("verification_judge_tool", "claude"),
+    ("main_branch", "main"),
+    ("dashboard_port", 5555),
+    ("dashboard_enabled", True),
+    ("dry_run", False),
+]
 
-    def test_no_cli_args_uses_hydra_config_defaults(self) -> None:
-        """With no CLI args, build_config should produce HydraConfig defaults."""
+
+class TestBuildConfig:
+    """Tests for build_config() converting CLI args → HydraFlowConfig."""
+
+    @pytest.mark.parametrize(
+        ("field", "expected"),
+        _CLI_DEFAULT_EXPECTATIONS,
+        ids=[e[0] for e in _CLI_DEFAULT_EXPECTATIONS],
+    )
+    def test_no_cli_args_uses_hydraflow_config_defaults(
+        self, field: str, expected: object
+    ) -> None:
+        """With no CLI args, build_config should produce HydraFlowConfig defaults."""
         args = parse_args([])
         cfg = build_config(args)
-
-        # Check key defaults match HydraConfig
-        assert cfg.ready_label == ["hydra-ready"]
-        assert cfg.batch_size == 15
-        assert cfg.max_workers == 3
-        assert cfg.max_planners == 1
-        assert cfg.max_reviewers == 5
-        assert cfg.max_hitl_workers == 1
-        assert cfg.hitl_active_label == ["hydra-hitl-active"]
-        assert cfg.max_budget_usd == pytest.approx(0)
-        assert cfg.model == "sonnet"
-        assert cfg.review_model == "opus"
-        assert cfg.review_budget_usd == pytest.approx(0)
-        assert cfg.ci_check_timeout == 600
-        assert cfg.ci_poll_interval == 30
-        assert cfg.max_ci_fix_attempts == 2
-        assert cfg.review_label == ["hydra-review"]
-        assert cfg.hitl_label == ["hydra-hitl"]
-        assert cfg.fixed_label == ["hydra-fixed"]
-        assert cfg.find_label == ["hydra-find"]
-        assert cfg.planner_label == ["hydra-plan"]
-        assert cfg.planner_model == "opus"
-        assert cfg.planner_budget_usd == pytest.approx(0)
-        assert cfg.main_branch == "main"
-        assert cfg.dashboard_port == 5555
-        assert cfg.dashboard_enabled is True
-        assert cfg.dry_run is False
+        assert getattr(cfg, field) == expected
 
     def test_explicit_cli_arg_overrides_default(self) -> None:
-        """An explicit CLI arg should override the HydraConfig default."""
+        """An explicit CLI arg should override the HydraFlowConfig default."""
         args = parse_args(["--batch-size", "10"])
         cfg = build_config(args)
 
         assert cfg.batch_size == 10
         # Other fields remain at defaults
         assert cfg.max_workers == 3
-        assert cfg.model == "sonnet"
+        assert cfg.model == "opus"
 
     def test_label_arg_parsed_to_list(self) -> None:
         """A comma-separated label CLI arg should become a list."""
@@ -237,6 +263,8 @@ class TestBuildConfig:
                 "g,h",
                 "--planner-label",
                 "i",
+                "--improve-label",
+                "j,k",
             ]
         )
         cfg = build_config(args)
@@ -248,11 +276,37 @@ class TestBuildConfig:
         assert cfg.fixed_label == ["f"]
         assert cfg.find_label == ["g", "h"]
         assert cfg.planner_label == ["i"]
+        assert cfg.improve_label == ["j", "k"]
 
     def test_planner_model_passed_through(self) -> None:
         args = parse_args(["--planner-model", "sonnet"])
         cfg = build_config(args)
         assert cfg.planner_model == "sonnet"
+
+    def test_tool_fields_passed_through(self) -> None:
+        args = parse_args(
+            [
+                "--implementation-tool",
+                "codex",
+                "--review-tool",
+                "codex",
+                "--triage-tool",
+                "codex",
+                "--planner-tool",
+                "codex",
+                "--ac-tool",
+                "codex",
+                "--verification-judge-tool",
+                "codex",
+            ]
+        )
+        cfg = build_config(args)
+        assert cfg.implementation_tool == "codex"
+        assert cfg.review_tool == "codex"
+        assert cfg.triage_tool == "codex"
+        assert cfg.planner_tool == "codex"
+        assert cfg.ac_tool == "codex"
+        assert cfg.verification_judge_tool == "codex"
 
     def test_ci_fields_passed_through(self) -> None:
         args = parse_args(
@@ -263,12 +317,15 @@ class TestBuildConfig:
                 "10",
                 "--max-ci-fix-attempts",
                 "3",
+                "--max-pre-quality-review-attempts",
+                "2",
             ]
         )
         cfg = build_config(args)
         assert cfg.ci_check_timeout == 300
         assert cfg.ci_poll_interval == 10
         assert cfg.max_ci_fix_attempts == 3
+        assert cfg.max_pre_quality_review_attempts == 2
 
     def test_dashboard_port_passed_through(self) -> None:
         args = parse_args(["--dashboard-port", "8080"])
@@ -302,9 +359,9 @@ class TestBuildConfig:
         assert cfg.lite_plan_labels == ["hotfix", "patch", "minor"]
 
     def test_git_user_name_passed_through(self) -> None:
-        args = parse_args(["--git-user-name", "T-rav-Hydra-Ops"])
+        args = parse_args(["--git-user-name", "T-rav-HydraFlow-Ops"])
         cfg = build_config(args)
-        assert cfg.git_user_name == "T-rav-Hydra-Ops"
+        assert cfg.git_user_name == "T-rav-HydraFlow-Ops"
 
     def test_git_user_email_passed_through(self) -> None:
         args = parse_args(["--git-user-email", "bot@example.com"])
@@ -320,6 +377,11 @@ class TestBuildConfig:
         args = parse_args(["--hitl-active-label", "my-active"])
         cfg = build_config(args)
         assert cfg.hitl_active_label == ["my-active"]
+
+    def test_improve_label_passed_through(self) -> None:
+        args = parse_args(["--improve-label", "my-improve"])
+        cfg = build_config(args)
+        assert cfg.improve_label == ["my-improve"]
 
     def test_git_identity_defaults_to_none_in_parse_args(self) -> None:
         args = parse_args([])
@@ -353,7 +415,7 @@ class TestRunMainSignalHandlers:
         mock_orch.stop = AsyncMock()
 
         with (
-            patch("cli.HydraOrchestrator", return_value=mock_orch),
+            patch("cli.HydraFlowOrchestrator", return_value=mock_orch),
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             await _run_main(config)
@@ -390,7 +452,7 @@ class TestRunMainSignalHandlers:
         mock_orch.run = fake_run
 
         with (
-            patch("cli.HydraOrchestrator", return_value=mock_orch),
+            patch("cli.HydraFlowOrchestrator", return_value=mock_orch),
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             await _run_main(config)
@@ -421,7 +483,7 @@ class TestRunMainSignalHandlers:
 
         with (
             patch.object(real_loop, "add_signal_handler", side_effect=tracking_add),
-            patch("dashboard.HydraDashboard", return_value=mock_dashboard),
+            patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
         ):
             await _run_main(config)
 
@@ -452,9 +514,152 @@ class TestRunMainSignalHandlers:
 
         with (
             patch.object(real_loop, "add_signal_handler", side_effect=trigger_stop),
-            patch("dashboard.HydraDashboard", return_value=mock_dashboard),
+            patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
         ):
             await _run_main(config)
 
         mock_orch.stop.assert_called_once()
         mock_dashboard.stop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# --max-issue-attempts CLI arg
+# ---------------------------------------------------------------------------
+
+
+class TestMaxIssueAttemptsCLI:
+    """Tests for the --max-issue-attempts CLI argument."""
+
+    def test_parses_max_issue_attempts(self) -> None:
+        args = parse_args(["--max-issue-attempts", "5"])
+        assert args.max_issue_attempts == 5
+
+    def test_defaults_to_none(self) -> None:
+        args = parse_args([])
+        assert args.max_issue_attempts is None
+
+    def test_build_config_maps_max_issue_attempts(self) -> None:
+        args = parse_args(["--max-issue-attempts", "7"])
+        config = build_config(args)
+        assert config.max_issue_attempts == 7
+
+
+# ---------------------------------------------------------------------------
+# Docker CLI arguments
+# ---------------------------------------------------------------------------
+
+
+class TestDockerCLIArgs:
+    """Tests for Docker-related CLI arguments."""
+
+    def test_docker_flag_sets_execution_mode(self) -> None:
+        args = parse_args(["--docker"])
+        assert args.execution_mode == "docker"
+
+    def test_host_flag_sets_execution_mode(self) -> None:
+        args = parse_args(["--host"])
+        assert args.execution_mode == "host"
+
+    def test_no_flag_leaves_execution_mode_none(self) -> None:
+        args = parse_args([])
+        assert args.execution_mode is None
+
+    def test_docker_and_host_mutually_exclusive(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["--docker", "--host"])
+
+    def test_docker_image_arg(self) -> None:
+        args = parse_args(["--docker-image", "custom/image:v1"])
+        assert args.docker_image == "custom/image:v1"
+
+    def test_docker_cpu_limit_arg(self) -> None:
+        args = parse_args(["--docker-cpu-limit", "4.0"])
+        assert args.docker_cpu_limit == pytest.approx(4.0)
+
+    def test_docker_memory_limit_arg(self) -> None:
+        args = parse_args(["--docker-memory-limit", "8g"])
+        assert args.docker_memory_limit == "8g"
+
+    def test_docker_network_mode_arg(self) -> None:
+        args = parse_args(["--docker-network-mode", "none"])
+        assert args.docker_network_mode == "none"
+
+    def test_docker_network_mode_invalid_choice(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["--docker-network-mode", "overlay"])
+
+    def test_docker_spawn_delay_arg(self) -> None:
+        args = parse_args(["--docker-spawn-delay", "5.0"])
+        assert args.docker_spawn_delay == pytest.approx(5.0)
+
+    def test_docker_read_only_root_arg(self) -> None:
+        args = parse_args(["--docker-read-only-root"])
+        assert args.docker_read_only_root is True
+
+    def test_docker_no_new_privileges_arg(self) -> None:
+        args = parse_args(["--docker-no-new-privileges"])
+        assert args.docker_no_new_privileges is True
+
+    def test_docker_args_default_to_none(self) -> None:
+        args = parse_args([])
+        assert args.docker_image is None
+        assert args.docker_cpu_limit is None
+        assert args.docker_memory_limit is None
+        assert args.docker_network_mode is None
+        assert args.docker_spawn_delay is None
+        assert args.docker_read_only_root is None
+        assert args.docker_no_new_privileges is None
+
+
+class TestDockerBuildConfig:
+    """Tests for Docker CLI args passing through to HydraFlowConfig via build_config."""
+
+    def test_docker_flag_builds_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        args = parse_args(["--docker"])
+        cfg = build_config(args)
+        assert cfg.execution_mode == "docker"
+
+    def test_host_flag_builds_config(self) -> None:
+        args = parse_args(["--host"])
+        cfg = build_config(args)
+        assert cfg.execution_mode == "host"
+
+    def test_docker_image_builds_config(self) -> None:
+        args = parse_args(["--docker-image", "my/image:latest"])
+        cfg = build_config(args)
+        assert cfg.docker_image == "my/image:latest"
+
+    def test_docker_cpu_limit_builds_config(self) -> None:
+        args = parse_args(["--docker-cpu-limit", "4.0"])
+        cfg = build_config(args)
+        assert cfg.docker_cpu_limit == pytest.approx(4.0)
+
+    def test_docker_memory_limit_builds_config(self) -> None:
+        args = parse_args(["--docker-memory-limit", "16g"])
+        cfg = build_config(args)
+        assert cfg.docker_memory_limit == "16g"
+
+    def test_docker_network_mode_builds_config(self) -> None:
+        args = parse_args(["--docker-network-mode", "host"])
+        cfg = build_config(args)
+        assert cfg.docker_network_mode == "host"
+
+    def test_docker_spawn_delay_builds_config(self) -> None:
+        args = parse_args(["--docker-spawn-delay", "10.0"])
+        cfg = build_config(args)
+        assert cfg.docker_spawn_delay == pytest.approx(10.0)
+
+    def test_no_docker_flags_uses_defaults(self) -> None:
+        args = parse_args([])
+        cfg = build_config(args)
+        assert cfg.execution_mode == "host"
+        assert cfg.docker_image == "ghcr.io/t-rav/hydraflow-agent:latest"
+        assert cfg.docker_cpu_limit == pytest.approx(2.0)
+        assert cfg.docker_memory_limit == "4g"
+        assert cfg.docker_network_mode == "bridge"
+        assert cfg.docker_spawn_delay == pytest.approx(2.0)
+        assert cfg.docker_read_only_root is True
+        assert cfg.docker_no_new_privileges is True

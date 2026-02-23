@@ -7,7 +7,7 @@ export function HITLTable({ items, onRefresh }) {
   const [expandedIssue, setExpandedIssue] = useState(null)
   const [corrections, setCorrections] = useState({})
   const [actionLoading, setActionLoading] = useState(null)
-  const { submitCorrection, skipIssue, closeIssue } = useHITLCorrection()
+  const { submitCorrection, skipIssue, closeIssue, approveAsMemory } = useHITLCorrection()
 
   const toggleExpand = (issueNum) => {
     setExpandedIssue(prev => prev === issueNum ? null : issueNum)
@@ -44,24 +44,35 @@ export function HITLTable({ items, onRefresh }) {
     onRefresh()
   }
 
+  const handleApproveMemory = async (issueNum) => {
+    setActionLoading({ issue: issueNum, action: 'approve' })
+    await approveAsMemory(issueNum)
+    setActionLoading(null)
+    setExpandedIssue(null)
+    onRefresh()
+  }
+
   const isActionLoading = (issueNum, action) =>
     actionLoading && actionLoading.issue === issueNum && actionLoading.action === action
 
   const isAnyActionLoading = (issueNum) =>
     actionLoading && actionLoading.issue === issueNum
 
-  if (items.length === 0) {
-    return <div style={styles.empty}>No stuck PRs</div>
-  }
-
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <span style={styles.headerText}>
-          {items.length} issue{items.length !== 1 ? 's' : ''} stuck on CI
+        <span style={items.length === 0
+          ? { ...styles.headerText, color: theme.textMuted }
+          : styles.headerText}>
+          {items.length === 0
+            ? 'HITL'
+            : `${items.length} item${items.length !== 1 ? 's' : ''} awaiting action`}
         </span>
         <button onClick={onRefresh} style={styles.refresh}>Refresh</button>
       </div>
+      {items.length === 0 ? (
+        <div style={styles.empty}>No stuck PRs</div>
+      ) : (
       <table style={styles.table}>
         <thead>
           <tr>
@@ -93,7 +104,7 @@ export function HITLTable({ items, onRefresh }) {
                   <td style={styles.td}>{item.title}</td>
                   <td style={styles.td}>
                     {item.cause
-                      ? <span style={styles.causeText}>{item.cause}</span>
+                      ? <span style={{ ...styles.causeText, color: causeColors(item.cause).fg }}>{item.cause}</span>
                       : <span style={styles.causePlaceholder}>—</span>}
                   </td>
                   <td style={styles.td}>
@@ -116,7 +127,7 @@ export function HITLTable({ items, onRefresh }) {
                     <td colSpan={6} style={styles.detailCell}>
                       <div style={styles.detailPanel}>
                         {item.cause && (
-                          <div style={styles.causeBadge} data-testid={`hitl-cause-${item.issue}`}>
+                          <div style={causeBadgeStyle(item)} data-testid={`hitl-cause-${item.issue}`}>
                             Cause: {item.cause}
                           </div>
                         )}
@@ -153,6 +164,16 @@ export function HITLTable({ items, onRefresh }) {
                           >
                             {isActionLoading(item.issue, 'close') ? 'Closing...' : 'Close issue'}
                           </button>
+                          {item.isMemorySuggestion && (
+                            <button
+                              style={styles.approveMemoryBtn}
+                              disabled={isAnyActionLoading(item.issue)}
+                              onClick={e => { e.stopPropagation(); handleApproveMemory(item.issue) }}
+                              data-testid={`hitl-approve-memory-${item.issue}`}
+                            >
+                              {isActionLoading(item.issue, 'approve') ? 'Approving...' : 'Approve as Memory'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -163,6 +184,7 @@ export function HITLTable({ items, onRefresh }) {
           })}
         </tbody>
       </table>
+      )}
     </div>
   )
 }
@@ -178,6 +200,7 @@ function statusBadgeStyle(status) {
     pending: { bg: theme.yellowSubtle, fg: theme.yellow },
     processing: { bg: theme.accentSubtle, fg: theme.accent },
     resolved: { bg: theme.greenSubtle, fg: theme.green },
+    approval: { bg: theme.purpleSubtle, fg: theme.purple },
     ...originColors,
   }
   const { bg, fg } = colors[status] || colors.pending
@@ -185,6 +208,29 @@ function statusBadgeStyle(status) {
     fontSize: 11, padding: '2px 8px', borderRadius: 8, fontWeight: 600,
     background: bg, color: fg,
   }
+}
+
+function causeColors(cause) {
+  if (!cause) return { bg: theme.orangeSubtle, fg: theme.orange }
+  const lower = cause.toLowerCase()
+  if (lower.includes('proposal') || lower.includes('improve')) {
+    return { bg: theme.purpleSubtle, fg: theme.purple }
+  }
+  if (lower.includes('triage') || lower.includes('insufficient')) {
+    return { bg: theme.yellowSubtle, fg: theme.yellow }
+  }
+  return { bg: theme.orangeSubtle, fg: theme.orange }
+}
+
+function causeBadgeStyle(item) {
+  if (item.isMemorySuggestion) return styles.memoryCauseBadge
+  const colors = causeColors(item.cause)
+  return { ...badgeBase, background: colors.bg, color: colors.fg }
+}
+
+const badgeBase = {
+  display: 'inline-block', marginBottom: 8,
+  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
 }
 
 const btnBase = {
@@ -224,11 +270,7 @@ const styles = {
     padding: '12px 16px', background: theme.surface,
     borderTop: `1px solid ${theme.border}`,
   },
-  causeBadge: {
-    display: 'inline-block', marginBottom: 8,
-    padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-    background: theme.orangeSubtle, color: theme.orange,
-  },
+  causeBadge: { ...badgeBase, background: theme.orangeSubtle, color: theme.orange },
   textarea: {
     width: '100%', minHeight: 60, padding: 8,
     background: theme.bg, border: `1px solid ${theme.border}`,
@@ -239,4 +281,6 @@ const styles = {
   retryBtn: { ...btnBase, background: theme.btnGreen, color: theme.white },
   skipBtn: { ...btnBase, background: theme.surfaceInset, color: theme.text, border: `1px solid ${theme.border}` },
   closeBtn: { ...btnBase, background: theme.btnRed, color: theme.white },
+  approveMemoryBtn: { ...btnBase, background: theme.purple, color: theme.white },
+  memoryCauseBadge: { ...badgeBase, background: theme.purpleSubtle, color: theme.purple },
 }

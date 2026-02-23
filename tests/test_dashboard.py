@@ -1,4 +1,4 @@
-"""Tests for dx/hydra/dashboard.py - HydraDashboard class."""
+"""Tests for dx/hydraflow/dashboard.py - HydraFlowDashboard class."""
 
 from __future__ import annotations
 
@@ -14,37 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import contextlib
 from typing import TYPE_CHECKING
 
-from events import EventBus, EventType, HydraEvent
+from events import EventBus, EventType, HydraFlowEvent
 from models import HITLItem, PRListItem
-from state import StateTracker
+from tests.conftest import EventFactory, make_orchestrator_mock, make_state
 
 if TYPE_CHECKING:
-    from config import HydraConfig
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def make_state(tmp_path: Path) -> StateTracker:
-    return StateTracker(tmp_path / "state.json")
-
-
-def make_orchestrator_mock(
-    requests: dict | None = None,
-    running: bool = False,
-    run_status: str = "idle",
-) -> MagicMock:
-    """Return a minimal orchestrator mock."""
-    orch = MagicMock()
-    orch.human_input_requests = requests or {}
-    orch.provide_human_input = MagicMock()
-    orch.running = running
-    orch.run_status = run_status
-    orch.stop = AsyncMock()
-    orch.request_stop = AsyncMock()
-    return orch
-
+    from config import HydraFlowConfig
 
 # ---------------------------------------------------------------------------
 # create_app
@@ -52,51 +27,48 @@ def make_orchestrator_mock(
 
 
 class TestCreateApp:
-    """Tests for HydraDashboard.create_app()."""
+    """Tests for HydraFlowDashboard.create_app()."""
 
     def test_create_app_returns_fastapi_instance(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
         try:
             from fastapi import FastAPI
         except ImportError:
             pytest.skip("FastAPI not installed")
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         assert isinstance(app, FastAPI)
 
     def test_create_app_stores_app_on_instance(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         try:
-            from dashboard import HydraDashboard
+            from dashboard import HydraFlowDashboard
         except ImportError:
             pytest.skip("FastAPI not installed")
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         assert dashboard._app is app
 
-    def test_create_app_title_is_hydra_dashboard(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+    def test_create_app_title_is_hydraflow_dashboard(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         try:
-            from dashboard import HydraDashboard
+            from dashboard import HydraFlowDashboard
         except ImportError:
             pytest.skip("FastAPI not installed")
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
-        assert app.title == "Hydra Dashboard"
+        assert app.title == "HydraFlow Dashboard"
 
 
 # ---------------------------------------------------------------------------
@@ -108,14 +80,13 @@ class TestIndexRoute:
     """Tests for the GET / route."""
 
     def test_get_root_returns_200(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -124,14 +95,13 @@ class TestIndexRoute:
         assert response.status_code == 200
 
     def test_get_root_returns_html_content_type(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -140,14 +110,13 @@ class TestIndexRoute:
         assert "text/html" in response.headers.get("content-type", "")
 
     def test_get_root_returns_html_body(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -158,15 +127,14 @@ class TestIndexRoute:
         assert "<html" in body.lower() or "<h1>" in body.lower()
 
     def test_get_root_fallback_when_template_missing(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When index.html does not exist, a fallback HTML page is returned."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         # Patch both _UI_DIST_DIR and _TEMPLATE_DIR to non-existent paths
         with (
@@ -193,15 +161,14 @@ class TestAccessibility:
         reason="aria attribute is rendered by React in the browser, not in the HTML shell"
     )
     def test_human_input_field_has_aria_labelledby(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         """The human-input field must be linked to its label for screen readers."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -219,14 +186,13 @@ class TestStateRoute:
     """Tests for the GET /api/state route."""
 
     def test_get_state_returns_200(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -235,15 +201,14 @@ class TestStateRoute:
         assert response.status_code == 200
 
     def test_get_state_returns_state_dict(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         state.mark_issue(42, "success")
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -254,14 +219,13 @@ class TestStateRoute:
         assert "processed_issues" in body
 
     def test_get_state_includes_lifetime_stats(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -271,15 +235,14 @@ class TestStateRoute:
         assert "lifetime_stats" in body
 
     def test_get_state_reflects_current_state(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         state.mark_issue(7, "failed")
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -298,14 +261,13 @@ class TestStatsRoute:
     """Tests for the GET /api/stats route."""
 
     def test_stats_endpoint_returns_lifetime_stats(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -313,21 +275,25 @@ class TestStatsRoute:
 
         assert response.status_code == 200
         body = response.json()
-        assert body == {"issues_completed": 0, "prs_merged": 0, "issues_created": 0}
+        assert body["issues_completed"] == 0
+        assert body["prs_merged"] == 0
+        assert body["issues_created"] == 0
+        # New fields should be present with zero defaults
+        assert body["total_quality_fix_rounds"] == 0
+        assert body["total_hitl_escalations"] == 0
 
     def test_stats_endpoint_reflects_incremented_values(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         state.record_pr_merged()
         state.record_issue_completed()
         state.record_issue_created()
         state.record_issue_created()
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -348,14 +314,13 @@ class TestEventsRoute:
     """Tests for the GET /api/events route."""
 
     def test_get_events_returns_200(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -364,14 +329,13 @@ class TestEventsRoute:
         assert response.status_code == 200
 
     def test_get_events_returns_list(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -381,14 +345,13 @@ class TestEventsRoute:
         assert isinstance(body, list)
 
     def test_get_events_empty_when_no_events_published(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -397,19 +360,19 @@ class TestEventsRoute:
         assert response.json() == []
 
     def test_get_events_includes_published_events(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         async def publish() -> None:
-            await bus.publish(HydraEvent(type=EventType.BATCH_START, data={"batch": 1}))
+            await event_bus.publish(
+                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+            )
 
         asyncio.run(publish())
 
@@ -430,14 +393,13 @@ class TestPRsRoute:
     """Tests for the GET /api/prs route."""
 
     def test_prs_returns_200(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -447,14 +409,13 @@ class TestPRsRoute:
         assert response.status_code == 200
 
     def test_prs_returns_empty_list_when_no_open_prs(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -464,14 +425,13 @@ class TestPRsRoute:
         assert response.json() == []
 
     def test_prs_returns_empty_list_on_gh_failure(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -480,43 +440,61 @@ class TestPRsRoute:
 
         assert response.json() == []
 
-    def test_prs_happy_path_returns_pr_list(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+    _TWO_MOCK_PRS = [
+        PRListItem(
+            pr=10,
+            issue=42,
+            branch="agent/issue-42",
+            url="https://github.com/org/repo/pull/10",
+            draft=False,
+            title="Fix widget",
+        ),
+        PRListItem(
+            pr=11,
+            issue=55,
+            branch="agent/issue-55",
+            url="https://github.com/org/repo/pull/11",
+            draft=True,
+            title="Add feature",
+        ),
+    ]
+
+    def test_prs_happy_path_returns_correct_count(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
-        mock_prs = [
-            PRListItem(
-                pr=10,
-                issue=42,
-                branch="agent/issue-42",
-                url="https://github.com/org/repo/pull/10",
-                draft=False,
-                title="Fix widget",
-            ),
-            PRListItem(
-                pr=11,
-                issue=55,
-                branch="agent/issue-55",
-                url="https://github.com/org/repo/pull/11",
-                draft=True,
-                title="Add feature",
-            ),
-        ]
-
         client = TestClient(app)
-        with patch("pr_manager.PRManager.list_open_prs", return_value=mock_prs):
+        with patch(
+            "pr_manager.PRManager.list_open_prs", return_value=self._TWO_MOCK_PRS
+        ):
             response = client.get("/api/prs")
 
         body = response.json()
         assert len(body) == 2
 
+    def test_prs_happy_path_pr_fields_match(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with patch(
+            "pr_manager.PRManager.list_open_prs", return_value=self._TWO_MOCK_PRS
+        ):
+            response = client.get("/api/prs")
+
+        body = response.json()
         assert body[0]["pr"] == 10
         assert body[0]["issue"] == 42
         assert body[0]["branch"] == "agent/issue-42"
@@ -531,14 +509,13 @@ class TestPRsRoute:
         assert body[1]["title"] == "Add feature"
 
     def test_prs_includes_all_expected_fields(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         mock_prs = [
@@ -562,14 +539,13 @@ class TestPRsRoute:
         assert set(body[0].keys()) == expected_keys
 
     def test_prs_deduplicates_across_labels(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         # PRManager.list_open_prs already deduplicates, so mock returns one
@@ -593,14 +569,13 @@ class TestPRsRoute:
         assert body[0]["pr"] == 42
 
     def test_prs_non_standard_branch_sets_issue_to_zero(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         mock_prs = [
@@ -624,14 +599,13 @@ class TestPRsRoute:
         assert body[0]["branch"] == "feature/my-branch"
 
     def test_prs_returns_empty_on_malformed_json(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -651,14 +625,13 @@ class TestHumanInputGetRoute:
     """Tests for the GET /api/human-input route."""
 
     def test_get_human_input_returns_200(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -667,14 +640,13 @@ class TestHumanInputGetRoute:
         assert response.status_code == 200
 
     def test_get_human_input_returns_empty_dict_when_no_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=None)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -683,15 +655,14 @@ class TestHumanInputGetRoute:
         assert response.json() == {}
 
     def test_get_human_input_returns_pending_requests_from_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock(requests={42: "Which approach?"})
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -711,15 +682,14 @@ class TestHumanInputPostRoute:
     """Tests for the POST /api/human-input/{issue_number} route."""
 
     def test_post_human_input_returns_ok_status(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -729,15 +699,14 @@ class TestHumanInputPostRoute:
         assert response.json() == {"status": "ok"}
 
     def test_post_human_input_calls_orchestrator_provide_human_input(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -746,15 +715,14 @@ class TestHumanInputPostRoute:
         orch.provide_human_input.assert_called_once_with(42, "Go left")
 
     def test_post_human_input_passes_empty_string_when_answer_missing(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -763,14 +731,13 @@ class TestHumanInputPostRoute:
         orch.provide_human_input.assert_called_once_with(7, "")
 
     def test_post_human_input_returns_400_without_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=None)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -780,15 +747,14 @@ class TestHumanInputPostRoute:
         assert response.json() == {"status": "no orchestrator"}
 
     def test_post_human_input_routes_correct_issue_number(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -803,16 +769,15 @@ class TestHumanInputPostRoute:
 
 
 class TestStartStop:
-    """Tests for HydraDashboard.start() and stop()."""
+    """Tests for HydraFlowDashboard.start() and stop()."""
 
     @pytest.mark.asyncio
     async def test_start_creates_server_task(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         mock_server = AsyncMock()
         mock_server.serve = AsyncMock(return_value=None)
@@ -830,12 +795,11 @@ class TestStartStop:
 
     @pytest.mark.asyncio
     async def test_start_does_nothing_when_uvicorn_not_installed(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         with (
             patch.dict("sys.modules", {"uvicorn": None}),
@@ -845,12 +809,11 @@ class TestStartStop:
 
     @pytest.mark.asyncio
     async def test_stop_cancels_server_task(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         async def long_running() -> None:
             await asyncio.sleep(3600)
@@ -864,24 +827,22 @@ class TestStartStop:
 
     @pytest.mark.asyncio
     async def test_stop_is_safe_when_no_task(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         assert dashboard._server_task is None
 
         await dashboard.stop()
 
     @pytest.mark.asyncio
     async def test_stop_is_safe_when_task_already_done(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         async def quick_task() -> None:
             return
@@ -899,86 +860,78 @@ class TestStartStop:
 
 
 class TestInit:
-    """Tests for HydraDashboard.__init__."""
+    """Tests for HydraFlowDashboard.__init__."""
 
     def test_stores_config(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._config is config
 
     def test_stores_event_bus(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._bus is event_bus
 
     def test_stores_state(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._state is state
 
     def test_stores_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
 
         assert dashboard._orchestrator is orch
 
     def test_orchestrator_defaults_to_none(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._orchestrator is None
 
     def test_server_task_starts_as_none(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._server_task is None
 
     def test_app_starts_as_none(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._app is None
 
     def test_run_task_starts_as_none(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         assert dashboard._run_task is None
 
@@ -992,19 +945,18 @@ class TestControlStartEndpoint:
     """Tests for the POST /api/control/start route."""
 
     def test_start_returns_started(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
 
-        with patch("orchestrator.HydraOrchestrator") as MockOrch:
+        with patch("orchestrator.HydraFlowOrchestrator") as MockOrch:
             mock_orch_inst = AsyncMock()
             mock_orch_inst.run = AsyncMock(return_value=None)
             mock_orch_inst.running = False
@@ -1017,15 +969,14 @@ class TestControlStartEndpoint:
         assert response.json()["status"] == "started"
 
     def test_start_returns_409_when_already_running(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock(running=True, run_status="running")
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1044,14 +995,13 @@ class TestControlStopEndpoint:
     """Tests for the POST /api/control/stop route."""
 
     def test_stop_returns_400_when_not_running(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1061,15 +1011,14 @@ class TestControlStopEndpoint:
         assert "not running" in response.json()["error"]
 
     def test_stop_returns_stopping_when_running(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock(running=True, run_status="running")
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1080,15 +1029,14 @@ class TestControlStopEndpoint:
         orch.request_stop.assert_called_once()
 
     def test_stop_returns_400_when_orchestrator_not_running(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock(running=False, run_status="idle")
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1106,14 +1054,13 @@ class TestControlStatusEndpoint:
     """Tests for the GET /api/control/status route."""
 
     def test_status_returns_idle_when_no_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1124,15 +1071,14 @@ class TestControlStatusEndpoint:
         assert body["status"] == "idle"
 
     def test_status_returns_running_when_orchestrator_active(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock(running=True, run_status="running")
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1141,32 +1087,40 @@ class TestControlStatusEndpoint:
         assert response.status_code == 200
         assert response.json()["status"] == "running"
 
+    _STATUS_CONFIG_FIELDS = [
+        "repo",
+        "ready_label",
+        "find_label",
+        "planner_label",
+        "review_label",
+        "hitl_label",
+        "hitl_active_label",
+        "fixed_label",
+        "max_planners",
+        "max_reviewers",
+        "max_hitl_workers",
+    ]
+
+    @pytest.mark.parametrize("config_field", _STATUS_CONFIG_FIELDS)
     def test_status_includes_config_info(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state,
+        config_field: str,
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
         response = client.get("/api/control/status")
 
         body = response.json()
-        assert body["config"]["repo"] == config.repo
-        assert body["config"]["ready_label"] == config.ready_label
-        assert body["config"]["find_label"] == config.find_label
-        assert body["config"]["planner_label"] == config.planner_label
-        assert body["config"]["review_label"] == config.review_label
-        assert body["config"]["hitl_label"] == config.hitl_label
-        assert body["config"]["hitl_active_label"] == config.hitl_active_label
-        assert body["config"]["fixed_label"] == config.fixed_label
-        assert body["config"]["max_planners"] == config.max_planners
-        assert body["config"]["max_reviewers"] == config.max_reviewers
-        assert body["config"]["max_hitl_workers"] == config.max_hitl_workers
+        assert body["config"][config_field] == getattr(config, config_field)
 
 
 # ---------------------------------------------------------------------------
@@ -1178,14 +1132,13 @@ class TestWebSocketEndpoint:
     """Tests for the WebSocket /ws endpoint."""
 
     def test_websocket_connects_successfully(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1193,26 +1146,27 @@ class TestWebSocketEndpoint:
             pass  # Connection opens and closes without error
 
     def test_websocket_receives_history_on_connect(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         import json
 
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
-
-        bus = EventBus()
+        from dashboard import HydraFlowDashboard
 
         async def publish_events() -> None:
-            await bus.publish(HydraEvent(type=EventType.BATCH_START, data={"batch": 1}))
-            await bus.publish(
-                HydraEvent(type=EventType.PHASE_CHANGE, data={"phase": "implement"})
+            await event_bus.publish(
+                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+            )
+            await event_bus.publish(
+                EventFactory.create(
+                    type=EventType.PHASE_CHANGE, data={"phase": "implement"}
+                )
             )
 
         asyncio.run(publish_events())
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1226,19 +1180,17 @@ class TestWebSocketEndpoint:
         assert msg2["data"]["phase"] == "implement"
 
     def test_websocket_history_events_are_valid_json(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         import json
 
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
-
-        bus = EventBus()
+        from dashboard import HydraFlowDashboard
 
         async def publish() -> None:
-            await bus.publish(
-                HydraEvent(
+            await event_bus.publish(
+                EventFactory.create(
                     type=EventType.WORKER_UPDATE,
                     data={"issue": 42, "status": "running"},
                 )
@@ -1246,8 +1198,7 @@ class TestWebSocketEndpoint:
 
         asyncio.run(publish())
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1262,30 +1213,28 @@ class TestWebSocketEndpoint:
         assert parsed["data"]["issue"] == 42
 
     def test_websocket_receives_live_event(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         import json
 
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        event = HydraEvent(type=EventType.PR_CREATED, data={"pr": 99})
+        event = EventFactory.create(type=EventType.PR_CREATED, data={"pr": 99})
 
-        original_subscribe = bus.subscribe
+        original_subscribe = event_bus.subscribe
 
         def subscribe_with_preload(
             *_args: object, **_kwargs: object
-        ) -> asyncio.Queue[HydraEvent]:
+        ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
             queue.put_nowait(event)
             return queue
 
-        bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
+        event_bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1296,60 +1245,56 @@ class TestWebSocketEndpoint:
         assert msg["data"]["pr"] == 99
 
     def test_websocket_subscribes_to_event_bus_on_connect(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        event = HydraEvent(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
 
-        original_subscribe = bus.subscribe
+        original_subscribe = event_bus.subscribe
 
         def subscribe_with_preload(
             *_args: object, **_kwargs: object
-        ) -> asyncio.Queue[HydraEvent]:
+        ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
             queue.put_nowait(event)
             return queue
 
-        bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
+        event_bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
         with client.websocket_connect("/ws") as ws:
             ws.receive_text()
-            assert len(bus._subscribers) >= 1
+            assert len(event_bus._subscribers) >= 1
 
     def test_websocket_unsubscribes_on_disconnect(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         import time
 
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        event = HydraEvent(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
 
-        original_subscribe = bus.subscribe
+        original_subscribe = event_bus.subscribe
 
         def subscribe_with_preload(
             *_args: object, **_kwargs: object
-        ) -> asyncio.Queue[HydraEvent]:
+        ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
             queue.put_nowait(event)
             return queue
 
-        bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
+        event_bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1359,33 +1304,32 @@ class TestWebSocketEndpoint:
         # Poll briefly for async cleanup
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
-            if len(bus._subscribers) == 0:
+            if len(event_bus._subscribers) == 0:
                 break
             time.sleep(0.05)
 
-        assert len(bus._subscribers) == 0
+        assert len(event_bus._subscribers) == 0
 
     def test_multiple_websocket_clients_receive_same_history(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         import json
 
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
-
-        bus = EventBus()
+        from dashboard import HydraFlowDashboard
 
         async def publish_events() -> None:
-            await bus.publish(HydraEvent(type=EventType.BATCH_START, data={"batch": 1}))
-            await bus.publish(
-                HydraEvent(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
+            await event_bus.publish(
+                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+            )
+            await event_bus.publish(
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
 
         asyncio.run(publish_events())
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1402,27 +1346,28 @@ class TestWebSocketEndpoint:
         assert msgs1[1]["data"] == msgs2[1]["data"]
 
     def test_websocket_sends_multiple_history_events_in_order(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         import json
 
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
-
-        bus = EventBus()
+        from dashboard import HydraFlowDashboard
 
         async def publish_events() -> None:
-            await bus.publish(HydraEvent(type=EventType.BATCH_START, data={"step": 1}))
-            await bus.publish(HydraEvent(type=EventType.PHASE_CHANGE, data={"step": 2}))
-            await bus.publish(
-                HydraEvent(type=EventType.WORKER_UPDATE, data={"step": 3})
+            await event_bus.publish(
+                EventFactory.create(type=EventType.BATCH_START, data={"step": 1})
+            )
+            await event_bus.publish(
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 2})
+            )
+            await event_bus.publish(
+                EventFactory.create(type=EventType.WORKER_UPDATE, data={"step": 3})
             )
 
         asyncio.run(publish_events())
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1446,14 +1391,13 @@ class TestHITLRoute:
     """Tests for the GET /api/hitl route."""
 
     def test_hitl_returns_200(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1463,14 +1407,13 @@ class TestHITLRoute:
         assert response.status_code == 200
 
     def test_hitl_returns_empty_list_when_no_issues(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1480,14 +1423,13 @@ class TestHITLRoute:
         assert response.json() == []
 
     def test_hitl_returns_issues_with_pr_info(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         mock_items = [
@@ -1513,14 +1455,13 @@ class TestHITLRoute:
         assert body[0]["branch"] == "agent/issue-42"
 
     def test_hitl_returns_empty_on_gh_failure(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1531,14 +1472,13 @@ class TestHITLRoute:
         assert response.json() == []
 
     def test_hitl_shows_zero_pr_when_no_pr_found(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         mock_items = [
@@ -1571,23 +1511,19 @@ class TestHITLCorrectEndpoint:
     """Tests for the POST /api/hitl/{issue}/correct route."""
 
     def test_correct_returns_ok_with_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.submit_hitl_correction = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
+        with patch("pr_manager.PRManager.swap_pipeline_labels", new_callable=AsyncMock):
             response = client.post(
                 "/api/hitl/42/correct",
                 json={"correction": "Mock the DB connection"},
@@ -1597,23 +1533,19 @@ class TestHITLCorrectEndpoint:
         assert response.json() == {"status": "ok"}
 
     def test_correct_calls_orchestrator_submit(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.submit_hitl_correction = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
+        with patch("pr_manager.PRManager.swap_pipeline_labels", new_callable=AsyncMock):
             client.post(
                 "/api/hitl/42/correct",
                 json={"correction": "Fix the test"},
@@ -1622,14 +1554,13 @@ class TestHITLCorrectEndpoint:
         orch.submit_hitl_correction.assert_called_once_with(42, "Fix the test")
 
     def test_correct_returns_400_without_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=None)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1642,35 +1573,93 @@ class TestHITLCorrectEndpoint:
         assert response.json() == {"status": "no orchestrator"}
 
     def test_correct_publishes_hitl_update_event(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.submit_hitl_correction = MagicMock()
-        dashboard = HydraDashboard(config, bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
+        with patch("pr_manager.PRManager.swap_pipeline_labels", new_callable=AsyncMock):
             client.post(
                 "/api/hitl/42/correct",
                 json={"correction": "Fix it"},
             )
 
-        history = bus.get_history()
+        history = event_bus.get_history()
         hitl_events = [e for e in history if e.type.value == "hitl_update"]
         assert len(hitl_events) == 1
         assert hitl_events[0].data["issue"] == 42
         assert hitl_events[0].data["status"] == "processing"
         assert hitl_events[0].data["action"] == "correct"
+
+    def test_correct_rejects_empty_correction(
+        self, config: HydraFlowConfig, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        state = make_state(tmp_path)
+        orch = make_orchestrator_mock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/hitl/42/correct",
+            json={"correction": ""},
+        )
+
+        assert response.status_code == 400
+        assert "must not be empty" in response.json()["detail"]
+
+    def test_correct_rejects_whitespace_only_correction(
+        self, config: HydraFlowConfig, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        state = make_state(tmp_path)
+        orch = make_orchestrator_mock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/hitl/42/correct",
+            json={"correction": "   "},
+        )
+
+        assert response.status_code == 400
+        assert "must not be empty" in response.json()["detail"]
+
+    def test_correct_rejects_null_correction(
+        self, config: HydraFlowConfig, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        state = make_state(tmp_path)
+        orch = make_orchestrator_mock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.post(
+            "/api/hitl/42/correct",
+            json={"correction": None},
+        )
+
+        assert response.status_code == 400
+        assert "must not be empty" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -1682,16 +1671,15 @@ class TestHITLSkipEndpoint:
     """Tests for the POST /api/hitl/{issue}/skip route."""
 
     def test_skip_returns_ok_with_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1702,16 +1690,15 @@ class TestHITLSkipEndpoint:
         assert response.json() == {"status": "ok"}
 
     def test_skip_calls_orchestrator_skip(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1721,14 +1708,13 @@ class TestHITLSkipEndpoint:
         orch.skip_hitl_issue.assert_called_once_with(42)
 
     def test_skip_returns_400_without_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=None)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1738,24 +1724,22 @@ class TestHITLSkipEndpoint:
         assert response.json() == {"status": "no orchestrator"}
 
     def test_skip_publishes_hitl_update_event(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
         with patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock):
             client.post("/api/hitl/42/skip")
 
-        history = bus.get_history()
+        history = event_bus.get_history()
         hitl_events = [e for e in history if e.type.value == "hitl_update"]
         assert len(hitl_events) == 1
         assert hitl_events[0].data["issue"] == 42
@@ -1763,17 +1747,16 @@ class TestHITLSkipEndpoint:
         assert hitl_events[0].data["action"] == "skip"
 
     def test_skip_removes_hitl_origin_from_state(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        state.set_hitl_origin(42, "hydra-review")
+        state.set_hitl_origin(42, "hydraflow-review")
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1792,16 +1775,15 @@ class TestHITLCloseEndpoint:
     """Tests for the POST /api/hitl/{issue}/close route."""
 
     def test_close_returns_ok_with_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1812,16 +1794,15 @@ class TestHITLCloseEndpoint:
         assert response.json() == {"status": "ok"}
 
     def test_close_calls_orchestrator_skip(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1831,14 +1812,13 @@ class TestHITLCloseEndpoint:
         orch.skip_hitl_issue.assert_called_once_with(42)
 
     def test_close_returns_400_without_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=None)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1848,24 +1828,22 @@ class TestHITLCloseEndpoint:
         assert response.json() == {"status": "no orchestrator"}
 
     def test_close_publishes_hitl_update_event(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
         with patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock):
             client.post("/api/hitl/42/close")
 
-        history = bus.get_history()
+        history = event_bus.get_history()
         hitl_events = [e for e in history if e.type.value == "hitl_update"]
         assert len(hitl_events) == 1
         assert hitl_events[0].data["issue"] == 42
@@ -1873,17 +1851,16 @@ class TestHITLCloseEndpoint:
         assert hitl_events[0].data["action"] == "close"
 
     def test_close_removes_hitl_origin_from_state(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        state.set_hitl_origin(42, "hydra-review")
+        state.set_hitl_origin(42, "hydraflow-review")
         orch = make_orchestrator_mock()
         orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         client = TestClient(app)
@@ -1891,6 +1868,197 @@ class TestHITLCloseEndpoint:
             client.post("/api/hitl/42/close")
 
         assert state.get_hitl_origin(42) is None
+
+
+# ---------------------------------------------------------------------------
+# POST /api/hitl/{issue}/approve-memory
+# ---------------------------------------------------------------------------
+
+
+class TestHITLApproveMemoryEndpoint:
+    """Tests for the POST /api/hitl/{issue}/approve-memory route."""
+
+    def test_approve_memory_returns_ok_with_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            response = client.post("/api/hitl/42/approve-memory")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    def test_approve_memory_calls_orchestrator_skip(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/approve-memory")
+
+        orch.skip_hitl_issue.assert_called_once_with(42)
+
+    def test_approve_memory_works_without_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            response = client.post("/api/hitl/42/approve-memory")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    def test_approve_memory_publishes_hitl_update_event(
+        self, config: HydraFlowConfig, event_bus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/approve-memory")
+
+        history = event_bus.get_history()
+        hitl_events = [e for e in history if e.type.value == "hitl_update"]
+        assert len(hitl_events) == 1
+        assert hitl_events[0].data["issue"] == 42
+        assert hitl_events[0].data["status"] == "resolved"
+        assert hitl_events[0].data["action"] == "approved_as_memory"
+
+    def test_approve_memory_removes_hitl_origin(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        state.set_hitl_origin(42, "hydraflow-improve")
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/approve-memory")
+
+        assert state.get_hitl_origin(42) is None
+
+    def test_approve_memory_removes_hitl_cause(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        state.set_hitl_cause(42, "Memory suggestion")
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/approve-memory")
+
+        assert state.get_hitl_cause(42) is None
+
+    def test_approve_memory_adds_memory_label(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch(
+                "pr_manager.PRManager.add_labels", new_callable=AsyncMock
+            ) as mock_add,
+        ):
+            client.post("/api/hitl/42/approve-memory")
+
+        mock_add.assert_called_once_with(42, ["hydraflow-memory"])
+
+    def test_approve_memory_removes_improve_and_hitl_labels(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        with (
+            patch(
+                "pr_manager.PRManager.remove_label", new_callable=AsyncMock
+            ) as mock_remove,
+            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/approve-memory")
+
+        # Should remove both improve and hitl labels
+        removed_labels = [call.args[1] for call in mock_remove.call_args_list]
+        assert "hydraflow-improve" in removed_labels
+        assert "hydraflow-hitl" in removed_labels
 
 
 # ---------------------------------------------------------------------------
@@ -1902,16 +2070,15 @@ class TestHITLEnrichedRoute:
     """Tests for the enriched GET /api/hitl response with status."""
 
     def test_hitl_includes_status_from_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
         orch = make_orchestrator_mock()
         orch.get_hitl_status = MagicMock(return_value="processing")
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=orch)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
 
         mock_items = [
@@ -1928,14 +2095,13 @@ class TestHITLEnrichedRoute:
         orch.get_hitl_status.assert_called_once_with(42)
 
     def test_hitl_defaults_status_when_no_orchestrator(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state, orchestrator=None)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
         app = dashboard.create_app()
 
         mock_items = [
@@ -1951,14 +2117,13 @@ class TestHITLEnrichedRoute:
         assert body[0]["status"] == "pending"
 
     def test_hitl_includes_cause_and_status_fields(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
         mock_items = [
@@ -1990,23 +2155,22 @@ class TestWebSocketErrorLogging:
     """Tests that unexpected WebSocket errors are logged, not silently swallowed."""
 
     def test_websocket_logs_warning_on_history_replay_error(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         """When send_text raises during history replay, a warning is logged."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
-
-        bus = EventBus()
-        state = make_state(tmp_path)
+        from dashboard import HydraFlowDashboard
 
         # Publish an event so history is non-empty
         async def publish() -> None:
-            await bus.publish(HydraEvent(type=EventType.BATCH_START, data={"batch": 1}))
+            await event_bus.publish(
+                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+            )
 
         asyncio.run(publish())
 
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
         client = TestClient(app)
 
@@ -2025,30 +2189,28 @@ class TestWebSocketErrorLogging:
             )
 
     def test_websocket_logs_warning_on_live_stream_error(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         """When send_text raises during live streaming, a warning is logged."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
         client = TestClient(app)
 
         # Pre-populate a queue with one event so queue.get() returns immediately
-        event = HydraEvent(type=EventType.BATCH_START, data={"x": 1})
-        pre_populated_queue: asyncio.Queue[HydraEvent] = asyncio.Queue()
+        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        pre_populated_queue: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         pre_populated_queue.put_nowait(event)
 
         with patch("dashboard_routes.logger") as mock_logger:
             # subscribe() returns the pre-populated queue (no history, so
             # send_text is only called during the live streaming phase)
             with (
-                patch.object(bus, "subscribe", return_value=pre_populated_queue),
-                patch.object(bus, "get_history", return_value=[]),
+                patch.object(event_bus, "subscribe", return_value=pre_populated_queue),
+                patch.object(event_bus, "get_history", return_value=[]),
                 patch(
                     "starlette.websockets.WebSocket.send_text",
                     side_effect=RuntimeError("live stream send failed"),
@@ -2062,16 +2224,14 @@ class TestWebSocketErrorLogging:
             )
 
     def test_websocket_disconnect_not_logged(
-        self, config: HydraConfig, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus, state
     ) -> None:
         """WebSocketDisconnect should be handled silently (no warning logged)."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        bus = EventBus()
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
         client = TestClient(app)
 
@@ -2094,12 +2254,12 @@ class TestStaticDashboardJS:
     """Tests for serving /static/dashboard.js."""
 
     def test_static_dashboard_js_is_served(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """GET /static/dashboard.js returns 200 when the static dir exists."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
         # Create a real static/ dir with a dashboard.js file
         static_dir = tmp_path / "static"
@@ -2107,8 +2267,7 @@ class TestStaticDashboardJS:
         js_file = static_dir / "dashboard.js"
         js_file.write_text("// dashboard JS")
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         with patch("dashboard._STATIC_DIR", static_dir):
             app = dashboard.create_app()
@@ -2123,15 +2282,14 @@ class TestFallbackTemplateExternalJS:
     """Tests that the fallback template references external JS and has no inline onclick."""
 
     def test_fallback_template_references_external_js(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """The fallback HTML includes a script tag pointing to /static/dashboard.js."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         with (
             patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
@@ -2145,15 +2303,14 @@ class TestFallbackTemplateExternalJS:
         assert 'src="/static/dashboard.js"' in body
 
     def test_fallback_template_has_no_inline_onclick(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """The fallback HTML must not contain any inline onclick attributes."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         with (
             patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
@@ -2167,15 +2324,14 @@ class TestFallbackTemplateExternalJS:
         assert "onclick=" not in body
 
     def test_fallback_template_has_no_inline_script_block(
-        self, config: HydraConfig, event_bus: EventBus, tmp_path: Path
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """The fallback template should not have a large inline <script> block."""
         from fastapi.testclient import TestClient
 
-        from dashboard import HydraDashboard
+        from dashboard import HydraFlowDashboard
 
-        state = make_state(tmp_path)
-        dashboard = HydraDashboard(config, event_bus, state)
+        dashboard = HydraFlowDashboard(config, event_bus, state)
 
         with (
             patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
@@ -2189,3 +2345,188 @@ class TestFallbackTemplateExternalJS:
         # The template should not have inline JS with WebSocket logic
         assert "new WebSocket" not in body
         assert "function handleEvent" not in body
+
+
+# ---------------------------------------------------------------------------
+# SPA catch-all route (issue #298)
+# ---------------------------------------------------------------------------
+
+
+class TestSPACatchAll:
+    """Tests for the SPA catch-all route that serves index.html for non-API paths."""
+
+    def test_spa_catchall_returns_html_for_system_path(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """GET /system should return 200 with HTML (SPA fallback)."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/system")
+
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+
+    def test_spa_catchall_returns_html_for_arbitrary_path(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """GET /foo/bar should return 200 with HTML (SPA fallback)."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/foo/bar")
+
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+
+    def test_spa_catchall_does_not_catch_api_routes(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """GET /api/nonexistent should return 404, not SPA HTML."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/nonexistent")
+
+        assert response.status_code == 404
+
+    def test_spa_catchall_does_not_catch_ws_path(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """GET /ws should not return SPA HTML."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/ws")
+
+        # The catch-all guard returns 404 for the bare /ws path,
+        # preventing SPA HTML from being served at the WebSocket endpoint.
+        assert response.status_code != 200
+        assert "text/html" not in response.headers.get("content-type", "")
+
+    def test_spa_catchall_serves_root_level_static_file(
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """GET /logo.png should serve the file from ui/dist/ if it exists."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        # Create a fake ui/dist/ with a static file and index.html
+        dist_dir = tmp_path / "dist"
+        dist_dir.mkdir()
+        (dist_dir / "index.html").write_text("<html><body>SPA</body></html>")
+        (dist_dir / "logo.png").write_bytes(b"fake-png-data")
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+
+        with patch("dashboard._UI_DIST_DIR", dist_dir):
+            app = dashboard.create_app()
+            client = TestClient(app)
+            response = client.get("/logo.png")
+
+        assert response.status_code == 200
+        assert response.content == b"fake-png-data"
+
+    def test_spa_catchall_html_contains_expected_content(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """The SPA catch-all should serve the same index.html as GET /."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        root_response = client.get("/")
+        catchall_response = client.get("/system")
+
+        assert root_response.text == catchall_response.text
+
+    def test_spa_catchall_blocks_symlink_escape(
+        self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Symlinks inside ui/dist/ pointing outside must not be served."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        # Create a fake ui/dist/ with index.html
+        dist_dir = tmp_path / "dist"
+        dist_dir.mkdir()
+        (dist_dir / "index.html").write_text("<html><body>SPA</body></html>")
+
+        # Create a sensitive file outside dist_dir
+        (tmp_path / "secret.txt").write_text("sensitive data")
+
+        # Create a symlink inside dist_dir pointing outside
+        (dist_dir / "escape.txt").symlink_to(tmp_path / "secret.txt")
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+
+        with patch("dashboard._UI_DIST_DIR", dist_dir):
+            app = dashboard.create_app()
+            client = TestClient(app)
+            response = client.get("/escape.txt")
+
+        # The symlink target resolves outside dist_dir; the is_relative_to
+        # jail check must reject it and serve SPA HTML instead.
+        assert response.status_code == 200
+        assert "sensitive data" not in response.text
+        assert "text/html" in response.headers.get("content-type", "")
+
+    def test_spa_catchall_does_not_catch_assets_prefix(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """GET /assets/nonexistent should return 404, not SPA HTML."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/assets/nonexistent.js")
+
+        assert response.status_code == 404
+
+    def test_api_state_still_works_with_catchall(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Existing API routes must not be affected by the catch-all."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/state")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body, dict)

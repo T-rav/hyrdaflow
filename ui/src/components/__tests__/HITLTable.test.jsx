@@ -215,12 +215,12 @@ describe('HITLTable component', () => {
 
   it('shows item count in header', () => {
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
-    expect(screen.getByText('3 issues stuck on CI')).toBeInTheDocument()
+    expect(screen.getByText('3 items awaiting action')).toBeInTheDocument()
   })
 
   it('shows singular form for one item', () => {
     render(<HITLTable items={[mockItems[0]]} onRefresh={() => {}} />)
-    expect(screen.getByText('1 issue stuck on CI')).toBeInTheDocument()
+    expect(screen.getByText('1 item awaiting action')).toBeInTheDocument()
   })
 
   it('refresh button calls onRefresh prop', () => {
@@ -228,6 +228,20 @@ describe('HITLTable component', () => {
     render(<HITLTable items={mockItems} onRefresh={onRefresh} />)
     fireEvent.click(screen.getByText('Refresh'))
     expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('renders Refresh button in empty state and calls onRefresh on click', () => {
+    const onRefresh = vi.fn()
+    render(<HITLTable items={[]} onRefresh={onRefresh} />)
+    const btn = screen.getByText('Refresh')
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('shows muted HITL header text in empty state', () => {
+    render(<HITLTable items={[]} onRefresh={() => {}} />)
+    expect(screen.getByText('HITL')).toBeInTheDocument()
   })
 
   it('does not fetch data on mount (no side effects)', () => {
@@ -276,5 +290,117 @@ describe('HITLTable component', () => {
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
     const table = screen.getByText('Fix widget').closest('table')
     expect(table.style.minWidth).toBe('600px')
+  })
+
+  it('shows approve button when isMemorySuggestion is true', () => {
+    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.getByTestId('hitl-approve-memory-42')).toBeInTheDocument()
+    expect(screen.getByText('Approve as Memory')).toBeInTheDocument()
+  })
+
+  it('hides approve button when isMemorySuggestion is false', () => {
+    const items = [{ ...mockItems[0], isMemorySuggestion: false }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.queryByTestId('hitl-approve-memory-42')).not.toBeInTheDocument()
+  })
+
+  it('calls correct API on approve memory click', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    global.fetch = fetchMock
+    const onRefresh = vi.fn()
+
+    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
+    render(<HITLTable items={items} onRefresh={onRefresh} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-approve-memory-42'))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/hitl/42/approve-memory', {
+        method: 'POST',
+      })
+    })
+    await waitFor(() => {
+      expect(onRefresh).toHaveBeenCalled()
+    })
+  })
+
+  it('uses purple badge for memory suggestion cause', () => {
+    const items = [{
+      ...mockItems[0],
+      isMemorySuggestion: true,
+      cause: 'Memory suggestion',
+    }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    const badge = screen.getByTestId('hitl-cause-42')
+    expect(badge.style.background).toBe('var(--purple-subtle)')
+    expect(badge.style.color).toBe('var(--purple)')
+  })
+
+  it('hides approve button when isMemorySuggestion is undefined', () => {
+    const items = [{ ...mockItems[0] }]
+    delete items[0].isMemorySuggestion
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.queryByTestId('hitl-approve-memory-42')).not.toBeInTheDocument()
+  })
+
+  it('shows Approving... text during approve loading', async () => {
+    let resolveApprove
+    const fetchMock = vi.fn().mockImplementation(() =>
+      new Promise(resolve => { resolveApprove = resolve })
+    )
+    global.fetch = fetchMock
+
+    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-approve-memory-42'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Approving...')).toBeInTheDocument()
+    })
+
+    resolveApprove({ ok: true })
+  })
+
+  it('disables approve button during other action loading', async () => {
+    let resolveSkip
+    const fetchMock = vi.fn().mockImplementation(() =>
+      new Promise(resolve => { resolveSkip = resolve })
+    )
+    global.fetch = fetchMock
+
+    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-skip-42'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('hitl-approve-memory-42')).toBeDisabled()
+    })
+
+    resolveSkip({ ok: true })
+  })
+
+  it('renders approval status badge with purple styling', () => {
+    const items = [{ ...mockItems[0], status: 'approval' }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    const badge = screen.getByText('approval')
+    expect(badge).toBeInTheDocument()
+    expect(badge.style.background).toBe('var(--purple-subtle)')
+    expect(badge.style.color).toBe('var(--purple)')
+  })
+
+  it('uses orange badge for non-memory cause', () => {
+    const items = [{ ...mockItems[0], isMemorySuggestion: false }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    const badge = screen.getByTestId('hitl-cause-42')
+    expect(badge.style.background).toBe('var(--orange-subtle)')
+    expect(badge.style.color).toBe('var(--orange)')
   })
 })

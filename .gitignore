@@ -209,6 +209,6 @@ __marimo__/
 # Node
 node_modules/
 
-# Hydra runtime state
-.hydra/
+# HydraFlow runtime state
+.hydraflow/
 .DS_Store

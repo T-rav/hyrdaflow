@@ -4,21 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Hydra** — Intent in. Software out. A multi-agent orchestration system that automates the full GitHub issue lifecycle via git issues and labels.
+**HydraFlow** — Intent in. Software out. A multi-agent orchestration system that automates the full GitHub issue lifecycle via git issues and labels.
 
 ## Architecture
 
-Hydra runs three concurrent async loops:
+HydraFlow runs three concurrent async loops:
 
-1. **Plan loop**: Fetches issues labeled `hydra-plan`, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts the plan as a comment, then swaps the label to `hydra-ready`.
-2. **Implement loop**: Fetches issues labeled `hydra-ready`, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, then swaps to `hydra-review`.
-3. **Review loop**: Fetches issues labeled `hydra-review`, runs a review agent to check quality and optionally fix issues, submits a formal PR review, waits for CI, and auto-merges approved PRs. CI failures escalate to `hydra-hitl` for human intervention.
+1. **Plan loop**: Fetches issues labeled `hydraflow-plan`, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts the plan as a comment, then swaps the label to `hydraflow-ready`.
+2. **Implement loop**: Fetches issues labeled `hydraflow-ready`, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, then swaps to `hydraflow-review`.
+3. **Review loop**: Fetches issues labeled `hydraflow-review`, runs a review agent to check quality and optionally fix issues, submits a formal PR review, waits for CI, and auto-merges approved PRs. CI failures escalate to `hydraflow-hitl` for human intervention.
 
 ### Key Files
 
 - `cli.py` — CLI entry point
 - `orchestrator.py` — Main coordinator (three async polling loops)
-- `config.py` — `HydraConfig` Pydantic model
+- `config.py` — `HydraFlowConfig` Pydantic model
 - `agent.py` — `AgentRunner` (implementation agent)
 - `planner.py` — `PlannerRunner` (read-only planning agent)
 - `reviewer.py` — `ReviewRunner` (review + CI fix agent)
@@ -50,13 +50,15 @@ Hydra runs three concurrent async loops:
 make run            # Start backend + Vite frontend dev server
 make dry-run        # Dry run (log actions without executing)
 make clean          # Remove all worktrees and state
-make status         # Show current Hydra state
-make test           # Run unit tests
+make status         # Show current HydraFlow state
+make test           # Run unit tests (parallel)
+make test-cov       # Run tests with coverage report
 make lint           # Auto-fix linting
 make lint-check     # Check linting (no fix)
 make typecheck      # Run Pyright type checks
 make security       # Run Bandit security scan
-make quality        # Lint + typecheck + security + test
+make quality        # Lint + typecheck + test (parallel, fast)
+make quality-full   # quality + security scan
 make setup          # Install git hooks (pre-commit, pre-push)
 make ui             # Build React dashboard
 make ui-dev         # Start React dashboard dev server
@@ -104,7 +106,7 @@ The React dashboard (`ui/`) uses inline styles in JSX. Follow these conventions.
 - New colors must be added to both `ui/index.html` `:root` and `ui/src/theme.js`
 
 ### Component Patterns
-- Check for existing components before creating new ones (pill badges in `Header.jsx`, status badges in `WorkerList.jsx`, tables in `PRTable.jsx`)
+- Check for existing components before creating new ones (pill badges in `Header.jsx`, status badges in `StreamCard.jsx`, tables in `ReviewTable.jsx`)
 - Prefer extending existing components over parallel implementations
 - Interactive elements need hover/focus states (`cursor: 'pointer'`, `transition`)
 - Derive stage-related UI from `PIPELINE_STAGES` in `constants.js`

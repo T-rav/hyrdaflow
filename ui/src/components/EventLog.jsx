@@ -11,6 +11,14 @@ export const typeColors = {
   batch_start: theme.accent,
   batch_complete: theme.green,
   transcript_line: theme.textMuted,
+  triage_update: theme.triageGreen,
+  planner_update: theme.purple,
+  orchestrator_status: theme.accent,
+  hitl_escalation: theme.red,
+  hitl_update: theme.orange,
+  ci_check: theme.yellow,
+  issue_created: theme.green,
+  background_worker_status: theme.accent,
 }
 
 export function eventSummary(type, data) {
@@ -18,12 +26,20 @@ export function eventSummary(type, data) {
     case 'batch_start': return `Batch ${data.batch} started`
     case 'phase_change': return data.phase
     case 'worker_update': return `#${data.issue} \u2192 ${data.status}`
-    case 'transcript_line': return `#${data.issue || data.pr}`
+    case 'transcript_line': return `#${data.issue || data.pr} ${data.line || ''}`
     case 'pr_created': return `PR #${data.pr} for #${data.issue}${data.draft ? ' (draft)' : ''}`
     case 'review_update': return `PR #${data.pr} \u2192 ${data.verdict || data.status}`
     case 'merge_update': return `PR #${data.pr} ${data.status}`
     case 'batch_complete': return `${data.merged} merged, ${data.implemented} implemented`
     case 'error': return data.message || 'Error'
+    case 'triage_update': return `#${data.issue} → ${data.status}`
+    case 'planner_update': return `#${data.issue} → ${data.status}`
+    case 'orchestrator_status': return `${data.status}`
+    case 'hitl_escalation': return data.pr ? `PR #${data.pr} escalated to HITL` : `Issue #${data.issue} escalated to HITL`
+    case 'hitl_update': return `#${data.issue} ${data.action || data.status}`
+    case 'ci_check': return `PR #${data.pr} CI ${data.status}`
+    case 'issue_created': return `#${data.issue} created`
+    case 'background_worker_status': return `${data.worker} → ${data.status}`
     default: return JSON.stringify(data).slice(0, 80)
   }
 }

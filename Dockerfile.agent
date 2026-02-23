@@ -1,0 +1,88 @@
+# Dockerfile.agent — Hydra agent container image
+#
+# Pre-loaded with Claude CLI, git, gh CLI, Python 3.11, Node.js 20,
+# and quality tooling (ruff, pyright, pytest).
+#
+# Build:  docker build -f Dockerfile.agent -t ghcr.io/t-rav/hydraflow-agent:latest .
+# Test:   docker run --rm ghcr.io/t-rav/hydraflow-agent:latest bash /opt/hydraflow/docker-smoke-test.sh
+
+# ---------------------------------------------------------------------------
+# Stage 1: base — system packages + Node.js + gh CLI + uv
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        make \
+        curl \
+        gnupg \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x via NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install gh CLI via official APT repo
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (astral package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.local/bin/uv /usr/local/bin/uv \
+    && mv /root/.local/bin/uvx /usr/local/bin/uvx
+
+# ---------------------------------------------------------------------------
+# Stage 2: tools — Claude CLI + Python dev dependencies
+# ---------------------------------------------------------------------------
+FROM base AS tools
+
+# Install Claude CLI globally via npm
+RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit
+
+# Pre-install Python quality tools into a venv
+COPY pyproject.toml uv.lock ./
+RUN uv venv /opt/hydraflow-venv \
+    && UV_PROJECT_ENVIRONMENT=/opt/hydraflow-venv uv sync --all-extras --no-install-project
+
+# ---------------------------------------------------------------------------
+# Stage 3: runtime — final lean image
+# ---------------------------------------------------------------------------
+FROM base AS runtime
+
+# Copy Node.js global packages (Claude CLI)
+COPY --from=tools /usr/lib/node_modules /usr/lib/node_modules
+COPY --from=tools /usr/bin/claude /usr/bin/claude
+
+# Copy Python venv with quality tools
+COPY --from=tools /opt/hydraflow-venv /opt/hydraflow-venv
+
+# Copy smoke test script
+COPY scripts/docker-smoke-test.sh /opt/hydraflow/docker-smoke-test.sh
+
+# Create non-root user
+RUN groupadd --gid 1000 hydraflow \
+    && useradd --uid 1000 --gid hydraflow --create-home hydraflow \
+    && mkdir -p /workspace /tmp \
+    && chown hydraflow:hydraflow /workspace
+
+# Configure PATH
+ENV PATH="/opt/hydraflow-venv/bin:${PATH}"
+ENV VIRTUAL_ENV=/opt/hydraflow-venv
+
+# Configure git safe directory for mounted worktrees
+RUN git config --system --add safe.directory /workspace
+
+WORKDIR /workspace
+USER hydraflow
+
+CMD ["bash"]

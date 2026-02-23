@@ -5,9 +5,9 @@ Run a comprehensive integration test audit across the entire repo. Dynamically d
 ## Instructions
 
 1. **Resolve configuration** before doing anything else:
-   - Run `echo "$HYDRA_GITHUB_REPO"` — if set, use it as the target repo (e.g., `owner/repo`). If empty, run `git remote get-url origin` and extract the `owner/repo` slug (strip `https://github.com/` prefix and `.git` suffix).
-   - Run `echo "$HYDRA_GITHUB_ASSIGNEE"` — if set, use it as the issue assignee. If empty, extract the owner from the repo slug (the part before `/`).
-   - Run `echo "$HYDRA_LABEL_PLAN"` — if set, use it as the label for created issues. If empty, default to `hydra-plan`.
+   - Run `echo "$HYDRAFLOW_GITHUB_REPO"` — if set, use it as the target repo (e.g., `owner/repo`). If empty, run `git remote get-url origin` and extract the `owner/repo` slug (strip `https://github.com/` prefix and `.git` suffix).
+   - Run `echo "$HYDRAFLOW_GITHUB_ASSIGNEE"` — if set, use it as the issue assignee. If empty, extract the owner from the repo slug (the part before `/`).
+   - Run `echo "$HYDRAFLOW_LABEL_PLAN"` — if set, use it as the label for created issues. If empty, default to `hydraflow-plan`.
    - Store resolved values as `$REPO`, `$ASSIGNEE`, `$LABEL`.
 
 2. **Discover project structure:**

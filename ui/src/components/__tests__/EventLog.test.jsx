@@ -77,8 +77,8 @@ describe('eventSummary', () => {
   })
 
   it('formats transcript_line', () => {
-    expect(eventSummary('transcript_line', { issue: 3 })).toBe('#3')
-    expect(eventSummary('transcript_line', { pr: 7 })).toBe('#7')
+    expect(eventSummary('transcript_line', { issue: 3, line: 'Writing tests...' })).toBe('#3 Writing tests...')
+    expect(eventSummary('transcript_line', { pr: 7 })).toBe('#7 ')
   })
 
   it('formats pr_created', () => {
@@ -104,6 +104,46 @@ describe('eventSummary', () => {
     expect(eventSummary('error', {})).toBe('Error')
   })
 
+  it('formats triage_update', () => {
+    expect(eventSummary('triage_update', { issue: 5, status: 'evaluating' })).toBe('#5 → evaluating')
+  })
+
+  it('formats planner_update', () => {
+    expect(eventSummary('planner_update', { issue: 7, status: 'planning' })).toBe('#7 → planning')
+  })
+
+  it('formats orchestrator_status', () => {
+    expect(eventSummary('orchestrator_status', { status: 'running' })).toBe('running')
+  })
+
+  it('formats hitl_escalation with PR number', () => {
+    expect(eventSummary('hitl_escalation', { pr: 42 })).toBe('PR #42 escalated to HITL')
+  })
+
+  it('formats hitl_escalation without PR number (manual escalation)', () => {
+    expect(eventSummary('hitl_escalation', { issue: 99, cause: 'needs rework', origin: 'hydraflow-review' })).toBe('Issue #99 escalated to HITL')
+  })
+
+  it('formats hitl_update with action', () => {
+    expect(eventSummary('hitl_update', { issue: 10, action: 'resolved' })).toBe('#10 resolved')
+  })
+
+  it('formats hitl_update falling back to status', () => {
+    expect(eventSummary('hitl_update', { issue: 10, status: 'pending' })).toBe('#10 pending')
+  })
+
+  it('formats ci_check', () => {
+    expect(eventSummary('ci_check', { pr: 20, status: 'passed' })).toBe('PR #20 CI passed')
+  })
+
+  it('formats issue_created', () => {
+    expect(eventSummary('issue_created', { issue: 99 })).toBe('#99 created')
+  })
+
+  it('formats background_worker_status', () => {
+    expect(eventSummary('background_worker_status', { worker: 'memory_sync', status: 'ok' })).toBe('memory_sync → ok')
+  })
+
   it('falls back to truncated JSON for unknown types', () => {
     const result = eventSummary('unknown_type', { foo: 'bar' })
     expect(result).toBe('{"foo":"bar"}')
@@ -115,6 +155,9 @@ describe('typeColors', () => {
     const expectedTypes = [
       'worker_update', 'phase_change', 'pr_created', 'review_update',
       'merge_update', 'error', 'batch_start', 'batch_complete', 'transcript_line',
+      'triage_update', 'planner_update', 'orchestrator_status',
+      'hitl_escalation', 'hitl_update', 'ci_check', 'issue_created',
+      'background_worker_status',
     ]
     for (const type of expectedTypes) {
       expect(typeColors).toHaveProperty(type)

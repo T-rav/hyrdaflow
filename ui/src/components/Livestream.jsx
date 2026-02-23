@@ -6,9 +6,6 @@ export function Livestream({ events }) {
   const containerRef = useRef(null)
   const [autoScroll, setAutoScroll] = useState(true)
 
-  // Filter out transcript_line events
-  const filtered = events.filter(e => e.type !== 'transcript_line')
-
   // Auto-scroll: track whether user has scrolled away from the top
   // Events are newest-first, so "latest" means scrollTop = 0
   const handleScroll = useCallback(() => {
@@ -23,7 +20,7 @@ export function Livestream({ events }) {
     if (autoScroll && containerRef.current) {
       containerRef.current.scrollTop = 0
     }
-  }, [filtered.length, autoScroll])
+  }, [events.length, autoScroll])
 
   return (
     <div ref={containerRef} onScroll={handleScroll} style={styles.container}>
@@ -35,10 +32,10 @@ export function Livestream({ events }) {
           ↑ New events — click to resume auto-scroll
         </div>
       )}
-      {filtered.length === 0 && (
+      {events.length === 0 && (
         <div style={styles.empty}>Waiting for events...</div>
       )}
-      {filtered.map((e, i) => (
+      {events.map((e, i) => (
         <div key={i} style={styles.item}>
           <span style={styles.time}>
             {new Date(e.timestamp).toLocaleTimeString()}

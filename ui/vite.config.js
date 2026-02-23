@@ -21,7 +21,13 @@ export default defineConfig({
       '/api': 'http://localhost:5555',
       '/ws': {
         target: 'ws://localhost:5555',
-        ws: true
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {
+            // Silently handle expected proxy errors (ECONNRESET/EPIPE)
+            // Frontend auto-reconnects via useHydraFlowSocket
+          })
+        }
       }
     }
   }

@@ -1,4 +1,4 @@
-"""Structured JSON logging for Hydra."""
+"""Structured JSON logging for HydraFlow."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def setup_logging(
     json_output: bool = True,
     log_file: str | Path | None = None,
 ) -> logging.Logger:
-    """Configure the ``hydra`` logger.
+    """Configure the ``hydraflow`` logger.
 
     Parameters
     ----------
@@ -53,9 +53,9 @@ def setup_logging(
     Returns
     -------
     logging.Logger
-        The configured root ``hydra`` logger.
+        The configured root ``hydraflow`` logger.
     """
-    logger = logging.getLogger("hydra")
+    logger = logging.getLogger("hydraflow")
     logger.setLevel(level)
     logger.handlers.clear()
 

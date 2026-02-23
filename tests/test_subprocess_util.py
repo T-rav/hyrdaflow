@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from subprocess_util import (
+    AuthenticationError,
+    CreditExhaustedError,
+    SubprocessTimeoutError,
+    _is_auth_error,
     _is_retryable_error,
     make_clean_env,
+    make_docker_env,
     run_subprocess,
     run_subprocess_with_retry,
 )
@@ -366,6 +372,18 @@ class TestRunSubprocessWithRetry:
         mock_run.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_no_retry_on_credit_exhausted_error(self) -> None:
+        """CreditExhaustedError should propagate immediately without any retry."""
+        with patch(
+            "subprocess_util.run_subprocess", new_callable=AsyncMock
+        ) as mock_run:
+            mock_run.side_effect = CreditExhaustedError("API credit limit reached")
+            with pytest.raises(CreditExhaustedError, match="credit limit"):
+                await run_subprocess_with_retry("gh", "pr", "list", max_retries=3)
+        # Should not retry — only one call
+        mock_run.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_passes_through_cmd_and_kwargs(self) -> None:
         with patch(
             "subprocess_util.run_subprocess", new_callable=AsyncMock
@@ -385,4 +403,255 @@ class TestRunSubprocessWithRetry:
             "list",
             cwd=Path("/tmp/test"),
             gh_token="ghp_test",
+            timeout=120.0,
+            runner=None,
         )
+
+
+# --- AuthenticationError ---
+
+
+class TestAuthenticationError:
+    """Tests for AuthenticationError and _is_auth_error."""
+
+    def test_auth_error_inherits_runtime_error(self) -> None:
+        err = AuthenticationError("auth failed")
+        assert isinstance(err, RuntimeError)
+
+    def test_is_auth_error_detects_401(self) -> None:
+        assert _is_auth_error("HTTP 401 Unauthorized") is True
+
+    def test_is_auth_error_detects_not_logged_in(self) -> None:
+        assert _is_auth_error("gh: not logged in to github.com") is True
+
+    def test_is_auth_error_detects_authentication_required(self) -> None:
+        assert _is_auth_error("authentication required") is True
+
+    def test_is_auth_error_detects_auth_token(self) -> None:
+        assert _is_auth_error("invalid auth token") is True
+
+    def test_is_auth_error_rejects_generic_error(self) -> None:
+        assert _is_auth_error("something else went wrong") is False
+
+    @pytest.mark.asyncio
+    async def test_run_subprocess_raises_auth_error_on_401(self) -> None:
+        proc = _make_proc(returncode=1, stderr=b"HTTP 401 Unauthorized")
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            pytest.raises(AuthenticationError, match="401"),
+        ):
+            await run_subprocess("gh", "pr", "list")
+
+    @pytest.mark.asyncio
+    async def test_run_subprocess_raises_auth_error_on_not_logged_in(self) -> None:
+        proc = _make_proc(returncode=1, stderr=b"not logged in to github.com")
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            pytest.raises(AuthenticationError, match="not logged in"),
+        ):
+            await run_subprocess("gh", "auth", "status")
+
+    @pytest.mark.asyncio
+    async def test_run_subprocess_with_retry_raises_auth_error(self) -> None:
+        with patch(
+            "subprocess_util.run_subprocess", new_callable=AsyncMock
+        ) as mock_run:
+            mock_run.side_effect = AuthenticationError(
+                "Command failed (rc=1): 401 Unauthorized"
+            )
+            with pytest.raises(AuthenticationError, match="401"):
+                await run_subprocess_with_retry("gh", "pr", "list", max_retries=3)
+        # Should not retry — only one call
+        mock_run.assert_awaited_once()
+
+
+# --- SubprocessTimeoutError ---
+
+
+class TestSubprocessTimeoutError:
+    """Tests for SubprocessTimeoutError."""
+
+    def test_inherits_runtime_error(self) -> None:
+        err = SubprocessTimeoutError("timed out")
+        assert isinstance(err, RuntimeError)
+
+    def test_message_preserved(self) -> None:
+        err = SubprocessTimeoutError("Command timed out after 120s")
+        assert "timed out after 120s" in str(err)
+
+
+# --- Timeout behavior ---
+
+
+class TestRunSubprocessTimeout:
+    """Tests for run_subprocess timeout behavior."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_process_and_raises(self) -> None:
+        """When proc.communicate exceeds timeout, process is killed and error raised."""
+        proc = AsyncMock()
+        proc.returncode = None
+        proc.communicate = AsyncMock(side_effect=TimeoutError)
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock()
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("asyncio.wait_for", side_effect=TimeoutError),
+            pytest.raises(SubprocessTimeoutError, match="timed out"),
+        ):
+            await run_subprocess("sleep", "999", timeout=1.0)
+        proc.kill.assert_called_once()
+        proc.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_default_timeout_is_120(self) -> None:
+        """Default timeout should be 120 seconds."""
+        import inspect
+
+        sig = inspect.signature(run_subprocess)
+        assert sig.parameters["timeout"].default == 120.0
+
+    @pytest.mark.asyncio
+    async def test_custom_timeout_value(self) -> None:
+        """Custom timeout should be passed to wait_for."""
+        proc = _make_proc(stdout=b"ok")
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("asyncio.wait_for", wraps=asyncio.wait_for) as mock_wait_for,
+        ):
+            await run_subprocess("echo", "hi", timeout=60.0)
+        mock_wait_for.assert_awaited_once()
+        # The timeout kwarg should be 60.0
+        assert mock_wait_for.call_args.kwargs.get("timeout") == 60.0
+
+
+class TestRetryWithTimeout:
+    """Tests for run_subprocess_with_retry timeout interactions."""
+
+    @pytest.mark.asyncio
+    async def test_retry_retries_on_timeout(self) -> None:
+        """SubprocessTimeoutError should be retried (matches 'timed out' pattern)."""
+        with (
+            patch("subprocess_util.run_subprocess", new_callable=AsyncMock) as mock_run,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_run.side_effect = [
+                SubprocessTimeoutError("Command ('gh',) timed out after 120s"),
+                "ok",
+            ]
+            result = await run_subprocess_with_retry("gh", "pr", "list", max_retries=3)
+        assert result == "ok"
+        assert mock_run.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_passes_timeout_to_run_subprocess(self) -> None:
+        """run_subprocess_with_retry should forward timeout kwarg."""
+        with patch(
+            "subprocess_util.run_subprocess", new_callable=AsyncMock
+        ) as mock_run:
+            mock_run.return_value = "ok"
+            await run_subprocess_with_retry(
+                "gh", "pr", "list", timeout=60.0, max_retries=1
+            )
+        mock_run.assert_awaited_once_with(
+            "gh",
+            "pr",
+            "list",
+            cwd=None,
+            gh_token="",
+            timeout=60.0,
+            runner=None,
+        )
+
+
+# --- make_docker_env ---
+
+
+class TestMakeDockerEnv:
+    """Tests for the make_docker_env helper."""
+
+    def test_sets_home_to_root(self) -> None:
+        env = make_docker_env()
+        assert env["HOME"] == "/root"
+
+    def test_includes_only_allowed_vars_when_empty(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env()
+        assert set(env.keys()) == {"HOME"}
+
+    def test_injects_gh_token(self) -> None:
+        env = make_docker_env(gh_token="ghp_test123")
+        assert env["GH_TOKEN"] == "ghp_test123"
+
+    def test_no_gh_token_when_empty(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env(gh_token="")
+        assert "GH_TOKEN" not in env
+
+    def test_injects_anthropic_key_from_environ(self) -> None:
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-ant-test"}, clear=True):
+            env = make_docker_env()
+        assert env["ANTHROPIC_API_KEY"] == "sk-ant-test"
+
+    def test_no_anthropic_key_when_absent(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env()
+        assert "ANTHROPIC_API_KEY" not in env
+
+    def test_sets_git_identity(self) -> None:
+        env = make_docker_env(git_user_name="Bot", git_user_email="bot@test.com")
+        assert env["GIT_AUTHOR_NAME"] == "Bot"
+        assert env["GIT_COMMITTER_NAME"] == "Bot"
+        assert env["GIT_AUTHOR_EMAIL"] == "bot@test.com"
+        assert env["GIT_COMMITTER_EMAIL"] == "bot@test.com"
+
+    def test_no_git_identity_when_empty(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env(git_user_name="", git_user_email="")
+        assert "GIT_AUTHOR_NAME" not in env
+        assert "GIT_COMMITTER_NAME" not in env
+        assert "GIT_AUTHOR_EMAIL" not in env
+        assert "GIT_COMMITTER_EMAIL" not in env
+
+    def test_excludes_host_path(self) -> None:
+        with patch.dict(
+            "os.environ", {"PATH": "/usr/bin", "PYTHONPATH": "/lib"}, clear=True
+        ):
+            env = make_docker_env()
+        assert "PATH" not in env
+        assert "PYTHONPATH" not in env
+
+    def test_excludes_host_specific_vars(self) -> None:
+        host_vars = {
+            "SHELL": "/bin/zsh",
+            "TERM": "xterm-256color",
+            "USER": "dev",
+            "LANG": "en_US.UTF-8",
+            "CLAUDECODE": "1",
+        }
+        with patch.dict("os.environ", host_vars, clear=True):
+            env = make_docker_env()
+        for var in host_vars:
+            assert var not in env
+
+    def test_all_vars_combined(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"ANTHROPIC_API_KEY": "sk-test", "PATH": "/usr/bin"},
+            clear=True,
+        ):
+            env = make_docker_env(
+                gh_token="ghp_abc",
+                git_user_name="Agent",
+                git_user_email="agent@example.com",
+            )
+        expected_keys = {
+            "HOME",
+            "GH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "GIT_AUTHOR_NAME",
+            "GIT_COMMITTER_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_EMAIL",
+        }
+        assert set(env.keys()) == expected_keys

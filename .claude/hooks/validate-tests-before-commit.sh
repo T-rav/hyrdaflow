@@ -84,7 +84,7 @@ TOP_DIRS=$(echo "$STAGED_FILES" | sed -n 's|^\([^/]*\)/.*|\1|p' | sort -u)
 for dir in $TOP_DIRS; do
   # Skip non-testable directories
   case "$dir" in
-    .github|.claude|.hydra|docs|ui|venv|node_modules) continue ;;
+    .github|.claude|.hydraflow|docs|ui|venv|node_modules) continue ;;
   esac
   if [ -d "$PROJECT_ROOT/$dir/tests" ]; then
     SERVICES_TO_TEST="$SERVICES_TO_TEST $dir"

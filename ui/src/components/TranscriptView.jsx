@@ -1,10 +1,88 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { theme } from '../theme'
-import { ACTIVE_STATUSES } from '../constants'
+import { ACTIVE_STATUSES, BACKGROUND_WORKERS } from '../constants'
+import { useHydraFlow } from '../context/HydraFlowContext'
+
+function formatTimestamp(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function BackgroundWorkerDetail({ workerKey, backgroundWorkers, events }) {
+  const def = BACKGROUND_WORKERS.find(w => w.key === workerKey)
+  const state = (backgroundWorkers || []).find(w => w.name === workerKey)
+
+  const recentEvents = useMemo(() => {
+    return (events || [])
+      .filter(e => e.type === 'background_worker_status' && e.data?.worker === workerKey)
+      .slice(0, 50)
+  }, [events, workerKey])
+
+  const label = def?.label || workerKey
+  const status = state?.status || 'unknown'
+  const lastRun = state?.last_run
+  const details = state?.details || {}
+  const hasDetails = Object.keys(details).length > 0
+  const hasData = state || recentEvents.length > 0
+
+  if (!hasData) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <span style={styles.label}>{label}</span>
+        </div>
+        <div style={styles.empty}>No log data available</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <span style={styles.label}>{label}</span>
+        <span style={styles.bgStatusBadge}>{status}</span>
+      </div>
+
+      <div style={styles.bgSection}>
+        <div style={styles.bgSectionLabel}>Last Run</div>
+        <div style={styles.bgDetailValue}>{lastRun ? new Date(lastRun).toLocaleString() : 'never'}</div>
+      </div>
+
+      {hasDetails && (
+        <div style={styles.bgSection}>
+          <div style={styles.bgSectionLabel}>Details</div>
+          {Object.entries(details).map(([k, v]) => (
+            <div key={k} style={styles.bgDetailRow}>
+              <span style={styles.bgDetailKey}>{k.replace(/_/g, ' ')}</span>
+              <span style={styles.bgDetailValue}>{String(v)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {recentEvents.length > 0 && (
+        <div style={styles.bgSection}>
+          <div style={styles.bgSectionLabel}>Recent Events</div>
+          {recentEvents.map((evt, i) => (
+            <div key={i} style={styles.bgEventRow}>
+              <span style={styles.bgEventTime}>{formatTimestamp(evt.timestamp)}</span>
+              <span style={styles.bgEventStatus}>{evt.data?.status || ''}</span>
+              <span style={styles.bgEventDetails}>
+                {evt.data?.details ? Object.entries(evt.data.details).map(([k, v]) => `${k}: ${v}`).join(', ') : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function TranscriptView({ workers, selectedWorker }) {
+  const { backgroundWorkers, events } = useHydraFlow()
   const containerRef = useRef(null)
 
   // Auto-scroll to bottom when new lines arrive
@@ -13,6 +91,12 @@ export function TranscriptView({ workers, selectedWorker }) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight
     }
   }, [workers, selectedWorker])
+
+  // Background worker selected — show detail view
+  if (typeof selectedWorker === 'string' && selectedWorker.startsWith('bg-')) {
+    const workerKey = selectedWorker.slice(3)
+    return <BackgroundWorkerDetail workerKey={workerKey} backgroundWorkers={backgroundWorkers} events={events} />
+  }
 
   // Single worker selected — show its transcript
   if (selectedWorker !== null && workers[selectedWorker]) {
@@ -29,7 +113,7 @@ export function TranscriptView({ workers, selectedWorker }) {
           <div style={styles.waiting}>Waiting for output...</div>
         ) : (
           w.transcript.map((line, i) => (
-            <div key={i} style={styles.line}>
+            <div key={`${selectedWorker}-${i}`} style={styles.line}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{line}</ReactMarkdown>
             </div>
           ))
@@ -62,7 +146,7 @@ export function TranscriptView({ workers, selectedWorker }) {
         <span style={styles.lines}>{allLines.length} lines</span>
       </div>
       {allLines.map((item, i) => (
-        <div key={i} style={styles.line}>
+        <div key={`${item.key}-${i}`} style={styles.line}>
           <span style={styles.linePrefix}>[{item.role} #{item.key}]</span>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{item.line}</ReactMarkdown>
         </div>
@@ -141,5 +225,60 @@ const styles = {
     color: theme.accent,
     fontWeight: 600,
     fontSize: 11,
+  },
+  bgStatusBadge: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.textMuted,
+    textTransform: 'uppercase',
+  },
+  bgSection: {
+    padding: '12px 0',
+    borderBottom: `1px solid ${theme.border}`,
+  },
+  bgSectionLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.accent,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  bgDetailRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 12,
+    padding: '2px 0',
+  },
+  bgDetailKey: {
+    color: theme.textMuted,
+    textTransform: 'capitalize',
+  },
+  bgDetailValue: {
+    color: theme.text,
+    fontWeight: 600,
+    fontSize: 12,
+  },
+  bgEventRow: {
+    display: 'flex',
+    gap: 12,
+    fontSize: 11,
+    padding: '2px 0',
+  },
+  bgEventTime: {
+    fontFamily: 'monospace',
+    fontSize: 10,
+    color: theme.textMuted,
+    flexShrink: 0,
+  },
+  bgEventStatus: {
+    fontWeight: 600,
+    color: theme.text,
+    flexShrink: 0,
+  },
+  bgEventDetails: {
+    color: theme.textMuted,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
 }

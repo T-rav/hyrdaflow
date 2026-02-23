@@ -1,30 +1,68 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { useHydraSocket } from './hooks/useHydraSocket'
+import { HydraFlowProvider, useHydraFlow } from './context/HydraFlowContext'
 import { Header } from './components/Header'
-import { WorkerList } from './components/WorkerList'
 import { TranscriptView } from './components/TranscriptView'
-import { PRTable } from './components/PRTable'
 import { HumanInputBanner } from './components/HumanInputBanner'
 import { HITLTable } from './components/HITLTable'
-import { Livestream } from './components/Livestream'
+import { SystemPanel } from './components/SystemPanel'
+import { MetricsPanel } from './components/MetricsPanel'
+import { StreamView } from './components/StreamView'
+import { SessionSidebar } from './components/SessionSidebar'
 import { theme } from './theme'
 import { ACTIVE_STATUSES } from './constants'
 
-const TABS = ['transcript', 'prs', 'hitl', 'livestream', 'timeline']
+const TABS = ['issues', 'transcript', 'hitl', 'metrics', 'system']
 
-export default function App() {
+const TAB_LABELS = {
+  issues: 'Work Stream',
+  transcript: 'Transcript',
+  hitl: 'HITL',
+  metrics: 'Metrics',
+  system: 'System',
+}
+
+function SystemAlertBanner({ alert }) {
+  if (!alert) return null
+  return (
+    <div style={styles.alertBanner}>
+      <span style={styles.alertIcon}>!</span>
+      <span>{alert.message}</span>
+      {alert.source && <span style={styles.alertSource}>Source: {alert.source}</span>}
+    </div>
+  )
+}
+
+function SessionFilterBanner({ session, onClear }) {
+  if (!session) return null
+  const startDate = new Date(session.started_at).toLocaleString()
+  const issueCount = session.issues_processed?.length ?? 0
+  return (
+    <div style={styles.sessionBanner}>
+      <span style={session.status === 'active' ? styles.sessionDotActive : styles.sessionDotCompleted} />
+      <span style={styles.sessionBannerText}>
+        Session from {startDate}
+      </span>
+      <span style={styles.sessionBannerMeta}>
+        {issueCount} {issueCount === 1 ? 'issue' : 'issues'}
+        {session.issues_succeeded > 0 && ` · ${session.issues_succeeded} passed`}
+        {session.issues_failed > 0 && ` · ${session.issues_failed} failed`}
+      </span>
+      <span onClick={onClear} style={styles.sessionBannerClear}>Clear filter</span>
+    </div>
+  )
+}
+
+function AppContent() {
   const {
-    connected, batchNum, phase, orchestratorStatus, workers, prs, reviews,
-    mergedCount, sessionPrsCount, sessionTriaged, sessionPlanned,
-    sessionImplemented, sessionReviewed, lifetimeStats, config, events,
+    connected, orchestratorStatus, workers, prs,
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
-  } = useHydraSocket()
+    backgroundWorkers, systemAlert, intents, toggleBgWorker, updateBgWorkerInterval,
+    selectedSession, selectSession,
+    requestChanges, resetSession,
+  } = useHydraFlow()
   const [selectedWorker, setSelectedWorker] = useState(null)
-  const [activeTab, setActiveTab] = useState('transcript')
-  const handleWorkerSelect = useCallback((worker) => {
-    setSelectedWorker(worker)
-    setActiveTab('transcript')
-  }, [])
+  const [activeTab, setActiveTab] = useState('issues')
+  const [expandedStages, setExpandedStages] = useState({})
 
   // Auto-select the first active worker when none is selected
   useEffect(() => {
@@ -39,10 +77,11 @@ export default function App() {
   }, [workers, selectedWorker])
 
   const handleStart = useCallback(async () => {
+    resetSession()
     try {
       await fetch('/api/control/start', { method: 'POST' })
     } catch { /* ignore */ }
-  }, [])
+  }, [resetSession])
 
   const handleStop = useCallback(async () => {
     try {
@@ -50,33 +89,29 @@ export default function App() {
     } catch { /* ignore */ }
   }, [])
 
+  const handleRequestChanges = useCallback(async (issueNumber, feedback, stage) => {
+    const ok = await requestChanges(issueNumber, feedback, stage)
+    if (ok) {
+      setActiveTab('hitl')
+    }
+    return ok
+  }, [requestChanges])
+
   return (
     <div style={styles.layout}>
       <Header
-        sessionCounts={{
-          triage: sessionTriaged,
-          plan: sessionPlanned,
-          implement: sessionImplemented,
-          review: sessionReviewed,
-          merged: mergedCount,
-        }}
         connected={connected}
         orchestratorStatus={orchestratorStatus}
         onStart={handleStart}
         onStop={handleStop}
-        phase={phase}
-        workers={workers}
-        config={config}
       />
 
-      <WorkerList
-        workers={workers}
-        selectedWorker={selectedWorker}
-        onSelect={handleWorkerSelect}
-        humanInputRequests={humanInputRequests}
-      />
+      <div style={styles.body}>
+      <SessionSidebar />
 
       <div style={styles.main}>
+        <SessionFilterBanner session={selectedSession} onClear={() => selectSession(null)} />
+        <SystemAlertBanner alert={systemAlert} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
 
         <div style={styles.tabs}>
@@ -86,51 +121,60 @@ export default function App() {
               onClick={() => setActiveTab(tab)}
               style={activeTab === tab ? tabActiveStyle : tabInactiveStyle}
             >
-              {tab === 'prs'
-                ? <>Pull Requests{prs.length > 0 && <span style={styles.tabBadge}>{prs.length}</span>}</>
-                : tab === 'hitl' ? (
+              {tab === 'hitl' ? (
                 <>HITL{hitlItems?.length > 0 && <span style={hitlBadgeStyle}>{hitlItems.length}</span>}</>
-              ) : tab === 'livestream' ? 'Timeline' : tab === 'timeline' ? 'Livestream' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              ) : TAB_LABELS[tab]}
             </div>
           ))}
         </div>
 
-        <div style={styles.tabContent}>
-          {activeTab === 'transcript' && (
-            <TranscriptView workers={workers} selectedWorker={selectedWorker} />
-          )}
-          {activeTab === 'prs' && <PRTable />}
-          {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
-          {activeTab === 'livestream' && <Livestream events={events} />}
-          {activeTab === 'timeline' && (
-            <div style={styles.timeline}>
-              {events.map((e, i) => (
-                <div key={i} style={styles.timelineItem}>
-                  <span style={styles.timelineTime}>
-                    {new Date(e.timestamp).toLocaleTimeString()}
-                  </span>
-                  <span style={styles.timelineType}>{e.type.replace(/_/g, ' ')}</span>
-                  <span>{JSON.stringify(e.data).slice(0, 120)}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div style={styles.contentRow}>
+          <div style={styles.tabContent}>
+            {activeTab === 'issues' && (
+              <StreamView
+                intents={intents}
+                expandedStages={expandedStages}
+                onToggleStage={setExpandedStages}
+                onRequestChanges={handleRequestChanges}
+              />
+            )}
+            {activeTab === 'transcript' && (
+              <TranscriptView workers={workers} selectedWorker={selectedWorker} />
+            )}
+            {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
+            {activeTab === 'system' && <SystemPanel backgroundWorkers={backgroundWorkers} onToggleBgWorker={toggleBgWorker} onUpdateInterval={updateBgWorkerInterval} />}
+            {activeTab === 'metrics' && <MetricsPanel />}
+          </div>
         </div>
       </div>
 
+      </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <HydraFlowProvider>
+      <AppContent />
+    </HydraFlowProvider>
   )
 }
 
 const styles = {
   layout: {
-    display: 'grid',
-    gridTemplateRows: 'auto 1fr',
-    gridTemplateColumns: '280px 1fr',
+    display: 'flex',
+    flexDirection: 'column',
     height: '100vh',
-    minWidth: '1024px',
+    minWidth: '1080px',
+  },
+  body: {
+    display: 'flex',
+    flex: 1,
+    overflow: 'hidden',
   },
   main: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -153,32 +197,16 @@ const styles = {
     color: theme.accent,
     borderBottomColor: theme.accent,
   },
+  contentRow: {
+    flex: 1,
+    display: 'flex',
+    overflow: 'hidden',
+  },
   tabContent: {
     flex: 1,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-  },
-  timeline: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: 8,
-  },
-  timelineItem: {
-    padding: '6px 8px',
-    borderBottom: `1px solid ${theme.border}`,
-    fontSize: 11,
-  },
-  timelineTime: { color: theme.textMuted, marginRight: 8 },
-  timelineType: { fontWeight: 600, color: theme.accent, marginRight: 6 },
-  tabBadge: {
-    marginLeft: 6,
-    padding: '1px 6px',
-    borderRadius: 10,
-    fontSize: 10,
-    fontWeight: 600,
-    background: theme.border,
-    color: theme.textMuted,
   },
   hitlBadge: {
     background: theme.red,
@@ -189,10 +217,77 @@ const styles = {
     padding: '1px 6px',
     marginLeft: 6,
   },
+  alertBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 16px',
+    background: theme.redSubtle,
+    borderBottom: `2px solid ${theme.red}`,
+    color: theme.red,
+    fontSize: 13,
+    fontWeight: 600,
+  },
+  alertIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 20,
+    height: 20,
+    borderRadius: '50%',
+    background: theme.red,
+    color: theme.white,
+    fontSize: 12,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  alertSource: {
+    marginLeft: 'auto',
+    fontSize: 11,
+    fontWeight: 400,
+    opacity: 0.8,
+  },
+  sessionBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 16px',
+    background: theme.accentSubtle,
+    borderBottom: `1px solid ${theme.accent}`,
+    fontSize: 12,
+  },
+  sessionDotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: theme.green,
+    flexShrink: 0,
+  },
+  sessionDotCompleted: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: theme.textMuted,
+    flexShrink: 0,
+  },
+  sessionBannerText: {
+    fontWeight: 600,
+    color: theme.accent,
+  },
+  sessionBannerMeta: {
+    color: theme.textMuted,
+    fontSize: 11,
+  },
+  sessionBannerClear: {
+    marginLeft: 'auto',
+    color: theme.accent,
+    cursor: 'pointer',
+    fontSize: 11,
+    fontWeight: 600,
+  },
 }
 
 // Pre-computed tab style variants (avoids object spread in .map())
 export const tabInactiveStyle = styles.tab
 export const tabActiveStyle = { ...styles.tab, ...styles.tabActive }
-export const tabBadgeStyle = styles.tabBadge
 export const hitlBadgeStyle = styles.hitlBadge

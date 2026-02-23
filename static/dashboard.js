@@ -1,4 +1,4 @@
-// Hydra Dashboard — vanilla JS client
+// HydraFlow Dashboard — vanilla JS client
 // Extracted from templates/index.html (issue #24)
 
 // State

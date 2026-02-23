@@ -6,7 +6,8 @@ import { theme } from './theme'
  */
 export const ACTIVE_STATUSES = [
   'running', 'testing', 'committing', 'reviewing', 'planning', 'quality_fix',
-  'start', 'merge_main', 'conflict_resolution', 'ci_wait', 'ci_fix', 'merging',
+  'start', 'merge_main', 'merge_fix', 'ci_wait', 'ci_fix', 'merging',
+  'evaluating', 'validating', 'retrying', 'fixing',
 ]
 
 /** Maximum number of events retained in the frontend event buffer. */
@@ -23,4 +24,62 @@ export const PIPELINE_STAGES = [
   { key: 'implement', label: 'Implement', color: theme.accent,      subtleColor: theme.accentSubtle, role: 'implementer', configKey: 'max_workers' },
   { key: 'review',    label: 'Review',    color: theme.orange,      subtleColor: theme.orangeSubtle, role: 'reviewer',    configKey: 'max_reviewers' },
   { key: 'merged',    label: 'Merged',    color: theme.green,       subtleColor: theme.greenSubtle,  role: null,           configKey: null },
+]
+
+/** Valid overall statuses for stream cards. */
+export const STREAM_CARD_STATUSES = ['active', 'queued', 'done', 'failed', 'hitl']
+
+/**
+ * Pipeline loop definitions — core processing loops that can be toggled on/off.
+ */
+export const PIPELINE_LOOPS = [
+  { key: 'triage',    label: 'Triage',    color: theme.triageGreen, dimColor: theme.greenSubtle  },
+  { key: 'plan',      label: 'Plan',      color: theme.purple,      dimColor: theme.purpleSubtle },
+  { key: 'implement', label: 'Implement', color: theme.accent,      dimColor: theme.accentSubtle },
+  { key: 'review',    label: 'Review',    color: theme.orange,      dimColor: theme.orangeSubtle },
+]
+
+/**
+ * Preset interval options for background worker schedule editor.
+ */
+export const INTERVAL_PRESETS = [
+  { label: '30m', seconds: 1800 },
+  { label: '1h', seconds: 3600 },
+  { label: '2h', seconds: 7200 },
+  { label: '4h', seconds: 14400 },
+]
+
+/**
+ * Workers whose interval can be edited from the UI.
+ */
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller'])
+
+/**
+ * Default intervals (in seconds) for system workers.
+ * Used as fallback when state?.interval_seconds is not yet available
+ * (e.g., before the worker's first run report from the backend).
+ */
+export const SYSTEM_WORKER_INTERVALS = {
+  pipeline_poller: 5,
+  pr_unsticker: 3600,
+  memory_sync: 3600,
+  metrics: 7200,
+}
+
+/**
+ * Valid session statuses for the session sidebar.
+ */
+export const SESSION_STATUSES = ['active', 'completed']
+
+/**
+ * Background worker definitions — maintenance and system loops that can be toggled on/off.
+ * Workers with `system: true` are internal services shown with a "system" badge.
+ */
+export const BACKGROUND_WORKERS = [
+  { key: 'retrospective',   label: 'Retrospective',   color: theme.purple },
+  { key: 'review_insights', label: 'Review Insights',  color: theme.orange },
+  { key: 'pipeline_poller', label: 'Pipeline Poller',  color: theme.textMuted, system: true },
+  { key: 'memory_sync',     label: 'Memory Manager',    color: theme.accent,    system: true },
+  { key: 'metrics',         label: 'Metrics Munger',     color: theme.yellow,    system: true },
+  { key: 'pr_unsticker',   label: 'PR Unsticker',       color: theme.orange,    system: true },
 ]

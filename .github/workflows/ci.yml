@@ -104,3 +104,6 @@ jobs:
       - name: Build
         working-directory: ui
         run: npm run build
+      - name: Test
+        working-directory: ui
+        run: npm test

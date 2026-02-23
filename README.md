@@ -1,23 +1,23 @@
 <p align="center">
-  <img src="docs/hydra-logo-small.png" alt="Hydra" width="200">
+  <img src="docs/hydraflow-logo-small.png" alt="HydraFlow" width="200">
 </p>
 
-<h1 align="center">Hydra</h1>
+<h1 align="center">HydraFlow</h1>
 
 <p align="center">
-  Multi-agent orchestration system that automates the full GitHub issue lifecycle using Claude Code. Label an issue, Hydra plans it, implements it, opens a PR, reviews it, waits for CI, and auto-merges.
+  Multi-agent orchestration system that automates the full GitHub issue lifecycle using Claude Code. Label an issue, HydraFlow plans it, implements it, opens a PR, reviews it, waits for CI, and auto-merges.
 </p>
 
-## What is Hydra?
+## What is HydraFlow?
 
-Hydra is a multi-agent orchestration system that turns GitHub issues into merged pull requests — autonomously. You label an issue, and Hydra's pipeline of specialized AI agents triages it for completeness, explores the codebase to write an implementation plan, generates code with tests in an isolated worktree, reviews its own work for quality, waits for CI, and auto-merges on success. The entire lifecycle is driven by GitHub labels, with a live dashboard for monitoring and a human-in-the-loop escape hatch when things go sideways.
+HydraFlow is a multi-agent orchestration system that turns GitHub issues into merged pull requests — autonomously. You label an issue, and HydraFlow's pipeline of specialized AI agents triages it for completeness, explores the codebase to write an implementation plan, generates code with tests in an isolated worktree, reviews its own work for quality, waits for CI, and auto-merges on success. The entire lifecycle is driven by GitHub labels, with a live dashboard for monitoring and a human-in-the-loop escape hatch when things go sideways.
 
 ## How It Works
 
-Hydra runs four concurrent async loops that continuously poll for labeled issues:
+HydraFlow runs four concurrent async loops that continuously poll for labeled issues:
 
 ```
-hydra-find ──> hydra-plan ──> hydra-ready ──> hydra-review ──> hydra-fixed
+hydraflow-find ──> hydraflow-plan ──> hydraflow-ready ──> hydraflow-review ──> hydraflow-fixed
    │               │               │                │
    │  Triage       │  Plan agent   │  Impl agent    │  Review agent
    │  agent        │  explores     │  creates       │  checks quality
@@ -25,21 +25,21 @@ hydra-find ──> hydra-plan ──> hydra-ready ──> hydra-review ──> h
    │  readiness,   │  posts plan   │  writes code,  │  waits for CI,
    │  promotes     │  as comment   │  pushes PR     │  auto-merges
    │  to plan      │               │                │
-   │               │               │                └──> hydra-hitl (CI failure)
+   │               │               │                └──> hydraflow-hitl (CI failure)
 ```
 
-1. **Triage loop** -- Fetches `hydra-find` issues, evaluates readiness (title/body quality), promotes qualified issues to `hydra-plan`.
-2. **Plan loop** -- Fetches `hydra-plan` issues, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts it as a comment, swaps label to `hydra-ready`.
-3. **Implement loop** -- Fetches `hydra-ready` issues, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, swaps to `hydra-review`.
-4. **Review loop** -- Fetches `hydra-review` issues, runs a review agent, submits a formal PR review, waits for CI, and auto-merges. CI failures escalate to `hydra-hitl` for human intervention.
+1. **Triage loop** -- Fetches `hydraflow-find` issues, evaluates readiness (title/body quality), promotes qualified issues to `hydraflow-plan`.
+2. **Plan loop** -- Fetches `hydraflow-plan` issues, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts it as a comment, swaps label to `hydraflow-ready`.
+3. **Implement loop** -- Fetches `hydraflow-ready` issues, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, swaps to `hydraflow-review`.
+4. **Review loop** -- Fetches `hydraflow-review` issues, runs a review agent, submits a formal PR review, waits for CI, and auto-merges. CI failures escalate to `hydraflow-hitl` for human intervention.
 
 ## Design Philosophy
 
-Hydra's pipeline draws from three open-source spec-driven development frameworks. Some patterns are already implemented; others are on the [roadmap](#roadmap).
+HydraFlow's pipeline draws from three open-source spec-driven development frameworks. Some patterns are already implemented; others are planned.
 
 ### [spec-kit](https://github.com/github/spec-kit)
 
-| Pattern | What it is | Why Hydra needs it |
+| Pattern | What it is | Why HydraFlow needs it |
 |---|---|---|
 | Structured plan schemas | Required sections (Files to Modify, Implementation Steps, Testing Strategy, Acceptance Criteria, Key Considerations) | LLMs produce wildly inconsistent plans without structure — some are 2 lines, some are novels. A schema makes plans machine-parseable and consistently actionable. |
 | Phase-gate quality checks | Quality gates (lint, typecheck, security, tests) that block code before it ships | Catches bad code early. Without gates, broken implementations waste an entire review cycle before anyone notices. |
@@ -49,7 +49,7 @@ Hydra's pipeline draws from three open-source spec-driven development frameworks
 
 ### [OpenSpec](https://github.com/Fission-AI/OpenSpec)
 
-| Pattern | What it is | Why Hydra needs it |
+| Pattern | What it is | Why HydraFlow needs it |
 |---|---|---|
 | Delta semantics *(roadmap)* | Each task tagged ADDED/MODIFIED/REMOVED/RENAMED | Replaces fuzzy "file referenced but not modified" heuristics with certain post-implementation verification. An ADDED file that doesn't exist is a guaranteed miss, not a guess. |
 | Progressive rigor | Lite plans for bug fixes, full plans for features | A typo fix doesn't need a 6-section plan with Key Considerations. Scale-adaptive planning saves planner tokens and reduces noise. |
@@ -58,7 +58,7 @@ Hydra's pipeline draws from three open-source spec-driven development frameworks
 
 ### [BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD)
 
-| Pattern | What it is | Why Hydra needs it |
+| Pattern | What it is | Why HydraFlow needs it |
 |---|---|---|
 | Adversarial review *(roadmap)* | Minimum finding threshold (default 3 issues) before APPROVE is accepted | Without a floor, LLM reviewers approve everything with a generic "looks good." Requiring N findings or explicit justification for each empty category forces genuine code examination. |
 | Formalized persona constraints | Explicit behavioral boundaries per agent role | Prevents role bleed — the planner writing code, the implementer creating PRs, the reviewer rubber-stamping. Each agent has a focused prompt with explicit boundaries (e.g., planner is read-only, implementer cannot push). |
@@ -76,20 +76,26 @@ Hydra's pipeline draws from three open-source spec-driven development frameworks
 
 ## Quick Start (Your Own Repo)
 
-### 1. Add Hydra as a git submodule
+### 1. Add HydraFlow as a git submodule
 
 ```bash
 cd your-project
-git submodule add https://github.com/T-rav/hyrda.git hydra
+git submodule add https://github.com/T-rav/hydra.git hydraflow
 git submodule update --init
 ```
 
 ### 2. Set up the Python environment
 
 ```bash
-cd hydra
-uv venv venv --python 3.11
-uv pip install -e ".[test,dev,dashboard]" --python venv/bin/python
+cd hydraflow
+make deps
+```
+
+This creates a `.venv/`, installs all dependencies (test, dev, dashboard, docker), and stamps the result so subsequent runs are instant. You can also install manually:
+
+```bash
+uv venv .venv --python 3.11
+uv pip install -e ".[test,dev,dashboard,docker]" --python .venv/bin/python
 ```
 
 ### 3. Configure environment
@@ -98,71 +104,71 @@ uv pip install -e ".[test,dev,dashboard]" --python venv/bin/python
 cp .env.example .env
 ```
 
-The `.env` file is auto-loaded by the Makefile. Defaults are the standard Hydra labels — edit only if you need custom label names:
+The `.env` file is auto-loaded by the Makefile. Defaults are the standard HydraFlow labels — edit only if you need custom label names:
 
 ```bash
 # .env
-HYDRA_LABEL_FIND=hydra-find
-HYDRA_LABEL_PLAN=hydra-plan
-HYDRA_LABEL_READY=hydra-ready
-HYDRA_LABEL_REVIEW=hydra-review
-HYDRA_LABEL_HITL=hydra-hitl
-HYDRA_LABEL_HITL_ACTIVE=hydra-hitl-active
-HYDRA_LABEL_FIXED=hydra-fixed
+HYDRAFLOW_LABEL_FIND=hydraflow-find
+HYDRAFLOW_LABEL_PLAN=hydraflow-plan
+HYDRAFLOW_LABEL_READY=hydraflow-ready
+HYDRAFLOW_LABEL_REVIEW=hydraflow-review
+HYDRAFLOW_LABEL_HITL=hydraflow-hitl
+HYDRAFLOW_LABEL_HITL_ACTIVE=hydraflow-hitl-active
+HYDRAFLOW_LABEL_FIXED=hydraflow-fixed
 ```
 
 ### 4. Create GitHub labels
 
-Hydra uses 7 lifecycle labels. Create them in your repo (reads label names from `.env`):
+HydraFlow uses 7 lifecycle labels. Create them in your repo (reads label names from `.env`):
 
 ```bash
-# From the hydra directory (auto-detects your repo from git remote)
+# From the hydraflow directory (auto-detects your repo from git remote)
 make ensure-labels
 ```
 
-Or set `HYDRA_GITHUB_REPO` to target a different repo:
+Or set `HYDRAFLOW_GITHUB_REPO` to target a different repo:
 
 ```bash
-HYDRA_GITHUB_REPO=owner/other-repo make ensure-labels
+HYDRAFLOW_GITHUB_REPO=owner/other-repo make ensure-labels
 ```
 
-### 5. Install the slash commands
+### 5. Install Claude commands (optional)
 
-Copy Hydra's Claude Code slash commands into your project so you can use `/gh-issue`, `/audit-tests`, and the other audit commands from Claude Code in your own repo:
+Copy HydraFlow's Claude Code slash commands into your project so you can use `/gh-issue`, `/audit-tests`, and the other audit commands from Claude Code in your own repo:
 
 ```bash
 # From your project root
 mkdir -p .claude/commands
 
 # Copy the commands you want
-cp hydra/.claude/commands/gh-issue.md .claude/commands/
-cp hydra/.claude/commands/audit-tests.md .claude/commands/
-cp hydra/.claude/commands/audit-integration-tests.md .claude/commands/
-cp hydra/.claude/commands/audit-hooks.md .claude/commands/
+cp hydraflow/.claude/commands/gh-issue.md .claude/commands/
+cp hydraflow/.claude/commands/audit-tests.md .claude/commands/
+cp hydraflow/.claude/commands/audit-integration-tests.md .claude/commands/
+cp hydraflow/.claude/commands/audit-hooks.md .claude/commands/
 ```
 
-These commands auto-detect your repo from `git remote` and default to the `hydra-plan` label, so created issues feed directly into Hydra's pipeline.
+These commands auto-detect your repo from `git remote` and default to the `hydraflow-plan` label, so created issues feed directly into HydraFlow's pipeline.
 
 Override the label or repo via environment variables:
 
 ```bash
-export HYDRA_LABEL_PLAN=hydra-plan        # default
-export HYDRA_GITHUB_REPO=owner/repo       # auto-detected if unset
-export HYDRA_GITHUB_ASSIGNEE=username     # repo owner if unset
+export HYDRAFLOW_LABEL_PLAN=hydraflow-plan        # default
+export HYDRAFLOW_GITHUB_REPO=owner/repo       # auto-detected if unset
+export HYDRAFLOW_GITHUB_ASSIGNEE=username     # repo owner if unset
 ```
 
-### 6. Install Claude Code hooks (optional)
+### 6. Install Claude Code hooks + Codex skills (optional)
 
-Hydra ships with Claude Code hooks that enforce quality gates during development. To use them in your project:
+HydraFlow ships with Claude Code hooks that enforce quality gates during development. To use them in your project:
 
 ```bash
 # From your project root
 mkdir -p .claude/hooks
-cp hydra/.claude/hooks/*.sh .claude/hooks/
+cp hydraflow/.claude/hooks/*.sh .claude/hooks/
 chmod +x .claude/hooks/*.sh
 ```
 
-Then merge Hydra's hook configuration into your `.claude/settings.json`. The hooks provide:
+Then merge HydraFlow's hook configuration into your `.claude/settings.json`. The hooks provide:
 
 | Hook | Trigger | What it does |
 |------|---------|--------------|
@@ -182,21 +188,26 @@ Then merge Hydra's hook configuration into your `.claude/settings.json`. The hoo
 | `warn-new-file-creation.sh` | PostToolUse(Write) | Warns on new file creation |
 | `cleanup-code-change-marker.sh` | Stop | Cleans up code change tracking markers |
 
-### 7. Install git hooks (optional)
+HydraFlow also ships a Codex skill package at `.codex/skills/gh-issue` (GitHub issue authoring workflow equivalent to Claude `/gh-issue`).
+Running `make setup` installs local Codex skills into `$CODEX_HOME/skills` (defaults to `~/.codex/skills`).
+
+### 7. One-command local setup (recommended)
 
 ```bash
-cd hydra
+cd hydraflow
 make setup
 ```
 
 This configures:
 - **pre-commit**: Ruff lint check on staged Python files
 - **pre-push**: Full quality gate (lint + typecheck + security + tests)
+- **Claude assets**: refreshes executable hook scripts under `.claude/hooks`
+- **Codex assets**: installs skills from `.codex/skills/*` into `~/.codex/skills`
 
-### 8. Run Hydra
+### 8. Run HydraFlow
 
 ```bash
-cd hydra
+cd hydraflow
 
 # Start with dashboard (opens http://localhost:5556)
 make run
@@ -207,13 +218,13 @@ make dry-run
 
 ## Usage
 
-### Creating issues for Hydra
+### Creating issues for HydraFlow
 
-Label a GitHub issue with `hydra-plan` and Hydra picks it up automatically:
+Label a GitHub issue with `hydraflow-plan` and HydraFlow picks it up automatically:
 
 ```bash
 # Via GitHub CLI
-gh issue create --label hydra-plan --title "Add retry logic to API client" --body "..."
+gh issue create --label hydraflow-plan --title "Add retry logic to API client" --body "..."
 
 # Via Claude Code slash command (researches codebase first)
 # In Claude Code, type:
@@ -233,13 +244,13 @@ gh issue create --label hydra-plan --title "Add retry logic to API client" --bod
 
 | Label | Meaning | What happens next |
 |-------|---------|-------------------|
-| `hydra-find` | New issue discovered | Triage agent evaluates readiness, promotes to `hydra-plan` |
-| `hydra-plan` | Issue needs a plan | Plan agent explores, posts plan comment, swaps to `hydra-ready` |
-| `hydra-ready` | Ready for implementation | Impl agent creates worktree, writes code + tests, opens PR, swaps to `hydra-review` |
-| `hydra-review` | PR under review | Review agent checks quality, waits for CI, auto-merges, swaps to `hydra-fixed` |
-| `hydra-hitl` | Needs human help | CI failed after retries -- human intervention required |
-| `hydra-hitl-active` | HITL in progress | Being processed by HITL correction agent |
-| `hydra-fixed` | Done | PR merged successfully |
+| `hydraflow-find` | New issue discovered | Triage agent evaluates readiness, promotes to `hydraflow-plan` |
+| `hydraflow-plan` | Issue needs a plan | Plan agent explores, posts plan comment, swaps to `hydraflow-ready` |
+| `hydraflow-ready` | Ready for implementation | Impl agent creates worktree, writes code + tests, opens PR, swaps to `hydraflow-review` |
+| `hydraflow-review` | PR under review | Review agent checks quality, waits for CI, auto-merges, swaps to `hydraflow-fixed` |
+| `hydraflow-hitl` | Needs human help | CI failed after retries -- human intervention required |
+| `hydraflow-hitl-active` | HITL in progress | Being processed by HITL correction agent |
+| `hydraflow-fixed` | Done | PR merged successfully |
 
 Labels can be overridden via CLI flags or environment variables:
 
@@ -248,13 +259,13 @@ Labels can be overridden via CLI flags or environment variables:
 make run READY_LABEL=custom-ready PLANNER_LABEL=custom-plan
 
 # Environment variables
-export HYDRA_LABEL_FIND=custom-find
-export HYDRA_LABEL_PLAN=custom-plan
-export HYDRA_LABEL_READY=custom-ready
-export HYDRA_LABEL_REVIEW=custom-review
-export HYDRA_LABEL_HITL=custom-hitl
-export HYDRA_LABEL_HITL_ACTIVE=custom-hitl-active
-export HYDRA_LABEL_FIXED=custom-fixed
+export HYDRAFLOW_LABEL_FIND=custom-find
+export HYDRAFLOW_LABEL_PLAN=custom-plan
+export HYDRAFLOW_LABEL_READY=custom-ready
+export HYDRAFLOW_LABEL_REVIEW=custom-review
+export HYDRAFLOW_LABEL_HITL=custom-hitl
+export HYDRAFLOW_LABEL_HITL_ACTIVE=custom-hitl-active
+export HYDRAFLOW_LABEL_FIXED=custom-fixed
 ```
 
 ## Configuration
@@ -263,13 +274,13 @@ All configuration is via CLI flags or environment variables. Defaults are sensib
 
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
-| `--find-label` | `HYDRA_LABEL_FIND` | `hydra-find` | Label for discovery/triage queue |
-| `--planner-label` | `HYDRA_LABEL_PLAN` | `hydra-plan` | Label for planning queue |
-| `--ready-label` | `HYDRA_LABEL_READY` | `hydra-ready` | Label for implementation queue |
-| `--review-label` | `HYDRA_LABEL_REVIEW` | `hydra-review` | Label for review queue |
-| `--hitl-label` | `HYDRA_LABEL_HITL` | `hydra-hitl` | Label for human escalation |
-| `--hitl-active-label` | `HYDRA_LABEL_HITL_ACTIVE` | `hydra-hitl-active` | Label for HITL items being actively processed |
-| `--fixed-label` | `HYDRA_LABEL_FIXED` | `hydra-fixed` | Label for completed issues |
+| `--find-label` | `HYDRAFLOW_LABEL_FIND` | `hydraflow-find` | Label for discovery/triage queue |
+| `--planner-label` | `HYDRAFLOW_LABEL_PLAN` | `hydraflow-plan` | Label for planning queue |
+| `--ready-label` | `HYDRAFLOW_LABEL_READY` | `hydraflow-ready` | Label for implementation queue |
+| `--review-label` | `HYDRAFLOW_LABEL_REVIEW` | `hydraflow-review` | Label for review queue |
+| `--hitl-label` | `HYDRAFLOW_LABEL_HITL` | `hydraflow-hitl` | Label for human escalation |
+| `--hitl-active-label` | `HYDRAFLOW_LABEL_HITL_ACTIVE` | `hydraflow-hitl-active` | Label for HITL items being actively processed |
+| `--fixed-label` | `HYDRAFLOW_LABEL_FIXED` | `hydraflow-fixed` | Label for completed issues |
 | `--max-workers` | -- | `2` | Concurrent implementation agents |
 | `--max-planners` | -- | `1` | Concurrent planning agents |
 | `--max-reviewers` | -- | `1` | Concurrent review agents |
@@ -283,8 +294,8 @@ All configuration is via CLI flags or environment variables. Defaults are sensib
 | `--ci-poll-interval` | -- | `30` | Seconds between CI status polls |
 | `--max-ci-fix-attempts` | -- | `2` | Max CI fix-and-retry cycles (0 disables CI wait) |
 | `--main-branch` | -- | `main` | Base branch name |
-| `--repo` | `HYDRA_GITHUB_REPO` | auto-detected | GitHub `owner/repo` slug |
-| `--gh-token` | `HYDRA_GH_TOKEN` | -- | GitHub token override |
+| `--repo` | `HYDRAFLOW_GITHUB_REPO` | auto-detected | GitHub `owner/repo` slug |
+| `--gh-token` | `HYDRAFLOW_GH_TOKEN` | -- | GitHub token override |
 | `--dashboard-port` | -- | `5555` | Dashboard API port |
 | `--no-dashboard` | -- | -- | Disable the web dashboard |
 | `--dry-run` | -- | -- | Log actions without executing |
@@ -293,7 +304,7 @@ All configuration is via CLI flags or environment variables. Defaults are sensib
 
 ## Dashboard
 
-Hydra includes a live web dashboard (React + Vite) served alongside the backend:
+HydraFlow includes a live web dashboard (React + Vite) served alongside the backend:
 
 - **Pipeline view** — see issues flowing through triage → plan → implement → review → merged
 - **Worker status** — real-time status of all active agents (planner, implementer, reviewer)
@@ -313,12 +324,12 @@ make lint-check     # Check linting without fixing
 make typecheck      # Run Pyright type checks
 make security       # Run Bandit security scan
 make quality        # All of the above
-make ensure-labels  # Create Hydra labels in GitHub repo
+make ensure-labels  # Create HydraFlow labels in GitHub repo
 make setup          # Install git hooks
 make ui             # Build React dashboard
 make ui-dev         # Start dashboard dev server
 make clean          # Remove all worktrees and state
-make status         # Show current Hydra state
+make status         # Show current HydraFlow state
 ```
 
 ## Architecture
@@ -326,7 +337,7 @@ make status         # Show current Hydra state
 ```
 cli.py                 CLI entry point
 orchestrator.py        Main coordinator (4 async polling loops)
-config.py              HydraConfig (Pydantic model)
+config.py              HydraFlowConfig (Pydantic model)
 triage.py              TriageRunner (issue readiness evaluation)
 agent.py               AgentRunner (implementation agent)
 planner.py             PlannerRunner (read-only planning agent)
@@ -356,27 +367,13 @@ ui/                    React dashboard frontend
 - **Bandit** for security scanning
 - **pytest + pytest-asyncio** for testing
 
-## Roadmap
-
-Hydra's development is tracked in two epics:
-
-- **[#207 — Spec-Driven Planning Pipeline](https://github.com/T-rav/hyrda/issues/207)** — structured plan schemas, delta semantics, progressive rigor, `[NEEDS CLARIFICATION]` markers, RFC 2119 keywords
-- **[#222 — Self-Improving Agent Pipeline](https://github.com/T-rav/hyrda/issues/222)** — memory digest, retrospectives, review insight aggregation, constitution amendments, performance tracking
-
-Planned self-improvement capabilities:
-
-- **Memory digest** — agents aggregate learnings across runs into persistent memory
-- **Retrospectives** — automated post-mortem analysis of failed or slow implementations
-- **Review insight aggregation** — patterns from review feedback inform future implementation prompts
-- **Constitution amendments** — agents propose changes to CLAUDE.md conventions based on observed patterns
-
 ## Contributing
 
 - **For AI agents** — see [CLAUDE.md](CLAUDE.md) for project conventions, architecture, and development commands
-- **For humans** — check the [roadmap epics](#roadmap) above, pick an issue, and submit a PR
-- **Issue format** — Hydra processes its own issues: label with `hydra-find` and the pipeline picks it up automatically
+- **For humans** — pick an issue and submit a PR
+- **Issue format** — HydraFlow processes its own issues: label with `hydraflow-find` and the pipeline picks it up automatically
 - **Quality gates** — all PRs must pass `make quality` (lint + typecheck + security + tests)
 
 ## License
 
-[MIT](LICENSE) © 2026 Travis Frisinger
+[Apache 2.0](LICENSE) © 2026 Travis Frisinger

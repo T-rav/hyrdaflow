@@ -1,7 +1,8 @@
-"""Tests for dx/hydra/worktree.py — WorktreeManager."""
+"""Tests for dx/hydraflow/worktree.py — WorktreeManager."""
 
 from __future__ import annotations
 
+import stat
 import sys
 from pathlib import Path
 
@@ -26,30 +27,6 @@ def _make_proc(
     proc.returncode = returncode
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
     return proc
-
-
-# ---------------------------------------------------------------------------
-# WorktreeManager.exists
-# ---------------------------------------------------------------------------
-
-
-class TestExists:
-    """Tests for WorktreeManager.exists."""
-
-    def test_returns_true_when_worktree_dir_exists(
-        self, config, tmp_path: Path
-    ) -> None:
-        """exists should return True when the issue directory is present."""
-        manager = WorktreeManager(config)
-        wt_path = config.worktree_base / "issue-7"
-        wt_path.mkdir(parents=True, exist_ok=True)
-
-        assert manager.exists(7) is True
-
-    def test_returns_false_when_worktree_dir_absent(self, config) -> None:
-        """exists should return False when no directory exists for the issue."""
-        manager = WorktreeManager(config)
-        assert manager.exists(999) is False
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +195,105 @@ class TestCreate:
         mock_exec.assert_not_called()
         assert result == dry_config.worktree_base / "issue-7"
 
+    @pytest.mark.asyncio
+    async def test_create_raises_when_fetch_origin_main_fails(
+        self, config, tmp_path: Path
+    ) -> None:
+        """create should propagate RuntimeError when 'git fetch origin main' fails."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=fail_proc),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            pytest.raises(RuntimeError, match="network error"),
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_create_raises_when_worktree_add_fails_after_branch_created(
+        self, config, tmp_path: Path
+    ) -> None:
+        """create should propagate RuntimeError when 'git worktree add' fails after branch creation."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = _make_proc(returncode=0)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: worktree add failed")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Calls 1-2: fetch + branch -f succeed; call 3: worktree add fails
+            if call_count <= 2:
+                return success_proc
+            return fail_proc
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            pytest.raises(RuntimeError, match="worktree add failed"),
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_create_propagates_setup_env_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """create should propagate OSError from _setup_env (not wrapped in try/except)."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = _make_proc(returncode=0)
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=success_proc),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(
+                manager, "_setup_env", side_effect=OSError("Permission denied")
+            ),
+            pytest.raises(OSError, match="Permission denied"),
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_create_venv_failure_does_not_block_create(
+        self, config, tmp_path: Path
+    ) -> None:
+        """create should return a valid path even when uv sync fails inside _create_venv."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = _make_proc(returncode=0)
+        fail_proc = _make_proc(returncode=1, stderr=b"uv sync failed")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # uv sync is the 4th subprocess call (fetch, branch, worktree add, uv sync)
+            if args[0:2] == ("uv", "sync"):
+                return fail_proc
+            return success_proc
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(manager, "_setup_env"),
+        ):
+            result = await manager.create(issue_number=7, branch="agent/issue-7")
+
+        # _create_venv catches RuntimeError internally, so create completes
+        assert result == config.worktree_base / "issue-7"
+
 
 # ---------------------------------------------------------------------------
 # WorktreeManager.destroy
@@ -295,6 +371,24 @@ class TestDestroy:
 
         with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
             # Should NOT raise
+            await manager.destroy(issue_number=7)
+
+    @pytest.mark.asyncio
+    async def test_destroy_raises_when_worktree_remove_force_fails(
+        self, config, tmp_path: Path
+    ) -> None:
+        """destroy should propagate RuntimeError when 'git worktree remove --force' fails."""
+        manager = WorktreeManager(config)
+
+        wt_path = config.worktree_base / "issue-7"
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: dirty worktree")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=fail_proc),
+            pytest.raises(RuntimeError, match="dirty worktree"),
+        ):
             await manager.destroy(issue_number=7)
 
     @pytest.mark.asyncio
@@ -379,12 +473,121 @@ class TestDestroyAll:
 
 
 # ---------------------------------------------------------------------------
-# WorktreeManager.rebase
+# WorktreeManager._fetch_and_merge_main
+# ---------------------------------------------------------------------------
+
+
+class TestFetchAndMergeMain:
+    """Tests for WorktreeManager._fetch_and_merge_main."""
+
+    @pytest.mark.asyncio
+    async def test_success_returns_true(self, config, tmp_path: Path) -> None:
+        """_fetch_and_merge_main should return True when all 3 git commands succeed."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc()
+
+        with patch("asyncio.create_subprocess_exec", return_value=success_proc):
+            result = await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_failure_raises_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_fetch_and_merge_main should raise RuntimeError when fetch fails."""
+        manager = WorktreeManager(config)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=fail_proc),
+            pytest.raises(RuntimeError, match="network error"),
+        ):
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_ff_only_merge_failure_raises_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_fetch_and_merge_main should raise RuntimeError when ff-only merge fails."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc(returncode=0)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: not a fast-forward")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return success_proc  # fetch succeeds
+            return fail_proc  # ff-only merge fails
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            pytest.raises(RuntimeError, match="not a fast-forward"),
+        ):
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_main_merge_failure_raises_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_fetch_and_merge_main should raise RuntimeError when merge origin/main fails."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc(returncode=0)
+        fail_proc = _make_proc(
+            returncode=1, stderr=b"CONFLICT (content): Merge conflict"
+        )
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return success_proc  # fetch + ff-only succeed
+            return fail_proc  # merge origin/main fails
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            pytest.raises(RuntimeError, match="Merge conflict"),
+        ):
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_correct_git_commands(self, config, tmp_path: Path) -> None:
+        """_fetch_and_merge_main should issue the 3 correct git commands in order."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc()
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=success_proc
+        ) as mock_exec:
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+        calls = mock_exec.call_args_list
+        assert len(calls) == 3
+        # 1. git fetch origin main agent/issue-7
+        assert calls[0].args[:3] == ("git", "fetch", "origin")
+        assert config.main_branch in calls[0].args
+        assert "agent/issue-7" in calls[0].args
+        # 2. git merge --ff-only origin/agent/issue-7
+        assert calls[1].args[:3] == ("git", "merge", "--ff-only")
+        assert calls[1].args[3] == "origin/agent/issue-7"
+        # 3. git merge origin/main --no-edit
+        assert calls[2].args[:2] == ("git", "merge")
+        assert f"origin/{config.main_branch}" in calls[2].args
+        assert "--no-edit" in calls[2].args
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.merge_main
 # ---------------------------------------------------------------------------
 
 
 class TestMergeMain:
-    """Tests for WorktreeManager.rebase."""
+    """Tests for WorktreeManager.merge_main."""
 
     @pytest.mark.asyncio
     async def test_merge_main_success_returns_true(
@@ -603,7 +806,7 @@ class TestSetupEnv:
         assert settings_dst.read_text() == '{"allowed": []}'
 
     def test_setup_env_symlinks_node_modules(self, config, tmp_path: Path) -> None:
-        """_setup_env should symlink node_modules for each UI directory."""
+        """_setup_env should symlink node_modules for each detected UI directory."""
         manager = WorktreeManager(config)
 
         repo_root = config.repo_root
@@ -611,13 +814,13 @@ class TestSetupEnv:
         wt_path.mkdir()
         repo_root.mkdir(parents=True, exist_ok=True)
 
-        # Create one node_modules under a UI dir
-        ui_nm_src = repo_root / "bot" / "health_ui" / "node_modules"
+        # Create node_modules under the default "ui" dir (from config.ui_dirs)
+        ui_nm_src = repo_root / "ui" / "node_modules"
         ui_nm_src.mkdir(parents=True)
 
         manager._setup_env(wt_path)
 
-        ui_nm_dst = wt_path / "bot" / "health_ui" / "node_modules"
+        ui_nm_dst = wt_path / "ui" / "node_modules"
         assert ui_nm_dst.is_symlink()
 
     def test_setup_env_skips_missing_sources(self, config, tmp_path: Path) -> None:
@@ -656,6 +859,231 @@ class TestSetupEnv:
         # Should not raise
         manager._setup_env(wt_path)
         assert env_dst.is_symlink()
+
+    def test_setup_env_handles_symlink_oserror(self, config, tmp_path: Path) -> None:
+        """_setup_env should handle OSError on symlink and continue."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        # Create .env source so the symlink path is entered
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+
+        # Also create node_modules source under a detected UI dir
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+
+        with patch.object(Path, "symlink_to", side_effect=OSError("perm denied")):
+            manager._setup_env(wt_path)  # should not raise
+
+    def test_setup_env_handles_copy_oserror(self, config, tmp_path: Path) -> None:
+        """_setup_env should handle OSError when copying settings and continue."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        # Create settings source
+        claude_dir = repo_root / ".claude"
+        claude_dir.mkdir()
+        settings_src = claude_dir / "settings.local.json"
+        settings_src.write_text('{"allowed": []}')
+
+        with patch.object(Path, "write_text", side_effect=OSError("read-only")):
+            manager._setup_env(wt_path)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._setup_dotenv
+# ---------------------------------------------------------------------------
+
+
+class TestSetupDotenv:
+    """Tests for WorktreeManager._setup_dotenv."""
+
+    def test_host_mode_symlinks_dotenv(self, config, tmp_path: Path) -> None:
+        """In host mode, _setup_dotenv should symlink .env."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+
+        manager._setup_dotenv(wt_path, docker=False)
+
+        env_dst = wt_path / ".env"
+        assert env_dst.is_symlink()
+
+    def test_docker_mode_copies_dotenv_and_updates_gitignore(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, _setup_dotenv should copy .env and add it to .gitignore."""
+        manager = _make_docker_manager(tmp_path)
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=docker")
+
+        manager._setup_dotenv(wt_path, docker=True)
+
+        env_dst = wt_path / ".env"
+        assert env_dst.exists()
+        assert not env_dst.is_symlink()
+        assert env_dst.read_text() == "SECRET=docker"
+
+        gitignore = wt_path / ".gitignore"
+        assert gitignore.exists()
+        assert ".env" in [ln.strip() for ln in gitignore.read_text().splitlines()]
+
+    def test_source_absent_is_noop(self, config, tmp_path: Path) -> None:
+        """_setup_dotenv should be a no-op when .env source doesn't exist."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # No .env file in repo_root
+        manager._setup_dotenv(wt_path, docker=False)
+
+        assert not (wt_path / ".env").exists()
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._setup_claude_settings
+# ---------------------------------------------------------------------------
+
+
+class TestSetupClaudeSettings:
+    """Tests for WorktreeManager._setup_claude_settings."""
+
+    def test_copies_settings_file(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should copy settings.local.json into worktree."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        claude_dir = repo_root / ".claude"
+        claude_dir.mkdir()
+        settings_src = claude_dir / "settings.local.json"
+        settings_src.write_text('{"allowed": []}')
+
+        manager._setup_claude_settings(wt_path)
+
+        settings_dst = wt_path / ".claude" / "settings.local.json"
+        assert settings_dst.exists()
+        assert not settings_dst.is_symlink()
+        assert settings_dst.read_text() == '{"allowed": []}'
+
+    def test_source_absent_is_noop(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should be a no-op when settings.local.json doesn't exist."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # No .claude/settings.local.json in repo_root
+        manager._setup_claude_settings(wt_path)
+
+        assert not (wt_path / ".claude" / "settings.local.json").exists()
+
+    def test_oserror_during_write_is_suppressed(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should suppress OSError during file write."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        claude_dir = repo_root / ".claude"
+        claude_dir.mkdir()
+        settings_src = claude_dir / "settings.local.json"
+        settings_src.write_text('{"allowed": []}')
+
+        with patch.object(Path, "write_text", side_effect=OSError("read-only")):
+            manager._setup_claude_settings(wt_path)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._setup_node_modules
+# ---------------------------------------------------------------------------
+
+
+class TestSetupNodeModules:
+    """Tests for WorktreeManager._setup_node_modules."""
+
+    def test_host_mode_symlinks_node_modules(self, config, tmp_path: Path) -> None:
+        """In host mode, _setup_node_modules should symlink node_modules."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+
+        manager._setup_node_modules(wt_path, docker=False)
+
+        ui_nm_dst = wt_path / "ui" / "node_modules"
+        assert ui_nm_dst.is_symlink()
+
+    def test_docker_mode_copies_node_modules(self, tmp_path: Path) -> None:
+        """In docker mode, _setup_node_modules should copy node_modules."""
+        manager = _make_docker_manager(tmp_path)
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+        (ui_nm_src / "pkg").mkdir()
+        (ui_nm_src / "pkg" / "index.js").write_text("exports = {}")
+
+        manager._setup_node_modules(wt_path, docker=True)
+
+        ui_nm_dst = wt_path / "ui" / "node_modules"
+        assert ui_nm_dst.exists()
+        assert not ui_nm_dst.is_symlink()
+        assert (ui_nm_dst / "pkg" / "index.js").read_text() == "exports = {}"
+
+    def test_multiple_ui_dirs_all_symlinked(self, tmp_path: Path) -> None:
+        """_setup_node_modules should symlink node_modules for every UI directory."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            ui_dirs=["frontend", "admin"],
+        )
+        manager = WorktreeManager(cfg)
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        (repo_root / "frontend" / "node_modules").mkdir(parents=True)
+        (repo_root / "admin" / "node_modules").mkdir(parents=True)
+
+        manager._setup_node_modules(wt_path, docker=False)
+
+        assert (wt_path / "frontend" / "node_modules").is_symlink()
+        assert (wt_path / "admin" / "node_modules").is_symlink()
 
 
 # ---------------------------------------------------------------------------
@@ -696,8 +1124,8 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should not run any git config commands when identity is empty."""
-        monkeypatch.delenv("HYDRA_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRA_GIT_USER_EMAIL", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
 
         from tests.helpers import ConfigFactory
 
@@ -718,8 +1146,8 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should only set user.name when email is empty."""
-        monkeypatch.delenv("HYDRA_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRA_GIT_USER_EMAIL", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
 
         from tests.helpers import ConfigFactory
 
@@ -747,8 +1175,8 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should only set user.email when name is empty."""
-        monkeypatch.delenv("HYDRA_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRA_GIT_USER_EMAIL", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
 
         from tests.helpers import ConfigFactory
 
@@ -835,6 +1263,19 @@ class TestCreateVenv:
             # Should not raise
             await manager._create_venv(tmp_path)
 
+    @pytest.mark.asyncio
+    async def test_create_venv_swallows_file_not_found_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_create_venv should handle missing uv binary (FileNotFoundError)."""
+        manager = WorktreeManager(config)
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=FileNotFoundError("uv"),
+        ):
+            await manager._create_venv(tmp_path)  # should not raise
+
 
 # ---------------------------------------------------------------------------
 # WorktreeManager._install_hooks
@@ -872,6 +1313,962 @@ class TestInstallHooks:
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             # Should not raise
             await manager._install_hooks(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.start_merge_main
+# ---------------------------------------------------------------------------
+
+
+class TestStartMergeMain:
+    """Tests for WorktreeManager.start_merge_main."""
+
+    @pytest.mark.asyncio
+    async def test_start_merge_main_clean_merge_returns_true(
+        self, config, tmp_path: Path
+    ) -> None:
+        """start_merge_main should return True when all commands succeed."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc()
+
+        with patch("asyncio.create_subprocess_exec", return_value=success_proc):
+            result = await manager.start_merge_main(tmp_path, "agent/issue-7")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_start_merge_main_conflict_returns_false_without_abort(
+        self, config, tmp_path: Path
+    ) -> None:
+        """start_merge_main should return False on conflict and NOT call --abort."""
+        manager = WorktreeManager(config)
+
+        success_proc = _make_proc(returncode=0)
+        merge_fail_proc = _make_proc(
+            returncode=1, stderr=b"CONFLICT (content): Merge conflict"
+        )
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return success_proc  # git fetch + ff-only merge succeed
+            return merge_fail_proc  # git merge origin/main fails
+
+        with patch(
+            "asyncio.create_subprocess_exec", side_effect=fake_exec
+        ) as mock_exec:
+            result = await manager.start_merge_main(tmp_path, "agent/issue-7")
+
+        assert result is False
+        # Critical: start_merge_main must NOT call git merge --abort
+        for call in mock_exec.call_args_list:
+            assert "--abort" not in call.args, (
+                "start_merge_main must NOT abort on conflict — "
+                "caller resolves conflicts"
+            )
+
+    @pytest.mark.asyncio
+    async def test_start_merge_main_fetch_failure_returns_false(
+        self, config, tmp_path: Path
+    ) -> None:
+        """start_merge_main should return False if fetch fails."""
+        manager = WorktreeManager(config)
+
+        fetch_fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+
+        with patch("asyncio.create_subprocess_exec", return_value=fetch_fail_proc):
+            result = await manager.start_merge_main(tmp_path, "agent/issue-7")
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.abort_merge
+# ---------------------------------------------------------------------------
+
+
+class TestAbortMerge:
+    """Tests for WorktreeManager.abort_merge."""
+
+    @pytest.mark.asyncio
+    async def test_abort_merge_calls_git_merge_abort(
+        self, config, tmp_path: Path
+    ) -> None:
+        """abort_merge should call 'git merge --abort' with correct cwd."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc(returncode=0)
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=success_proc
+        ) as mock_exec:
+            await manager.abort_merge(tmp_path)
+
+        mock_exec.assert_called_once()
+        args = mock_exec.call_args.args
+        assert args[:3] == ("git", "merge", "--abort")
+
+    @pytest.mark.asyncio
+    async def test_abort_merge_swallows_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """abort_merge should suppress RuntimeError via contextlib.suppress."""
+        manager = WorktreeManager(config)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: no merge in progress")
+
+        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+            # Should not raise
+            await manager.abort_merge(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.get_conflicting_files
+# ---------------------------------------------------------------------------
+
+
+class TestGetConflictingFiles:
+    """Tests for WorktreeManager.get_conflicting_files."""
+
+    @pytest.mark.asyncio
+    async def test_returns_list_of_conflicting_files(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should return file names from git diff --name-only --diff-filter=U."""
+        manager = WorktreeManager(config)
+        output = b"src/foo.py\nsrc/bar.py\n"
+        proc = _make_proc(returncode=0, stdout=output)
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_conflicting_files(tmp_path)
+
+        assert result == ["src/foo.py", "src/bar.py"]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_conflicts(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should return empty list when no files have conflicts."""
+        manager = WorktreeManager(config)
+        proc = _make_proc(returncode=0, stdout=b"")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_conflicting_files(tmp_path)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_failure(self, config, tmp_path: Path) -> None:
+        """Should return empty list when git command fails."""
+        manager = WorktreeManager(config)
+        proc = _make_proc(returncode=1, stderr=b"fatal: not a git repo")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_conflicting_files(tmp_path)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_strips_whitespace_from_filenames(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should strip leading/trailing whitespace from each filename."""
+        manager = WorktreeManager(config)
+        output = b"  foo.py  \n  bar.py  \n\n"
+        proc = _make_proc(returncode=0, stdout=output)
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_conflicting_files(tmp_path)
+
+        assert result == ["foo.py", "bar.py"]
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.get_main_diff_for_files
+# ---------------------------------------------------------------------------
+
+
+class TestGetMainDiffForFiles:
+    """Tests for WorktreeManager.get_main_diff_for_files."""
+
+    @pytest.mark.asyncio
+    async def test_returns_diff_for_specified_files(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should return the diff output for the given files."""
+        manager = WorktreeManager(config)
+        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        diff_proc = _make_proc(
+            returncode=0, stdout=b"diff --git a/foo.py b/foo.py\n+added\n"
+        )
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return merge_base_proc
+            return diff_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await manager.get_main_diff_for_files(tmp_path, ["foo.py"])
+
+        assert "diff --git a/foo.py b/foo.py" in result
+        assert "+added" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_for_empty_file_list(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should return empty string when no files are provided."""
+        manager = WorktreeManager(config)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            result = await manager.get_main_diff_for_files(tmp_path, [])
+
+        assert result == ""
+        mock_exec.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_truncates_large_diff(self, config, tmp_path: Path) -> None:
+        """Should truncate diff exceeding max_chars and append marker."""
+        manager = WorktreeManager(config)
+        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        large_diff = b"x" * 50_000
+        diff_proc = _make_proc(returncode=0, stdout=large_diff)
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return merge_base_proc
+            return diff_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await manager.get_main_diff_for_files(
+                tmp_path, ["foo.py"], max_chars=1000
+            )
+
+        assert len(result) < 1100  # 1000 + truncation marker
+        assert "[Diff truncated]" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_merge_base_failure(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should return empty string when git merge-base fails."""
+        manager = WorktreeManager(config)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: bad revision")
+
+        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+            result = await manager.get_main_diff_for_files(tmp_path, ["foo.py"])
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_diff_failure(self, config, tmp_path: Path) -> None:
+        """Should return empty string when git diff fails."""
+        manager = WorktreeManager(config)
+        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        diff_fail_proc = _make_proc(returncode=1, stderr=b"fatal: bad path")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return merge_base_proc
+            return diff_fail_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await manager.get_main_diff_for_files(tmp_path, ["foo.py"])
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_passes_multiple_files(self, config, tmp_path: Path) -> None:
+        """Should pass all files to the git diff command."""
+        manager = WorktreeManager(config)
+        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        diff_proc = _make_proc(returncode=0, stdout=b"combined diff\n")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return merge_base_proc
+            return diff_proc
+
+        with patch(
+            "asyncio.create_subprocess_exec", side_effect=fake_exec
+        ) as mock_exec:
+            await manager.get_main_diff_for_files(
+                tmp_path, ["foo.py", "bar.py", "baz.py"]
+            )
+
+        # The second call is git diff — check that all files are in the args
+        diff_call = mock_exec.call_args_list[1]
+        assert "foo.py" in diff_call.args
+        assert "bar.py" in diff_call.args
+        assert "baz.py" in diff_call.args
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.get_main_commits_since_diverge
+# ---------------------------------------------------------------------------
+
+
+class TestGetMainCommitsSinceDiverge:
+    """Tests for WorktreeManager.get_main_commits_since_diverge."""
+
+    @pytest.mark.asyncio
+    async def test_returns_commit_log(self, config, tmp_path: Path) -> None:
+        """Should return oneline commits from HEAD..origin/main."""
+        manager = WorktreeManager(config)
+
+        fetch_proc = _make_proc(returncode=0)
+        log_output = b"abc1234 Add feature X\ndef5678 Fix bug Y\n"
+        log_proc = _make_proc(returncode=0, stdout=log_output)
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return fetch_proc
+            return log_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await manager.get_main_commits_since_diverge(tmp_path)
+
+        assert "abc1234 Add feature X" in result
+        assert "def5678 Fix bug Y" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_fetch_failure(self, config, tmp_path: Path) -> None:
+        """Should return empty string when git fetch fails."""
+        manager = WorktreeManager(config)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+
+        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+            result = await manager.get_main_commits_since_diverge(tmp_path)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_log_failure(self, config, tmp_path: Path) -> None:
+        """Should return empty string when git log fails."""
+        manager = WorktreeManager(config)
+
+        fetch_proc = _make_proc(returncode=0)
+        log_fail_proc = _make_proc(returncode=1, stderr=b"fatal: bad revision")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return fetch_proc
+            return log_fail_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await manager.get_main_commits_since_diverge(tmp_path)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_diverged_commits(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Should return empty string when branch is up to date with main."""
+        manager = WorktreeManager(config)
+
+        fetch_proc = _make_proc(returncode=0)
+        log_proc = _make_proc(returncode=0, stdout=b"")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return fetch_proc
+            return log_proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await manager.get_main_commits_since_diverge(tmp_path)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_passes_limit_flag(self, config, tmp_path: Path) -> None:
+        """Should pass -30 to limit the number of commits."""
+        manager = WorktreeManager(config)
+
+        success_proc = _make_proc(returncode=0, stdout=b"abc123 commit\n")
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=success_proc
+        ) as mock_exec:
+            await manager.get_main_commits_since_diverge(tmp_path)
+
+        # Second call is git log
+        log_call = mock_exec.call_args_list[1]
+        assert "-30" in log_call.args
+
+
+# ---------------------------------------------------------------------------
+# Docker mode — helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_docker_manager(tmp_path: Path) -> WorktreeManager:
+    """Create a WorktreeManager with docker execution mode."""
+    from tests.helpers import make_docker_manager
+
+    return make_docker_manager(tmp_path)
+
+
+def _make_hooks_subprocess_mock(hooks_dir: Path):
+    """Return a coroutine that fakes 'git rev-parse --git-path hooks'."""
+
+    async def _fake(*args, **_kwargs):
+        if "rev-parse" in args:
+            return str(hooks_dir)
+        return ""
+
+    return _fake
+
+
+# ---------------------------------------------------------------------------
+# Docker mode — _setup_env
+# ---------------------------------------------------------------------------
+
+
+class TestSetupEnvDocker:
+    """Tests for _setup_env when execution_mode='docker'."""
+
+    def test_setup_env_docker_copies_dotenv(self, tmp_path: Path) -> None:
+        """In docker mode, .env should be copied (not symlinked) into worktree."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=docker_test")
+
+        manager._setup_env(wt_path)
+
+        env_dst = wt_path / ".env"
+        assert env_dst.exists()
+        assert not env_dst.is_symlink(), (
+            ".env must be copied, not symlinked in docker mode"
+        )
+        assert env_dst.read_text() == "SECRET=docker_test"
+
+    def test_setup_env_docker_copies_node_modules(self, tmp_path: Path) -> None:
+        """In docker mode, node_modules/ should be copied (not symlinked)."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        # Use "ui" — the default ui_dirs fallback from ConfigFactory
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+        (ui_nm_src / "some-pkg").mkdir()
+        (ui_nm_src / "some-pkg" / "index.js").write_text("module.exports = {}")
+
+        manager._setup_env(wt_path)
+
+        ui_nm_dst = wt_path / "ui" / "node_modules"
+        assert ui_nm_dst.exists()
+        assert ui_nm_dst.is_dir()
+        assert not ui_nm_dst.is_symlink(), (
+            "node_modules must be copied, not symlinked in docker mode"
+        )
+        assert (
+            ui_nm_dst / "some-pkg" / "index.js"
+        ).read_text() == "module.exports = {}"
+
+    def test_setup_env_docker_skips_missing_sources(self, tmp_path: Path) -> None:
+        """In docker mode, missing .env and node_modules should be skipped gracefully."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        manager._setup_env(wt_path)
+
+        assert not (wt_path / ".env").exists()
+
+    def test_setup_env_docker_does_not_overwrite_existing(self, tmp_path: Path) -> None:
+        """In docker mode, existing destination files should not be overwritten."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        env_src = repo_root / ".env"
+        env_src.write_text("NEW_CONTENT")
+
+        env_dst = wt_path / ".env"
+        env_dst.write_text("EXISTING_CONTENT")
+
+        manager._setup_env(wt_path)
+
+        assert env_dst.read_text() == "EXISTING_CONTENT"
+
+    def test_setup_env_docker_handles_copy_oserror(self, tmp_path: Path) -> None:
+        """In docker mode, OSError during copy should be caught and not raised."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+
+        with patch("worktree.shutil.copy2", side_effect=OSError("permission denied")):
+            manager._setup_env(wt_path)  # should not raise
+
+        assert not (wt_path / ".env").exists()
+        assert not (wt_path / ".gitignore").exists(), (
+            ".gitignore must not be updated when .env copy fails"
+        )
+
+    def test_setup_env_docker_handles_copytree_oserror(self, tmp_path: Path) -> None:
+        """In docker mode, OSError during node_modules copytree should be caught."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+
+        with patch("worktree.shutil.copytree", side_effect=OSError("disk full")):
+            manager._setup_env(wt_path)  # should not raise
+
+    def test_setup_env_docker_adds_env_to_gitignore(self, tmp_path: Path) -> None:
+        """In docker mode, .env should be appended to worktree .gitignore."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+
+        manager._setup_env(wt_path)
+
+        gitignore = wt_path / ".gitignore"
+        assert gitignore.exists()
+        assert ".env" in [ln.strip() for ln in gitignore.read_text().splitlines()]
+
+    def test_setup_env_docker_does_not_duplicate_gitignore_entry(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, .env should not be added to .gitignore if already present."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+
+        # Pre-populate .gitignore with .env already listed
+        gitignore = wt_path / ".gitignore"
+        gitignore.write_text("node_modules/\n.env\n*.pyc\n")
+
+        manager._setup_env(wt_path)
+
+        lines = [ln.strip() for ln in gitignore.read_text().splitlines()]
+        assert lines.count(".env") == 1, "duplicate .env entries must not be added"
+
+    def test_setup_env_docker_handles_gitignore_update_oserror(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, OSError when updating .gitignore should be caught."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        # Pre-create env_dst so the gitignore update block is reached;
+        # with env_dst already present the copy step is skipped.
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+        (wt_path / ".env").write_text("SECRET=val")
+
+        with patch("pathlib.Path.open", side_effect=OSError("read-only")):
+            manager._setup_env(wt_path)  # should not raise
+
+    def test_setup_env_host_still_symlinks(self, config, tmp_path: Path) -> None:
+        """Confirm host mode still creates symlinks (regression check)."""
+        assert config.execution_mode == "host"
+        manager = WorktreeManager(config)
+
+        repo_root = config.repo_root
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        env_src = repo_root / ".env"
+        env_src.write_text("HOST_MODE=true")
+
+        manager._setup_env(wt_path)
+
+        env_dst = wt_path / ".env"
+        assert env_dst.is_symlink(), ".env must be symlinked in host mode"
+
+
+# ---------------------------------------------------------------------------
+# Docker mode — _install_hooks
+# ---------------------------------------------------------------------------
+
+
+class TestInstallHooksDocker:
+    """Tests for _install_hooks when execution_mode='docker'."""
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_docker_copies_hook_files(self, tmp_path: Path) -> None:
+        """In docker mode, hook files should be copied to the git hooks dir."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        # Create .githooks with a pre-commit hook
+        githooks_dir = repo_root / ".githooks"
+        githooks_dir.mkdir()
+        hook_file = githooks_dir / "pre-commit"
+        hook_file.write_text("#!/bin/sh\nexit 0\n")
+
+        # Create worktree with a git hooks directory
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        hooks_dir = wt_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True)
+
+        with patch(
+            "worktree.run_subprocess",
+            side_effect=_make_hooks_subprocess_mock(hooks_dir),
+        ):
+            await manager._install_hooks(wt_path)
+
+        copied_hook = hooks_dir / "pre-commit"
+        assert copied_hook.exists()
+        assert copied_hook.read_text() == "#!/bin/sh\nexit 0\n"
+        # Check executable permission
+        assert copied_hook.stat().st_mode & stat.S_IXUSR
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_docker_skips_when_githooks_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, missing .githooks/ should be handled gracefully."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        # No .githooks directory
+
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # Should not raise
+        await manager._install_hooks(wt_path)
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_docker_handles_copy_error(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, OSError during hook copy should be caught."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        githooks_dir = repo_root / ".githooks"
+        githooks_dir.mkdir()
+        (githooks_dir / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        hooks_dir = wt_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True)
+
+        with (
+            patch(
+                "worktree.run_subprocess",
+                side_effect=_make_hooks_subprocess_mock(hooks_dir),
+            ),
+            patch("worktree.shutil.copy2", side_effect=OSError("perm denied")),
+        ):
+            await manager._install_hooks(wt_path)  # should not raise
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_docker_handles_mkdir_oserror(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, OSError creating git hooks dir should be caught."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        githooks_dir = repo_root / ".githooks"
+        githooks_dir.mkdir()
+        (githooks_dir / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        hooks_dir = wt_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True)
+
+        with (
+            patch(
+                "worktree.run_subprocess",
+                side_effect=_make_hooks_subprocess_mock(hooks_dir),
+            ),
+            patch("pathlib.Path.mkdir", side_effect=OSError("read-only fs")),
+        ):
+            await manager._install_hooks(wt_path)  # should not raise
+
+        assert not (hooks_dir / "pre-commit").exists()
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_host_sets_hooks_path(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Confirm host mode still sets core.hooksPath (regression check)."""
+        assert config.execution_mode == "host"
+        manager = WorktreeManager(config)
+        success_proc = _make_proc()
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=success_proc
+        ) as mock_exec:
+            await manager._install_hooks(tmp_path)
+
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args.args[:4] == (
+            "git",
+            "config",
+            "core.hooksPath",
+            ".githooks",
+        )
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_docker_copies_multiple_hooks(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, all hook files should be copied."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        githooks_dir = repo_root / ".githooks"
+        githooks_dir.mkdir()
+        (githooks_dir / "pre-commit").write_text("#!/bin/sh\necho pre-commit\n")
+        (githooks_dir / "pre-push").write_text("#!/bin/sh\necho pre-push\n")
+
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+        hooks_dir = wt_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True)
+
+        with patch(
+            "worktree.run_subprocess",
+            side_effect=_make_hooks_subprocess_mock(hooks_dir),
+        ):
+            await manager._install_hooks(wt_path)
+
+        assert (hooks_dir / "pre-commit").exists()
+        assert (hooks_dir / "pre-push").exists()
+
+    @pytest.mark.asyncio
+    async def test_install_hooks_docker_handles_git_rev_parse_error(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, RuntimeError from git rev-parse should be caught."""
+        manager = _make_docker_manager(tmp_path)
+
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+
+        githooks_dir = repo_root / ".githooks"
+        githooks_dir.mkdir()
+        (githooks_dir / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        async def _raise(*args, cwd=None, gh_token=None):  # noqa: ARG001
+            raise RuntimeError("git not available")
+
+        with patch("worktree.run_subprocess", side_effect=_raise):
+            await manager._install_hooks(wt_path)  # should not raise
+
+        # No hooks should have been copied since git rev-parse failed
+        assert not (wt_path / ".git" / "hooks" / "pre-commit").exists()
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._detect_ui_dirs
+# ---------------------------------------------------------------------------
+
+
+class TestDetectUiDirs:
+    """Tests for WorktreeManager._detect_ui_dirs."""
+
+    def test_detects_package_json_dirs(self, tmp_path: Path) -> None:
+        """Should discover UI dirs from package.json files in repo root."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        # Create two UI dirs with package.json
+        (repo_root / "ui").mkdir()
+        (repo_root / "ui" / "package.json").write_text("{}")
+        (repo_root / "dashboard" / "frontend").mkdir(parents=True)
+        (repo_root / "dashboard" / "frontend" / "package.json").write_text("{}")
+
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        manager = WorktreeManager(cfg)
+
+        assert "dashboard/frontend" in manager._ui_dirs
+        assert "ui" in manager._ui_dirs
+
+    def test_skips_node_modules_package_json(self, tmp_path: Path) -> None:
+        """Should not detect package.json inside node_modules."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "ui").mkdir()
+        (repo_root / "ui" / "package.json").write_text("{}")
+        (repo_root / "ui" / "node_modules" / "some-pkg").mkdir(parents=True)
+        (repo_root / "ui" / "node_modules" / "some-pkg" / "package.json").write_text(
+            "{}"
+        )
+
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        manager = WorktreeManager(cfg)
+
+        assert manager._ui_dirs == ["ui"]
+
+    def test_skips_hidden_dirs(self, tmp_path: Path) -> None:
+        """Should not detect package.json inside hidden directories."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / ".hidden" / "sub").mkdir(parents=True)
+        (repo_root / ".hidden" / "sub" / "package.json").write_text("{}")
+
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        manager = WorktreeManager(cfg)
+
+        # No package.json found outside hidden dirs, falls back to config
+        assert manager._ui_dirs == ["ui"]
+
+    def test_skips_root_level_package_json(self, tmp_path: Path) -> None:
+        """Should not include root-level package.json as a UI dir."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "package.json").write_text("{}")
+
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        manager = WorktreeManager(cfg)
+
+        # Root package.json is excluded, falls back to config
+        assert manager._ui_dirs == ["ui"]
+
+    def test_falls_back_to_config_when_no_package_json(self, tmp_path: Path) -> None:
+        """Should use config.ui_dirs when no package.json files are found."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            ui_dirs=["custom/ui", "other/frontend"],
+        )
+        manager = WorktreeManager(cfg)
+
+        assert manager._ui_dirs == ["custom/ui", "other/frontend"]
+
+    def test_detection_overrides_config(self, tmp_path: Path) -> None:
+        """When package.json files are found, they override config.ui_dirs."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "webapp").mkdir()
+        (repo_root / "webapp" / "package.json").write_text("{}")
+
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            ui_dirs=["old/ui"],
+        )
+        manager = WorktreeManager(cfg)
+
+        assert manager._ui_dirs == ["webapp"]
 
 
 # NOTE: Tests for the subprocess helper (stdout parsing, error handling,

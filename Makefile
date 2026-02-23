@@ -1,29 +1,32 @@
-# Makefile for Hydra — Intent in. Software out.
+# Makefile for HydraFlow — Intent in. Software out.
 
-HYDRA_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-PROJECT_ROOT := $(abspath $(HYDRA_DIR))
+HYDRAFLOW_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+PROJECT_ROOT := $(abspath $(HYDRAFLOW_DIR))
 
 # Load .env if present (export all variables)
 -include $(PROJECT_ROOT)/.env
 export
-VENV := $(PROJECT_ROOT)/venv
+VENV := $(PROJECT_ROOT)/.venv
 UV := VIRTUAL_ENV=$(VENV) uv run --active
 
+# Stamp file to track when deps were last synced
+DEPS_STAMP := $(VENV)/.deps-synced
+
 # CLI argument passthrough
-READY_LABEL ?= hydra-ready
+READY_LABEL ?= hydraflow-ready
 WORKERS ?= 3
 MODEL ?= opus
-REVIEW_MODEL ?= opus
+REVIEW_MODEL ?= sonnet
 BATCH_SIZE ?= 15
 BUDGET ?= 0
 REVIEW_BUDGET ?= 0
-PLANNER_LABEL ?= hydra-plan
+PLANNER_LABEL ?= hydraflow-plan
 PLANNER_MODEL ?= opus
 PLANNER_BUDGET ?= 0
 REVIEWERS ?= 5
 HITL_WORKERS ?= 1
 PORT ?= 5555
-LOG_DIR ?= $(PROJECT_ROOT)/.hydra/logs
+LOG_DIR ?= $(PROJECT_ROOT)/.hydraflow/logs
 
 # Colors
 RED := \033[0;31m
@@ -32,52 +35,60 @@ YELLOW := \033[0;33m
 BLUE := \033[0;34m
 RESET := \033[0m
 
-.PHONY: help run dev dry-run clean test lint lint-check typecheck security quality install setup status ui ui-dev ui-clean ensure-labels
+# Docker agent image
+DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
+
+.PHONY: help run dev dry-run clean test test-fast test-cov lint lint-check typecheck security quality quality-full install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
 
 help:
-	@echo "$(BLUE)Hydra — Intent in. Software out.$(RESET)"
+	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
 	@echo ""
 	@echo "$(GREEN)Commands:$(RESET)"
 	@echo "  make dev            Start backend + Vite frontend dev server"
-	@echo "  make run            Run Hydra (processes issues with agents)"
+	@echo "  make run            Run HydraFlow (processes issues with agents)"
 	@echo "  make dry-run        Dry run (log actions without executing)"
 	@echo "  make clean          Remove all worktrees and state"
-	@echo "  make status         Show current Hydra state"
-	@echo "  make test           Run unit tests"
+	@echo "  make status         Show current HydraFlow state"
+	@echo "  make test           Run unit tests (parallel)"
+	@echo "  make test-cov       Run tests with coverage report"
 	@echo "  make lint           Auto-fix linting"
 	@echo "  make lint-check     Check linting (no fix)"
 	@echo "  make typecheck      Run Pyright type checks"
 	@echo "  make security       Run Bandit security scan"
-	@echo "  make quality        Lint + typecheck + security + test"
-	@echo "  make ensure-labels  Create Hydra labels in GitHub repo"
-	@echo "  make setup          Install git hooks (pre-commit, pre-push)"
+	@echo "  make quality        Lint + typecheck + test (parallel)"
+	@echo "  make quality-full   quality + security scan"
+	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
+	@echo "  make setup          Install git hooks + Claude/Codex assets"
 	@echo "  make install        Install dashboard dependencies"
 	@echo "  make ui             Build React dashboard (ui/dist/)"
 	@echo "  make ui-dev         Start React dashboard dev server"
 	@echo "  make ui-clean       Remove ui/dist and node_modules"
+	@echo "  make hot            Send config update to running instance"
+	@echo "  make docker-build   Build Hydra agent Docker image"
+	@echo "  make docker-test    Build + smoke-test the agent image"
 	@echo ""
 	@echo "$(GREEN)Options (override with make run LABEL=bug WORKERS=3):$(RESET)"
-	@echo "  READY_LABEL      GitHub issue label (default: hydra-ready)"
+	@echo "  READY_LABEL      GitHub issue label (default: hydraflow-ready)"
 	@echo "  WORKERS          Max concurrent agents (default: 2)"
 	@echo "  MODEL            Implementation model (default: sonnet)"
 	@echo "  REVIEW_MODEL     Review model (default: opus)"
 	@echo "  BATCH_SIZE       Issues per batch (default: 15)"
 	@echo "  BUDGET           USD per impl agent (default: 0 = unlimited)"
 	@echo "  REVIEW_BUDGET    USD per review agent (default: 0 = unlimited)"
-	@echo "  PLANNER_LABEL    Planner issue label (default: hydra-plan)"
+	@echo "  PLANNER_LABEL    Planner issue label (default: hydraflow-plan)"
 	@echo "  PLANNER_MODEL    Planner model (default: opus)"
 	@echo "  PLANNER_BUDGET   USD per planner agent (default: 0 = unlimited)"
 	@echo "  HITL_WORKERS     Max concurrent HITL agents (default: 1)"
 	@echo "  PORT             Dashboard port (default: 5555)"
-	@echo "  LOG_DIR          Log directory (default: .hydra/logs)"
+	@echo "  LOG_DIR          Log directory (default: .hydraflow/logs)"
 
 run:
 	@mkdir -p $(LOG_DIR)
-	@echo "$(BLUE)Starting Hydra — backend :$(PORT) + frontend :5556$(RESET)"
+	@echo "$(BLUE)Starting HydraFlow — backend :$(PORT) + frontend :5556$(RESET)"
 	@echo "$(GREEN)Open http://localhost:5556 to use the dashboard$(RESET)"
 	@trap 'kill 0' EXIT; \
-	cd $(HYDRA_DIR)ui && npm install --silent 2>/dev/null && npm run dev 2>&1 | tee $(LOG_DIR)/vite.log & \
-	cd $(HYDRA_DIR) && $(UV) python cli.py \
+	cd $(HYDRAFLOW_DIR)ui && npm install --silent 2>/dev/null && npm run dev 2>&1 | tee $(LOG_DIR)/vite.log & \
+	cd $(HYDRAFLOW_DIR) && $(UV) python cli.py \
 		--ready-label $(READY_LABEL) \
 		--max-workers $(WORKERS) \
 		--model $(MODEL) \
@@ -96,8 +107,8 @@ run:
 dev: run
 
 dry-run:
-	@echo "$(BLUE)Hydra dry run — label=$(READY_LABEL)$(RESET)"
-	@cd $(HYDRA_DIR) && $(UV) python cli.py \
+	@echo "$(BLUE)HydraFlow dry run — label=$(READY_LABEL)$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && $(UV) python cli.py \
 		--ready-label $(READY_LABEL) \
 		--max-workers $(WORKERS) \
 		--batch-size $(BATCH_SIZE) \
@@ -105,51 +116,75 @@ dry-run:
 	@echo "$(GREEN)Dry run complete$(RESET)"
 
 clean:
-	@echo "$(YELLOW)Cleaning up Hydra worktrees and state...$(RESET)"
-	@cd $(HYDRA_DIR) && $(UV) python cli.py --clean
+	@echo "$(YELLOW)Cleaning up HydraFlow worktrees and state...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && $(UV) python cli.py --clean
 	@echo "$(GREEN)Cleanup complete$(RESET)"
 
 status:
-	@echo "$(BLUE)Hydra State:$(RESET)"
-	@if [ -f $(PROJECT_ROOT)/.hydra/state.json ]; then \
-		cat $(PROJECT_ROOT)/.hydra/state.json | python -m json.tool; \
+	@echo "$(BLUE)HydraFlow State:$(RESET)"
+	@if [ -f $(PROJECT_ROOT)/.hydraflow/state.json ]; then \
+		cat $(PROJECT_ROOT)/.hydraflow/state.json | python -m json.tool; \
 	else \
-		echo "$(YELLOW)No state file found (Hydra has not run yet)$(RESET)"; \
+		echo "$(YELLOW)No state file found (HydraFlow has not run yet)$(RESET)"; \
 	fi
 
-test:
-	@echo "$(BLUE)Running Hydra unit tests...$(RESET)"
-	@cd $(HYDRA_DIR) && PYTHONPATH=. $(UV) pytest tests/ -v
+$(DEPS_STAMP): pyproject.toml
+	@echo "$(BLUE)Syncing dependencies...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && uv sync --all-extras
+	@touch $(DEPS_STAMP)
+
+deps: $(DEPS_STAMP)
+
+test: deps
+	@echo "$(BLUE)Running HydraFlow unit tests...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/
 	@echo "$(GREEN)All tests passed$(RESET)"
 
-test-fast:
-	@cd $(HYDRA_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x -q --tb=short
+test-fast: deps
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x --tb=short
 
-lint:
-	@echo "$(BLUE)Linting Hydra (auto-fix)...$(RESET)"
-	@cd $(HYDRA_DIR) && $(UV) ruff check . --fix && $(UV) ruff format .
+test-cov: deps
+	@echo "$(BLUE)Running HydraFlow tests with coverage...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -v --cov=. --cov-fail-under=70 --cov-report=term-missing --cov-report=html:htmlcov -p no:xdist
+	@echo "$(GREEN)All tests passed with coverage$(RESET)"
+
+lint: deps
+	@echo "$(BLUE)Linting HydraFlow (auto-fix)...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && $(UV) ruff check . --fix && $(UV) ruff format .
 	@echo "$(GREEN)Linting complete$(RESET)"
 
-lint-check:
-	@echo "$(BLUE)Checking Hydra linting...$(RESET)"
-	@cd $(HYDRA_DIR) && $(UV) ruff check . && $(UV) ruff format . --check
+lint-check: deps
+	@echo "$(BLUE)Checking HydraFlow linting...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && $(UV) ruff check . && $(UV) ruff format . --check
 	@echo "$(GREEN)Lint check passed$(RESET)"
 
-typecheck:
+typecheck: deps
 	@echo "$(BLUE)Running Pyright type checks...$(RESET)"
-	@cd $(HYDRA_DIR) && $(UV) pyright
+	@cd $(HYDRAFLOW_DIR) && $(UV) pyright
 	@echo "$(GREEN)Type check passed$(RESET)"
 
-security:
+security: deps
 	@echo "$(BLUE)Running Bandit security scan...$(RESET)"
-	@cd $(HYDRA_DIR) && $(UV) bandit -c pyproject.toml -r . --severity-level medium
+	@cd $(HYDRAFLOW_DIR) && $(UV) bandit -c pyproject.toml -r . --severity-level medium
 	@echo "$(GREEN)Security scan passed$(RESET)"
 
-quality: lint-check typecheck security test
-	@echo "$(GREEN)Hydra quality pipeline passed$(RESET)"
+quality: deps
+	@echo "$(BLUE)Running quality checks in parallel...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && ( \
+		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \
+		$(UV) pyright && echo "[typecheck OK]" & \
+		PYTHONPATH=. $(UV) pytest tests/ && echo "[tests OK]" & \
+		wait_result=0; \
+		for job in $$(jobs -p); do wait $$job || wait_result=1; done; \
+		exit $$wait_result; \
+	)
+	@echo "$(GREEN)HydraFlow quality pipeline passed$(RESET)"
+
+quality-full: quality security
+	@echo "$(GREEN)HydraFlow full quality pipeline passed$(RESET)"
 
 install:
-	@echo "$(BLUE)Installing Hydra dashboard dependencies...$(RESET)"
+	@echo "$(BLUE)Installing HydraFlow dashboard dependencies...$(RESET)"
 	@VIRTUAL_ENV=$(VENV) uv pip install fastapi uvicorn websockets
 	@echo "$(GREEN)Dashboard dependencies installed$(RESET)"
 
@@ -175,32 +210,88 @@ setup:
 	@echo "  gh user: $$(gh api user --jq .login)"
 	@echo "$(BLUE)Setting up git hooks...$(RESET)"
 	@git config core.hooksPath .githooks
+	@echo "$(BLUE)Detecting local agent assets (Claude/Codex)...$(RESET)"
+	@if [ -d "$(PROJECT_ROOT)/.claude/hooks" ]; then \
+		for HOOK in "$(PROJECT_ROOT)"/.claude/hooks/*.sh; do \
+			[ -f "$$HOOK" ] || continue; \
+			chmod +x "$$HOOK"; \
+		done; \
+		echo "  Claude hooks: executable bits refreshed"; \
+	fi
+	@if [ -d "$(PROJECT_ROOT)/.claude/commands" ]; then \
+		echo "  Claude commands: detected in .claude/commands"; \
+	fi
+	@if [ -d "$(PROJECT_ROOT)/.codex/skills" ] || [ -f "$(PROJECT_ROOT)/AGENTS.md" ]; then \
+		CODEX_HOME_DIR="$${CODEX_HOME:-$$HOME/.codex}"; \
+		DEST="$$CODEX_HOME_DIR/skills"; \
+		mkdir -p "$$DEST"; \
+		INSTALLED=0; \
+		for SKILL_DIR in "$(PROJECT_ROOT)"/.codex/skills/*; do \
+			[ -d "$$SKILL_DIR" ] || continue; \
+			[ -f "$$SKILL_DIR/SKILL.md" ] || continue; \
+			SKILL_NAME="$$(basename "$$SKILL_DIR")"; \
+			rm -rf "$$DEST/$$SKILL_NAME"; \
+			cp -R "$$SKILL_DIR" "$$DEST/$$SKILL_NAME"; \
+			INSTALLED=$$((INSTALLED + 1)); \
+			echo "  Codex skill installed: $$SKILL_NAME"; \
+		done; \
+		if [ "$$INSTALLED" -eq 0 ]; then \
+			echo "  Codex skills: no SKILL.md packages found under .codex/skills"; \
+		else \
+			echo "  Codex skills destination: $$DEST"; \
+			echo "  Restart Codex to load updated skills"; \
+		fi; \
+	fi
 	@echo "$(GREEN)Setup complete$(RESET)"
 	@echo "  pre-commit: lint check on staged Python files"
 	@echo "  pre-push:   full quality gate (lint + typecheck + security + tests)"
 
 REPO_SLUG := $(shell git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]||;s|\.git$$||')
 
-ensure-labels:
-	@echo "$(BLUE)Ensuring Hydra labels exist in $(REPO_SLUG)...$(RESET)"
-	@gh label create "$(PLANNER_LABEL)" --repo "$(REPO_SLUG)" --color c5def5 --description "Issue needs planning before implementation" --force 2>/dev/null || true
-	@gh label create "$(READY_LABEL)" --repo "$(REPO_SLUG)" --color 0e8a16 --description "Issue ready for implementation" --force 2>/dev/null || true
-	@gh label create "hydra-review" --repo "$(REPO_SLUG)" --color fbca04 --description "Issue/PR under review" --force 2>/dev/null || true
-	@gh label create "hydra-hitl" --repo "$(REPO_SLUG)" --color d93f0b --description "Escalated to human-in-the-loop" --force 2>/dev/null || true
-	@gh label create "hydra-hitl-active" --repo "$(REPO_SLUG)" --color e99695 --description "Being processed by HITL correction agent" --force 2>/dev/null || true
-	@gh label create "hydra-fixed" --repo "$(REPO_SLUG)" --color 0075ca --description "PR merged — issue completed" --force 2>/dev/null || true
-	@echo "$(GREEN)All Hydra labels ensured$(RESET)"
+prep:
+	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"
+	@cd $(HYDRA_DIR) && $(UV) python cli.py --prep
+	@echo "$(GREEN)Prep complete$(RESET)"
+
+ensure-labels: prep
+
+hot:
+	@echo "$(BLUE)Sending config update to running HydraFlow instance on :$(PORT)...$(RESET)"
+	@JSON='{"persist": true'; \
+	[ "$(origin WORKERS)" = "command line" ] && JSON="$$JSON, \"max_workers\": $(WORKERS)"; \
+	[ "$(origin MODEL)" = "command line" ] && JSON="$$JSON, \"model\": \"$(MODEL)\""; \
+	[ "$(origin BUDGET)" = "command line" ] && JSON="$$JSON, \"max_budget_usd\": $(BUDGET)"; \
+	[ "$(origin BATCH_SIZE)" = "command line" ] && JSON="$$JSON, \"batch_size\": $(BATCH_SIZE)"; \
+	[ "$(origin REVIEWERS)" = "command line" ] && JSON="$$JSON, \"max_reviewers\": $(REVIEWERS)"; \
+	[ "$(origin REVIEW_MODEL)" = "command line" ] && JSON="$$JSON, \"review_model\": \"$(REVIEW_MODEL)\""; \
+	[ "$(origin PLANNERS)" = "command line" ] && JSON="$$JSON, \"max_planners\": $(PLANNERS)"; \
+	[ "$(origin HITL_WORKERS)" = "command line" ] && JSON="$$JSON, \"max_hitl_workers\": $(HITL_WORKERS)"; \
+	JSON="$$JSON}"; \
+	curl -s -X PATCH "http://localhost:$(PORT)/api/control/config" \
+		-H "Content-Type: application/json" \
+		-d "$$JSON" | python -m json.tool
+	@echo "$(GREEN)Config update sent$(RESET)"
 
 ui:
-	@echo "$(BLUE)Building Hydra React dashboard...$(RESET)"
-	@cd $(HYDRA_DIR)ui && npm install && npm run build
+	@echo "$(BLUE)Building HydraFlow React dashboard...$(RESET)"
+	@cd $(HYDRAFLOW_DIR)ui && npm install && npm run build
 	@echo "$(GREEN)Dashboard built → ui/dist/$(RESET)"
 
 ui-dev:
-	@echo "$(BLUE)Starting Hydra dashboard dev server...$(RESET)"
-	@cd $(HYDRA_DIR)ui && npm install && npm run dev
+	@echo "$(BLUE)Starting HydraFlow dashboard dev server...$(RESET)"
+	@cd $(HYDRAFLOW_DIR)ui && npm install && npm run dev
 
 ui-clean:
 	@echo "$(YELLOW)Cleaning dashboard build artifacts...$(RESET)"
-	@rm -rf $(HYDRA_DIR)ui/dist $(HYDRA_DIR)ui/node_modules
+	@rm -rf $(HYDRAFLOW_DIR)ui/dist $(HYDRAFLOW_DIR)ui/node_modules
 	@echo "$(GREEN)Dashboard cleaned$(RESET)"
+
+docker-build:
+	@echo "$(BLUE)Building Hydra agent Docker image...$(RESET)"
+	docker build --platform linux/amd64 -f Dockerfile.agent -t $(DOCKER_IMAGE) .
+	@echo "$(GREEN)Image built: $(DOCKER_IMAGE)$(RESET)"
+
+docker-test: docker-build
+	@echo "$(BLUE)Running agent image smoke test...$(RESET)"
+	docker run --rm $(DOCKER_IMAGE) bash /opt/hydra/docker-smoke-test.sh
+	@echo "$(GREEN)Smoke test passed$(RESET)"

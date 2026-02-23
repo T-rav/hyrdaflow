@@ -1,15 +1,17 @@
-"""Git worktree lifecycle management for Hydra."""
+"""Git worktree lifecycle management for HydraFlow."""
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import shutil
+import stat
 from pathlib import Path
 
-from config import HydraConfig
+from config import HydraFlowConfig
 from subprocess_util import run_subprocess
 
-logger = logging.getLogger("hydra.worktree")
+logger = logging.getLogger("hydraflow.worktree")
 
 
 class WorktreeManager:
@@ -18,28 +20,39 @@ class WorktreeManager:
     Each worktree gets:
     - A fresh branch from ``main``
     - An independent venv via ``uv sync``
-    - Symlinked ``.env`` and ``node_modules/`` dirs
+    - ``.env`` and ``node_modules/`` dirs (symlinked in host mode, copied in docker mode)
     - Copied ``.claude/settings.local.json``
-    - Pre-commit hooks installed
+    - Pre-commit hooks installed (symlinked path in host mode, copied files in docker mode)
     """
 
-    # Node UI directories that need symlinked node_modules
-    _UI_DIRS = [
-        "bot/health_ui",
-        "tasks/ui",
-        "control_plane/ui",
-        "dashboard-service/health_ui",
-    ]
-
-    def __init__(self, config: HydraConfig) -> None:
+    def __init__(self, config: HydraFlowConfig) -> None:
         self._config = config
         self._repo_root = config.repo_root
         self._base = config.worktree_base
+        self._ui_dirs = self._detect_ui_dirs()
 
-    def exists(self, issue_number: int) -> bool:
-        """Check whether a worktree directory already exists for *issue_number*."""
-        wt_path = self._config.worktree_path_for_issue(issue_number)
-        return wt_path.is_dir()
+    def _detect_ui_dirs(self) -> list[str]:
+        """Auto-detect UI directories by scanning for ``package.json`` files.
+
+        Falls back to ``config.ui_dirs`` if no ``package.json`` files are found.
+        """
+        detected: list[str] = []
+        try:
+            for pkg_json in self._repo_root.rglob("package.json"):
+                # Skip node_modules and hidden directories
+                parts = pkg_json.relative_to(self._repo_root).parts
+                if "node_modules" in parts or any(p.startswith(".") for p in parts):
+                    continue
+                parent = str(pkg_json.parent.relative_to(self._repo_root))
+                if parent == ".":
+                    continue  # Skip root-level package.json
+                detected.append(parent)
+        except OSError:
+            logger.debug("Could not scan for package.json files", exc_info=True)
+        if detected:
+            logger.info("Auto-detected UI dirs: %s", detected)
+            return sorted(detected)
+        return list(self._config.ui_dirs)
 
     async def _delete_local_branch(self, branch: str) -> None:
         """Delete a local branch if it exists, ignoring errors."""
@@ -215,6 +228,42 @@ class WorktreeManager:
                 gh_token=self._config.gh_token,
             )
 
+    async def _fetch_and_merge_main(self, worktree_path: Path, branch: str) -> bool:
+        """Fetch and merge main into *branch* inside *worktree_path*.
+
+        Performs the shared three-step sequence: fetch origin, fast-forward
+        local branch to match remote, then merge ``origin/main``.  Raises
+        ``RuntimeError`` on any failure so callers can decide how to handle it.
+
+        Returns *True* on success.
+        """
+        await run_subprocess(
+            "git",
+            "fetch",
+            "origin",
+            self._config.main_branch,
+            branch,
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        await run_subprocess(
+            "git",
+            "merge",
+            "--ff-only",
+            f"origin/{branch}",
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        await run_subprocess(
+            "git",
+            "merge",
+            f"origin/{self._config.main_branch}",
+            "--no-edit",
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        return True
+
     async def merge_main(self, worktree_path: Path, branch: str) -> bool:
         """Merge latest main into *branch* inside *worktree_path*.
 
@@ -225,35 +274,8 @@ class WorktreeManager:
         Returns *True* on success, *False* if conflicts arise.
         """
         try:
-            await run_subprocess(
-                "git",
-                "fetch",
-                "origin",
-                self._config.main_branch,
-                branch,
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            # Fast-forward local branch to match remote so push stays ff
-            await run_subprocess(
-                "git",
-                "merge",
-                "--ff-only",
-                f"origin/{branch}",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            await run_subprocess(
-                "git",
-                "merge",
-                f"origin/{self._config.main_branch}",
-                "--no-edit",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            return True
+            return await self._fetch_and_merge_main(worktree_path, branch)
         except RuntimeError:
-            # Abort merge on conflict
             with contextlib.suppress(RuntimeError):
                 await run_subprocess(
                     "git",
@@ -275,35 +297,8 @@ class WorktreeManager:
         *False* if conflicts remain in the working tree.
         """
         try:
-            await run_subprocess(
-                "git",
-                "fetch",
-                "origin",
-                self._config.main_branch,
-                branch,
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            # Fast-forward local branch to match remote
-            await run_subprocess(
-                "git",
-                "merge",
-                "--ff-only",
-                f"origin/{branch}",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            await run_subprocess(
-                "git",
-                "merge",
-                f"origin/{self._config.main_branch}",
-                "--no-edit",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            return True
+            return await self._fetch_and_merge_main(worktree_path, branch)
         except RuntimeError:
-            # Leave conflict markers in place — caller will resolve
             return False
 
     async def abort_merge(self, worktree_path: Path) -> None:
@@ -317,30 +312,195 @@ class WorktreeManager:
                 gh_token=self._config.gh_token,
             )
 
+    async def get_conflicting_files(self, worktree_path: Path) -> list[str]:
+        """Return the list of files with unresolved merge conflicts.
+
+        Runs ``git diff --name-only --diff-filter=U`` in *worktree_path*.
+        Returns an empty list on failure.
+        """
+        try:
+            output = await run_subprocess(
+                "git",
+                "diff",
+                "--name-only",
+                "--diff-filter=U",
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            return [f.strip() for f in output.strip().splitlines() if f.strip()]
+        except RuntimeError:
+            logger.warning("Could not get conflicting files in %s", worktree_path)
+            return []
+
+    async def get_main_diff_for_files(
+        self,
+        worktree_path: Path,
+        files: list[str],
+        max_chars: int = 30_000,
+    ) -> str:
+        """Return the diff of what changed on main for *files* since divergence.
+
+        Runs ``git merge-base HEAD origin/main`` then
+        ``git diff <base>..origin/main -- <files>``.  Truncates at
+        *max_chars*.  Returns an empty string on failure or when *files*
+        is empty.
+        """
+        if not files:
+            return ""
+        try:
+            merge_base = await run_subprocess(
+                "git",
+                "merge-base",
+                "HEAD",
+                f"origin/{self._config.main_branch}",
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            base_sha = merge_base.strip()
+            if not base_sha:
+                return ""
+
+            diff_output = await run_subprocess(
+                "git",
+                "diff",
+                f"{base_sha}..origin/{self._config.main_branch}",
+                "--",
+                *files,
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            result = diff_output.strip()
+            if len(result) > max_chars:
+                return result[:max_chars] + "\n\n[Diff truncated]"
+            return result
+        except RuntimeError:
+            logger.warning("Could not get main diff for files in %s", worktree_path)
+            return ""
+
+    async def get_main_commits_since_diverge(self, worktree_path: Path) -> str:
+        """Return recent commits on main since the branch diverged.
+
+        Runs ``git log --oneline HEAD..origin/main`` in *worktree_path*
+        (after fetching main) and returns up to 30 commit summaries as a
+        newline-separated string.  Returns an empty string on failure.
+        """
+        try:
+            await run_subprocess(
+                "git",
+                "fetch",
+                "origin",
+                self._config.main_branch,
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            output = await run_subprocess(
+                "git",
+                "log",
+                "--oneline",
+                f"HEAD..origin/{self._config.main_branch}",
+                "-30",
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            return output.strip()
+        except RuntimeError:
+            logger.warning(
+                "Could not get main commits since diverge in %s",
+                worktree_path,
+            )
+            return ""
+
     # --- environment setup ---
 
     def _setup_env(self, wt_path: Path) -> None:
-        """Symlink .env and node_modules into the worktree."""
-        # Symlink .env
+        """Set up .env, settings, and node_modules in the worktree."""
+        docker = self._config.execution_mode == "docker"
+        self._setup_dotenv(wt_path, docker)
+        self._setup_claude_settings(wt_path)
+        self._setup_node_modules(wt_path, docker)
+
+    def _setup_dotenv(self, wt_path: Path, docker: bool) -> None:
+        """Set up .env in the worktree.
+
+        In host mode, .env is symlinked for performance.
+        In docker mode, .env is copied and added to .gitignore to prevent
+        accidental commits of secrets.
+        """
         env_src = self._repo_root / ".env"
         env_dst = wt_path / ".env"
         if env_src.exists() and not env_dst.exists():
-            env_dst.symlink_to(env_src)
+            try:
+                if docker:
+                    shutil.copy2(env_src, env_dst)
+                else:
+                    env_dst.symlink_to(env_src)
+            except OSError:
+                logger.debug(
+                    "Could not %s %s → %s",
+                    "copy" if docker else "symlink",
+                    env_src,
+                    env_dst,
+                    exc_info=True,
+                )
 
-        # Copy .claude/settings.local.json (not symlink - agents may modify)
+        if docker and env_dst.exists():
+            gitignore_path = wt_path / ".gitignore"
+            try:
+                existing = gitignore_path.read_text() if gitignore_path.exists() else ""
+                if ".env" not in [ln.strip() for ln in existing.splitlines()]:
+                    with gitignore_path.open("a") as f:
+                        if existing and not existing.endswith("\n"):
+                            f.write("\n")
+                        f.write(
+                            "# Docker mode: .env is copied — exclude from commits\n"
+                            ".env\n"
+                        )
+            except OSError:
+                logger.debug(
+                    "Could not update .gitignore at %s",
+                    gitignore_path,
+                    exc_info=True,
+                )
+
+    def _setup_claude_settings(self, wt_path: Path) -> None:
+        """Copy .claude/settings.local.json into the worktree (not symlink — agents may modify)."""
         local_settings_src = self._repo_root / ".claude" / "settings.local.json"
         local_settings_dst = wt_path / ".claude" / "settings.local.json"
         if local_settings_src.exists() and not local_settings_dst.exists():
-            local_settings_dst.parent.mkdir(parents=True, exist_ok=True)
-            local_settings_dst.write_text(local_settings_src.read_text())
+            try:
+                local_settings_dst.parent.mkdir(parents=True, exist_ok=True)
+                local_settings_dst.write_text(local_settings_src.read_text())
+            except OSError:
+                logger.debug(
+                    "Could not copy settings to %s",
+                    local_settings_dst,
+                    exc_info=True,
+                )
 
-        # Symlink node_modules for each UI directory
-        for ui_dir in self._UI_DIRS:
+    def _setup_node_modules(self, wt_path: Path, docker: bool) -> None:
+        """Set up node_modules for each UI directory in the worktree.
+
+        In host mode, node_modules is symlinked for performance.
+        In docker mode, node_modules is copied so the worktree is self-contained.
+        """
+        for ui_dir in self._ui_dirs:
             nm_src = self._repo_root / ui_dir / "node_modules"
             nm_dst = wt_path / ui_dir / "node_modules"
             if nm_src.exists() and not nm_dst.exists():
-                nm_dst.parent.mkdir(parents=True, exist_ok=True)
-                nm_dst.symlink_to(nm_src)
+                try:
+                    nm_dst.parent.mkdir(parents=True, exist_ok=True)
+                    if docker:
+                        shutil.copytree(nm_src, nm_dst, symlinks=True)
+                    else:
+                        nm_dst.symlink_to(nm_src)
+                except OSError:
+                    logger.debug(
+                        "Could not %s %s → %s",
+                        "copy" if docker else "symlink",
+                        nm_src,
+                        nm_dst,
+                        exc_info=True,
+                    )
 
     async def _configure_git_identity(self, wt_path: Path) -> None:
         """Set git user.name and user.email in the worktree (local scope)."""
@@ -369,19 +529,72 @@ class WorktreeManager:
             await run_subprocess(
                 "uv", "sync", cwd=wt_path, gh_token=self._config.gh_token
             )
-        except RuntimeError as exc:
+        except (RuntimeError, FileNotFoundError) as exc:
             logger.warning("uv sync failed in %s: %s", wt_path, exc)
 
     async def _install_hooks(self, wt_path: Path) -> None:
-        """Point the worktree at the shared .githooks directory."""
+        """Install git hooks in the worktree.
+
+        In host mode, sets ``core.hooksPath`` to the shared ``.githooks`` dir.
+        In docker mode, copies individual hook files into the worktree's git
+        hooks directory so the worktree is self-contained.
+        """
+        if self._config.execution_mode == "docker":
+            await self._install_hooks_docker(wt_path)
+        else:
+            try:
+                await run_subprocess(
+                    "git",
+                    "config",
+                    "core.hooksPath",
+                    ".githooks",
+                    cwd=wt_path,
+                    gh_token=self._config.gh_token,
+                )
+            except RuntimeError as exc:
+                logger.warning("git hooks setup failed: %s", exc)
+
+    async def _install_hooks_docker(self, wt_path: Path) -> None:
+        """Copy hook files from .githooks/ into the worktree's git hooks dir."""
+        githooks_src = self._repo_root / ".githooks"
+        if not githooks_src.is_dir():
+            logger.debug("No .githooks directory found at %s — skipping", githooks_src)
+            return
+
+        # Resolve the actual git hooks directory (worktree .git is a file)
         try:
-            await run_subprocess(
+            hooks_dir_str = await run_subprocess(
                 "git",
-                "config",
-                "core.hooksPath",
-                ".githooks",
+                "rev-parse",
+                "--git-path",
+                "hooks",
                 cwd=wt_path,
                 gh_token=self._config.gh_token,
             )
+            hooks_dir = Path(hooks_dir_str.strip())
+            if not hooks_dir.is_absolute():
+                hooks_dir = wt_path / hooks_dir
         except RuntimeError as exc:
-            logger.warning("git hooks setup failed: %s", exc)
+            logger.warning("Could not resolve git hooks path: %s", exc)
+            return
+
+        try:
+            hooks_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "Could not create git hooks directory %s: %s", hooks_dir, exc
+            )
+            return
+
+        for hook_file in githooks_src.iterdir():
+            if hook_file.is_file():
+                dst = hooks_dir / hook_file.name
+                try:
+                    shutil.copy2(hook_file, dst)
+                    dst.chmod(
+                        dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                    )
+                except OSError:
+                    logger.debug(
+                        "Could not copy hook %s → %s", hook_file, dst, exc_info=True
+                    )

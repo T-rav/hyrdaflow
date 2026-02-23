@@ -1,4 +1,4 @@
-"""Tests for dx/hydra/reviewer.py."""
+"""Tests for dx/hydraflow/reviewer.py."""
 
 from __future__ import annotations
 
@@ -11,10 +11,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from base_runner import BaseRunner
 from events import EventType
-from models import ReviewVerdict
+from models import ReviewerStatus, ReviewVerdict
 from reviewer import ReviewRunner
 from tests.helpers import ConfigFactory, make_streaming_proc
+
+# ---------------------------------------------------------------------------
+# Inheritance
+# ---------------------------------------------------------------------------
+
+
+class TestReviewRunnerInheritance:
+    """ReviewRunner must extend BaseRunner."""
+
+    def test_inherits_from_base_runner(self, config, event_bus) -> None:
+        runner = ReviewRunner(config, event_bus)
+        assert isinstance(runner, BaseRunner)
+
+    def test_has_terminate_method(self, config, event_bus) -> None:
+        runner = ReviewRunner(config, event_bus)
+        assert callable(runner.terminate)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,6 +91,21 @@ def test_build_command_includes_output_format(config, tmp_path):
     assert "--output-format" in cmd
     fmt_idx = cmd.index("--output-format")
     assert cmd[fmt_idx + 1] == "stream-json"
+
+
+def test_build_command_supports_codex_backend(tmp_path):
+    cfg = ConfigFactory.create(
+        review_tool="codex",
+        review_model="gpt-5-codex",
+        repo_root=tmp_path / "repo",
+        worktree_base=tmp_path / "wt",
+        state_file=tmp_path / "s.json",
+    )
+    runner = _make_runner(cfg, None)
+    cmd = runner._build_command(tmp_path)
+    assert cmd[:3] == ["codex", "exec", "--json"]
+    assert "--model" in cmd
+    assert cmd[cmd.index("--model") + 1] == "gpt-5-codex"
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +215,7 @@ def test_build_review_prompt_fix_section_runs_tests_when_ci_disabled(
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
 
-    assert "make test-fast" in prompt
+    assert "`make test`" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +302,124 @@ def test_extract_summary_fallback_ignores_empty_lines(config, event_bus):
     transcript = "First line.\nSecond line.\n\n   \n"
     summary = runner._extract_summary(transcript)
     assert summary == "Second line."
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_summary
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_summary_accepts_clean_text(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("Implementation looks good, tests pass.") == (
+        "Implementation looks good, tests pass."
+    )
+
+
+def test_sanitize_summary_rejects_tool_arrow_output(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("→ TaskOutput: {'task_id': 'abc123'}") is None
+
+
+def test_sanitize_summary_rejects_left_arrow_output(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("← Result: done") is None
+
+
+def test_sanitize_summary_rejects_raw_json(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary('{"task_id": "abc", "block": true}') is None
+
+
+def test_sanitize_summary_rejects_html_tags(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("<div>Some output</div>") is None
+
+
+def test_sanitize_summary_rejects_code_fences(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("```python") is None
+
+
+def test_sanitize_summary_rejects_git_trailers(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert (
+        runner._sanitize_summary("Co-Authored-By: Claude <noreply@anthropic.com>")
+        is None
+    )
+    assert runner._sanitize_summary("Signed-off-by: Bot <bot@example.com>") is None
+
+
+def test_sanitize_summary_rejects_short_strings(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("ok") is None
+    assert runner._sanitize_summary("   short   ") is None
+
+
+def test_sanitize_summary_rejects_metric_lines(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    assert runner._sanitize_summary("tokens: 12345") is None
+    assert runner._sanitize_summary("cost: $0.05") is None
+    assert runner._sanitize_summary("duration: 30s") is None
+
+
+def test_sanitize_summary_truncates_to_200_chars(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    long_text = "A" * 300
+    result = runner._sanitize_summary(long_text)
+    assert result is not None
+    assert len(result) == 200
+
+
+def test_sanitize_summary_strips_whitespace(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    result = runner._sanitize_summary("   Clean summary text here   ")
+    assert result == "Clean summary text here"
+
+
+# ---------------------------------------------------------------------------
+# _extract_summary — garbage-resistant fallback
+# ---------------------------------------------------------------------------
+
+
+def test_extract_summary_skips_tool_output_in_fallback(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    transcript = (
+        "Good review line here.\n"
+        "→ TaskOutput: {'task_id': 'a9d78cf47fcf6174b', 'block': True}\n"
+    )
+    summary = runner._extract_summary(transcript)
+    assert summary == "Good review line here."
+    assert "TaskOutput" not in summary
+
+
+def test_extract_summary_skips_json_in_fallback(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    transcript = 'Review completed successfully.\n{"status": "done", "result": true}\n'
+    summary = runner._extract_summary(transcript)
+    assert summary == "Review completed successfully."
+
+
+def test_extract_summary_returns_default_when_all_garbage(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    transcript = '→ Tool call\n{"json": true}\n```code```\nok\n'
+    summary = runner._extract_summary(transcript)
+    assert summary == "No summary provided"
+
+
+def test_extract_summary_sanitizes_summary_marker_content(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    transcript = "SUMMARY: → TaskOutput: {'task_id': 'abc'}\nGood fallback line here."
+    summary = runner._extract_summary(transcript)
+    # SUMMARY line is garbage, should fall back to clean line
+    assert summary == "Good fallback line here."
+
+
+def test_extract_summary_prefers_summary_marker_when_clean(config, event_bus):
+    runner = _make_runner(config, event_bus)
+    transcript = "SUMMARY: All checks pass, implementation is solid."
+    summary = runner._extract_summary(transcript)
+    assert summary == "All checks pass, implementation is solid."
 
 
 # ---------------------------------------------------------------------------
@@ -381,9 +532,9 @@ def test_save_transcript_writes_to_correct_path(event_bus, tmp_path):
     runner = ReviewRunner(config=cfg, event_bus=event_bus)
     transcript = "This is the review transcript."
 
-    runner._save_transcript(42, transcript)
+    runner._save_transcript("review-pr", 42, transcript)
 
-    expected_path = tmp_path / ".hydra" / "logs" / "review-pr-42.txt"
+    expected_path = tmp_path / ".hydraflow" / "logs" / "review-pr-42.txt"
     assert expected_path.exists()
     assert expected_path.read_text() == transcript
 
@@ -391,13 +542,23 @@ def test_save_transcript_writes_to_correct_path(event_bus, tmp_path):
 def test_save_transcript_creates_log_directory(event_bus, tmp_path):
     cfg = ConfigFactory.create(repo_root=tmp_path)
     runner = ReviewRunner(config=cfg, event_bus=event_bus)
-    log_dir = tmp_path / ".hydra" / "logs"
+    log_dir = tmp_path / ".hydraflow" / "logs"
     assert not log_dir.exists()
 
-    runner._save_transcript(7, "transcript content")
+    runner._save_transcript("review-pr", 7, "transcript content")
 
     assert log_dir.exists()
     assert log_dir.is_dir()
+
+
+def test_save_transcript_handles_oserror(event_bus, tmp_path, caplog):
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = ReviewRunner(config=cfg, event_bus=event_bus)
+
+    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        runner._save_transcript("review-pr", 42, "transcript")  # should not raise
+
+    assert "Could not save transcript" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -466,8 +627,8 @@ async def test_review_publishes_review_update_events(
     assert len(review_events) >= 2
 
     statuses = [e.data["status"] for e in review_events]
-    assert "reviewing" in statuses
-    assert "done" in statuses
+    assert ReviewerStatus.REVIEWING.value in statuses
+    assert ReviewerStatus.DONE.value in statuses
 
 
 @pytest.mark.asyncio
@@ -489,7 +650,8 @@ async def test_review_start_event_includes_worker_id(
     reviewing_event = next(
         e
         for e in events
-        if e.type == EventType.REVIEW_UPDATE and e.data.get("status") == "reviewing"
+        if e.type == EventType.REVIEW_UPDATE
+        and e.data.get("status") == ReviewerStatus.REVIEWING.value
     )
     assert reviewing_event.data["worker"] == 3
     assert reviewing_event.data["pr"] == pr_info.number
@@ -515,7 +677,8 @@ async def test_review_done_event_includes_verdict_and_duration(
     done_event = next(
         e
         for e in events
-        if e.type == EventType.REVIEW_UPDATE and e.data.get("status") == "done"
+        if e.type == EventType.REVIEW_UPDATE
+        and e.data.get("status") == ReviewerStatus.DONE.value
     )
     assert done_event.data["verdict"] == ReviewVerdict.REQUEST_CHANGES.value
     assert "duration" in done_event.data
@@ -532,7 +695,9 @@ async def test_review_dry_run_still_publishes_review_update_event(
     events = event_bus.get_history()
     review_events = [e for e in events if e.type == EventType.REVIEW_UPDATE]
     # The "reviewing" event is published before the dry-run check
-    assert any(e.data.get("status") == "reviewing" for e in review_events)
+    assert any(
+        e.data.get("status") == ReviewerStatus.REVIEWING.value for e in review_events
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +908,7 @@ async def test_execute_returns_transcript(config, event_bus, pr_info, tmp_path):
             ["claude", "-p"],
             "review prompt",
             tmp_path,
-            pr_info.number,
+            {"pr": pr_info.number, "source": "reviewer"},
         )
 
     assert transcript == expected_output
@@ -762,7 +927,7 @@ async def test_execute_publishes_transcript_line_events(
             ["claude", "-p"],
             "prompt",
             tmp_path,
-            pr_info.number,
+            {"pr": pr_info.number, "source": "reviewer"},
         )
 
     events = event_bus.get_history()
@@ -785,7 +950,12 @@ async def test_execute_uses_large_stream_limit(config, event_bus, pr_info, tmp_p
     mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
     with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
-        await runner._execute(["claude", "-p"], "prompt", tmp_path, pr_info.number)
+        await runner._execute(
+            ["claude", "-p"],
+            "prompt",
+            tmp_path,
+            {"pr": pr_info.number, "source": "reviewer"},
+        )
 
     kwargs = mock_exec.call_args[1]
     assert kwargs["limit"] == 1024 * 1024
@@ -815,6 +985,16 @@ def test_build_ci_fix_prompt_includes_pr_and_issue_context(
     assert f"#{issue.number}" in prompt
     assert issue.title in prompt
     assert "Attempt 2" in prompt
+
+
+def test_build_ci_fix_prompt_uses_configured_test_command(event_bus, pr_info, issue):
+    """CI fix prompt should use the configured test_command."""
+    cfg = ConfigFactory.create(test_command="npm test")
+    runner = _make_runner(cfg, event_bus)
+    prompt = runner._build_ci_fix_prompt(pr_info, issue, "CI failed", 1)
+
+    assert "`npm test`" in prompt
+    assert "make test-fast" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -907,8 +1087,8 @@ async def test_fix_ci_publishes_ci_check_events(
     ci_events = [e for e in events if e.type == EventType.CI_CHECK]
     assert len(ci_events) >= 2
     statuses = [e.data["status"] for e in ci_events]
-    assert "fixing" in statuses
-    assert "fix_done" in statuses
+    assert ReviewerStatus.FIXING.value in statuses
+    assert ReviewerStatus.FIX_DONE.value in statuses
 
 
 # ---------------------------------------------------------------------------
@@ -1000,3 +1180,131 @@ async def test_fix_ci_failure_records_duration(
         result = await runner.fix_ci(pr_info, issue, tmp_path, "Failed: ci", attempt=1)
 
     assert result.duration_seconds > 0
+
+
+# ---------------------------------------------------------------------------
+# Reviewer diff truncation
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_prompt_truncates_long_diff_with_warning(
+    config, event_bus, pr_info, issue
+):
+    """Diff exceeding max_review_diff_chars should be truncated with a note."""
+    runner = _make_runner(config, event_bus)
+    long_diff = "x" * 20_000
+    prompt = runner._build_review_prompt(pr_info, issue, long_diff)
+
+    assert "x" * 15_000 in prompt
+    assert "x" * 20_000 not in prompt
+    assert "Diff truncated" in prompt
+    assert "review may be incomplete" in prompt
+
+
+def test_build_review_prompt_preserves_short_diff(config, event_bus, pr_info, issue):
+    """Diff under max_review_diff_chars should pass through unchanged."""
+    runner = _make_runner(config, event_bus)
+    short_diff = "diff --git a/foo.py\n+added line"
+    prompt = runner._build_review_prompt(pr_info, issue, short_diff)
+
+    assert short_diff in prompt
+    assert "Diff truncated" not in prompt
+
+
+def test_build_review_prompt_diff_truncation_configurable(event_bus, pr_info, issue):
+    """max_review_diff_chars should control the truncation limit."""
+    cfg = ConfigFactory.create(max_review_diff_chars=5_000)
+    runner = _make_runner(cfg, event_bus)
+    diff = "x" * 10_000
+    prompt = runner._build_review_prompt(pr_info, issue, diff)
+
+    assert "x" * 5_000 in prompt
+    assert "x" * 10_000 not in prompt
+    assert "5,000 chars" in prompt
+
+
+def test_build_review_prompt_logs_warning_on_truncation(
+    config, event_bus, pr_info, issue
+):
+    """Should log a warning when diff is truncated."""
+    runner = _make_runner(config, event_bus)
+    long_diff = "x" * 20_000
+
+    with patch("reviewer.logger") as mock_logger:
+        runner._build_review_prompt(pr_info, issue, long_diff)
+
+    mock_logger.warning.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Reviewer test_command configuration
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_prompt_uses_configured_test_command(event_bus, pr_info, issue):
+    """Reviewer prompt should use the configured test_command."""
+    cfg = ConfigFactory.create(test_command="npm test", max_ci_fix_attempts=0)
+    runner = _make_runner(cfg, event_bus)
+    prompt = runner._build_review_prompt(pr_info, issue, "diff")
+
+    assert "`npm test`" in prompt
+    assert "make test-fast" not in prompt
+
+
+def test_build_review_prompt_no_make_test_fast(config, event_bus, pr_info, issue):
+    """Reviewer prompt should not reference make test-fast anywhere."""
+    runner = _make_runner(config, event_bus)
+    prompt = runner._build_review_prompt(pr_info, issue, "diff")
+
+    assert "make test-fast" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# _get_head_sha — timeout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_head_sha_timeout_returns_none(config, event_bus, tmp_path):
+    """_get_head_sha should return None when git rev-parse times out."""
+    runner = _make_runner(config, event_bus)
+    mock_proc = AsyncMock()
+    mock_proc.returncode = None
+    mock_proc.kill = MagicMock()
+    mock_proc.wait = AsyncMock()
+    mock_create = AsyncMock(return_value=mock_proc)
+
+    with (
+        patch("asyncio.create_subprocess_exec", mock_create),
+        patch("asyncio.wait_for", side_effect=TimeoutError),
+    ):
+        result = await runner._get_head_sha(tmp_path)
+
+    assert result is None
+    mock_proc.kill.assert_called_once()
+    mock_proc.wait.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# _has_changes — timeout
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_has_changes_timeout_returns_false(config, event_bus, tmp_path):
+    """_has_changes should return False when git status times out."""
+    runner = _make_runner(config, event_bus)
+    # Same SHA so it falls through to git status check
+    mock_proc = AsyncMock()
+    mock_proc.returncode = None
+    mock_proc.communicate = AsyncMock(side_effect=TimeoutError)
+    mock_create = AsyncMock(return_value=mock_proc)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch("asyncio.create_subprocess_exec", mock_create),
+        patch("asyncio.wait_for", side_effect=TimeoutError),
+    ):
+        result = await runner._has_changes(tmp_path, before_sha="abc123")
+
+    assert result is False

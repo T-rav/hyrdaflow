@@ -1,20 +1,104 @@
-"""Hydra configuration via Pydantic."""
+"""HydraFlow configuration via Pydantic."""
 
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
 import os
+import re
 from pathlib import Path
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+logger = logging.getLogger("hydraflow.config")
+
+# Data-driven env-var override tables.
+# Each tuple: (field_name, env_var_key, default_value)
+_ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
+    ("min_plan_words", "HYDRAFLOW_MIN_PLAN_WORDS", 200),
+    (
+        "max_pre_quality_review_attempts",
+        "HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS",
+        1,
+    ),
+    ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
+    ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
+    ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
+    ("max_review_diff_chars", "HYDRAFLOW_MAX_REVIEW_DIFF_CHARS", 15_000),
+    ("gh_max_retries", "HYDRAFLOW_GH_MAX_RETRIES", 3),
+    ("max_issue_attempts", "HYDRAFLOW_MAX_ISSUE_ATTEMPTS", 3),
+    ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
+    ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
+    ("max_merge_conflict_fix_attempts", "HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", 3),
+    ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 60),
+    ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
+    ("manifest_refresh_interval", "HYDRAFLOW_MANIFEST_REFRESH_INTERVAL", 3600),
+    ("max_manifest_prompt_chars", "HYDRAFLOW_MAX_MANIFEST_PROMPT_CHARS", 2000),
+    ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
+    ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
+    ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
+    ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
+    ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
+    ("harness_insight_window", "HYDRAFLOW_HARNESS_INSIGHT_WINDOW", 20),
+    ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
+]
+
+_ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
+    ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
+    ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
+    ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
+    ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
+    ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
+    ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
+]
+
+_ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
+    ("docker_cpu_limit", "HYDRAFLOW_DOCKER_CPU_LIMIT", 2.0),
+    ("docker_spawn_delay", "HYDRAFLOW_DOCKER_SPAWN_DELAY", 2.0),
+]
+
+_ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
+    ("docker_read_only_root", "HYDRAFLOW_DOCKER_READ_ONLY_ROOT", True),
+    ("docker_no_new_privileges", "HYDRAFLOW_DOCKER_NO_NEW_PRIVILEGES", True),
+    (
+        "transcript_summarization_enabled",
+        "HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED",
+        True,
+    ),
+    (
+        "transcript_summary_as_issue",
+        "HYDRAFLOW_TRANSCRIPT_SUMMARY_AS_ISSUE",
+        False,
+    ),
+    ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
+    ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
+]
+
+# Label env var overrides — maps env key → (field_name, default_value)
+_ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
+    "HYDRAFLOW_LABEL_FIND": ("find_label", ["hydraflow-find"]),
+    "HYDRAFLOW_LABEL_PLAN": ("planner_label", ["hydraflow-plan"]),
+    "HYDRAFLOW_LABEL_READY": ("ready_label", ["hydraflow-ready"]),
+    "HYDRAFLOW_LABEL_REVIEW": ("review_label", ["hydraflow-review"]),
+    "HYDRAFLOW_LABEL_HITL": ("hitl_label", ["hydraflow-hitl"]),
+    "HYDRAFLOW_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydraflow-hitl-active"]),
+    "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
+    "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
+    "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
+    "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
+    "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
+    "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
+}
 
 
-class HydraConfig(BaseModel):
-    """Configuration for the Hydra orchestrator."""
+class HydraFlowConfig(BaseModel):
+    """Configuration for the HydraFlow orchestrator."""
 
     # Issue selection
     ready_label: list[str] = Field(
-        default=["hydra-ready"],
+        default=["hydraflow-ready"],
         description="GitHub issue labels to filter by (OR logic)",
     )
     batch_size: int = Field(default=15, ge=1, le=50, description="Issues per batch")
@@ -37,12 +121,18 @@ class HydraConfig(BaseModel):
     max_budget_usd: float = Field(
         default=0, ge=0, description="USD cap per implementation agent (0 = unlimited)"
     )
-    model: str = Field(default="sonnet", description="Model for implementation agents")
+    implementation_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for implementation agents",
+    )
+    model: str = Field(default="opus", description="Model for implementation agents")
 
     # Review configuration
-    review_model: str = Field(
-        default="opus", description="Model for review agents (higher quality)"
+    review_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for review agents",
     )
+    review_model: str = Field(default="sonnet", description="Model for review agents")
     review_budget_usd: float = Field(
         default=0, ge=0, description="USD cap per review agent (0 = unlimited)"
     )
@@ -66,6 +156,36 @@ class HydraConfig(BaseModel):
         le=5,
         description="Max quality fix-and-retry cycles before marking agent as failed",
     )
+    max_pre_quality_review_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+        description="Max pre-quality review/correction passes before quality verification",
+    )
+    max_review_fix_attempts: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="Max review fix-and-retry cycles before HITL escalation",
+    )
+    min_review_findings: int = Field(
+        default=3,
+        ge=0,
+        le=20,
+        description="Minimum review findings threshold for adversarial review",
+    )
+    max_merge_conflict_fix_attempts: int = Field(
+        default=3,
+        ge=0,
+        le=5,
+        description="Max merge conflict resolution retry cycles",
+    )
+    max_issue_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Max total implementation attempts per issue before HITL escalation",
+    )
     gh_max_retries: int = Field(
         default=3,
         ge=0,
@@ -75,36 +195,63 @@ class HydraConfig(BaseModel):
 
     # Label lifecycle
     review_label: list[str] = Field(
-        default=["hydra-review"],
+        default=["hydraflow-review"],
         description="Labels for issues/PRs under review (OR logic)",
     )
     hitl_label: list[str] = Field(
-        default=["hydra-hitl"],
+        default=["hydraflow-hitl"],
         description="Labels for issues escalated to human-in-the-loop (OR logic)",
     )
     hitl_active_label: list[str] = Field(
-        default=["hydra-hitl-active"],
+        default=["hydraflow-hitl-active"],
         description="Labels for HITL items being actively processed (OR logic)",
     )
     fixed_label: list[str] = Field(
-        default=["hydra-fixed"],
+        default=["hydraflow-fixed"],
         description="Labels applied after PR is merged (OR logic)",
     )
     improve_label: list[str] = Field(
-        default=["hydra-improve"],
-        description="Labels for review insight improvement proposals (OR logic)",
+        default=["hydraflow-improve"],
+        description="Labels for improvement/memory suggestion issues (OR logic)",
+    )
+    memory_label: list[str] = Field(
+        default=["hydraflow-memory"],
+        description="Labels for accepted agent learnings (OR logic)",
+    )
+    metrics_label: list[str] = Field(
+        default=["hydraflow-metrics"],
+        description="Labels for the metrics persistence issue (OR logic)",
+    )
+    dup_label: list[str] = Field(
+        default=["hydraflow-dup"],
+        description="Labels applied when issue is already satisfied (no changes needed)",
+    )
+    epic_label: list[str] = Field(
+        default=["hydraflow-epic"],
+        description="Labels for epic tracking issues with linked sub-issues (OR logic)",
     )
 
     # Discovery / planner configuration
     find_label: list[str] = Field(
-        default=["hydra-find"],
+        default=["hydraflow-find"],
         description="Labels for new issues to discover and triage into planning (OR logic)",
     )
     planner_label: list[str] = Field(
-        default=["hydra-plan"],
+        default=["hydraflow-plan"],
         description="Labels for issues needing plans (OR logic)",
     )
+    planner_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for planning agents",
+    )
     planner_model: str = Field(default="opus", description="Model for planning agents")
+    triage_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for triage agents",
+    )
+    triage_model: str = Field(
+        default="haiku", description="Model for triage evaluation (fast/cheap)"
+    )
     planner_budget_usd: float = Field(
         default=0, ge=0, description="USD cap per planning agent (0 = unlimited)"
     )
@@ -124,6 +271,25 @@ class HydraConfig(BaseModel):
         default=["bug", "typo", "docs"],
         description="Issue labels that trigger a lite plan (fewer required sections)",
     )
+    # Metric thresholds for improvement proposals
+    quality_fix_rate_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Alert if quality fix rate exceeds this (0.0-1.0)",
+    )
+    approval_rate_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Alert if first-pass approval rate drops below this (0.0-1.0)",
+    )
+    hitl_rate_threshold: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Alert if HITL escalation rate exceeds this (0.0-1.0)",
+    )
 
     # Review insight aggregation
     review_insight_window: int = Field(
@@ -137,6 +303,132 @@ class HydraConfig(BaseModel):
         ge=2,
         le=10,
         description="Minimum category frequency to trigger improvement proposal",
+    )
+
+    # Harness insight aggregation
+    harness_insight_window: int = Field(
+        default=20,
+        ge=3,
+        le=100,
+        description="Number of recent failures to analyze for harness patterns",
+    )
+    harness_pattern_threshold: int = Field(
+        default=3,
+        ge=2,
+        le=20,
+        description="Minimum failure frequency to trigger harness improvement proposal",
+    )
+
+    # Agent prompt configuration
+    subskill_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for low-tier subskill/tool-chain passes",
+    )
+    subskill_model: str = Field(
+        default="haiku",
+        description="Model used for low-tier subskill/tool-chain passes",
+    )
+    max_subskill_attempts: int = Field(
+        default=0,
+        ge=0,
+        le=5,
+        description="Max low-tier subskill precheck attempts per stage",
+    )
+    debug_escalation_enabled: bool = Field(
+        default=True,
+        description="Enable automatic escalation to debug model when low-tier prechecks signal risk/ambiguity",
+    )
+    debug_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for debug escalation passes",
+    )
+    debug_model: str = Field(
+        default="opus",
+        description="Model used for debug escalation passes",
+    )
+    max_debug_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max debug escalation attempts per stage",
+    )
+    subskill_confidence_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum low-tier confidence before skipping debug escalation",
+    )
+    test_command: str = Field(
+        default="make test",
+        description="Quick test command for agent prompts",
+    )
+    max_issue_body_chars: int = Field(
+        default=10_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for issue body in agent prompts before truncation",
+    )
+    max_review_diff_chars: int = Field(
+        default=15_000,
+        ge=1_000,
+        le=200_000,
+        description="Max characters for PR diff in reviewer prompts before truncation",
+    )
+    max_memory_chars: int = Field(
+        default=4000,
+        ge=500,
+        le=50_000,
+        description="Max characters for memory digest before compaction",
+    )
+    max_memory_prompt_chars: int = Field(
+        default=4000,
+        ge=500,
+        le=50_000,
+        description="Max characters for memory digest injected into agent prompts",
+    )
+    memory_compaction_model: str = Field(
+        default="haiku",
+        description="Cheap model for summarising memory digest when over size limit",
+    )
+
+    # Memory auto-approve
+    memory_auto_approve: bool = Field(
+        default=False,
+        description="When True, memory suggestions skip HITL and go directly to the sync queue",
+    )
+
+    # Manifest detection
+    manifest_refresh_interval: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Seconds between project manifest refresh scans (default: 1 hour)",
+    )
+    max_manifest_prompt_chars: int = Field(
+        default=2000,
+        ge=200,
+        le=10_000,
+        description="Max characters for project manifest injected into agent prompts",
+    )
+
+    # Transcript summarization
+    transcript_summarization_enabled: bool = Field(
+        default=True,
+        description="Run automatic transcript summarization after each agent phase",
+    )
+    transcript_summary_model: str = Field(
+        default="haiku",
+        description="Cheap model for summarising agent transcripts into structured learnings",
+    )
+    max_transcript_summary_chars: int = Field(
+        default=50_000,
+        ge=5_000,
+        le=500_000,
+        description="Max transcript characters to send for summarization (truncated from end)",
+    )
+    transcript_summary_as_issue: bool = Field(
+        default=False,
+        description="Also create standalone GitHub issues for transcript summaries (default: off)",
     )
 
     # Git configuration
@@ -175,6 +467,12 @@ class HydraConfig(BaseModel):
         description="Days of event history to retain during rotation",
     )
 
+    # Config file persistence
+    config_file: Path | None = Field(
+        default=None,
+        description="Path to JSON config file for persisting runtime changes",
+    )
+
     # Dashboard
     dashboard_port: int = Field(
         default=5555, ge=1024, le=65535, description="Dashboard web UI port"
@@ -187,10 +485,149 @@ class HydraConfig(BaseModel):
     poll_interval: int = Field(
         default=30, ge=5, le=300, description="Seconds between work-queue polls"
     )
+    memory_sync_interval: int = Field(
+        default=3600,
+        ge=10,
+        le=14400,
+        description="Seconds between memory sync polls (default: 1 hour)",
+    )
+    metrics_sync_interval: int = Field(
+        default=7200,
+        ge=30,
+        le=14400,
+        description="Seconds between metrics snapshot syncs (default: 2 hours)",
+    )
+    data_poll_interval: int = Field(
+        default=60,
+        ge=10,
+        le=600,
+        description="Seconds between centralized GitHub issue store polls",
+    )
+    pr_unstick_interval: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Seconds between PR unsticker polls",
+    )
+    pr_unstick_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max HITL items to process per unsticker cycle",
+    )
+
+    # Session retention
+    max_sessions_per_repo: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Max session logs to retain per repo",
+    )
+
+    # Acceptance criteria generation
+    ac_model: str = Field(
+        default="sonnet",
+        description="Model for acceptance criteria generation (post-merge)",
+    )
+    ac_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for acceptance criteria generation",
+    )
+    ac_budget_usd: float = Field(
+        default=0, ge=0, description="USD cap for AC generation agent (0 = unlimited)"
+    )
+    verification_judge_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for verification judge agents",
+    )
+
+    # UI directories (fallback for worktree node_modules symlinking)
+    ui_dirs: list[str] = Field(
+        default_factory=lambda: ["ui"],
+        description="UI directories containing package.json; auto-detected at runtime if present",
+    )
+
+    # Retrospective
+    retrospective_window: int = Field(
+        default=10,
+        ge=3,
+        le=100,
+        description="Number of recent retrospective entries to scan for patterns",
+    )
+
+    # Credit pause
+    credit_pause_buffer_minutes: int = Field(
+        default=1,
+        ge=0,
+        le=30,
+        description="Extra minutes to wait after reported credit reset time",
+    )
 
     # Execution mode
     dry_run: bool = Field(
         default=False, description="Log actions without executing them"
+    )
+    execution_mode: Literal["host", "docker"] = Field(
+        default="host",
+        description="Run agents on host or in Docker containers",
+    )
+
+    # Docker isolation
+    docker_image: str = Field(
+        default="ghcr.io/t-rav/hydraflow-agent:latest",
+        description="Docker image for agent containers",
+    )
+    docker_cpu_limit: float = Field(
+        default=2.0,
+        ge=0.5,
+        le=16.0,
+        description="CPU cores per container",
+    )
+    docker_memory_limit: str = Field(
+        default="4g",
+        description="Memory limit per container",
+    )
+    docker_network_mode: Literal["bridge", "none", "host"] = Field(
+        default="bridge",
+        description="Docker network mode",
+    )
+    docker_spawn_delay: float = Field(
+        default=2.0,
+        ge=0.0,
+        le=30.0,
+        description="Seconds between concurrent container starts",
+    )
+    docker_read_only_root: bool = Field(
+        default=True,
+        description="Read-only root filesystem in containers",
+    )
+    docker_no_new_privileges: bool = Field(
+        default=True,
+        description="Prevent privilege escalation in containers",
+    )
+    docker_pids_limit: int = Field(
+        default=256,
+        ge=16,
+        le=4096,
+        description="Max PIDs per container (prevents fork bombs)",
+    )
+    docker_tmp_size: str = Field(
+        default="1g",
+        description="Tmpfs size for /tmp in containers",
+    )
+
+    # Docker execution (PR #545)
+    docker_enabled: bool = Field(
+        default=False,
+        description="Run agent subprocesses inside Docker containers",
+    )
+    docker_network: str = Field(
+        default="",
+        description="Docker network name (empty = default bridge)",
+    )
+    docker_extra_mounts: list[str] = Field(
+        default=[],
+        description="Additional volume mounts as host:container:mode strings",
     )
 
     # GitHub authentication
@@ -199,7 +636,33 @@ class HydraConfig(BaseModel):
         description="GitHub token for gh CLI auth (overrides shell GH_TOKEN)",
     )
 
+    @field_validator("docker_memory_limit", "docker_tmp_size")
+    @classmethod
+    def validate_docker_size_notation(cls, v: str) -> str:
+        """Validate Docker size notation (digits followed by b/k/m/g)."""
+        if not re.fullmatch(r"\d+[bkmg]", v, re.IGNORECASE):
+            msg = f"Invalid Docker size notation '{v}'; expected digits followed by b/k/m/g (e.g., '4g', '512m')"
+            raise ValueError(msg)
+        return v
+
     model_config = {"arbitrary_types_allowed": True}
+
+    @property
+    def all_pipeline_labels(self) -> list[str]:
+        """Return a flat list of every pipeline-stage label (for cleanup)."""
+        result: list[str] = []
+        for labels in (
+            self.find_label,
+            self.planner_label,
+            self.ready_label,
+            self.review_label,
+            self.hitl_label,
+            self.hitl_active_label,
+            self.fixed_label,
+            self.improve_label,
+        ):
+            result.extend(labels)
+        return result
 
     def branch_for_issue(self, issue_number: int) -> str:
         """Return the canonical branch name for a given issue number."""
@@ -210,101 +673,264 @@ class HydraConfig(BaseModel):
         return self.worktree_base / f"issue-{issue_number}"
 
     @model_validator(mode="after")
-    def resolve_defaults(self) -> HydraConfig:
+    def resolve_defaults(self) -> HydraFlowConfig:
         """Resolve paths, repo slug, and apply env var overrides.
 
         Environment variables (checked when no explicit CLI value is given):
-            HYDRA_GITHUB_REPO       → repo
-            HYDRA_GITHUB_ASSIGNEE   → (used by slash commands only)
-            HYDRA_GH_TOKEN          → gh_token
-            HYDRA_GIT_USER_NAME     → git_user_name
-            HYDRA_GIT_USER_EMAIL    → git_user_email
-            HYDRA_MIN_PLAN_WORDS    → min_plan_words
-            HYDRA_LABEL_FIND        → find_label   (discovery stage)
-            HYDRA_LABEL_PLAN        → planner_label
-            HYDRA_LABEL_READY       → ready_label  (implement stage)
-            HYDRA_LABEL_REVIEW      → review_label
-            HYDRA_LABEL_HITL        → hitl_label
-            HYDRA_LABEL_HITL_ACTIVE → hitl_active_label
-            HYDRA_LABEL_FIXED       → fixed_label
+            HYDRAFLOW_GITHUB_REPO       → repo
+            HYDRAFLOW_GITHUB_ASSIGNEE   → (used by slash commands only)
+            HYDRAFLOW_GH_TOKEN          → gh_token
+            HYDRAFLOW_GIT_USER_NAME     → git_user_name
+            HYDRAFLOW_GIT_USER_EMAIL    → git_user_email
+            HYDRAFLOW_MIN_PLAN_WORDS    → min_plan_words
+            HYDRAFLOW_LABEL_FIND        → find_label   (discovery stage)
+            HYDRAFLOW_LABEL_PLAN        → planner_label
+            HYDRAFLOW_LABEL_READY       → ready_label  (implement stage)
+            HYDRAFLOW_LABEL_REVIEW      → review_label
+            HYDRAFLOW_LABEL_HITL        → hitl_label
+            HYDRAFLOW_LABEL_HITL_ACTIVE → hitl_active_label
+            HYDRAFLOW_LABEL_FIXED       → fixed_label
+            HYDRAFLOW_LABEL_IMPROVE     → improve_label
+            HYDRAFLOW_LABEL_MEMORY      → memory_label
+            HYDRAFLOW_LABEL_DUP         → dup_label
         """
-        # Paths
-        if self.repo_root == Path("."):
-            self.repo_root = _find_repo_root()
-        if self.worktree_base == Path("."):
-            self.worktree_base = self.repo_root.parent / "hyrda-worktrees"
-        if self.state_file == Path("."):
-            self.state_file = self.repo_root / ".hydra" / "state.json"
-        if self.event_log_path == Path("."):
-            self.event_log_path = self.repo_root / ".hydra" / "events.jsonl"
-
-        # Repo slug: env var → git remote → empty
-        if not self.repo:
-            self.repo = os.environ.get("HYDRA_GITHUB_REPO", "") or _detect_repo_slug(
-                self.repo_root
-            )
-
-        # GitHub token: explicit value → HYDRA_GH_TOKEN env var → inherited GH_TOKEN
-        if not self.gh_token:
-            env_token = os.environ.get("HYDRA_GH_TOKEN", "")
-            if env_token:
-                object.__setattr__(self, "gh_token", env_token)
-
-        # Git identity: explicit value → HYDRA_GIT_USER_NAME/EMAIL env var
-        if not self.git_user_name:
-            env_name = os.environ.get("HYDRA_GIT_USER_NAME", "")
-            if env_name:
-                object.__setattr__(self, "git_user_name", env_name)
-        if not self.git_user_email:
-            env_email = os.environ.get("HYDRA_GIT_USER_EMAIL", "")
-            if env_email:
-                object.__setattr__(self, "git_user_email", env_email)
-
-        # Planner env var overrides (only apply when still at the default)
-        env_min_words = os.environ.get("HYDRA_MIN_PLAN_WORDS")
-        if env_min_words is not None and self.min_plan_words == 200:
-            object.__setattr__(self, "min_plan_words", int(env_min_words))
-
-        env_lite_labels = os.environ.get("HYDRA_LITE_PLAN_LABELS")
-        if env_lite_labels is not None and self.lite_plan_labels == [
-            "bug",
-            "typo",
-            "docs",
-        ]:
-            parsed = [lbl.strip() for lbl in env_lite_labels.split(",") if lbl.strip()]
-            if parsed:
-                object.__setattr__(self, "lite_plan_labels", parsed)
-
-        # gh retry override
-        if self.gh_max_retries == 3:  # still at default
-            env_retries = os.environ.get("HYDRA_GH_MAX_RETRIES")
-            if env_retries is not None:
-                with contextlib.suppress(ValueError):
-                    object.__setattr__(self, "gh_max_retries", int(env_retries))
-
-        # Label env var overrides (only apply when still at the default)
-        _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
-            "HYDRA_LABEL_FIND": ("find_label", ["hydra-find"]),
-            "HYDRA_LABEL_PLAN": ("planner_label", ["hydra-plan"]),
-            "HYDRA_LABEL_READY": ("ready_label", ["hydra-ready"]),
-            "HYDRA_LABEL_REVIEW": ("review_label", ["hydra-review"]),
-            "HYDRA_LABEL_HITL": ("hitl_label", ["hydra-hitl"]),
-            "HYDRA_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydra-hitl-active"]),
-            "HYDRA_LABEL_FIXED": ("fixed_label", ["hydra-fixed"]),
-        }
-        for env_key, (field_name, default_val) in _ENV_LABEL_MAP.items():
-            current = getattr(self, field_name)
-            env_val = os.environ.get(env_key)
-            if env_val is not None and current == default_val:
-                # Empty string → empty list (scan-all mode); otherwise split on comma
-                labels = (
-                    [part.strip() for part in env_val.split(",") if part.strip()]
-                    if env_val
-                    else []
-                )
-                object.__setattr__(self, field_name, labels)
-
+        _resolve_paths(self)
+        _resolve_repo_and_identity(self)
+        _apply_env_overrides(self)
+        _validate_docker(self)
         return self
+
+
+def _resolve_paths(config: HydraFlowConfig) -> None:
+    """Resolve repo_root, worktree_base, state_file, and event_log_path."""
+    if config.repo_root == Path("."):
+        config.repo_root = _find_repo_root()
+    if config.worktree_base == Path("."):
+        config.worktree_base = config.repo_root.parent / "hydraflow-worktrees"
+    if config.state_file == Path("."):
+        config.state_file = config.repo_root / ".hydraflow" / "state.json"
+    if config.event_log_path == Path("."):
+        config.event_log_path = config.repo_root / ".hydraflow" / "events.jsonl"
+
+
+def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
+    """Resolve repo slug, GitHub token, and git identity from env vars."""
+    # Repo slug: env var → git remote → empty
+    if not config.repo:
+        config.repo = os.environ.get("HYDRAFLOW_GITHUB_REPO", "") or _detect_repo_slug(
+            config.repo_root
+        )
+
+    # GitHub token: explicit value → HYDRAFLOW_GH_TOKEN env var → inherited GH_TOKEN
+    if not config.gh_token:
+        env_token = os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+        if env_token:
+            object.__setattr__(config, "gh_token", env_token)
+
+    # Git identity: explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env var
+    if not config.git_user_name:
+        env_name = os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
+        if env_name:
+            object.__setattr__(config, "git_user_name", env_name)
+    if not config.git_user_email:
+        env_email = os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
+        if env_email:
+            object.__setattr__(config, "git_user_email", env_email)
+
+
+def _apply_env_overrides(config: HydraFlowConfig) -> None:
+    """Apply all data-driven and special-case env var overrides."""
+    # Data-driven env var overrides (int fields)
+    for field, env_key, default in _ENV_INT_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                with contextlib.suppress(ValueError):
+                    object.__setattr__(config, field, int(env_val))
+
+    # Data-driven env var overrides (str fields)
+    for field, env_key, default in _ENV_STR_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                object.__setattr__(config, field, env_val)
+
+    # Data-driven env var overrides (float fields)
+    for field, env_key, default in _ENV_FLOAT_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                with contextlib.suppress(ValueError):
+                    new_val = float(env_val)
+                    for constraint in HydraFlowConfig.model_fields[field].metadata:
+                        ge = getattr(constraint, "ge", None)
+                        le = getattr(constraint, "le", None)
+                        if ge is not None and new_val < ge:
+                            raise ValueError(
+                                f"{env_key}={new_val} is below minimum {ge}"
+                            )
+                        if le is not None and new_val > le:
+                            raise ValueError(
+                                f"{env_key}={new_val} is above maximum {le}"
+                            )
+                    object.__setattr__(config, field, new_val)
+
+    # Data-driven env var overrides (bool fields)
+    for field, env_key, default in _ENV_BOOL_OVERRIDES:
+        if getattr(config, field) == default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                object.__setattr__(
+                    config,
+                    field,
+                    env_val.lower() not in ("0", "false", "no"),
+                )
+
+    # Literal-typed env var overrides (validated before setting)
+    if config.execution_mode == "host":
+        env_exec = os.environ.get("HYDRAFLOW_EXECUTION_MODE")
+        if env_exec in ("host", "docker"):
+            object.__setattr__(config, "execution_mode", env_exec)
+
+    if config.docker_network_mode == "bridge":
+        env_net = os.environ.get("HYDRAFLOW_DOCKER_NETWORK_MODE")
+        if env_net in ("bridge", "none", "host"):
+            object.__setattr__(config, "docker_network_mode", env_net)
+
+    if config.implementation_tool == "claude":
+        env_impl_tool = os.environ.get("HYDRAFLOW_IMPLEMENTATION_TOOL")
+        if env_impl_tool in ("claude", "codex"):
+            object.__setattr__(config, "implementation_tool", env_impl_tool)
+
+    if config.review_tool == "claude":
+        env_review_tool = os.environ.get("HYDRAFLOW_REVIEW_TOOL")
+        if env_review_tool in ("claude", "codex"):
+            object.__setattr__(config, "review_tool", env_review_tool)
+
+    if config.planner_tool == "claude":
+        env_planner_tool = os.environ.get("HYDRAFLOW_PLANNER_TOOL")
+        if env_planner_tool in ("claude", "codex"):
+            object.__setattr__(config, "planner_tool", env_planner_tool)
+
+    if config.triage_tool == "claude":
+        env_triage_tool = os.environ.get("HYDRAFLOW_TRIAGE_TOOL")
+        if env_triage_tool in ("claude", "codex"):
+            object.__setattr__(config, "triage_tool", env_triage_tool)
+
+    if config.ac_tool == "claude":
+        env_ac_tool = os.environ.get("HYDRAFLOW_AC_TOOL")
+        if env_ac_tool in ("claude", "codex"):
+            object.__setattr__(config, "ac_tool", env_ac_tool)
+
+    if config.verification_judge_tool == "claude":
+        env_judge_tool = os.environ.get("HYDRAFLOW_VERIFICATION_JUDGE_TOOL")
+        if env_judge_tool in ("claude", "codex"):
+            object.__setattr__(config, "verification_judge_tool", env_judge_tool)
+
+    if config.subskill_tool == "claude":
+        env_subskill_tool = os.environ.get("HYDRAFLOW_SUBSKILL_TOOL")
+        if env_subskill_tool in ("claude", "codex"):
+            object.__setattr__(config, "subskill_tool", env_subskill_tool)
+
+    if config.debug_tool == "claude":
+        env_debug_tool = os.environ.get("HYDRAFLOW_DEBUG_TOOL")
+        if env_debug_tool in ("claude", "codex"):
+            object.__setattr__(config, "debug_tool", env_debug_tool)
+
+    # Lite plan labels (comma-separated list, special-case)
+    env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")
+    if env_lite_labels is not None and config.lite_plan_labels == [
+        "bug",
+        "typo",
+        "docs",
+    ]:
+        parsed = [lbl.strip() for lbl in env_lite_labels.split(",") if lbl.strip()]
+        if parsed:
+            object.__setattr__(config, "lite_plan_labels", parsed)
+
+    # Docker resource limit overrides (validated fields handled manually
+    # because str/int overrides need format/bounds validation that
+    # the data-driven tables don't provide)
+    if config.docker_memory_limit == "4g":  # still at default
+        env_mem = os.environ.get("HYDRAFLOW_DOCKER_MEMORY_LIMIT")
+        if env_mem is not None:
+            if not re.fullmatch(r"\d+[bkmg]", env_mem, re.IGNORECASE):
+                msg = f"Invalid HYDRAFLOW_DOCKER_MEMORY_LIMIT '{env_mem}'; expected digits followed by b/k/m/g (e.g., '4g', '512m')"
+                raise ValueError(msg)
+            object.__setattr__(config, "docker_memory_limit", env_mem)
+
+    if config.docker_tmp_size == "1g":  # still at default
+        env_tmp = os.environ.get("HYDRAFLOW_DOCKER_TMP_SIZE")
+        if env_tmp is not None:
+            if not re.fullmatch(r"\d+[bkmg]", env_tmp, re.IGNORECASE):
+                msg = f"Invalid HYDRAFLOW_DOCKER_TMP_SIZE '{env_tmp}'; expected digits followed by b/k/m/g (e.g., '1g', '512m')"
+                raise ValueError(msg)
+            object.__setattr__(config, "docker_tmp_size", env_tmp)
+
+    if config.docker_pids_limit == 256:  # still at default
+        env_pids = os.environ.get("HYDRAFLOW_DOCKER_PIDS_LIMIT")
+        if env_pids is not None:
+            try:
+                pids_val = int(env_pids)
+            except ValueError:
+                pass
+            else:
+                if not (16 <= pids_val <= 4096):
+                    msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"
+                    raise ValueError(msg)
+                object.__setattr__(config, "docker_pids_limit", pids_val)
+
+    # Label env var overrides (only apply when still at the default)
+    for env_key, (field_name, default_val) in _ENV_LABEL_MAP.items():
+        current = getattr(config, field_name)
+        env_val = os.environ.get(env_key)
+        if env_val is not None and current == default_val:
+            # Empty string → empty list (scan-all mode); otherwise split on comma
+            labels = (
+                [part.strip() for part in env_val.split(",") if part.strip()]
+                if env_val
+                else []
+            )
+            object.__setattr__(config, field_name, labels)
+
+    # Docker execution overrides (PR #545)
+    env_docker_enabled = os.environ.get("HYDRA_DOCKER_ENABLED")
+    if env_docker_enabled is not None and config.docker_enabled is False:
+        object.__setattr__(
+            config,
+            "docker_enabled",
+            env_docker_enabled.lower() in ("1", "true", "yes"),
+        )
+
+    env_docker_image = os.environ.get("HYDRA_DOCKER_IMAGE")
+    if (
+        env_docker_image is not None
+        and config.docker_image == "ghcr.io/t-rav/hydraflow-agent:latest"
+    ):
+        object.__setattr__(config, "docker_image", env_docker_image)
+
+    env_docker_network = os.environ.get("HYDRA_DOCKER_NETWORK")
+    if env_docker_network is not None and not config.docker_network:
+        object.__setattr__(config, "docker_network", env_docker_network)
+
+    if config.docker_spawn_delay == 2.0:  # still at default
+        env_spawn_delay = os.environ.get("HYDRA_DOCKER_SPAWN_DELAY")
+        if env_spawn_delay is not None:
+            with contextlib.suppress(ValueError):
+                object.__setattr__(config, "docker_spawn_delay", float(env_spawn_delay))
+
+
+def _validate_docker(config: HydraFlowConfig) -> None:
+    """Validate Docker availability when execution_mode is 'docker'."""
+    if config.execution_mode == "docker":
+        import shutil  # noqa: PLC0415
+
+        if shutil.which("docker") is None:
+            msg = (
+                "execution_mode is 'docker' but the 'docker' command "
+                "was not found on PATH"
+            )
+            raise ValueError(msg)
 
 
 def _find_repo_root() -> Path:
@@ -345,3 +971,38 @@ def _detect_repo_slug(repo_root: Path) -> str:
         return ""
     except (FileNotFoundError, OSError):
         return ""
+
+
+def load_config_file(path: Path | None) -> dict[str, Any]:
+    """Load a JSON config file and return its contents as a dict.
+
+    Returns an empty dict if the file is missing, unreadable, or invalid.
+    """
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            return {}
+        return data
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_config_file(path: Path | None, values: dict[str, Any]) -> None:
+    """Save config values to a JSON file, merging with existing contents."""
+    if path is None:
+        return
+    existing: dict[str, Any] = {}
+    try:
+        existing = json.loads(path.read_text())
+        if not isinstance(existing, dict):
+            existing = {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    existing.update(values)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(existing, indent=2) + "\n")
+    except OSError:
+        logger.warning("Failed to write config file %s", path)

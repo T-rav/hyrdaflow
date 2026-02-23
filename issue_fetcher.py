@@ -1,4 +1,4 @@
-"""GitHub issue fetching for the Hydra orchestrator."""
+"""GitHub issue fetching for the HydraFlow orchestrator."""
 
 from __future__ import annotations
 
@@ -6,17 +6,17 @@ import asyncio
 import json
 import logging
 
-from config import HydraConfig
+from config import HydraFlowConfig
 from models import GitHubIssue, PRInfo
 from subprocess_util import run_subprocess
 
-logger = logging.getLogger("hydra.issue_fetcher")
+logger = logging.getLogger("hydraflow.issue_fetcher")
 
 
 class IssueFetcher:
     """Fetches GitHub issues and PRs via the ``gh`` CLI."""
 
-    def __init__(self, config: HydraConfig) -> None:
+    def __init__(self, config: HydraFlowConfig) -> None:
         self._config = config
 
     async def fetch_issues_by_labels(
@@ -50,7 +50,9 @@ class IssueFetcher:
                 "--limit",
                 str(limit),
                 "--json",
-                "number,title,body,labels,comments,url",
+                "number,title,body,labels,comments,url,createdAt",
+                "--search",
+                "sort:created-asc",
             ]
             if label is not None:
                 cmd += ["--label", label]
@@ -83,6 +85,26 @@ class IssueFetcher:
         issues = [GitHubIssue.model_validate(raw) for raw in seen.values()]
         return issues[:limit]
 
+    async def fetch_all_hydraflow_issues(self) -> list[GitHubIssue]:
+        """Fetch all open issues with any HydraFlow pipeline label in one batch.
+
+        Collects all configured pipeline labels and calls
+        :meth:`fetch_issues_by_labels` once, deduplicating by issue number.
+        """
+        all_labels = list(
+            {
+                *self._config.find_label,
+                *self._config.planner_label,
+                *self._config.ready_label,
+                *self._config.review_label,
+                *self._config.hitl_label,
+                *self._config.hitl_active_label,
+            }
+        )
+        if not all_labels:
+            return []
+        return await self.fetch_issues_by_labels(all_labels, limit=100)
+
     async def fetch_issue_by_number(self, issue_number: int) -> GitHubIssue | None:
         """Fetch a single issue by its number.
 
@@ -100,7 +122,7 @@ class IssueFetcher:
                 "--repo",
                 self._config.repo,
                 "--json",
-                "number,title,body,labels,comments,url",
+                "number,title,body,labels,comments,url,createdAt",
                 gh_token=self._config.gh_token,
             )
             data = json.loads(raw)
@@ -110,7 +132,7 @@ class IssueFetcher:
             return None
 
     async def fetch_plan_issues(self) -> list[GitHubIssue]:
-        """Fetch issues labeled with the planner label (e.g. ``hydra-plan``)."""
+        """Fetch issues labeled with the planner label (e.g. ``hydraflow-plan``)."""
         if not self._config.planner_label:
             # No planner labels configured — fetch all open issues that are
             # not already in a downstream pipeline stage.
@@ -136,7 +158,7 @@ class IssueFetcher:
         return issues[: self._config.batch_size]
 
     async def fetch_ready_issues(self, active_issues: set[int]) -> list[GitHubIssue]:
-        """Fetch issues labeled ``hydra-ready`` for the implement phase.
+        """Fetch issues labeled ``hydraflow-ready`` for the implement phase.
 
         Returns up to ``2 * max_workers`` issues so the worker pool
         stays saturated.
@@ -148,7 +170,7 @@ class IssueFetcher:
             queue_size,
         )
         # Only skip issues already active in this run (GitHub labels are
-        # the source of truth — if it still has hydra-ready, it needs work)
+        # the source of truth — if it still has hydraflow-ready, it needs work)
         issues = [i for i in all_issues if i.number not in active_issues]
         for skipped in all_issues:
             if skipped.number in active_issues:
@@ -158,18 +180,25 @@ class IssueFetcher:
         return issues[:queue_size]
 
     async def fetch_reviewable_prs(
-        self, active_issues: set[int]
+        self,
+        active_issues: set[int],
+        prefetched_issues: list[GitHubIssue] | None = None,
     ) -> tuple[list[PRInfo], list[GitHubIssue]]:
-        """Fetch issues labeled ``hydra-review`` and resolve their open PRs.
+        """Fetch issues labeled ``hydraflow-review`` and resolve their open PRs.
 
+        When *prefetched_issues* is provided, skip the GitHub issue fetch
+        and use those issues directly (they come from the ``IssueStore``).
         Returns ``(pr_infos, issues)`` so the reviewer has both.
         """
-        all_issues = await self.fetch_issues_by_labels(
-            self._config.review_label,
-            self._config.batch_size,
-        )
-        # Only skip issues already active in this run
-        issues = [i for i in all_issues if i.number not in active_issues]
+        if prefetched_issues is not None:
+            issues = [i for i in prefetched_issues if i.number not in active_issues]
+        else:
+            all_issues = await self.fetch_issues_by_labels(
+                self._config.review_label,
+                self._config.batch_size,
+            )
+            # Only skip issues already active in this run
+            issues = [i for i in all_issues if i.number not in active_issues]
         if not issues:
             return [], []
 
@@ -212,3 +241,34 @@ class IssueFetcher:
         non_draft = [p for p in pr_infos if not p.draft and p.number > 0]
         logger.info("Fetched %d reviewable PRs", len(non_draft))
         return non_draft, issues
+
+    async def fetch_issue_comments(self, issue_number: int) -> list[str]:
+        """Fetch all comment bodies for *issue_number*.
+
+        Returns a list of comment body strings, oldest-first.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch comments for issue #%d", issue_number)
+            return []
+        try:
+            raw = await run_subprocess(
+                "gh",
+                "issue",
+                "view",
+                str(issue_number),
+                "--repo",
+                self._config.repo,
+                "--json",
+                "comments",
+                gh_token=self._config.gh_token,
+            )
+            data = json.loads(raw)
+            comments = data.get("comments", [])
+            return [
+                c.get("body", "") if isinstance(c, dict) else str(c) for c in comments
+            ]
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.error(
+                "Could not fetch comments for issue #%d: %s", issue_number, exc
+            )
+            return []

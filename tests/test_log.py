@@ -19,9 +19,9 @@ from log import JSONFormatter, setup_logging
 
 
 @pytest.fixture(autouse=True)
-def _clean_hydra_logger() -> Generator[None, None, None]:
-    """Clear the hydra logger's handlers before and after each test."""
-    logger = logging.getLogger("hydra")
+def _clean_hydraflow_logger() -> Generator[None, None, None]:
+    """Clear the hydraflow logger's handlers before and after each test."""
+    logger = logging.getLogger("hydraflow")
     logger.handlers.clear()
     yield
     for handler in logger.handlers[:]:
@@ -32,7 +32,7 @@ def _clean_hydra_logger() -> Generator[None, None, None]:
 def _make_record(
     msg: str = "hello",
     level: int = logging.INFO,
-    name: str = "hydra",
+    name: str = "hydraflow",
 ) -> logging.LogRecord:
     """Create a minimal LogRecord for testing."""
     return logging.LogRecord(
@@ -61,7 +61,7 @@ class TestJSONFormatter:
 
         assert parsed["level"] == "INFO"
         assert parsed["msg"] == "test message"
-        assert parsed["logger"] == "hydra"
+        assert parsed["logger"] == "hydraflow"
         assert "ts" in parsed
 
     def test_format_includes_exception_info(self) -> None:
@@ -113,9 +113,9 @@ class TestJSONFormatter:
 class TestSetupLogging:
     """Tests for setup_logging()."""
 
-    def test_returns_hydra_logger(self) -> None:
+    def test_returns_hydraflow_logger(self) -> None:
         logger = setup_logging()
-        assert logger.name == "hydra"
+        assert logger.name == "hydraflow"
 
     def test_json_output_uses_json_formatter(self) -> None:
         logger = setup_logging(json_output=True)

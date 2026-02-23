@@ -36,4 +36,6 @@ export const theme = {
   greenSubtle: 'var(--green-subtle)',
   redSubtle: 'var(--red-subtle)',
   overlay: 'var(--overlay)',
+  intentBg: 'var(--intent-bg)',
+  cardActiveBorder: 'var(--card-active-border)',
 }

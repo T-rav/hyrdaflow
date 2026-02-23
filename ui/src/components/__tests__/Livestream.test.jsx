@@ -22,14 +22,14 @@ describe('Livestream component', () => {
     expect(screen.getByText('PR #42 for #10')).toBeInTheDocument()
   })
 
-  it('filters out transcript_line events', () => {
+  it('shows transcript_line events (no filter)', () => {
     const events = [
       { type: 'transcript_line', timestamp: '2026-01-15T10:30:00Z', data: { issue: 1 } },
       { type: 'error', timestamp: '2026-01-15T10:31:00Z', data: { message: 'something broke' } },
     ]
     render(<Livestream events={events} />)
 
-    expect(screen.queryByText('transcript line')).not.toBeInTheDocument()
+    expect(screen.getByText('transcript line')).toBeInTheDocument()
     expect(screen.getByText('error')).toBeInTheDocument()
     expect(screen.getByText('something broke')).toBeInTheDocument()
   })

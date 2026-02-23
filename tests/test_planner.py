@@ -1,4 +1,4 @@
-"""Tests for dx/hydra/planner.py."""
+"""Tests for dx/hydraflow/planner.py."""
 
 from __future__ import annotations
 
@@ -11,10 +11,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from base_runner import BaseRunner
 from events import EventType
 from models import PlannerStatus
 from planner import PlannerRunner
 from tests.helpers import ConfigFactory, make_streaming_proc
+
+# ---------------------------------------------------------------------------
+# Inheritance
+# ---------------------------------------------------------------------------
+
+
+class TestPlannerRunnerInheritance:
+    """PlannerRunner must extend BaseRunner."""
+
+    def test_inherits_from_base_runner(self, config, event_bus) -> None:
+        runner = PlannerRunner(config, event_bus)
+        assert isinstance(runner, BaseRunner)
+
+    def test_has_terminate_method(self, config, event_bus) -> None:
+        runner = PlannerRunner(config, event_bus)
+        assert callable(runner.terminate)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,6 +52,9 @@ def _valid_plan(*, word_pad: int = 200) -> str:
         "- src/config.py — add configuration field\n\n"
         "## New Files\n\n"
         "None\n\n"
+        "## File Delta\n\n"
+        "MODIFIED: src/models.py\n"
+        "MODIFIED: src/config.py\n\n"
         "## Implementation Steps\n\n"
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -120,6 +141,21 @@ def test_build_command_disallows_write_tools(config):
     assert "Write" in blocked
     assert "Edit" in blocked
     assert "NotebookEdit" in blocked
+
+
+def test_build_command_supports_codex_backend(tmp_path):
+    cfg = ConfigFactory.create(
+        planner_tool="codex",
+        planner_model="gpt-5-codex",
+        repo_root=tmp_path / "repo",
+        worktree_base=tmp_path / "wt",
+        state_file=tmp_path / "s.json",
+    )
+    runner = _make_runner(cfg, None)
+    cmd = runner._build_command()
+    assert cmd[:3] == ["codex", "exec", "--json"]
+    assert "--model" in cmd
+    assert cmd[cmd.index("--model") + 1] == "gpt-5-codex"
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +466,91 @@ def test_extract_summary_empty_transcript(config, event_bus):
     summary = runner._extract_summary("")
 
     assert summary == "No summary provided"
+
+
+# ---------------------------------------------------------------------------
+# _extract_already_satisfied
+# ---------------------------------------------------------------------------
+
+
+def test_extract_already_satisfied_with_markers():
+    transcript = (
+        "Analysis complete.\n"
+        "ALREADY_SATISFIED_START\n"
+        "The feature described in this issue is already implemented "
+        "in src/models.py lines 10-25.\n"
+        "ALREADY_SATISFIED_END\n"
+        "Done."
+    )
+    result = PlannerRunner._extract_already_satisfied(transcript)
+    assert "already implemented" in result
+    assert "src/models.py" in result
+
+
+def test_extract_already_satisfied_without_markers():
+    transcript = "Analysis complete.\nPLAN_START\nStep 1\nPLAN_END\nSUMMARY: Done"
+    result = PlannerRunner._extract_already_satisfied(transcript)
+    assert result == ""
+
+
+def test_extract_already_satisfied_empty_transcript():
+    result = PlannerRunner._extract_already_satisfied("")
+    assert result == ""
+
+
+def test_extract_already_satisfied_strips_whitespace():
+    transcript = (
+        "ALREADY_SATISFIED_START\n"
+        "  The code already handles this.  \n"
+        "ALREADY_SATISFIED_END"
+    )
+    result = PlannerRunner._extract_already_satisfied(transcript)
+    assert result == "The code already handles this."
+
+
+def test_extract_already_satisfied_multiline():
+    transcript = (
+        "ALREADY_SATISFIED_START\n"
+        "Line 1 of explanation.\n"
+        "Line 2 of explanation.\n"
+        "Line 3 of explanation.\n"
+        "ALREADY_SATISFIED_END"
+    )
+    result = PlannerRunner._extract_already_satisfied(transcript)
+    assert "Line 1" in result
+    assert "Line 2" in result
+    assert "Line 3" in result
+
+
+# ---------------------------------------------------------------------------
+# _build_prompt - already satisfied markers
+# ---------------------------------------------------------------------------
+
+
+def test_build_prompt_includes_already_satisfied_markers(config, event_bus, issue):
+    runner = _make_runner(config, event_bus)
+    prompt = runner._build_prompt(issue)
+
+    assert "ALREADY_SATISFIED_START" in prompt
+    assert "ALREADY_SATISFIED_END" in prompt
+
+
+def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus):
+    """Lite prompt (for bug/typo labels) should also include markers."""
+    from models import GitHubIssue
+
+    issue = GitHubIssue(
+        number=42,
+        title="Fix typo",
+        body="There's a typo in the docs.",
+        labels=["bug"],
+        comments=[],
+    )
+    runner = _make_runner(config, event_bus)
+    prompt = runner._build_prompt(issue)
+
+    assert "ALREADY_SATISFIED_START" in prompt
+    assert "ALREADY_SATISFIED_END" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +869,58 @@ async def test_plan_dry_run(dry_config, event_bus, issue, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# plan - already_satisfied path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_plan_already_satisfied_sets_flag_and_skips_validation(
+    config, event_bus, issue
+):
+    """When transcript contains ALREADY_SATISFIED markers, plan() should
+    set already_satisfied=True, success=True, and skip plan extraction."""
+    runner = _make_runner(config, event_bus)
+    transcript = (
+        "Analysis complete.\n"
+        "ALREADY_SATISFIED_START\n"
+        "The feature is already implemented in src/models.py lines 10-25.\n"
+        "ALREADY_SATISFIED_END\n"
+    )
+
+    mock_execute = AsyncMock(return_value=transcript)
+
+    with (
+        patch.object(runner, "_execute", mock_execute),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.plan(issue, worker_id=0)
+
+    assert result.already_satisfied is True
+    assert result.success is True
+    assert result.plan == ""  # no plan extracted
+    assert "already implemented" in result.summary
+
+
+@pytest.mark.asyncio
+async def test_plan_already_satisfied_does_not_extract_plan(config, event_bus, issue):
+    """When already_satisfied markers are present, _extract_plan should NOT be called."""
+    runner = _make_runner(config, event_bus)
+    transcript = "ALREADY_SATISFIED_START\nAlready done.\nALREADY_SATISFIED_END\n"
+
+    mock_execute = AsyncMock(return_value=transcript)
+
+    with (
+        patch.object(runner, "_execute", mock_execute),
+        patch.object(runner, "_save_transcript"),
+        patch.object(runner, "_extract_plan") as mock_extract,
+    ):
+        result = await runner.plan(issue, worker_id=0)
+
+    mock_extract.assert_not_called()
+    assert result.already_satisfied is True
+
+
+# ---------------------------------------------------------------------------
 # _save_transcript
 # ---------------------------------------------------------------------------
 
@@ -757,9 +930,9 @@ def test_save_transcript_writes_to_correct_path(event_bus, tmp_path):
     runner = PlannerRunner(config=cfg, event_bus=event_bus)
     transcript = "This is the planning transcript."
 
-    runner._save_transcript(42, transcript)
+    runner._save_transcript("plan-issue", 42, transcript)
 
-    expected_path = tmp_path / ".hydra" / "logs" / "plan-issue-42.txt"
+    expected_path = tmp_path / ".hydraflow" / "logs" / "plan-issue-42.txt"
     assert expected_path.exists()
     assert expected_path.read_text() == transcript
 
@@ -767,13 +940,23 @@ def test_save_transcript_writes_to_correct_path(event_bus, tmp_path):
 def test_save_transcript_creates_log_directory(event_bus, tmp_path):
     cfg = ConfigFactory.create(repo_root=tmp_path)
     runner = PlannerRunner(config=cfg, event_bus=event_bus)
-    log_dir = tmp_path / ".hydra" / "logs"
+    log_dir = tmp_path / ".hydraflow" / "logs"
     assert not log_dir.exists()
 
-    runner._save_transcript(7, "transcript content")
+    runner._save_transcript("plan-issue", 7, "transcript content")
 
     assert log_dir.exists()
     assert log_dir.is_dir()
+
+
+def test_save_transcript_handles_oserror(event_bus, tmp_path, caplog):
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = PlannerRunner(config=cfg, event_bus=event_bus)
+
+    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        runner._save_transcript("plan-issue", 42, "transcript")  # should not raise
+
+    assert "Could not save transcript" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -787,7 +970,7 @@ def test_save_plan_writes_to_correct_path(event_bus, tmp_path):
 
     runner._save_plan(42, "Step 1: Do X\nStep 2: Do Y", "Two-step plan")
 
-    expected_path = tmp_path / ".hydra" / "plans" / "issue-42.md"
+    expected_path = tmp_path / ".hydraflow" / "plans" / "issue-42.md"
     assert expected_path.exists()
     content = expected_path.read_text()
     assert "Step 1: Do X" in content
@@ -797,13 +980,113 @@ def test_save_plan_writes_to_correct_path(event_bus, tmp_path):
 def test_save_plan_creates_plans_directory(event_bus, tmp_path):
     cfg = ConfigFactory.create(repo_root=tmp_path)
     runner = PlannerRunner(config=cfg, event_bus=event_bus)
-    plan_dir = tmp_path / ".hydra" / "plans"
+    plan_dir = tmp_path / ".hydraflow" / "plans"
     assert not plan_dir.exists()
 
     runner._save_plan(7, "Some plan", "Summary")
 
     assert plan_dir.exists()
     assert plan_dir.is_dir()
+
+
+def test_save_plan_handles_oserror(event_bus, tmp_path, caplog):
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = PlannerRunner(config=cfg, event_bus=event_bus)
+
+    with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        runner._save_plan(42, "Some plan", "Summary")  # should not raise
+
+    assert "Could not save plan" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# plan() — _save_transcript / _save_plan OSError defense-in-depth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_plan_returns_result_when_save_transcript_raises_os_error(
+    config, event_bus, issue, caplog
+):
+    """plan() should return a valid PlanResult even if _save_transcript raises OSError."""
+    runner = _make_runner(config, event_bus)
+    transcript = _valid_transcript()
+
+    with (
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_save_transcript", side_effect=OSError("disk full")),
+    ):
+        result = await runner.plan(issue, worker_id=0)
+
+    assert result.success is True
+    assert result.issue_number == issue.number
+    assert "## Files to Modify" in result.plan
+    assert "Failed to save transcript" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_plan_returns_result_when_save_plan_raises_os_error(
+    config, event_bus, issue, caplog
+):
+    """plan() should return a successful PlanResult even if _save_plan raises OSError."""
+    runner = _make_runner(config, event_bus)
+    transcript = _valid_transcript()
+
+    with (
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_save_transcript"),
+        patch.object(runner, "_save_plan", side_effect=OSError("disk full")),
+    ):
+        result = await runner.plan(issue, worker_id=0)
+
+    assert result.success is True
+    assert result.issue_number == issue.number
+    assert "## Files to Modify" in result.plan
+    assert "Failed to save plan" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_plan_returns_failure_result_when_save_transcript_raises_after_exception(
+    config, event_bus, issue, caplog
+):
+    """plan() should return failure result even if _save_transcript raises after a planner error."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(
+            runner, "_execute", AsyncMock(side_effect=RuntimeError("planner crashed"))
+        ),
+        patch.object(runner, "_save_transcript", side_effect=OSError("disk full")),
+    ):
+        result = await runner.plan(issue, worker_id=0)
+
+    assert result.success is False
+    assert "planner crashed" in (result.error or "")
+    assert "Failed to save transcript" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_plan_already_satisfied_returns_success_when_save_transcript_raises_os_error(
+    config, event_bus, issue, caplog
+):
+    """plan() should return already_satisfied=True even if _save_transcript raises OSError
+    in the early-return path."""
+    runner = _make_runner(config, event_bus)
+    transcript = (
+        "ALREADY_SATISFIED_START\n"
+        "The feature is already implemented in src/models.py.\n"
+        "ALREADY_SATISFIED_END\n"
+    )
+
+    with (
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_save_transcript", side_effect=OSError("disk full")),
+    ):
+        result = await runner.plan(issue, worker_id=0)
+
+    assert result.success is True
+    assert result.already_satisfied is True
+    assert "Failed to save transcript" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -916,7 +1199,7 @@ async def test_execute_publishes_transcript_lines(config, event_bus, issue, tmp_
             ["claude", "-p"],
             "prompt",
             tmp_path,
-            issue.number,
+            {"issue": issue.number, "source": "planner"},
         )
 
     assert transcript == output
@@ -936,7 +1219,12 @@ async def test_execute_uses_large_stream_limit(config, event_bus, issue, tmp_pat
     mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
     with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
-        await runner._execute(["claude", "-p"], "prompt", tmp_path, issue.number)
+        await runner._execute(
+            ["claude", "-p"],
+            "prompt",
+            tmp_path,
+            {"issue": issue.number, "source": "planner"},
+        )
 
     kwargs = mock_exec.call_args[1]
     assert kwargs["limit"] == 1024 * 1024
@@ -1027,7 +1315,7 @@ async def test_plan_retries_on_validation_failure(config, event_bus, issue):
 
     call_count = {"n": 0}
 
-    async def mock_execute(cmd, prompt, cwd, issue_number):
+    async def mock_execute(cmd, prompt, cwd, event_data, **kwargs):
         call_count["n"] += 1
         if call_count["n"] == 1:
             return bad_transcript
@@ -1053,7 +1341,7 @@ async def test_plan_retry_prompt_includes_feedback(config, event_bus, issue):
 
     prompts_used: list[str] = []
 
-    async def mock_execute(cmd, prompt, cwd, issue_number):
+    async def mock_execute(cmd, prompt, cwd, event_data, **kwargs):
         prompts_used.append(prompt)
         if len(prompts_used) == 1:
             return bad_transcript
@@ -1198,11 +1486,12 @@ def test_build_prompt_warns_about_rejection(config, event_bus, issue):
 # ---------------------------------------------------------------------------
 
 
-def test_required_sections_has_six_entries(config, event_bus):
-    """PlannerRunner.REQUIRED_SECTIONS should have 6 entries."""
-    assert len(PlannerRunner.REQUIRED_SECTIONS) == 6
+def test_required_sections_has_seven_entries(config, event_bus):
+    """PlannerRunner.REQUIRED_SECTIONS should have 7 entries (including File Delta)."""
+    assert len(PlannerRunner.REQUIRED_SECTIONS) == 7
     assert "## Files to Modify" in PlannerRunner.REQUIRED_SECTIONS
     assert "## New Files" in PlannerRunner.REQUIRED_SECTIONS
+    assert "## File Delta" in PlannerRunner.REQUIRED_SECTIONS
     assert "## Implementation Steps" in PlannerRunner.REQUIRED_SECTIONS
     assert "## Testing Strategy" in PlannerRunner.REQUIRED_SECTIONS
     assert "## Acceptance Criteria" in PlannerRunner.REQUIRED_SECTIONS

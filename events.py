@@ -4,18 +4,41 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import logging
-import os
-import tempfile
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-logger = logging.getLogger("hydra.events")
+from file_util import atomic_write
+
+
+class _Counter:
+    """Monotonic event ID generator that can be advanced forward.
+
+    After loading persisted history, :meth:`advance` ensures new IDs
+    always exceed historical IDs so the frontend's deduplication logic
+    never silently drops live events.
+    """
+
+    def __init__(self) -> None:
+        self._it = itertools.count()
+
+    def __next__(self) -> int:
+        return next(self._it)
+
+    def advance(self, minimum: int) -> None:
+        """Advance so the next ID is >= *minimum*."""
+        self._it = itertools.count(minimum)
+
+
+_event_counter = _Counter()
+
+logger = logging.getLogger("hydraflow.events")
 
 
 class EventType(StrEnum):
@@ -31,19 +54,34 @@ class EventType(StrEnum):
     PLANNER_UPDATE = "planner_update"
     MERGE_UPDATE = "merge_update"
     CI_CHECK = "ci_check"
+    HITL_ESCALATION = "hitl_escalation"
     ISSUE_CREATED = "issue_created"
     BATCH_COMPLETE = "batch_complete"
     HITL_UPDATE = "hitl_update"
     ORCHESTRATOR_STATUS = "orchestrator_status"
     ERROR = "error"
+    MEMORY_SYNC = "memory_sync"
+    RETROSPECTIVE = "retrospective"
+    METRICS_UPDATE = "metrics_update"
+    REVIEW_INSIGHT = "review_insight"
+    HARNESS_INSIGHT = "harness_insight"
+    BACKGROUND_WORKER_STATUS = "background_worker_status"
+    QUEUE_UPDATE = "queue_update"
+    SYSTEM_ALERT = "system_alert"
+    VERIFICATION_JUDGE = "verification_judge"
+    TRANSCRIPT_SUMMARY = "transcript_summary"
+    SESSION_START = "session_start"
+    SESSION_END = "session_end"
 
 
-class HydraEvent(BaseModel):
+class HydraFlowEvent(BaseModel):
     """A single event published on the bus."""
 
+    id: int = Field(default_factory=lambda: next(_event_counter))
     type: EventType
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     data: dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = None
 
 
 class EventLog:
@@ -67,7 +105,7 @@ class EventLog:
             f.write(line + "\n")
             f.flush()
 
-    async def append(self, event: HydraEvent) -> None:
+    async def append(self, event: HydraFlowEvent) -> None:
         """Serialize *event* to JSON and append a line to the log file."""
         line = event.model_dump_json()
         await asyncio.to_thread(self._append_sync, line)
@@ -76,24 +114,25 @@ class EventLog:
         self,
         since: datetime | None = None,
         max_events: int = 5000,
-    ) -> list[HydraEvent]:
+    ) -> list[HydraFlowEvent]:
         """Synchronous load — called via ``asyncio.to_thread``."""
         if not self._path.exists():
             return []
 
-        events: list[HydraEvent] = []
+        events: list[HydraFlowEvent] = []
         with open(self._path) as f:
             for line_num, raw_line in enumerate(f, 1):
                 stripped = raw_line.strip()
                 if not stripped:
                     continue
                 try:
-                    event = HydraEvent.model_validate_json(stripped)
-                except Exception:
+                    event = HydraFlowEvent.model_validate_json(stripped)
+                except ValidationError:
                     logger.warning(
                         "Skipping corrupt event log line %d in %s",
                         line_num,
                         self._path,
+                        exc_info=True,
                     )
                     continue
 
@@ -116,7 +155,7 @@ class EventLog:
         self,
         since: datetime | None = None,
         max_events: int = 5000,
-    ) -> list[HydraEvent]:
+    ) -> list[HydraFlowEvent]:
         """Read events from the JSONL file, optionally filtered by timestamp."""
         return await asyncio.to_thread(self._load_sync, since, max_events)
 
@@ -142,32 +181,19 @@ class EventLog:
                 if not stripped:
                     continue
                 try:
-                    event = HydraEvent.model_validate_json(stripped)
+                    event = HydraFlowEvent.model_validate_json(stripped)
                     ts = datetime.fromisoformat(event.timestamp)
                     if ts >= cutoff:
                         kept_lines.append(stripped)
-                except Exception:
-                    # Drop corrupt / unparseable lines during rotation
+                except (ValidationError, ValueError):
+                    logger.debug(
+                        "Dropping corrupt event line during rotation",
+                        exc_info=True,
+                    )
                     continue
 
-        # Atomic write: temp file + os.replace (same pattern as StateTracker)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(
-            dir=self._path.parent,
-            prefix=".events-",
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                for line in kept_lines:
-                    f.write(line + "\n")
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self._path)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
-            raise
+        content = "\n".join(kept_lines) + "\n" if kept_lines else ""
+        atomic_write(self._path, content)
 
     async def rotate(self, max_size_bytes: int, max_age_days: int) -> None:
         """Rotate the log file if it exceeds *max_size_bytes*.
@@ -182,7 +208,7 @@ class EventBus:
     """Async pub/sub bus with history replay.
 
     Subscribers receive an ``asyncio.Queue`` that yields
-    :class:`HydraEvent` objects as they are published.
+    :class:`HydraFlowEvent` objects as they are published.
     """
 
     def __init__(
@@ -190,13 +216,20 @@ class EventBus:
         max_history: int = 5000,
         event_log: EventLog | None = None,
     ) -> None:
-        self._subscribers: list[asyncio.Queue[HydraEvent]] = []
-        self._history: list[HydraEvent] = []
+        self._subscribers: list[asyncio.Queue[HydraFlowEvent]] = []
+        self._history: list[HydraFlowEvent] = []
         self._max_history = max_history
         self._event_log = event_log
+        self._active_session_id: str | None = None
 
-    async def publish(self, event: HydraEvent) -> None:
+    def set_session_id(self, session_id: str | None) -> None:
+        """Set the active session ID to auto-inject into published events."""
+        self._active_session_id = session_id
+
+    async def publish(self, event: HydraFlowEvent) -> None:
         """Publish *event* to all subscribers and append to history."""
+        if event.session_id is None and getattr(self, "_active_session_id", None):
+            event.session_id = self._active_session_id
         self._history.append(event)
         if len(self._history) > self._max_history:
             self._history = self._history[-self._max_history :]
@@ -212,22 +245,30 @@ class EventBus:
         if self._event_log is not None:
             asyncio.ensure_future(self._persist_event(event))
 
-    async def _persist_event(self, event: HydraEvent) -> None:
+    async def _persist_event(self, event: HydraFlowEvent) -> None:
         """Write event to disk, logging any errors without crashing."""
         try:
             assert self._event_log is not None  # noqa: S101
             await self._event_log.append(event)
-        except Exception:
+        except OSError:
             logger.warning("Failed to persist event to disk", exc_info=True)
 
     async def load_history_from_disk(self) -> None:
-        """Populate in-memory history from the on-disk event log."""
+        """Populate in-memory history from the on-disk event log.
+
+        After loading, advances the global event counter past the highest
+        historical ID so that new events are never mistaken for duplicates
+        by the frontend's deduplication logic.
+        """
         if self._event_log is None:
             return
         events = await self._event_log.load(max_events=self._max_history)
         self._history = events
+        if events:
+            max_id = max(e.id for e in events)
+            _event_counter.advance(max_id + 1)
 
-    async def load_events_since(self, since: datetime) -> list[HydraEvent] | None:
+    async def load_events_since(self, since: datetime) -> list[HydraFlowEvent] | None:
         """Load persisted events from disk since *since*.
 
         Returns ``None`` when no event log is configured (caller should
@@ -243,13 +284,13 @@ class EventBus:
             return
         await self._event_log.rotate(max_size_bytes, max_age_days)
 
-    def subscribe(self, max_queue: int = 500) -> asyncio.Queue[HydraEvent]:
+    def subscribe(self, max_queue: int = 500) -> asyncio.Queue[HydraFlowEvent]:
         """Return a new queue that will receive future events."""
-        queue: asyncio.Queue[HydraEvent] = asyncio.Queue(maxsize=max_queue)
+        queue: asyncio.Queue[HydraFlowEvent] = asyncio.Queue(maxsize=max_queue)
         self._subscribers.append(queue)
         return queue
 
-    def unsubscribe(self, queue: asyncio.Queue[HydraEvent]) -> None:
+    def unsubscribe(self, queue: asyncio.Queue[HydraFlowEvent]) -> None:
         """Remove *queue* from the subscriber list."""
         with contextlib.suppress(ValueError):
             self._subscribers.remove(queue)
@@ -257,7 +298,7 @@ class EventBus:
     @contextlib.asynccontextmanager
     async def subscription(
         self, max_queue: int = 500
-    ) -> AsyncIterator[asyncio.Queue[HydraEvent]]:
+    ) -> AsyncIterator[asyncio.Queue[HydraFlowEvent]]:
         """Async context manager that auto-unsubscribes on exit."""
         queue = self.subscribe(max_queue)
         try:
@@ -265,7 +306,7 @@ class EventBus:
         finally:
             self.unsubscribe(queue)
 
-    def get_history(self) -> list[HydraEvent]:
+    def get_history(self) -> list[HydraFlowEvent]:
         """Return a copy of all recorded events."""
         return list(self._history)
 

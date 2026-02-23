@@ -1,4 +1,4 @@
-"""Shared subprocess streaming utilities for Claude agent runners."""
+"""Shared subprocess streaming utilities for agent runners."""
 
 from __future__ import annotations
 
@@ -11,9 +11,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from events import EventBus, EventType, HydraEvent
+from events import EventBus, EventType, HydraFlowEvent
+from execution import SubprocessRunner, get_default_runner
 from stream_parser import StreamParser
-from subprocess_util import make_clean_env
+from subprocess_util import (
+    CreditExhaustedError,
+    is_credit_exhaustion,
+    make_clean_env,
+    parse_credit_resume_time,
+)
 
 
 async def stream_claude_process(
@@ -26,13 +32,15 @@ async def stream_claude_process(
     event_data: dict[str, Any],
     logger: logging.Logger,
     on_output: Callable[[str], bool] | None = None,
+    timeout: float | None = None,
+    runner: SubprocessRunner | None = None,
 ) -> str:
-    """Run a ``claude -p`` subprocess and stream its output.
+    """Run an agent subprocess and stream its output.
 
     Parameters
     ----------
     cmd:
-        Command to execute (e.g. ``["claude", "-p", ...]``).
+        Command to execute (e.g. ``["claude", "-p", ...]`` or ``["codex", "exec", ...]``).
     prompt:
         Text to write to the process's stdin.
     cwd:
@@ -58,13 +66,15 @@ async def stream_claude_process(
     """
     env = make_clean_env()
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
+    if runner is None:
+        runner = get_default_runner()
+    proc = await runner.create_streaming_process(
+        cmd,
+        cwd=str(cwd),
+        env=env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        cwd=str(cwd),
-        env=env,
         limit=1024 * 1024,  # 1 MB — stream-json lines can exceed 64 KB default
         start_new_session=True,  # Own process group for reliable cleanup
     )
@@ -74,6 +84,8 @@ async def stream_claude_process(
         assert proc.stdin is not None
         assert proc.stdout is not None
         assert proc.stderr is not None
+
+        stdout_stream = proc.stdout  # capture for nested function
 
         proc.stdin.write(prompt.encode())
         await proc.stdin.drain()
@@ -88,46 +100,69 @@ async def stream_claude_process(
         accumulated_text = ""
         early_killed = False
 
-        async for raw in proc.stdout:
-            line = raw.decode(errors="replace").rstrip("\n")
-            raw_lines.append(line)
-            if not line.strip():
-                continue
+        async def _stream_body() -> str:
+            nonlocal result_text, accumulated_text, early_killed
 
-            display, result = parser.parse(line)
-            if result is not None:
-                result_text = result
+            async for raw in stdout_stream:
+                line = raw.decode(errors="replace").rstrip("\n")
+                raw_lines.append(line)
+                if not line.strip():
+                    continue
 
-            if display.strip():
-                accumulated_text += display + "\n"
-                await event_bus.publish(
-                    HydraEvent(
-                        type=EventType.TRANSCRIPT_LINE,
-                        data={**event_data, "line": display},
+                display, result = parser.parse(line)
+                if result is not None:
+                    result_text = result
+
+                if display.strip():
+                    accumulated_text += display + "\n"
+                    await event_bus.publish(
+                        HydraFlowEvent(
+                            type=EventType.TRANSCRIPT_LINE,
+                            data={**event_data, "line": display},
+                        )
                     )
+
+                if (
+                    on_output is not None
+                    and not early_killed
+                    and on_output(accumulated_text)
+                ):
+                    early_killed = True
+                    proc.kill()
+                    break
+
+            stderr_bytes = await stderr_task
+            await proc.wait()
+
+            stderr_text = stderr_bytes.decode(errors="replace").strip()
+
+            if not early_killed and proc.returncode != 0:
+                logger.warning(
+                    "Process exited with code %d: %s",
+                    proc.returncode,
+                    stderr_text[:500],
                 )
 
-            if (
-                on_output is not None
-                and not early_killed
-                and on_output(accumulated_text)
-            ):
-                early_killed = True
-                proc.kill()
-                break
+            # Check for credit exhaustion in both stderr and transcript.
+            # Skip when early_killed=True — the process was intentionally killed by us
+            # because it produced its expected output; credit phrases in legitimate
+            # transcript content would otherwise cause false-positive pauses.
+            combined = f"{stderr_text}\n{accumulated_text}"
+            if not early_killed and is_credit_exhaustion(combined):
+                resume_at = parse_credit_resume_time(combined)
+                raise CreditExhaustedError(
+                    "API credit limit reached", resume_at=resume_at
+                )
 
-        stderr_bytes = await stderr_task
+            return result_text or accumulated_text.rstrip("\n") or "\n".join(raw_lines)
+
+        if timeout is not None:
+            return await asyncio.wait_for(_stream_body(), timeout=timeout)
+        return await _stream_body()
+    except TimeoutError:
+        proc.kill()
         await proc.wait()
-
-        if not early_killed and proc.returncode != 0:
-            stderr_text = stderr_bytes.decode(errors="replace").strip()
-            logger.warning(
-                "Process exited with code %d: %s",
-                proc.returncode,
-                stderr_text[:500],
-            )
-
-        return result_text or accumulated_text.rstrip("\n") or "\n".join(raw_lines)
+        raise RuntimeError(f"Agent process timed out after {timeout}s") from None
     except asyncio.CancelledError:
         proc.kill()
         raise

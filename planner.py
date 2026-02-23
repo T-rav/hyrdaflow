@@ -2,31 +2,29 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
 from pathlib import Path
 
-from config import HydraConfig
-from events import EventBus, EventType, HydraEvent
+from agent_cli import build_agent_command
+from base_runner import BaseRunner
+from events import EventType, HydraFlowEvent
 from models import GitHubIssue, NewIssueSpec, PlannerStatus, PlanResult
-from runner_utils import stream_claude_process, terminate_processes
+from runner_constants import MEMORY_SUGGESTION_PROMPT
+from subprocess_util import CreditExhaustedError
 
-logger = logging.getLogger("hydra.planner")
+logger = logging.getLogger("hydraflow.planner")
 
 
-class PlannerRunner:
+class PlannerRunner(BaseRunner):
     """Launches a ``claude -p`` process to explore the codebase and create an implementation plan.
 
     The planner works READ-ONLY against the repo root (no worktree needed).
     It produces a structured plan that is posted as a comment on the issue.
     """
 
-    def __init__(self, config: HydraConfig, event_bus: EventBus) -> None:
-        self._config = config
-        self._bus = event_bus
-        self._active_procs: set[asyncio.subprocess.Process] = set()
+    _log = logger
 
     async def plan(
         self,
@@ -60,10 +58,53 @@ class PlannerRunner:
 
             cmd = self._build_command()
             prompt = self._build_prompt(issue, scale=scale)
+
+            def _check_plan_complete(accumulated: str) -> bool:
+                if "PLAN_END" in accumulated:
+                    logger.info(
+                        "Plan markers found for issue #%d — terminating planner",
+                        issue.number,
+                    )
+                    return True
+                if "ALREADY_SATISFIED_END" in accumulated:
+                    logger.info(
+                        "Already-satisfied markers found for issue #%d — terminating planner",
+                        issue.number,
+                    )
+                    return True
+                return False
+
             transcript = await self._execute(
-                cmd, prompt, self._config.repo_root, issue.number
+                cmd,
+                prompt,
+                self._config.repo_root,
+                {"issue": issue.number, "source": "planner"},
+                on_output=_check_plan_complete,
             )
             result.transcript = transcript
+
+            # Check for already-satisfied before plan extraction
+            satisfied_explanation = self._extract_already_satisfied(transcript)
+            if satisfied_explanation:
+                result.already_satisfied = True
+                result.success = True
+                result.summary = satisfied_explanation[:200]
+                result.duration_seconds = time.monotonic() - start
+                try:
+                    self._save_transcript("plan-issue", issue.number, result.transcript)
+                except OSError:
+                    logger.warning(
+                        "Failed to save transcript for issue #%d",
+                        issue.number,
+                        exc_info=True,
+                        extra={"issue": issue.number},
+                    )
+                await self._emit_status(issue.number, worker_id, PlannerStatus.DONE)
+                logger.info(
+                    "Issue #%d already satisfied — no changes needed",
+                    issue.number,
+                )
+                return result
 
             result.plan = self._extract_plan(transcript)
             result.summary = self._extract_summary(transcript)
@@ -99,7 +140,11 @@ class PlannerRunner:
                         issue, result.plan, all_errors, scale=scale
                     )
                     retry_transcript = await self._execute(
-                        cmd, retry_prompt, self._config.repo_root, issue.number
+                        cmd,
+                        retry_prompt,
+                        self._config.repo_root,
+                        {"issue": issue.number, "source": "planner"},
+                        on_output=_check_plan_complete,
                     )
                     result.transcript += "\n\n--- RETRY ---\n\n" + retry_transcript
 
@@ -136,6 +181,8 @@ class PlannerRunner:
             status = PlannerStatus.DONE if result.success else PlannerStatus.FAILED
             await self._emit_status(issue.number, worker_id, status)
 
+        except CreditExhaustedError:
+            raise
         except Exception as exc:
             result.success = False
             result.error = str(exc)
@@ -148,34 +195,44 @@ class PlannerRunner:
             await self._emit_status(issue.number, worker_id, PlannerStatus.FAILED)
 
         result.duration_seconds = time.monotonic() - start
-        self._save_transcript(issue.number, result.transcript)
+        try:
+            self._save_transcript("plan-issue", issue.number, result.transcript)
+        except OSError:
+            logger.warning(
+                "Failed to save transcript for issue #%d",
+                issue.number,
+                exc_info=True,
+                extra={"issue": issue.number},
+            )
         if result.success and result.plan:
-            self._save_plan(issue.number, result.plan, result.summary)
+            try:
+                self._save_plan(issue.number, result.plan, result.summary)
+            except OSError:
+                logger.warning(
+                    "Failed to save plan for issue #%d",
+                    issue.number,
+                    exc_info=True,
+                    extra={"issue": issue.number},
+                )
         return result
 
-    def _build_command(self) -> list[str]:
-        """Construct the ``claude`` CLI invocation for planning."""
-        cmd = [
-            "claude",
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--model",
-            self._config.planner_model,
-            "--verbose",
-            "--permission-mode",
-            "bypassPermissions",
-            "--disallowedTools",
-            "Write,Edit,NotebookEdit",
-        ]
-        if self._config.planner_budget_usd > 0:
-            cmd.extend(["--max-budget-usd", str(self._config.planner_budget_usd)])
-        return cmd
+    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:  # type: ignore[override]
+        """Construct the CLI invocation for planning.
 
-    # Maximum characters for issue body and comments in the prompt.
+        The *_worktree_path* parameter is accepted for API compatibility with
+        ``BaseRunner._build_command`` but is unused — the planner always runs
+        against ``self._config.repo_root``, not an isolated worktree.
+        """
+        return build_agent_command(
+            tool=self._config.planner_tool,
+            model=self._config.planner_model,
+            budget_usd=self._config.planner_budget_usd,
+            disallowed_tools="Write,Edit,NotebookEdit",
+        )
+
+    # Maximum characters for comments in the prompt.
     # Keep conservative to avoid hitting Claude CLI's internal text-splitter
     # limits (RecursiveCharacterTextSplitter fails on very long unsplittable lines).
-    _MAX_BODY_CHARS = 4_000
     _MAX_COMMENT_CHARS = 1_000
     _MAX_LINE_CHARS = 500
 
@@ -220,7 +277,7 @@ class PlannerRunner:
             comments_section = f"\n\n## Discussion\n{formatted}"
 
         body = self._truncate_text(
-            issue.body or "", self._MAX_BODY_CHARS, self._MAX_LINE_CHARS
+            issue.body or "", self._config.max_issue_body_chars, self._MAX_LINE_CHARS
         )
 
         # Detect attached images and add a note for the planner.
@@ -232,8 +289,10 @@ class PlannerRunner:
                 "the surrounding text describes what they show."
             )
 
+        manifest_section, memory_section = self._inject_manifest_and_memory()
+
         find_label = (
-            self._config.find_label[0] if self._config.find_label else "hydra-find"
+            self._config.find_label[0] if self._config.find_label else "hydraflow-find"
         )
 
         # --- Scale-adaptive schema section ---
@@ -266,6 +325,13 @@ class PlannerRunner:
                 "- `## Files to Modify` — list each existing file and what changes are needed "
                 "(must reference at least one file path)\n"
                 '- `## New Files` — list new files to create, or state "None" if no new files needed\n'
+                "- `## File Delta` — structured list of all planned file changes using this exact format:\n"
+                "  ```\n"
+                "  MODIFIED: path/to/file.py\n"
+                "  ADDED: path/to/new_file.py\n"
+                "  REMOVED: path/to/old_file.py\n"
+                "  ```\n"
+                "  Each line must start with MODIFIED:, ADDED:, or REMOVED: followed by the file path.\n"
                 "- `## Implementation Steps` — ordered numbered list of steps "
                 "(must have at least 3 steps)\n"
                 "- `## Testing Strategy` — what tests to write and what to verify "
@@ -284,7 +350,7 @@ class PlannerRunner:
 
 ## Issue: {issue.title}
 
-{body}{image_note}{comments_section}
+{body}{image_note}{comments_section}{manifest_section}{memory_section}
 
 ## Instructions
 
@@ -376,12 +442,27 @@ or one-line bodies will be rejected. Include file paths, function names, and con
 
 **IMPORTANT:** You MUST only use the following label for new issues: `{find_label}`
 Do NOT invent labels. All discovered issues enter the pipeline via the find label.
-"""
+
+## Already Satisfied
+
+If after exploring the codebase you determine that the issue's acceptance criteria are
+**already fully met** by the existing code (i.e., no changes are needed), do NOT produce
+a plan. Instead, output:
+
+ALREADY_SATISFIED_START
+<explanation of why no changes are needed, referencing specific files and code>
+ALREADY_SATISFIED_END
+
+This will close the issue automatically. Only use this when you are **certain** the
+requirements are already implemented — not when the issue is unclear or you are unsure.
+
+{MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
 
     # Required plan sections — each must appear as a ## header.
     REQUIRED_SECTIONS: tuple[str, ...] = (
         "## Files to Modify",
         "## New Files",
+        "## File Delta",
         "## Implementation Steps",
         "## Testing Strategy",
         "## Acceptance Criteria",
@@ -654,6 +735,18 @@ Do NOT invent labels. All discovered issues enter the pipeline via the find labe
         return lines[-1][:200] if lines else "No summary provided"
 
     @staticmethod
+    def _extract_already_satisfied(transcript: str) -> str:
+        """Extract the already-satisfied explanation from the transcript.
+
+        Returns the explanation text if the markers are present, empty string otherwise.
+        """
+        pattern = r"ALREADY_SATISFIED_START\s*\n(.*?)\nALREADY_SATISFIED_END"
+        match = re.search(pattern, transcript, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    @staticmethod
     def _extract_new_issues(transcript: str) -> list[NewIssueSpec]:
         """Parse NEW_ISSUES_START/NEW_ISSUES_END markers into issue specs."""
         pattern = r"NEW_ISSUES_START\s*\n(.*?)\nNEW_ISSUES_END"
@@ -734,6 +827,7 @@ Do NOT invent labels. All discovered issues enter the pipeline via the find labe
                 "- `## Files to Modify` — list each existing file and what changes are needed "
                 "(must reference at least one file path)\n"
                 '- `## New Files` — list new files to create, or state "None" if no new files needed\n'
+                "- `## File Delta` — structured file change list (MODIFIED:/ADDED:/REMOVED: per line)\n"
                 "- `## Implementation Steps` — ordered numbered list of steps "
                 "(must have at least 3 steps)\n"
                 "- `## Testing Strategy` — what tests to write and what to verify "
@@ -776,45 +870,12 @@ Then provide a one-line summary:
 SUMMARY: <brief one-line description of the plan>
 """
 
-    def terminate(self) -> None:
-        """Kill all active planner subprocesses."""
-        terminate_processes(self._active_procs)
-
-    async def _execute(
-        self,
-        cmd: list[str],
-        prompt: str,
-        cwd: Path,
-        issue_number: int,
-    ) -> str:
-        """Run the claude planning process."""
-
-        def _check_plan_complete(accumulated: str) -> bool:
-            if "PLAN_END" in accumulated:
-                logger.info(
-                    "Plan markers found for issue #%d — terminating planner",
-                    issue_number,
-                )
-                return True
-            return False
-
-        return await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=cwd,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data={"issue": issue_number, "source": "planner"},
-            logger=logger,
-            on_output=_check_plan_complete,
-        )
-
     async def _emit_status(
         self, issue_number: int, worker_id: int, status: PlannerStatus
     ) -> None:
         """Publish a planner status event."""
         await self._bus.publish(
-            HydraEvent(
+            HydraFlowEvent(
                 type=EventType.PLANNER_UPDATE,
                 data={
                     "issue": issue_number,
@@ -825,20 +886,20 @@ SUMMARY: <brief one-line description of the plan>
             )
         )
 
-    def _save_transcript(self, issue_number: int, transcript: str) -> None:
-        """Write the planning transcript to .hydra/logs/ for post-mortem review."""
-        log_dir = self._config.repo_root / ".hydra" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        path = log_dir / f"plan-issue-{issue_number}.txt"
-        path.write_text(transcript)
-        logger.info("Plan transcript saved to %s", path, extra={"issue": issue_number})
-
     def _save_plan(self, issue_number: int, plan: str, summary: str) -> None:
-        """Write the extracted plan to .hydra/plans/ for the implementation worker."""
-        plan_dir = self._config.repo_root / ".hydra" / "plans"
-        plan_dir.mkdir(parents=True, exist_ok=True)
-        path = plan_dir / f"issue-{issue_number}.md"
-        path.write_text(
-            f"# Plan for Issue #{issue_number}\n\n{plan}\n\n---\n**Summary:** {summary}\n"
-        )
-        logger.info("Plan saved to %s", path, extra={"issue": issue_number})
+        """Write the extracted plan to .hydraflow/plans/ for the implementation worker."""
+        plan_dir = self._config.repo_root / ".hydraflow" / "plans"
+        try:
+            plan_dir.mkdir(parents=True, exist_ok=True)
+            path = plan_dir / f"issue-{issue_number}.md"
+            path.write_text(
+                f"# Plan for Issue #{issue_number}\n\n{plan}\n\n---\n**Summary:** {summary}\n"
+            )
+            logger.info("Plan saved to %s", path, extra={"issue": issue_number})
+        except OSError:
+            logger.warning(
+                "Could not save plan to %s",
+                plan_dir,
+                exc_info=True,
+                extra={"issue": issue_number},
+            )

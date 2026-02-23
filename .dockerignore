@@ -1,0 +1,47 @@
+# Git
+.git/
+.gitignore
+
+# Hydra runtime state
+.hydraflow/
+
+# Python
+__pycache__/
+*.py[codz]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+venv/
+.venv/
+
+# Node
+node_modules/
+ui/node_modules/
+ui/dist/
+
+# Build artifacts
+build/
+dist/
+
+# Environment / secrets
+.env
+.envrc
+*.log
+.claude/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Tests (not needed in agent image — mounted at runtime)
+tests/
+
+# CI/CD
+.github/
