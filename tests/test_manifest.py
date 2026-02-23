@@ -11,6 +11,7 @@ from manifest import (
     detect_build_systems,
     detect_ci_systems,
     detect_key_docs,
+    detect_language,
     detect_languages,
     detect_sub_projects,
     detect_test_frameworks,
@@ -68,6 +69,47 @@ class TestDetectLanguages:
     def test_detect_languages__tsconfig(self, tmp_path: Path) -> None:
         (tmp_path / "tsconfig.json").write_text("{}")
         assert detect_languages(tmp_path) == ["javascript"]
+
+
+# ---------------------------------------------------------------------------
+# detect_language (singular — canonical shared utility)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectLanguage:
+    """Tests for manifest.detect_language (singular)."""
+
+    def test_detect_language__python_pyproject(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]")
+        assert detect_language(tmp_path) == "python"
+
+    def test_detect_language__python_setup_py(self, tmp_path: Path) -> None:
+        (tmp_path / "setup.py").write_text("from setuptools import setup")
+        assert detect_language(tmp_path) == "python"
+
+    def test_detect_language__python_setup_cfg(self, tmp_path: Path) -> None:
+        (tmp_path / "setup.cfg").write_text("[metadata]")
+        assert detect_language(tmp_path) == "python"
+
+    def test_detect_language__python_requirements_txt(self, tmp_path: Path) -> None:
+        (tmp_path / "requirements.txt").write_text("flask")
+        assert detect_language(tmp_path) == "python"
+
+    def test_detect_language__javascript_package_json(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text("{}")
+        assert detect_language(tmp_path) == "javascript"
+
+    def test_detect_language__javascript_tsconfig(self, tmp_path: Path) -> None:
+        (tmp_path / "tsconfig.json").write_text("{}")
+        assert detect_language(tmp_path) == "javascript"
+
+    def test_detect_language__mixed(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]")
+        (tmp_path / "package.json").write_text("{}")
+        assert detect_language(tmp_path) == "mixed"
+
+    def test_detect_language__unknown(self, tmp_path: Path) -> None:
+        assert detect_language(tmp_path) == "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -553,31 +595,34 @@ class TestManifestInjectionInRunners:
 
 
 class TestMarkerConsolidation:
-    """Verify that scaffold modules import markers from manifest.py."""
+    """Verify that scaffold modules import detect_language from manifest.py."""
 
-    def test_ci_scaffold__uses_manifest_markers(self) -> None:
-        from ci_scaffold import _JS_MARKERS, _PYTHON_MARKERS
-        from manifest import JS_MARKERS, PYTHON_MARKERS
+    def test_ci_scaffold__uses_manifest_detect_language(self) -> None:
+        from ci_scaffold import detect_language as ci_detect
+        from manifest import detect_language as manifest_detect
 
-        assert tuple(_PYTHON_MARKERS) == tuple(PYTHON_MARKERS)
-        assert tuple(_JS_MARKERS) == tuple(JS_MARKERS)
+        assert ci_detect is manifest_detect
 
-    def test_lint_scaffold__uses_manifest_markers(self) -> None:
-        from lint_scaffold import _JS_MARKERS, _PYTHON_MARKERS
-        from manifest import JS_MARKERS, PYTHON_MARKERS
+    def test_lint_scaffold__uses_manifest_detect_language(self) -> None:
+        from lint_scaffold import detect_language as lint_detect
+        from manifest import detect_language as manifest_detect
 
-        assert set(_PYTHON_MARKERS) == set(PYTHON_MARKERS)
-        assert set(_JS_MARKERS) == set(JS_MARKERS)
+        assert lint_detect is manifest_detect
 
-    def test_makefile_scaffold__uses_manifest_markers(self) -> None:
-        from makefile_scaffold import _JS_MARKERS, _PYTHON_MARKERS
-        from manifest import JS_MARKERS, PYTHON_MARKERS
+    def test_makefile_scaffold__uses_manifest_detect_language(self) -> None:
+        from makefile_scaffold import detect_language as makefile_detect
+        from manifest import detect_language as manifest_detect
 
-        assert tuple(_PYTHON_MARKERS) == tuple(PYTHON_MARKERS)
-        assert tuple(_JS_MARKERS) == tuple(JS_MARKERS)
+        assert makefile_detect is manifest_detect
+
+    def test_test_scaffold__uses_manifest_detect_language(self) -> None:
+        from manifest import detect_language as manifest_detect
+        from test_scaffold import detect_language as test_detect
+
+        assert test_detect is manifest_detect
 
     def test_prep_hooks__uses_manifest_markers(self) -> None:
         from manifest import PYTHON_MARKERS
-        from prep_hooks import _PYTHON_MARKERS
+        from prep_hooks import PYTHON_MARKERS as prep_markers
 
-        assert tuple(_PYTHON_MARKERS) == tuple(PYTHON_MARKERS)
+        assert prep_markers is PYTHON_MARKERS

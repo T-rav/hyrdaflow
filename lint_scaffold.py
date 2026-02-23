@@ -12,17 +12,13 @@ import logging
 import tomllib
 from pathlib import Path
 
-from manifest import JS_MARKERS, PYTHON_MARKERS
+from manifest import detect_language
 
 logger = logging.getLogger("hydraflow.lint_scaffold")
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-# Aliases preserved for backward compatibility (frozenset for existing consumers).
-_PYTHON_MARKERS = frozenset(PYTHON_MARKERS)
-_JS_MARKERS = frozenset(JS_MARKERS)
 
 _ESLINT_CONFIG_FILES = frozenset(
     {
@@ -92,25 +88,6 @@ class LintScaffoldResult:
     modified_files: list[str] = dataclasses.field(default_factory=list)
     created_files: list[str] = dataclasses.field(default_factory=list)
     language: str = ""
-
-
-# ---------------------------------------------------------------------------
-# Language detection
-# ---------------------------------------------------------------------------
-
-
-def detect_language(repo_root: Path) -> str:
-    """Detect whether the repo is python, javascript, mixed, or unknown."""
-    has_python = any((repo_root / m).exists() for m in _PYTHON_MARKERS)
-    has_js = any((repo_root / m).exists() for m in _JS_MARKERS)
-
-    if has_python and has_js:
-        return "mixed"
-    if has_python:
-        return "python"
-    if has_js:
-        return "javascript"
-    return "unknown"
 
 
 # ---------------------------------------------------------------------------

@@ -19,9 +19,6 @@ from subprocess_util import run_subprocess
 
 logger = logging.getLogger("hydraflow.prep_hooks")
 
-# Alias preserved for backward compatibility.
-_PYTHON_MARKERS = PYTHON_MARKERS
-
 # ---------------------------------------------------------------------------
 # Hook templates
 # ---------------------------------------------------------------------------
@@ -97,7 +94,7 @@ def detect_language(repo_root: Path) -> str:
     Returns ``"python"``, ``"javascript"``, ``"typescript"``, or ``"unknown"``.
     """
     # Python markers (checked first — takes precedence)
-    for marker in _PYTHON_MARKERS:
+    for marker in PYTHON_MARKERS:
         if (repo_root / marker).exists():
             return "python"
 
