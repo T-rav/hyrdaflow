@@ -149,6 +149,8 @@ class ConfigFactory:
         docker_extra_mounts: list[str] | None = None,
         memory_auto_approve: bool = False,
         transcript_summary_as_issue: bool = False,
+        harness_insight_window: int = 20,
+        harness_pattern_threshold: int = 3,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -266,6 +268,8 @@ class ConfigFactory:
             else [],
             memory_auto_approve=memory_auto_approve,
             transcript_summary_as_issue=transcript_summary_as_issue,
+            harness_insight_window=harness_insight_window,
+            harness_pattern_threshold=harness_pattern_threshold,
         )
 
 

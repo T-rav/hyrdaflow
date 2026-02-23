@@ -41,6 +41,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
     ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
+    ("harness_insight_window", "HYDRAFLOW_HARNESS_INSIGHT_WINDOW", 20),
+    ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -301,6 +303,20 @@ class HydraFlowConfig(BaseModel):
         ge=2,
         le=10,
         description="Minimum category frequency to trigger improvement proposal",
+    )
+
+    # Harness insight aggregation
+    harness_insight_window: int = Field(
+        default=20,
+        ge=3,
+        le=100,
+        description="Number of recent failures to analyze for harness patterns",
+    )
+    harness_pattern_threshold: int = Field(
+        default=3,
+        ge=2,
+        le=20,
+        description="Minimum failure frequency to trigger harness improvement proposal",
     )
 
     # Agent prompt configuration

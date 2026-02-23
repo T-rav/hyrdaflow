@@ -64,6 +64,7 @@ class EventType(StrEnum):
     RETROSPECTIVE = "retrospective"
     METRICS_UPDATE = "metrics_update"
     REVIEW_INSIGHT = "review_insight"
+    HARNESS_INSIGHT = "harness_insight"
     BACKGROUND_WORKER_STATUS = "background_worker_status"
     QUEUE_UPDATE = "queue_update"
     SYSTEM_ALERT = "system_alert"
