@@ -286,9 +286,7 @@ class PlannerRunner:
         if digest:
             memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
 
-        find_label = (
-            self._config.find_label[0] if self._config.find_label else "hydraflow-find"
-        )
+        find_label = self._config.find_label[0]
 
         # --- Scale-adaptive schema section ---
         if scale == "lite":

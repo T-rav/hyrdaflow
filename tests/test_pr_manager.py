@@ -2406,19 +2406,10 @@ class TestCreateIssueEdgeCases:
 
     @pytest.mark.asyncio
     async def test_create_issue_malformed_output_returns_zero(
-        self, config, event_bus, tmp_path
+        self, config, event_bus
     ) -> None:
         """create_issue should return 0 when gh output is not a valid URL."""
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = _make_manager(cfg, event_bus)
+        mgr = _make_manager(config, event_bus)
         mock_create = _make_subprocess_mock(
             returncode=0, stdout="Error: something went wrong"
         )
@@ -2430,19 +2421,10 @@ class TestCreateIssueEdgeCases:
 
     @pytest.mark.asyncio
     async def test_create_issue_empty_output_returns_zero(
-        self, config, event_bus, tmp_path
+        self, config, event_bus
     ) -> None:
         """create_issue should return 0 when gh output is empty."""
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = _make_manager(cfg, event_bus)
+        mgr = _make_manager(config, event_bus)
         mock_create = _make_subprocess_mock(returncode=0, stdout="")
 
         with patch("asyncio.create_subprocess_exec", mock_create):
