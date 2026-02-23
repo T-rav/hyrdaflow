@@ -54,6 +54,11 @@ class TestChunkBody:
         result = PRManager._chunk_body("", limit=100)
         assert result == [""]
 
+    def test_default_limit_uses_github_comment_limit(self):
+        body = "x" * (PRManager._GITHUB_COMMENT_LIMIT - 1)
+        result = PRManager._chunk_body(body)
+        assert result == [body]
+
 
 # ---------------------------------------------------------------------------
 # _cap_body (class method)
@@ -66,6 +71,11 @@ class TestCapBody:
     def test_short_body_unchanged(self):
         result = PRManager._cap_body("hello", limit=100)
         assert result == "hello"
+
+    def test_default_limit_uses_github_comment_limit(self):
+        body = "x" * (PRManager._GITHUB_COMMENT_LIMIT - 1)
+        result = PRManager._cap_body(body)
+        assert result == body
 
     def test_body_at_limit_unchanged(self):
         body = "x" * 100

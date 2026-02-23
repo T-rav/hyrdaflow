@@ -1003,8 +1003,10 @@ class PRManager:
     _TRUNCATION_MARKER = "\n\n*...truncated to fit GitHub comment limit*"
 
     @staticmethod
-    def _chunk_body(body: str, limit: int = 65_536) -> list[str]:
+    def _chunk_body(body: str, limit: int | None = None) -> list[str]:
         """Split *body* into chunks that fit within GitHub's comment limit."""
+        if limit is None:
+            limit = PRManager._GITHUB_COMMENT_LIMIT
         if len(body) <= limit:
             return [body]
         chunks: list[str] = []
@@ -1020,12 +1022,14 @@ class PRManager:
         return chunks
 
     @classmethod
-    def _cap_body(cls, body: str, limit: int = 65_536) -> str:
+    def _cap_body(cls, body: str, limit: int | None = None) -> str:
         """Hard-truncate *body* to *limit* characters.
 
         Acts as a safety net after chunking / header prepending to guarantee
         no single payload exceeds GitHub's comment size limit.
         """
+        if limit is None:
+            limit = cls._GITHUB_COMMENT_LIMIT
         if len(body) <= limit:
             return body
         marker = cls._TRUNCATION_MARKER

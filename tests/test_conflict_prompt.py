@@ -104,3 +104,14 @@ class TestBuildConflictPrompt:
 
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1, config=config)
         assert "## Project Context" not in prompt
+
+    def test_truncates_long_error_using_config_max_chars(self, tmp_path: Path) -> None:
+        """When config is provided, config.error_output_max_chars is used for truncation."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo", error_output_max_chars=500
+        )
+        long_error = "Z" * 2000
+        prompt = build_conflict_prompt(ISSUE_URL, PR_URL, long_error, 2, config=config)
+        assert "## Previous Attempt Failed" in prompt
+        error_section = prompt.split("## Previous Attempt Failed")[1].split("##")[0]
+        assert error_section.count("Z") <= 500
