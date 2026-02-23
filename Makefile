@@ -205,7 +205,7 @@ install:
 	@VIRTUAL_ENV=$(VENV) uv pip install fastapi uvicorn websockets
 	@echo "$(GREEN)Dashboard dependencies installed$(RESET)"
 
-setup:
+setup: deps
 	@if ! command -v gh >/dev/null 2>&1; then \
 		echo "$(BLUE)Installing gh CLI...$(RESET)"; \
 		if command -v brew >/dev/null 2>&1; then \
@@ -284,7 +284,7 @@ setup:
 
 REPO_SLUG := $(shell git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]||;s|\.git$$||')
 
-prep:
+prep: deps
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
 	@echo "$(BLUE)Resetting prep scratch directories (.pre/.prep)...$(RESET)"
@@ -292,7 +292,7 @@ prep:
 	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --scaffold
 	@echo "$(GREEN)Prep complete$(RESET)"
 
-ensure-labels:
+ensure-labels: deps
 	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
 	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep
