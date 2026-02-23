@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { BACKGROUND_WORKERS } from '../../constants'
 import { deriveStageStatus } from '../../hooks/useStageStatus'
 
@@ -183,7 +183,7 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Pipeline Poller')).toBeInTheDocument()
       expect(screen.getByText('Memory Manager')).toBeInTheDocument()
       expect(screen.getByText('Metrics Munger')).toBeInTheDocument()
-      // Count On/Off buttons — should be non-system bg workers + memory auto-approve toggle
+      // Count On/Off buttons — should be non-system bg workers + memory auto-approve toggle (inside memory_sync card)
       const allToggleButtons = [...screen.getAllByText('On'), ...screen.getAllByText('Off')]
       const nonSystemBgCount = BACKGROUND_WORKERS.filter(w => !w.system).length
       expect(allToggleButtons.length).toBe(nonSystemBgCount + 1)
@@ -209,10 +209,8 @@ describe('SystemPanel', () => {
       const onToggle = vi.fn()
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running', backgroundWorkers: mockBgWorkers }))
       render(<SystemPanel backgroundWorkers={mockBgWorkers} onToggleBgWorker={onToggle} />)
-      // Click the worker Off button (not the memory auto-approve toggle)
-      const offButtons = screen.getAllByText('Off')
-      const workerOffButton = offButtons.find(btn => btn.dataset.testid !== 'memory-auto-approve-toggle')
-      fireEvent.click(workerOffButton)
+      const reviewInsightsCard = screen.getByTestId('worker-card-review_insights')
+      fireEvent.click(within(reviewInsightsCard).getByText('Off'))
       expect(onToggle).toHaveBeenCalledWith('review_insights', true)
     })
 
@@ -244,8 +242,32 @@ describe('SystemPanel', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ backgroundWorkers: disabledWorkers }))
       render(<SystemPanel backgroundWorkers={disabledWorkers} onToggleBgWorker={onToggle} />)
       const offButtons = screen.getAllByText('Off')
-      // 2 disabled background workers + 1 memory auto-approve toggle (default off)
+      // 2 disabled background workers + 1 memory auto-approve toggle (default off, inside memory_sync card)
       expect(offButtons.length).toBe(3)
+    })
+  })
+
+  describe('Memory Auto-Approve toggle location', () => {
+    it('renders the auto-approve toggle inside the Memory Manager card', () => {
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      // Assert: toggle is contained within the memory_sync worker card
+      const memoryCard = screen.getByTestId('worker-card-memory_sync')
+      expect(within(memoryCard).getByTestId('memory-auto-approve-toggle')).toBeInTheDocument()
+    })
+
+    it('does not render the auto-approve toggle outside the Memory Manager card', () => {
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      const toggle = screen.getByTestId('memory-auto-approve-toggle')
+      const memoryCard = screen.getByTestId('worker-card-memory_sync')
+      // Toggle must be inside the memory_sync card, not in any other card
+      expect(memoryCard).toContainElement(toggle)
+      const otherCards = BACKGROUND_WORKERS
+        .filter(w => w.key !== 'memory_sync')
+        .map(w => screen.queryByTestId(`worker-card-${w.key}`))
+        .filter(Boolean)
+      for (const card of otherCards) {
+        expect(card).not.toContainElement(toggle)
+      }
     })
   })
 
