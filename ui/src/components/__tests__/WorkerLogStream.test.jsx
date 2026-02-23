@@ -112,6 +112,20 @@ describe('WorkerLogStream', () => {
     })
   })
 
+  describe('render order', () => {
+    it('renders lines newest-first so collapsed view shows the 3 most recent', () => {
+      // Lines are passed oldest-first (as SystemPanel sends them after its .reverse())
+      const lines = ['old1', 'old2', 'old3', 'new1', 'new2']
+      render(<WorkerLogStream lines={lines} />)
+      const stream = screen.getByTestId('worker-log-stream')
+      const lineEls = Array.from(stream.firstChild.children)
+      // Newest entries must appear first in the DOM (CSS overflow clips the bottom)
+      expect(lineEls[0].textContent).toBe('new2')
+      expect(lineEls[1].textContent).toBe('new1')
+      expect(lineEls[2].textContent).toBe('old3')
+    })
+  })
+
   describe('line limits', () => {
     it('limits to 15 lines when more are provided', () => {
       const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`)

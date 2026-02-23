@@ -19,7 +19,7 @@ export function WorkerLogStream({ lines }) {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = 0
     }
-  }, [expanded, displayLines.length])
+  }, [expanded])
 
   if (!lines || lines.length === 0) return null
 
