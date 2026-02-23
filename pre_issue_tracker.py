@@ -82,3 +82,18 @@ def write_run_log(repo_root: Path, *, title: str, lines: list[str]) -> Path:
     body = "\n".join(lines)
     path.write_text(f"# {title}\n\n{body}\n", encoding="utf-8")
     return path
+
+
+def upsert_issue(
+    repo_root: Path,
+    *,
+    filename: str,
+    title: str,
+    body_lines: list[str],
+) -> LocalPrepIssue:
+    """Create or update a local `.pre` markdown issue file."""
+    pre_dir, _ = ensure_pre_dirs(repo_root)
+    path = pre_dir / filename
+    body = "\n".join([f"# {title}", "", *body_lines, ""])
+    path.write_text(body, encoding="utf-8")
+    return LocalPrepIssue(path=path, title=title, body=body)

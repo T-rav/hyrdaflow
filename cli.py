@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import re
 import signal
 import sys
 from pathlib import Path
@@ -548,17 +549,25 @@ def _makefile_has_target(repo_root: Path, target: str) -> bool:
     return any(line.startswith(f"{target}:") for line in content.splitlines())
 
 
-async def _run_hardening_step(step: str, cmd: list[str], cwd: Path) -> bool:
+async def _run_hardening_step(
+    step: str, cmd: list[str], cwd: Path
+) -> tuple[bool, str | None]:
     """Run one prep hardening command and print a concise status line."""
     from subprocess_util import run_subprocess  # noqa: PLC0415
 
     try:
         await run_subprocess(*cmd, cwd=cwd, timeout=900.0)
         print(f"{step}: ok ({' '.join(cmd)})")  # noqa: T201
-        return True
+        return True, None
     except RuntimeError as exc:
         print(f"{step}: failed ({' '.join(cmd)}): {exc}")  # noqa: T201
-        return False
+        return False, str(exc)
+
+
+def _slugify_issue_name(step_name: str) -> str:
+    """Convert a step name to a safe `.pre` issue slug."""
+    slug = re.sub(r"[^a-z0-9]+", "-", step_name.lower()).strip("-")
+    return slug or "prep-step"
 
 
 async def _run_scaffold(config: HydraFlowConfig) -> bool:
@@ -573,6 +582,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
         ensure_pre_dirs,
         load_open_issues,
         mark_done,
+        upsert_issue,
         write_run_log,
     )
     from prep import RepoAuditor  # noqa: PLC0415
@@ -646,6 +656,10 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     if config.dry_run:
         print("Hardening pass: skipped in dry-run mode")  # noqa: T201
         run_log_lines.append("- Hardening skipped in dry-run mode")
+        print("Prep summary:")  # noqa: T201
+        print(f"- Stack: {stack}")  # noqa: T201
+        print("- Hardening: skipped (dry-run)")  # noqa: T201
+        print(f"- Local issues open: {len(local_issues)}")  # noqa: T201
         run_log = write_run_log(
             config.repo_root,
             title="Prep Workflow Run",
@@ -706,19 +720,79 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
         print("Test pass: skipped (no make quality/test targets found)")  # noqa: T201
         run_log_lines.append("- Test pass skipped: no compatible test command found")
 
-    for step_name, cmd in hardening_plan:
-        step_ok = await _run_hardening_step(step_name, cmd, repo_root)
-        hardening_ok = step_ok and hardening_ok
-        run_log_lines.append(
-            f"- {step_name}: {'ok' if step_ok else 'failed'} ({' '.join(cmd)})"
-        )
+    max_attempts = 3
+    attempts_used = 0
+    auto_issues: list[Any] = []
+    failure_count = 0
+    for attempt in range(1, max_attempts + 1):
+        attempts_used = attempt
+        attempt_failures: list[tuple[str, list[str], str]] = []
+        run_log_lines.append(f"- Hardening attempt {attempt}/{max_attempts}")
+        print(f"Hardening attempt {attempt}/{max_attempts}")  # noqa: T201
 
-    if hardening_ok and local_issues:
-        for issue in local_issues:
+        for step_name, cmd in hardening_plan:
+            step_ok, error_msg = await _run_hardening_step(step_name, cmd, repo_root)
+            run_log_lines.append(
+                f"- {step_name}: {'ok' if step_ok else 'failed'} ({' '.join(cmd)})"
+            )
+            if not step_ok:
+                failure_count += 1
+                attempt_failures.append((step_name, cmd, error_msg or "unknown error"))
+
+        if not attempt_failures:
+            hardening_ok = True
+            break
+
+        hardening_ok = False
+        for step_name, cmd, error_msg in attempt_failures:
+            slug = _slugify_issue_name(step_name)
+            issue = upsert_issue(
+                repo_root,
+                filename=f"auto-fix-{slug}.md",
+                title=f"[prep] Resolve {step_name} failure",
+                body_lines=[
+                    "## Failure",
+                    f"- Step: `{step_name}`",
+                    f"- Command: `{' '.join(cmd)}`",
+                    "",
+                    "## Last Error",
+                    "```",
+                    error_msg,
+                    "```",
+                    "",
+                    "## Resolution Checklist",
+                    "- [ ] identify root cause",
+                    "- [ ] apply code/config fix",
+                    "- [ ] rerun prep successfully",
+                ],
+            )
+            auto_issues.append(issue)
+            run_log_lines.append(f"- Opened/updated local issue: `{issue.path.name}`")
+
+        if attempt < max_attempts:
+            run_log_lines.append(
+                "- Correction loop: rerunning hardening with updated local issues"
+            )
+
+    issues_to_close = list(local_issues) + auto_issues
+    if hardening_ok and issues_to_close:
+        for issue in issues_to_close:
             mark_done(issue)
-        run_log_lines.append(f"- Marked {len(local_issues)} local issue(s) done")
-    elif local_issues:
-        run_log_lines.append("- Local issues were not marked done due to failures")
+        run_log_lines.append(f"- Marked {len(issues_to_close)} local issue(s) done")
+    elif issues_to_close:
+        run_log_lines.append("- Local issues remain open due to hardening failures")
+
+    print("Prep summary:")  # noqa: T201
+    print(f"- Stack: {stack}")  # noqa: T201
+    print(f"- Hardening success: {hardening_ok}")  # noqa: T201
+    print(f"- Hardening attempts: {attempts_used}/{max_attempts}")  # noqa: T201
+    print(f"- Hardening failures observed: {failure_count}")  # noqa: T201
+    print(f"- Auto issues opened/updated: {len(auto_issues)}")  # noqa: T201
+    print(f"- Local issues initially open: {len(local_issues)}")  # noqa: T201
+    print(  # noqa: T201
+        f"- Local issues closed this run: {len(issues_to_close) if hardening_ok else 0}"
+    )
+    run_log_lines.append("- Summary printed to console")
 
     run_log = write_run_log(
         config.repo_root,

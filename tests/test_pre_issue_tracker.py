@@ -6,6 +6,7 @@ from pre_issue_tracker import (
     ensure_pre_dirs,
     load_open_issues,
     mark_done,
+    upsert_issue,
     write_run_log,
 )
 
@@ -46,3 +47,15 @@ def test_write_run_log_creates_log_file(tmp_path):
     text = path.read_text()
     assert "# Prep Run" in text
     assert "- one" in text
+
+
+def test_upsert_issue_creates_or_updates_markdown(tmp_path):
+    issue = upsert_issue(
+        tmp_path,
+        filename="auto-fix-quality.md",
+        title="[prep] Resolve Quality failure",
+        body_lines=["- one", "- two"],
+    )
+    assert issue.path.name == "auto-fix-quality.md"
+    assert issue.path.exists()
+    assert "[prep] Resolve Quality failure" in issue.path.read_text()
