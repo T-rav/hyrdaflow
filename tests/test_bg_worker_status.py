@@ -225,7 +225,7 @@ class TestSystemWorkersEndpoint:
 
         response = await endpoint()
         data = json.loads(response.body)
-        assert len(data["workers"]) == 9
+        assert len(data["workers"]) == 10
         names = [w["name"] for w in data["workers"]]
         assert names == [
             "triage",
@@ -236,6 +236,7 @@ class TestSystemWorkersEndpoint:
             "retrospective",
             "metrics",
             "review_insights",
+            "pipeline_poller",
             "pr_unsticker",
         ]
 
@@ -696,6 +697,14 @@ class TestOrchestratorIntervalManagement:
 
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch.get_bg_worker_interval("pr_unsticker") == config.pr_unstick_interval
+
+    def test_pipeline_poller_returns_5_as_default(
+        self, config, event_bus: EventBus
+    ) -> None:
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus)
+        assert orch.get_bg_worker_interval("pipeline_poller") == 5
 
     def test_unknown_worker_returns_poll_interval(
         self, config, event_bus: EventBus

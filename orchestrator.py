@@ -69,6 +69,8 @@ class HydraFlowOrchestrator:
         # Session tracking
         self._current_session: SessionLog | None = None
         self._session_issue_results: dict[int, bool] = {}
+        # Loop tasks (set by _supervise_loops for stop() to cancel)
+        self._loop_tasks: dict[str, asyncio.Task[None]] = {}
 
         # Build all services via the factory
         svc = build_services(
@@ -207,14 +209,53 @@ class HydraFlowOrchestrator:
         self._hitl_phase.skip_issue(issue_number)
 
     async def stop(self) -> None:
-        """Signal the orchestrator to stop and kill active subprocesses."""
+        """Signal the orchestrator to stop and kill active subprocesses.
+
+        Checkpoints interrupted issues before cancelling loop tasks so
+        that on restart each issue can be routed back to the correct phase.
+        """
         self._stop_event.set()
         logger.info("Stop requested — terminating active processes")
         self._planners.terminate()
         self._agents.terminate()
         self._reviewers.terminate()
         self._hitl_runner.terminate()
+
+        # Checkpoint interrupted issues before cancelling tasks
+        interrupted = self._build_interrupted_issues()
+        if interrupted:
+            self._state.set_interrupted_issues(interrupted)
+            logger.info(
+                "Checkpointed %d interrupted issue(s): %s",
+                len(interrupted),
+                interrupted,
+            )
+
+        # Cancel loop tasks so _supervise_loops exits immediately
+        for name, task in self._loop_tasks.items():
+            if not task.done():
+                task.cancel()
+                logger.debug("Cancelled loop task %r", name)
+
         await self._publish_status()
+
+    def _build_interrupted_issues(self) -> dict[int, str]:
+        """Build a mapping of issue_number → phase for all in-flight issues."""
+        interrupted: dict[int, str] = {}
+        # Use IssueStore active tracking as the primary source
+        for issue_num, stage in self._store.get_active_issues().items():
+            interrupted[issue_num] = stage
+        # Also check in-memory tracking sets for issues not yet in the store
+        for issue_num in self._active_impl_issues:
+            if issue_num not in interrupted:
+                interrupted[issue_num] = "implement"
+        for issue_num in self._active_review_issues:
+            if issue_num not in interrupted:
+                interrupted[issue_num] = "review"
+        for issue_num in self._hitl_phase.active_hitl_issues:
+            if issue_num not in interrupted:
+                interrupted[issue_num] = "hitl"
+        return interrupted
 
     # Alias for backward compatibility
     request_stop = stop
@@ -229,6 +270,7 @@ class HydraFlowOrchestrator:
         self._active_impl_issues.clear()
         self._active_review_issues.clear()
         self._hitl_phase.active_hitl_issues.clear()
+        self._state.clear_interrupted_issues()
 
     @property
     def _active_hitl_issues(self) -> set[int]:
@@ -288,15 +330,14 @@ class HydraFlowOrchestrator:
         """
         if name in self._bg_worker_intervals:
             return self._bg_worker_intervals[name]
-        if name == "memory_sync":
-            return self._config.memory_sync_interval
-        if name == "metrics":
-            return self._config.metrics_sync_interval
-        if name == "pr_unsticker":
-            return self._config.pr_unstick_interval
-        if name == "manifest_refresh":
-            return self._config.manifest_refresh_interval
-        return self._config.poll_interval
+        defaults: dict[str, int] = {
+            "memory_sync": self._config.memory_sync_interval,
+            "metrics": self._config.metrics_sync_interval,
+            "pipeline_poller": 5,
+            "pr_unsticker": self._config.pr_unstick_interval,
+            "manifest_refresh": self._config.manifest_refresh_interval,
+        }
+        return defaults.get(name, self._config.poll_interval)
 
     async def _publish_status(self) -> None:
         """Broadcast the current orchestrator status to all subscribers."""
@@ -337,6 +378,24 @@ class HydraFlowOrchestrator:
                 len(recovered),
                 recovered,
             )
+
+        # Restore interrupted issues from a previous stop.
+        # Remove them from crash-recovery tracking sets so the IssueStore
+        # can route each issue to the correct pipeline stage based on its
+        # current GitHub labels.
+        interrupted = self._state.get_interrupted_issues()
+        if interrupted:
+            for issue_num in interrupted:
+                self._recovered_issues.discard(issue_num)
+                self._active_impl_issues.discard(issue_num)
+                self._active_review_issues.discard(issue_num)
+                self._hitl_phase.active_hitl_issues.discard(issue_num)
+            logger.info(
+                "Restored %d interrupted issue(s) for re-processing: %s",
+                len(interrupted),
+                interrupted,
+            )
+            self._state.clear_interrupted_issues()
 
         await self._publish_status()
         logger.info(
@@ -435,6 +494,7 @@ class HydraFlowOrchestrator:
         tasks: dict[str, asyncio.Task[None]] = {}
         for name, factory in loop_factories:
             tasks[name] = asyncio.create_task(factory(), name=f"hydraflow-{name}")
+        self._loop_tasks = tasks
 
         try:
             while not self._stop_event.is_set():

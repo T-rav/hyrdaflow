@@ -518,11 +518,12 @@ def create_router(
         ("retrospective", "Retrospective"),
         ("metrics", "Metrics"),
         ("review_insights", "Review Insights"),
+        ("pipeline_poller", "Pipeline Poller"),
         ("pr_unsticker", "PR Unsticker"),
     ]
 
     # Workers that have independent configurable intervals
-    _INTERVAL_WORKERS = {"memory_sync", "metrics", "pr_unsticker"}
+    _INTERVAL_WORKERS = {"memory_sync", "metrics", "pr_unsticker", "pipeline_poller"}
     # Pipeline loops share poll_interval (read-only display)
     _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}
 
@@ -563,6 +564,8 @@ def create_router(
                     interval = config.metrics_sync_interval
                 elif name == "pr_unsticker":
                     interval = config.pr_unstick_interval
+                elif name == "pipeline_poller":
+                    interval = 5
             elif name in _PIPELINE_WORKERS:
                 interval = config.poll_interval
 
@@ -607,10 +610,14 @@ def create_router(
         orch.set_bg_worker_enabled(name, bool(enabled))
         return JSONResponse({"status": "ok", "name": name, "enabled": bool(enabled)})
 
-    # Interval bounds per editable worker (must match config.py Field constraints)
+    # Interval bounds per editable worker.
+    # memory_sync, metrics, pr_unsticker bounds must match config.py Field constraints.
+    # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
     _INTERVAL_BOUNDS = {
         "memory_sync": (10, 14400),
         "metrics": (30, 14400),
+        "pr_unsticker": (60, 86400),
+        "pipeline_poller": (5, 14400),
     }
 
     @router.post("/api/control/bg-worker/interval")

@@ -52,13 +52,12 @@ export const INTERVAL_PRESETS = [
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller'])
 
 /**
  * Default intervals (in seconds) for system workers.
  * Used as fallback when state?.interval_seconds is not yet available
  * (e.g., before the worker's first run report from the backend).
- * pipeline_poller is frontend-only (5s polling via setInterval in HydraContext).
  */
 export const SYSTEM_WORKER_INTERVALS = {
   pipeline_poller: 5,

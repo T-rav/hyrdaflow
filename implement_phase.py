@@ -121,13 +121,19 @@ class ImplementPhase:
         all_tasks = [
             asyncio.create_task(_worker(i, issue)) for i, issue in enumerate(issues)
         ]
-        for task in asyncio.as_completed(all_tasks):
-            results.append(await task)
-            # Cancel remaining tasks if stop requested
-            if self._stop_event.is_set():
-                for t in all_tasks:
+        try:
+            for task in asyncio.as_completed(all_tasks):
+                results.append(await task)
+                # Cancel remaining tasks if stop requested
+                if self._stop_event.is_set():
+                    for t in all_tasks:
+                        t.cancel()
+                    break
+        finally:
+            # Cancel any remaining tasks if this coroutine is cancelled externally
+            for t in all_tasks:
+                if not t.done():
                     t.cancel()
-                break
 
         return results, issues
 

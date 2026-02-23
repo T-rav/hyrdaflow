@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useCallback, useReducer, useMemo } from 'react'
-import { MAX_EVENTS } from '../constants'
+import { MAX_EVENTS, SYSTEM_WORKER_INTERVALS } from '../constants'
 import { deriveStageStatus } from '../hooks/useStageStatus'
 
 const emptyPipeline = {
@@ -893,12 +893,17 @@ export function HydraFlowProvider({ children }) {
     return () => clearInterval(interval)
   }, [])
 
-  // Pipeline polling — authoritative source every 5s
+  // Pipeline polling — interval is editable via system worker controls
+  const pipelinePollerIntervalMs = useMemo(() => {
+    const worker = state.backgroundWorkers.find(w => w.name === 'pipeline_poller')
+    return (worker?.interval_seconds ?? SYSTEM_WORKER_INTERVALS.pipeline_poller) * 1000
+  }, [state.backgroundWorkers])
+
   useEffect(() => {
     fetchPipeline()
-    const interval = setInterval(fetchPipeline, 5000)
+    const interval = setInterval(fetchPipeline, pipelinePollerIntervalMs)
     return () => clearInterval(interval)
-  }, [fetchPipeline])
+  }, [fetchPipeline, pipelinePollerIntervalMs])
 
   useEffect(() => {
     connect()

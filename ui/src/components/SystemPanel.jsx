@@ -61,7 +61,7 @@ function formatTimestamp(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onViewLog, onUpdateInterval, events, extraContent }) {
+function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onUpdateInterval, events, extraContent }) {
   const [showIntervalEditor, setShowIntervalEditor] = useState(false)
   const isPipelinePoller = def.key === 'pipeline_poller'
   const isSystem = def.system === true
@@ -146,7 +146,6 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
   const showToggle = onToggleBgWorker && !isSystem
   const isError = statusText === 'error' || statusText === 'stopped'
   const hasDetails = Object.keys(details).length > 0
-
   return (
     <div style={styles.card} data-testid={`worker-card-${def.key}`}>
       <div style={styles.cardHeader}>
@@ -217,8 +216,8 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
           ))}
         </div>
       )}
-      {hasDetails && (
-        <div style={isError ? (onViewLog ? styles.detailsErrorCompact : styles.detailsError) : styles.details}>
+      {hasDetails && !isPipelinePoller && (
+        <div style={isError ? (logLines.length > 0 ? styles.detailsErrorCompact : styles.detailsError) : styles.details}>
           {Object.entries(details).map(([k, v]) => (
             <div key={k} style={k === 'error' ? styles.errorRow : styles.detailRow}>
               <span style={isError ? styles.detailKeyError : styles.detailKey}>{k.replace(/_/g, ' ')}</span>
@@ -231,17 +230,6 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
         <WorkerLogStream lines={logLines} />
       )}
       {extraContent}
-      {onViewLog && (
-        <div style={styles.cardActions}>
-          <span
-            style={styles.viewLogLink}
-            onClick={() => onViewLog(`bg-${def.key}`)}
-            data-testid={`view-log-${def.key}`}
-          >
-            View Log
-          </span>
-        </div>
-      )}
     </div>
   )
 }
@@ -291,7 +279,7 @@ function MemoryAutoApproveToggle() {
   )
 }
 
-export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, onUpdateInterval }) {
+export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInterval }) {
   const { pipelinePollerLastRun, orchestratorStatus, events, pipelineIssues } = useHydraFlow()
   const [activeSubTab, setActiveSubTab] = useState('workers')
 
@@ -323,7 +311,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, on
                     pipelinePollerLastRun={pipelinePollerLastRun}
                     orchestratorStatus={orchestratorStatus}
                     onToggleBgWorker={onToggleBgWorker}
-                    onViewLog={onViewLog}
                     onUpdateInterval={onUpdateInterval}
                     events={events}
                   />
@@ -343,7 +330,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, on
                     pipelineIssues={pipelineIssues}
                     orchestratorStatus={orchestratorStatus}
                     onToggleBgWorker={onToggleBgWorker}
-                    onViewLog={onViewLog}
                     onUpdateInterval={onUpdateInterval}
                     events={events}
                     extraContent={def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> : undefined}
@@ -475,7 +461,6 @@ const styles = {
   },
   detailsErrorCompact: {
     borderTop: `1px solid ${theme.red}`,
-    paddingTop: 8,
     background: theme.redSubtle,
     margin: '0 -16px 0',
     padding: '8px 16px',
@@ -549,24 +534,6 @@ const styles = {
     borderRadius: 10,
     padding: '1px 8px',
     textTransform: 'uppercase',
-  },
-  cardActions: {
-    display: 'flex',
-    gap: 8,
-    paddingTop: 8,
-    borderTop: `1px solid ${theme.border}`,
-    marginTop: 8,
-  },
-  viewLogLink: {
-    fontSize: 10,
-    fontWeight: 600,
-    color: theme.accent,
-    cursor: 'pointer',
-    padding: '3px 8px',
-    borderRadius: 4,
-    border: `1px solid ${theme.border}`,
-    background: 'transparent',
-    transition: 'background 0.15s',
   },
   scheduleRow: {
     fontSize: 11,
