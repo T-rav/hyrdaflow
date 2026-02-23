@@ -212,7 +212,10 @@ class PRUnsticker:
                 )
                 cmd = self._agents._build_command(wt_path)
                 transcript = await self._agents._execute(
-                    cmd, prompt, wt_path, issue_number
+                    cmd,
+                    prompt,
+                    wt_path,
+                    {"issue": issue_number, "source": "pr_unsticker"},
                 )
 
                 self._save_transcript(issue_number, attempt, transcript)

@@ -337,7 +337,7 @@ class TestSaveTranscript:
 
     def test_saves_transcript_to_disk(self, hitl_runner, config) -> None:
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        hitl_runner._save_transcript(42, "test transcript content")
+        hitl_runner._save_transcript("hitl-issue", 42, "test transcript content")
 
         path = config.repo_root / ".hydraflow" / "logs" / "hitl-issue-42.txt"
         assert path.exists()
@@ -350,7 +350,7 @@ class TestSaveTranscript:
         runner = HITLRunner(config, EventBus())
 
         with patch.object(Path, "write_text", side_effect=OSError("disk full")):
-            runner._save_transcript(42, "transcript")  # should not raise
+            runner._save_transcript("hitl-issue", 42, "transcript")  # should not raise
 
         assert "Could not save transcript" in caplog.text
 
@@ -367,7 +367,7 @@ class TestTerminate:
         hitl_runner.terminate()  # Should not raise
 
     def test_terminate_calls_terminate_processes(self, hitl_runner) -> None:
-        with patch("hitl_runner.terminate_processes") as mock_term:
+        with patch("base_runner.terminate_processes") as mock_term:
             hitl_runner.terminate()
             mock_term.assert_called_once_with(hitl_runner._active_procs)
 

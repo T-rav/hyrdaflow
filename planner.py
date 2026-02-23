@@ -2,46 +2,28 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
-from pathlib import Path
-from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from config import HydraFlowConfig
-from events import EventBus, EventType, HydraFlowEvent
-from execution import get_default_runner
-from manifest import load_project_manifest
-from memory import load_memory_digest
+from base_runner import BaseRunner
+from events import EventType, HydraFlowEvent
 from models import GitHubIssue, NewIssueSpec, PlannerStatus, PlanResult
-from runner_utils import stream_claude_process, terminate_processes
+from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
-
-if TYPE_CHECKING:
-    from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.planner")
 
 
-class PlannerRunner:
+class PlannerRunner(BaseRunner):
     """Launches a ``claude -p`` process to explore the codebase and create an implementation plan.
 
     The planner works READ-ONLY against the repo root (no worktree needed).
     It produces a structured plan that is posted as a comment on the issue.
     """
 
-    def __init__(
-        self,
-        config: HydraFlowConfig,
-        event_bus: EventBus,
-        runner: SubprocessRunner | None = None,
-    ) -> None:
-        self._config = config
-        self._bus = event_bus
-        self._active_procs: set[asyncio.subprocess.Process] = set()
-        self._runner = runner or get_default_runner()
+    _log = logger
 
     async def plan(
         self,
@@ -75,8 +57,28 @@ class PlannerRunner:
 
             cmd = self._build_command()
             prompt = self._build_prompt(issue, scale=scale)
+
+            def _check_plan_complete(accumulated: str) -> bool:
+                if "PLAN_END" in accumulated:
+                    logger.info(
+                        "Plan markers found for issue #%d — terminating planner",
+                        issue.number,
+                    )
+                    return True
+                if "ALREADY_SATISFIED_END" in accumulated:
+                    logger.info(
+                        "Already-satisfied markers found for issue #%d — terminating planner",
+                        issue.number,
+                    )
+                    return True
+                return False
+
             transcript = await self._execute(
-                cmd, prompt, self._config.repo_root, issue.number
+                cmd,
+                prompt,
+                self._config.repo_root,
+                {"issue": issue.number, "source": "planner"},
+                on_output=_check_plan_complete,
             )
             result.transcript = transcript
 
@@ -88,7 +90,7 @@ class PlannerRunner:
                 result.summary = satisfied_explanation[:200]
                 result.duration_seconds = time.monotonic() - start
                 try:
-                    self._save_transcript(issue.number, result.transcript)
+                    self._save_transcript("plan-issue", issue.number, result.transcript)
                 except OSError:
                     logger.warning(
                         "Failed to save transcript for issue #%d",
@@ -136,7 +138,11 @@ class PlannerRunner:
                         issue, result.plan, all_errors, scale=scale
                     )
                     retry_transcript = await self._execute(
-                        cmd, retry_prompt, self._config.repo_root, issue.number
+                        cmd,
+                        retry_prompt,
+                        self._config.repo_root,
+                        {"issue": issue.number, "source": "planner"},
+                        on_output=_check_plan_complete,
                     )
                     result.transcript += "\n\n--- RETRY ---\n\n" + retry_transcript
 
@@ -188,7 +194,7 @@ class PlannerRunner:
 
         result.duration_seconds = time.monotonic() - start
         try:
-            self._save_transcript(issue.number, result.transcript)
+            self._save_transcript("plan-issue", issue.number, result.transcript)
         except OSError:
             logger.warning(
                 "Failed to save transcript for issue #%d",
@@ -274,17 +280,7 @@ class PlannerRunner:
                 "the surrounding text describes what they show."
             )
 
-        # Project manifest injection
-        manifest_section = ""
-        manifest = load_project_manifest(self._config)
-        if manifest:
-            manifest_section = f"\n\n## Project Context\n\n{manifest}"
-
-        # Memory digest injection
-        memory_section = ""
-        digest = load_memory_digest(self._config)
-        if digest:
-            memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
+        manifest_section, memory_section = self._inject_manifest_and_memory()
 
         find_label = (
             self._config.find_label[0] if self._config.find_label else "hydraflow-find"
@@ -451,21 +447,7 @@ ALREADY_SATISFIED_END
 This will close the issue automatically. Only use this when you are **certain** the
 requirements are already implemented — not when the issue is unclear or you are unsure.
 
-## Optional: Memory Suggestion
-
-If you discover a reusable pattern or insight during exploration that would help future agent runs, you may output ONE suggestion:
-
-MEMORY_SUGGESTION_START
-title: Short descriptive title
-type: knowledge | config | instruction | code
-learning: What was learned and why it matters
-context: How it was discovered (reference issue/PR numbers)
-MEMORY_SUGGESTION_END
-
-Types: knowledge (passive insight), config (suggests config change), instruction (new agent instruction), code (suggests code change).
-Actionable types (config, instruction, code) will be routed for human approval.
-Only suggest genuinely valuable learnings — not trivial observations.
-"""
+{MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
 
     # Required plan sections — each must appear as a ## header.
     REQUIRED_SECTIONS: tuple[str, ...] = (
@@ -879,46 +861,6 @@ Then provide a one-line summary:
 SUMMARY: <brief one-line description of the plan>
 """
 
-    def terminate(self) -> None:
-        """Kill all active planner subprocesses."""
-        terminate_processes(self._active_procs)
-
-    async def _execute(
-        self,
-        cmd: list[str],
-        prompt: str,
-        cwd: Path,
-        issue_number: int,
-    ) -> str:
-        """Run the claude planning process."""
-
-        def _check_plan_complete(accumulated: str) -> bool:
-            if "PLAN_END" in accumulated:
-                logger.info(
-                    "Plan markers found for issue #%d — terminating planner",
-                    issue_number,
-                )
-                return True
-            if "ALREADY_SATISFIED_END" in accumulated:
-                logger.info(
-                    "Already-satisfied markers found for issue #%d — terminating planner",
-                    issue_number,
-                )
-                return True
-            return False
-
-        return await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=cwd,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data={"issue": issue_number, "source": "planner"},
-            logger=logger,
-            on_output=_check_plan_complete,
-            runner=self._runner,
-        )
-
     async def _emit_status(
         self, issue_number: int, worker_id: int, status: PlannerStatus
     ) -> None:
@@ -934,24 +876,6 @@ SUMMARY: <brief one-line description of the plan>
                 },
             )
         )
-
-    def _save_transcript(self, issue_number: int, transcript: str) -> None:
-        """Write the planning transcript to .hydraflow/logs/ for post-mortem review."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            path = log_dir / f"plan-issue-{issue_number}.txt"
-            path.write_text(transcript)
-            logger.info(
-                "Plan transcript saved to %s", path, extra={"issue": issue_number}
-            )
-        except OSError:
-            logger.warning(
-                "Could not save transcript to %s",
-                log_dir,
-                exc_info=True,
-                extra={"issue": issue_number},
-            )
 
     def _save_plan(self, issue_number: int, plan: str, summary: str) -> None:
         """Write the extracted plan to .hydraflow/plans/ for the implementation worker."""
