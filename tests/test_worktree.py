@@ -473,12 +473,121 @@ class TestDestroyAll:
 
 
 # ---------------------------------------------------------------------------
-# WorktreeManager.rebase
+# WorktreeManager._fetch_and_merge_main
+# ---------------------------------------------------------------------------
+
+
+class TestFetchAndMergeMain:
+    """Tests for WorktreeManager._fetch_and_merge_main."""
+
+    @pytest.mark.asyncio
+    async def test_success_returns_true(self, config, tmp_path: Path) -> None:
+        """_fetch_and_merge_main should return True when all 3 git commands succeed."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc()
+
+        with patch("asyncio.create_subprocess_exec", return_value=success_proc):
+            result = await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_fetch_failure_raises_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_fetch_and_merge_main should raise RuntimeError when fetch fails."""
+        manager = WorktreeManager(config)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=fail_proc),
+            pytest.raises(RuntimeError, match="network error"),
+        ):
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_ff_only_merge_failure_raises_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_fetch_and_merge_main should raise RuntimeError when ff-only merge fails."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc(returncode=0)
+        fail_proc = _make_proc(returncode=1, stderr=b"fatal: not a fast-forward")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return success_proc  # fetch succeeds
+            return fail_proc  # ff-only merge fails
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            pytest.raises(RuntimeError, match="not a fast-forward"),
+        ):
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_main_merge_failure_raises_runtime_error(
+        self, config, tmp_path: Path
+    ) -> None:
+        """_fetch_and_merge_main should raise RuntimeError when merge origin/main fails."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc(returncode=0)
+        fail_proc = _make_proc(
+            returncode=1, stderr=b"CONFLICT (content): Merge conflict"
+        )
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return success_proc  # fetch + ff-only succeed
+            return fail_proc  # merge origin/main fails
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            pytest.raises(RuntimeError, match="Merge conflict"),
+        ):
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_correct_git_commands(self, config, tmp_path: Path) -> None:
+        """_fetch_and_merge_main should issue the 3 correct git commands in order."""
+        manager = WorktreeManager(config)
+        success_proc = _make_proc()
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=success_proc
+        ) as mock_exec:
+            await manager._fetch_and_merge_main(tmp_path, "agent/issue-7")
+
+        calls = mock_exec.call_args_list
+        assert len(calls) == 3
+        # 1. git fetch origin main agent/issue-7
+        assert calls[0].args[:3] == ("git", "fetch", "origin")
+        assert config.main_branch in calls[0].args
+        assert "agent/issue-7" in calls[0].args
+        # 2. git merge --ff-only origin/agent/issue-7
+        assert calls[1].args[:3] == ("git", "merge", "--ff-only")
+        assert calls[1].args[3] == "origin/agent/issue-7"
+        # 3. git merge origin/main --no-edit
+        assert calls[2].args[:2] == ("git", "merge")
+        assert f"origin/{config.main_branch}" in calls[2].args
+        assert "--no-edit" in calls[2].args
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager.merge_main
 # ---------------------------------------------------------------------------
 
 
 class TestMergeMain:
-    """Tests for WorktreeManager.rebase."""
+    """Tests for WorktreeManager.merge_main."""
 
     @pytest.mark.asyncio
     async def test_merge_main_success_returns_true(
@@ -786,6 +895,195 @@ class TestSetupEnv:
 
         with patch.object(Path, "write_text", side_effect=OSError("read-only")):
             manager._setup_env(wt_path)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._setup_dotenv
+# ---------------------------------------------------------------------------
+
+
+class TestSetupDotenv:
+    """Tests for WorktreeManager._setup_dotenv."""
+
+    def test_host_mode_symlinks_dotenv(self, config, tmp_path: Path) -> None:
+        """In host mode, _setup_dotenv should symlink .env."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=val")
+
+        manager._setup_dotenv(wt_path, docker=False)
+
+        env_dst = wt_path / ".env"
+        assert env_dst.is_symlink()
+
+    def test_docker_mode_copies_dotenv_and_updates_gitignore(
+        self, tmp_path: Path
+    ) -> None:
+        """In docker mode, _setup_dotenv should copy .env and add it to .gitignore."""
+        manager = _make_docker_manager(tmp_path)
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        env_src = repo_root / ".env"
+        env_src.write_text("SECRET=docker")
+
+        manager._setup_dotenv(wt_path, docker=True)
+
+        env_dst = wt_path / ".env"
+        assert env_dst.exists()
+        assert not env_dst.is_symlink()
+        assert env_dst.read_text() == "SECRET=docker"
+
+        gitignore = wt_path / ".gitignore"
+        assert gitignore.exists()
+        assert ".env" in [ln.strip() for ln in gitignore.read_text().splitlines()]
+
+    def test_source_absent_is_noop(self, config, tmp_path: Path) -> None:
+        """_setup_dotenv should be a no-op when .env source doesn't exist."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # No .env file in repo_root
+        manager._setup_dotenv(wt_path, docker=False)
+
+        assert not (wt_path / ".env").exists()
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._setup_claude_settings
+# ---------------------------------------------------------------------------
+
+
+class TestSetupClaudeSettings:
+    """Tests for WorktreeManager._setup_claude_settings."""
+
+    def test_copies_settings_file(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should copy settings.local.json into worktree."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        claude_dir = repo_root / ".claude"
+        claude_dir.mkdir()
+        settings_src = claude_dir / "settings.local.json"
+        settings_src.write_text('{"allowed": []}')
+
+        manager._setup_claude_settings(wt_path)
+
+        settings_dst = wt_path / ".claude" / "settings.local.json"
+        assert settings_dst.exists()
+        assert not settings_dst.is_symlink()
+        assert settings_dst.read_text() == '{"allowed": []}'
+
+    def test_source_absent_is_noop(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should be a no-op when settings.local.json doesn't exist."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # No .claude/settings.local.json in repo_root
+        manager._setup_claude_settings(wt_path)
+
+        assert not (wt_path / ".claude" / "settings.local.json").exists()
+
+    def test_oserror_during_write_is_suppressed(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should suppress OSError during file write."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        claude_dir = repo_root / ".claude"
+        claude_dir.mkdir()
+        settings_src = claude_dir / "settings.local.json"
+        settings_src.write_text('{"allowed": []}')
+
+        with patch.object(Path, "write_text", side_effect=OSError("read-only")):
+            manager._setup_claude_settings(wt_path)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# WorktreeManager._setup_node_modules
+# ---------------------------------------------------------------------------
+
+
+class TestSetupNodeModules:
+    """Tests for WorktreeManager._setup_node_modules."""
+
+    def test_host_mode_symlinks_node_modules(self, config, tmp_path: Path) -> None:
+        """In host mode, _setup_node_modules should symlink node_modules."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+
+        manager._setup_node_modules(wt_path, docker=False)
+
+        ui_nm_dst = wt_path / "ui" / "node_modules"
+        assert ui_nm_dst.is_symlink()
+
+    def test_docker_mode_copies_node_modules(self, tmp_path: Path) -> None:
+        """In docker mode, _setup_node_modules should copy node_modules."""
+        manager = _make_docker_manager(tmp_path)
+        repo_root = manager._repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        ui_nm_src = repo_root / "ui" / "node_modules"
+        ui_nm_src.mkdir(parents=True)
+        (ui_nm_src / "pkg").mkdir()
+        (ui_nm_src / "pkg" / "index.js").write_text("exports = {}")
+
+        manager._setup_node_modules(wt_path, docker=True)
+
+        ui_nm_dst = wt_path / "ui" / "node_modules"
+        assert ui_nm_dst.exists()
+        assert not ui_nm_dst.is_symlink()
+        assert (ui_nm_dst / "pkg" / "index.js").read_text() == "exports = {}"
+
+    def test_multiple_ui_dirs_all_symlinked(self, tmp_path: Path) -> None:
+        """_setup_node_modules should symlink node_modules for every UI directory."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            ui_dirs=["frontend", "admin"],
+        )
+        manager = WorktreeManager(cfg)
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        (repo_root / "frontend" / "node_modules").mkdir(parents=True)
+        (repo_root / "admin" / "node_modules").mkdir(parents=True)
+
+        manager._setup_node_modules(wt_path, docker=False)
+
+        assert (wt_path / "frontend" / "node_modules").is_symlink()
+        assert (wt_path / "admin" / "node_modules").is_symlink()
 
 
 # ---------------------------------------------------------------------------

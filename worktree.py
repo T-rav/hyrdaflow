@@ -228,6 +228,42 @@ class WorktreeManager:
                 gh_token=self._config.gh_token,
             )
 
+    async def _fetch_and_merge_main(self, worktree_path: Path, branch: str) -> bool:
+        """Fetch and merge main into *branch* inside *worktree_path*.
+
+        Performs the shared three-step sequence: fetch origin, fast-forward
+        local branch to match remote, then merge ``origin/main``.  Raises
+        ``RuntimeError`` on any failure so callers can decide how to handle it.
+
+        Returns *True* on success.
+        """
+        await run_subprocess(
+            "git",
+            "fetch",
+            "origin",
+            self._config.main_branch,
+            branch,
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        await run_subprocess(
+            "git",
+            "merge",
+            "--ff-only",
+            f"origin/{branch}",
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        await run_subprocess(
+            "git",
+            "merge",
+            f"origin/{self._config.main_branch}",
+            "--no-edit",
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        return True
+
     async def merge_main(self, worktree_path: Path, branch: str) -> bool:
         """Merge latest main into *branch* inside *worktree_path*.
 
@@ -238,35 +274,8 @@ class WorktreeManager:
         Returns *True* on success, *False* if conflicts arise.
         """
         try:
-            await run_subprocess(
-                "git",
-                "fetch",
-                "origin",
-                self._config.main_branch,
-                branch,
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            # Fast-forward local branch to match remote so push stays ff
-            await run_subprocess(
-                "git",
-                "merge",
-                "--ff-only",
-                f"origin/{branch}",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            await run_subprocess(
-                "git",
-                "merge",
-                f"origin/{self._config.main_branch}",
-                "--no-edit",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            return True
+            return await self._fetch_and_merge_main(worktree_path, branch)
         except RuntimeError:
-            # Abort merge on conflict
             with contextlib.suppress(RuntimeError):
                 await run_subprocess(
                     "git",
@@ -288,35 +297,8 @@ class WorktreeManager:
         *False* if conflicts remain in the working tree.
         """
         try:
-            await run_subprocess(
-                "git",
-                "fetch",
-                "origin",
-                self._config.main_branch,
-                branch,
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            # Fast-forward local branch to match remote
-            await run_subprocess(
-                "git",
-                "merge",
-                "--ff-only",
-                f"origin/{branch}",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            await run_subprocess(
-                "git",
-                "merge",
-                f"origin/{self._config.main_branch}",
-                "--no-edit",
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            return True
+            return await self._fetch_and_merge_main(worktree_path, branch)
         except RuntimeError:
-            # Leave conflict markers in place — caller will resolve
             return False
 
     async def abort_merge(self, worktree_path: Path) -> None:
@@ -431,15 +413,19 @@ class WorktreeManager:
     # --- environment setup ---
 
     def _setup_env(self, wt_path: Path) -> None:
-        """Set up .env and node_modules in the worktree.
-
-        In host mode, files are symlinked for performance.
-        In docker mode, files are copied so the worktree is self-contained
-        for Docker volume mounting.
-        """
+        """Set up .env, settings, and node_modules in the worktree."""
         docker = self._config.execution_mode == "docker"
+        self._setup_dotenv(wt_path, docker)
+        self._setup_claude_settings(wt_path)
+        self._setup_node_modules(wt_path, docker)
 
-        # .env
+    def _setup_dotenv(self, wt_path: Path, docker: bool) -> None:
+        """Set up .env in the worktree.
+
+        In host mode, .env is symlinked for performance.
+        In docker mode, .env is copied and added to .gitignore to prevent
+        accidental commits of secrets.
+        """
         env_src = self._repo_root / ".env"
         env_dst = wt_path / ".env"
         if env_src.exists() and not env_dst.exists():
@@ -457,8 +443,6 @@ class WorktreeManager:
                     exc_info=True,
                 )
 
-        # In docker mode, ensure .env is listed in .gitignore to prevent
-        # accidental commits of secrets from the copied worktree.
         if docker and env_dst.exists():
             gitignore_path = wt_path / ".gitignore"
             try:
@@ -478,7 +462,8 @@ class WorktreeManager:
                     exc_info=True,
                 )
 
-        # Copy .claude/settings.local.json (not symlink - agents may modify)
+    def _setup_claude_settings(self, wt_path: Path) -> None:
+        """Copy .claude/settings.local.json into the worktree (not symlink — agents may modify)."""
         local_settings_src = self._repo_root / ".claude" / "settings.local.json"
         local_settings_dst = wt_path / ".claude" / "settings.local.json"
         if local_settings_src.exists() and not local_settings_dst.exists():
@@ -492,7 +477,12 @@ class WorktreeManager:
                     exc_info=True,
                 )
 
-        # node_modules for each UI directory
+    def _setup_node_modules(self, wt_path: Path, docker: bool) -> None:
+        """Set up node_modules for each UI directory in the worktree.
+
+        In host mode, node_modules is symlinked for performance.
+        In docker mode, node_modules is copied so the worktree is self-contained.
+        """
         for ui_dir in self._ui_dirs:
             nm_src = self._repo_root / ui_dir / "node_modules"
             nm_dst = wt_path / ui_dir / "node_modules"
