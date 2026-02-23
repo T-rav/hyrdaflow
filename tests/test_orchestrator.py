@@ -2672,19 +2672,26 @@ class TestRestoreState:
         assert 20 in orch._active_impl_issues
 
     def test_clears_interrupted_issues(self, config: HydraFlowConfig) -> None:
-        """_restore_state should remove interrupted issues from tracking sets."""
+        """_restore_state should remove interrupted issues from all tracking sets."""
         orch = HydraFlowOrchestrator(config)
         # Simulate crash recovery state
         orch._state.set_active_issue_numbers([10, 20])
         orch._state.set_interrupted_issues({10: "implement", 20: "review"})
+        # Pre-populate review and HITL sets so the discard calls are actually exercised
+        orch._active_review_issues.update([10, 20])
+        orch._hitl_phase.active_hitl_issues.update([10, 20])
 
         orch._restore_state()
 
-        # Interrupted issues removed from recovered and active sets
+        # Interrupted issues removed from all four tracking sets
         assert 10 not in orch._recovered_issues
         assert 20 not in orch._recovered_issues
         assert 10 not in orch._active_impl_issues
         assert 20 not in orch._active_impl_issues
+        assert 10 not in orch._active_review_issues
+        assert 20 not in orch._active_review_issues
+        assert 10 not in orch._hitl_phase.active_hitl_issues
+        assert 20 not in orch._hitl_phase.active_hitl_issues
 
 
 # ---------------------------------------------------------------------------
