@@ -17,7 +17,7 @@ export function WorkerLogStream({ lines }) {
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      scrollRef.current.scrollTop = 0
     }
   }, [expanded, displayLines.length])
 
@@ -34,7 +34,7 @@ export function WorkerLogStream({ lines }) {
           transition: 'max-height 0.2s ease',
         }}
       >
-        {displayLines.map((line, i) => (
+        {[...displayLines].reverse().map((line, i) => (
           <div key={i} style={styles.line}>{line}</div>
         ))}
       </div>
@@ -74,5 +74,6 @@ const styles = {
     color: theme.accent,
     cursor: 'pointer',
     paddingTop: 4,
+    transition: 'color 0.15s',
   },
 }
