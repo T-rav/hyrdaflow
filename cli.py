@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import re
+import shutil
 import signal
 import sys
 from pathlib import Path
@@ -570,6 +571,173 @@ def _slugify_issue_name(step_name: str) -> str:
     return slug or "prep-step"
 
 
+def _detect_available_prep_tools() -> list[str]:
+    """Detect available local prep agent CLIs."""
+    tools: list[str] = []
+    if shutil.which("claude"):
+        tools.append("claude")
+    if shutil.which("codex"):
+        tools.append("codex")
+    return tools
+
+
+def _best_model_for_tool(tool: str) -> str:
+    """Return best default model for the selected tool."""
+    if tool == "claude":
+        return "opus"
+    return "gpt-5.3"
+
+
+def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
+    """Choose prep tool from local availability, prompting when both exist."""
+    available = _detect_available_prep_tools()
+    if not available:
+        return None, "none"
+    if len(available) == 1:
+        return available[0], "single"
+
+    # Both tools installed.
+    if sys.stdin.isatty():
+        print("Both Claude and Codex are installed for prep.")  # noqa: T201
+        print("Choose prep driver: [1] claude  [2] codex")  # noqa: T201
+        choice = input("Selection (default 1): ").strip()  # noqa: T201
+        if choice == "2":
+            return "codex", "prompt"
+        return "claude", "prompt"
+
+    # Non-interactive fallback.
+    if configured in ("claude", "codex"):
+        return configured, "configured"
+    return "claude", "fallback"
+
+
+def _build_prep_agent_prompt(
+    *,
+    stack: str,
+    failures: list[tuple[str, list[str], str]],
+    issue_filenames: list[str],
+) -> str:
+    """Build correction prompt for prep-agent runs."""
+    failure_lines = "\n".join(
+        [
+            f"- {step}: `{' '.join(cmd)}`\n  Error: {err[:500]}"
+            for step, cmd, err in failures
+        ]
+    )
+    issues = "\n".join([f"- .pre/{name}" for name in issue_filenames]) or "- (none)"
+    return (
+        "You are the HydraFlow prep correction agent.\n"
+        f"Stack: {stack}\n\n"
+        "Your task:\n"
+        "1) Read the local prep issue files listed below.\n"
+        "2) Apply code/config fixes in this repo to resolve the failures.\n"
+        "3) Keep changes minimal and safe.\n"
+        "4) Do not edit files outside this repository.\n\n"
+        "Local prep issue files:\n"
+        f"{issues}\n\n"
+        "Observed failed steps:\n"
+        f"{failure_lines}\n\n"
+        "Output a concise summary of fixes applied.\n"
+    )
+
+
+async def _run_prep_agent_correction(
+    *,
+    config: HydraFlowConfig,
+    tool: str,
+    model: str,
+    repo_root: Path,
+    stack: str,
+    failures: list[tuple[str, list[str], str]],
+    issue_filenames: list[str],
+) -> bool:
+    """Run Claude/Codex as a prep correction agent for one attempt."""
+    from agent_cli import build_agent_command  # noqa: PLC0415
+    from events import EventBus  # noqa: PLC0415
+    from runner_utils import stream_claude_process  # noqa: PLC0415
+
+    logger = logging.getLogger("hydraflow.prep")
+    prompt = _build_prep_agent_prompt(
+        stack=stack, failures=failures, issue_filenames=issue_filenames
+    )
+    cmd = build_agent_command(
+        tool=tool,  # type: ignore[arg-type]
+        model=model,
+        max_turns=6,
+    )
+    try:
+        transcript = await stream_claude_process(
+            cmd=cmd,
+            prompt=prompt,
+            cwd=repo_root,
+            active_procs=set(),
+            event_bus=EventBus(),
+            event_data={"source": "prep-agent"},
+            logger=logger,
+            timeout=900.0,
+        )
+    except RuntimeError as exc:
+        print(f"Prep agent correction failed: {exc}")  # noqa: T201
+        return False
+    if not transcript.strip():
+        print("Prep agent correction produced no transcript output")  # noqa: T201
+        return False
+    print(  # noqa: T201
+        f"Prep agent correction completed via {tool} ({model})"
+    )
+    return True
+
+
+async def _run_prep_agent_workflow(
+    *,
+    tool: str,
+    model: str,
+    config: HydraFlowConfig,
+    stack: str,
+    local_issue_names: list[str],
+) -> tuple[bool, str]:
+    """Run an end-to-end prep workflow via Claude/Codex."""
+    from agent_cli import build_agent_command  # noqa: PLC0415
+    from events import EventBus  # noqa: PLC0415
+    from runner_utils import stream_claude_process  # noqa: PLC0415
+
+    logger = logging.getLogger("hydraflow.prep")
+    issue_list = "\n".join([f"- .pre/{name}" for name in local_issue_names]) or "- none"
+    prompt = (
+        "You are the HydraFlow prep operator agent.\n"
+        f"Driver: {tool}\n"
+        f"Stack: {stack}\n\n"
+        "Goal: perform complete repository prep autonomously.\n"
+        "Requirements:\n"
+        "1) Ensure root Makefile has lint/lint-check/typecheck/test/quality targets.\n"
+        "2) Ensure GitHub CI quality workflow exists for this stack.\n"
+        "3) Ensure test scaffold exists for this stack.\n"
+        "4) Run and fix quality/test/build failures iteratively.\n"
+        "5) Use local `.pre/*.md` files as issue tracker; update and mark done when fixed.\n"
+        "6) Keep changes minimal and safe.\n"
+        "7) End response with: PREP_STATUS: SUCCESS or PREP_STATUS: FAILED.\n\n"
+        "Current local prep issues:\n"
+        f"{issue_list}\n"
+    )
+    cmd = build_agent_command(
+        tool=tool,  # type: ignore[arg-type]
+        model=model,
+        max_turns=10,
+    )
+    transcript = await stream_claude_process(
+        cmd=cmd,
+        prompt=prompt,
+        cwd=config.repo_root,
+        active_procs=set(),
+        event_bus=EventBus(),
+        event_data={"source": "prep-workflow-agent"},
+        logger=logger,
+        timeout=1800.0,
+    )
+    success = "PREP_STATUS: SUCCESS" in transcript
+    return success, transcript
+
+
 async def _run_scaffold(config: HydraFlowConfig) -> bool:
     """Scan and scaffold core repo essentials (CI + test infrastructure)."""
     from ci_scaffold import scaffold_ci  # noqa: PLC0415
@@ -589,9 +757,18 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 
     ensure_pre_dirs(config.repo_root)
     local_issues = load_open_issues(config.repo_root)
+    selected_tool, selection_mode = _choose_prep_tool(config.subskill_tool)
+    if selected_tool is None:
+        print("Prep aborted: neither Claude nor Codex is installed.")  # noqa: T201
+        return False
+    selected_model = _best_model_for_tool(selected_tool)
+
     run_log_lines: list[str] = []
     run_log_lines.append(f"- Repo: `{config.repo}`")
     run_log_lines.append(f"- Dry run: `{config.dry_run}`")
+    run_log_lines.append(
+        f"- Prep driver: `{selected_tool}` (`{selected_model}` via {selection_mode})"
+    )
     run_log_lines.append(f"- Local issue count: `{len(local_issues)}`")
     if local_issues:
         run_log_lines.append("- Local issues:")
@@ -671,79 +848,44 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     hardening_ok = True
     repo_root = config.repo_root
 
-    hardening_plan: list[tuple[str, list[str]]] = []
-    if _makefile_has_target(repo_root, "lint"):
-        hardening_plan.append(("Fix pass", ["make", "lint"]))
-    elif (repo_root / "package.json").is_file():
-        hardening_plan.append(("Fix pass", ["npm", "run", "lint", "--if-present"]))
-    elif (repo_root / "go.mod").is_file():
-        hardening_plan.append(("Fix pass", ["go", "vet", "./..."]))
-    elif (repo_root / "Cargo.toml").is_file():
-        hardening_plan.append(("Fix pass", ["cargo", "fmt", "--check"]))
-    elif (repo_root / "Gemfile").is_file():
-        hardening_plan.append(("Fix pass", ["bundle", "exec", "rubocop"]))
-
-    # Run hooks when configured.
-    if (repo_root / ".pre-commit-config.yaml").is_file():
-        hardening_plan.append(("Hook pass", ["pre-commit", "run", "--all-files"]))
-
-    # Ensure at least one test/quality pass runs.
-    if _makefile_has_target(repo_root, "quality"):
-        hardening_plan.append(("Quality pass", ["make", "quality"]))
-    elif _makefile_has_target(repo_root, "test-fast"):
-        hardening_plan.append(("Test pass", ["make", "test-fast"]))
-    elif _makefile_has_target(repo_root, "test"):
-        hardening_plan.append(("Test pass", ["make", "test"]))
-    elif (repo_root / "package.json").is_file():
-        hardening_plan.append(("Test pass", ["npm", "test", "--if-present"]))
-        hardening_plan.append(("Build pass", ["npm", "run", "build", "--if-present"]))
-    elif (repo_root / "go.mod").is_file():
-        hardening_plan.append(("Test pass", ["go", "test", "./..."]))
-        hardening_plan.append(("Build pass", ["go", "build", "./..."]))
-    elif (repo_root / "Cargo.toml").is_file():
-        hardening_plan.append(("Test pass", ["cargo", "test"]))
-        hardening_plan.append(("Build pass", ["cargo", "build"]))
-    elif any(repo_root.glob("*.sln")) or any(repo_root.glob("*.csproj")):
-        hardening_plan.append(("Test pass", ["dotnet", "test"]))
-        hardening_plan.append(("Build pass", ["dotnet", "build"]))
-    elif (repo_root / "pom.xml").is_file():
-        hardening_plan.append(("Quality pass", ["mvn", "-B", "verify"]))
-    elif (repo_root / "build.gradle").is_file() or (
-        repo_root / "build.gradle.kts"
-    ).is_file():
-        hardening_plan.append(("Quality pass", ["gradle", "check", "build"]))
-    elif (repo_root / "Gemfile").is_file() and (repo_root / "bin" / "rails").is_file():
-        hardening_plan.append(("Test pass", ["bundle", "exec", "rails", "test"]))
-    elif (repo_root / "Gemfile").is_file():
-        hardening_plan.append(("Test pass", ["bundle", "exec", "rspec"]))
-    else:
-        print("Test pass: skipped (no make quality/test targets found)")  # noqa: T201
-        run_log_lines.append("- Test pass skipped: no compatible test command found")
-
     max_attempts = 3
     attempts_used = 0
     auto_issues: list[Any] = []
     failure_count = 0
+    agent_runs = 0
+    agent_successes = 0
     for attempt in range(1, max_attempts + 1):
         attempts_used = attempt
         attempt_failures: list[tuple[str, list[str], str]] = []
         run_log_lines.append(f"- Hardening attempt {attempt}/{max_attempts}")
         print(f"Hardening attempt {attempt}/{max_attempts}")  # noqa: T201
 
-        for step_name, cmd in hardening_plan:
-            step_ok, error_msg = await _run_hardening_step(step_name, cmd, repo_root)
-            run_log_lines.append(
-                f"- {step_name}: {'ok' if step_ok else 'failed'} ({' '.join(cmd)})"
-            )
-            if not step_ok:
-                failure_count += 1
-                attempt_failures.append((step_name, cmd, error_msg or "unknown error"))
-
-        if not attempt_failures:
+        issue_names = [issue.path.name for issue in load_open_issues(repo_root)]
+        agent_runs += 1
+        agent_ok, transcript = await _run_prep_agent_workflow(
+            tool=selected_tool,
+            model=selected_model,
+            config=config,
+            stack=stack,
+            local_issue_names=issue_names,
+        )
+        if agent_ok:
+            agent_successes += 1
             hardening_ok = True
+            run_log_lines.append("- Prep workflow agent: success")
             break
-
         hardening_ok = False
+        failure_count += 1
+        attempt_failures.append(
+            (
+                "prep-workflow-agent",
+                [selected_tool, selected_model],
+                "Agent reported failure or missing PREP_STATUS: SUCCESS",
+            )
+        )
+        run_log_lines.append("- Prep workflow agent: failed")
+        run_log_lines.append(f"- Agent transcript size: {len(transcript)} chars")
+
         for step_name, cmd, error_msg in attempt_failures:
             slug = _slugify_issue_name(step_name)
             issue = upsert_issue(
@@ -770,6 +912,24 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
             run_log_lines.append(f"- Opened/updated local issue: `{issue.path.name}`")
 
         if attempt < max_attempts:
+            attempt_issue_names = [
+                f"auto-fix-{_slugify_issue_name(step)}.md"
+                for step, _cmd, _err in attempt_failures
+            ]
+            agent_ok = await _run_prep_agent_correction(
+                config=config,
+                tool=selected_tool,
+                model=selected_model,
+                repo_root=repo_root,
+                stack=stack,
+                failures=attempt_failures,
+                issue_filenames=attempt_issue_names,
+            )
+            if agent_ok:
+                agent_successes += 1
+            run_log_lines.append(
+                f"- Prep agent run {attempt}: {'ok' if agent_ok else 'failed'}"
+            )
             run_log_lines.append(
                 "- Correction loop: rerunning hardening with updated local issues"
             )
@@ -787,6 +947,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     print(f"- Hardening success: {hardening_ok}")  # noqa: T201
     print(f"- Hardening attempts: {attempts_used}/{max_attempts}")  # noqa: T201
     print(f"- Hardening failures observed: {failure_count}")  # noqa: T201
+    print(f"- Prep agent runs: {agent_runs} (successful: {agent_successes})")  # noqa: T201
     print(f"- Auto issues opened/updated: {len(auto_issues)}")  # noqa: T201
     print(f"- Local issues initially open: {len(local_issues)}")  # noqa: T201
     print(  # noqa: T201
