@@ -14,11 +14,17 @@ import pytest
 from events import EventType
 from models import ReviewerStatus, ReviewVerdict
 from reviewer import ReviewRunner
+from tests.conftest import PRInfoFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def pr_info():
+    return PRInfoFactory.create()
 
 
 def _make_runner(config, event_bus):

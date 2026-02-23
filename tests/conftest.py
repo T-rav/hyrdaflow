@@ -26,12 +26,9 @@ if TYPE_CHECKING:
         AnalysisResult,
         GitHubIssue,
         HITLResult,
-        PlanResult,
-        PRInfo,
         ReviewResult,
         ReviewVerdict,
         TriageResult,
-        WorkerResult,
     )
     from orchestrator import HydraFlowOrchestrator
     from state import StateTracker
@@ -138,11 +135,6 @@ class WorkerResultFactory:
         )
 
 
-@pytest.fixture
-def worker_result() -> WorkerResult:
-    return WorkerResultFactory.create()
-
-
 # --- Plan Result Factory ---
 
 
@@ -173,11 +165,6 @@ class PlanResultFactory:
         )
 
 
-@pytest.fixture
-def plan_result() -> PlanResult:
-    return PlanResultFactory.create()
-
-
 # --- PR Info Factory ---
 
 
@@ -202,11 +189,6 @@ class PRInfoFactory:
             url=url,
             draft=draft,
         )
-
-
-@pytest.fixture
-def pr_info() -> PRInfo:
-    return PRInfoFactory.create()
 
 
 # --- Review Result Factory ---
@@ -473,16 +455,6 @@ class LintScaffoldResultFactory:
         )
 
 
-# --- HITL Runner Fixture ---
-
-
-@pytest.fixture
-def hitl_runner(config, event_bus):
-    from hitl_runner import HITLRunner
-
-    return HITLRunner(config, event_bus)
-
-
 # --- Orchestrator Mock ---
 
 
@@ -501,11 +473,6 @@ def make_orchestrator_mock(
     orch.stop = AsyncMock()
     orch.request_stop = AsyncMock()
     return orch
-
-
-@pytest.fixture
-def orchestrator_mock():
-    return make_orchestrator_mock()
 
 
 # --- Subprocess Mock ---
@@ -540,12 +507,6 @@ class SubprocessMockBuilder:
 
         mock_create = AsyncMock(return_value=mock_proc)
         return mock_create
-
-
-@pytest.fixture
-def subprocess_mock() -> SubprocessMockBuilder:
-    """Return a builder for subprocess mocks."""
-    return SubprocessMockBuilder()
 
 
 # --- Review Mock Builder ---

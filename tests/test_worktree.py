@@ -12,22 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.helpers import make_proc
 from worktree import WorktreeManager
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_proc(
-    returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
-) -> AsyncMock:
-    """Build a minimal mock subprocess object."""
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.communicate = AsyncMock(return_value=(stdout, stderr))
-    return proc
-
 
 # ---------------------------------------------------------------------------
 # WorktreeManager.create
@@ -47,7 +33,7 @@ class TestCreate:
         # Pre-create the base directory so mkdir doesn't cause issues
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with (
             patch(
@@ -78,7 +64,7 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with (
             patch(
@@ -115,7 +101,7 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with (
             patch(
@@ -141,7 +127,7 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         setup_env = MagicMock()
         create_venv = AsyncMock()
@@ -168,7 +154,7 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=success_proc),
@@ -203,7 +189,7 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: network error")
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=fail_proc),
@@ -220,8 +206,8 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc(returncode=0)
-        fail_proc = _make_proc(returncode=1, stderr=b"fatal: worktree add failed")
+        success_proc = make_proc(returncode=0)
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: worktree add failed")
 
         call_count = 0
 
@@ -249,7 +235,7 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=success_proc),
@@ -270,8 +256,8 @@ class TestCreate:
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc(returncode=0)
-        fail_proc = _make_proc(returncode=1, stderr=b"uv sync failed")
+        success_proc = make_proc(returncode=0)
+        fail_proc = make_proc(returncode=1, stderr=b"uv sync failed")
 
         call_count = 0
 
@@ -314,7 +300,7 @@ class TestDestroy:
         wt_path = config.worktree_base / "issue-7"
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -333,7 +319,7 @@ class TestDestroy:
         manager = WorktreeManager(config)
 
         # wt_path does NOT exist — destroy should not call worktree remove
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -357,8 +343,8 @@ class TestDestroy:
         wt_path = config.worktree_base / "issue-7"
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        remove_proc = _make_proc(returncode=0)
-        branch_delete_proc = _make_proc(returncode=1, stderr=b"error: branch not found")
+        remove_proc = make_proc(returncode=0)
+        branch_delete_proc = make_proc(returncode=1, stderr=b"error: branch not found")
 
         call_count = 0
 
@@ -383,7 +369,7 @@ class TestDestroy:
         wt_path = config.worktree_base / "issue-7"
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        fail_proc = _make_proc(returncode=1, stderr=b"fatal: dirty worktree")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: dirty worktree")
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=fail_proc),
@@ -486,7 +472,7 @@ class TestMergeMain:
     ) -> None:
         """merge_main should return True when fetch, ff-pull, and merge succeed."""
         manager = WorktreeManager(config)
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch("asyncio.create_subprocess_exec", return_value=success_proc):
             result = await manager.merge_main(tmp_path, "agent/issue-7")
@@ -500,11 +486,11 @@ class TestMergeMain:
         """merge_main should abort and return False when conflicts occur."""
         manager = WorktreeManager(config)
 
-        success_proc = _make_proc(returncode=0)
-        merge_fail_proc = _make_proc(
+        success_proc = make_proc(returncode=0)
+        merge_fail_proc = make_proc(
             returncode=1, stderr=b"CONFLICT (content): Merge conflict"
         )
-        abort_proc = _make_proc(returncode=0)
+        abort_proc = make_proc(returncode=0)
 
         call_count = 0
 
@@ -534,8 +520,8 @@ class TestMergeMain:
         """merge_main should return False if the initial fetch fails."""
         manager = WorktreeManager(config)
 
-        fetch_fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
-        abort_proc = _make_proc(returncode=0)
+        fetch_fail_proc = make_proc(returncode=1, stderr=b"fatal: network error")
+        abort_proc = make_proc(returncode=0)
 
         call_count = 0
 
@@ -564,7 +550,7 @@ class TestDeleteLocalBranch:
     async def test_deletes_existing_branch(self, config, tmp_path: Path) -> None:
         """Should call git branch -D for the given branch."""
         manager = WorktreeManager(config)
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -580,7 +566,7 @@ class TestDeleteLocalBranch:
     ) -> None:
         """Should not raise when the branch does not exist."""
         manager = WorktreeManager(config)
-        fail_proc = _make_proc(returncode=1, stderr=b"error: branch not found")
+        fail_proc = make_proc(returncode=1, stderr=b"error: branch not found")
 
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             # Should not raise
@@ -600,7 +586,7 @@ class TestRemoteBranchExists:
         self, config, tmp_path: Path
     ) -> None:
         manager = WorktreeManager(config)
-        proc = _make_proc(returncode=0, stdout=b"abc123\trefs/heads/agent/issue-7")
+        proc = make_proc(returncode=0, stdout=b"abc123\trefs/heads/agent/issue-7")
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager._remote_branch_exists("agent/issue-7")
@@ -612,7 +598,7 @@ class TestRemoteBranchExists:
         self, config, tmp_path: Path
     ) -> None:
         manager = WorktreeManager(config)
-        proc = _make_proc(returncode=0, stdout=b"")
+        proc = make_proc(returncode=0, stdout=b"")
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager._remote_branch_exists("agent/issue-99")
@@ -622,7 +608,7 @@ class TestRemoteBranchExists:
     @pytest.mark.asyncio
     async def test_returns_false_on_error(self, config, tmp_path: Path) -> None:
         manager = WorktreeManager(config)
-        proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+        proc = make_proc(returncode=1, stderr=b"fatal: network error")
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager._remote_branch_exists("agent/issue-7")
@@ -809,7 +795,7 @@ class TestConfigureGitIdentity:
             state_file=tmp_path / "state.json",
         )
         manager = WorktreeManager(cfg)
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -861,7 +847,7 @@ class TestConfigureGitIdentity:
             state_file=tmp_path / "state.json",
         )
         manager = WorktreeManager(cfg)
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -890,7 +876,7 @@ class TestConfigureGitIdentity:
             state_file=tmp_path / "state.json",
         )
         manager = WorktreeManager(cfg)
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -916,7 +902,7 @@ class TestConfigureGitIdentity:
         manager = WorktreeManager(cfg)
         cfg.worktree_base.mkdir(parents=True, exist_ok=True)
 
-        success_proc = _make_proc()
+        success_proc = make_proc()
         configure_identity = AsyncMock()
 
         with (
@@ -945,7 +931,7 @@ class TestCreateVenv:
     async def test_create_venv_runs_uv_sync(self, config, tmp_path: Path) -> None:
         """_create_venv should run 'uv sync' in the worktree."""
         manager = WorktreeManager(config)
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -959,7 +945,7 @@ class TestCreateVenv:
     async def test_create_venv_swallows_errors(self, config, tmp_path: Path) -> None:
         """_create_venv should not propagate errors if uv sync fails."""
         manager = WorktreeManager(config)
-        fail_proc = _make_proc(returncode=1, stderr=b"uv not found")
+        fail_proc = make_proc(returncode=1, stderr=b"uv not found")
 
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             # Should not raise
@@ -991,7 +977,7 @@ class TestInstallHooks:
     async def test_install_hooks_sets_hooks_path(self, config, tmp_path: Path) -> None:
         """_install_hooks should set core.hooksPath to .githooks."""
         manager = WorktreeManager(config)
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -1010,7 +996,7 @@ class TestInstallHooks:
     async def test_install_hooks_swallows_errors(self, config, tmp_path: Path) -> None:
         """_install_hooks should not propagate errors if git config fails."""
         manager = WorktreeManager(config)
-        fail_proc = _make_proc(returncode=1, stderr=b"error")
+        fail_proc = make_proc(returncode=1, stderr=b"error")
 
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             # Should not raise
@@ -1031,7 +1017,7 @@ class TestStartMergeMain:
     ) -> None:
         """start_merge_main should return True when all commands succeed."""
         manager = WorktreeManager(config)
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch("asyncio.create_subprocess_exec", return_value=success_proc):
             result = await manager.start_merge_main(tmp_path, "agent/issue-7")
@@ -1045,8 +1031,8 @@ class TestStartMergeMain:
         """start_merge_main should return False on conflict and NOT call --abort."""
         manager = WorktreeManager(config)
 
-        success_proc = _make_proc(returncode=0)
-        merge_fail_proc = _make_proc(
+        success_proc = make_proc(returncode=0)
+        merge_fail_proc = make_proc(
             returncode=1, stderr=b"CONFLICT (content): Merge conflict"
         )
 
@@ -1079,7 +1065,7 @@ class TestStartMergeMain:
         """start_merge_main should return False if fetch fails."""
         manager = WorktreeManager(config)
 
-        fetch_fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+        fetch_fail_proc = make_proc(returncode=1, stderr=b"fatal: network error")
 
         with patch("asyncio.create_subprocess_exec", return_value=fetch_fail_proc):
             result = await manager.start_merge_main(tmp_path, "agent/issue-7")
@@ -1101,7 +1087,7 @@ class TestAbortMerge:
     ) -> None:
         """abort_merge should call 'git merge --abort' with correct cwd."""
         manager = WorktreeManager(config)
-        success_proc = _make_proc(returncode=0)
+        success_proc = make_proc(returncode=0)
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -1118,7 +1104,7 @@ class TestAbortMerge:
     ) -> None:
         """abort_merge should suppress RuntimeError via contextlib.suppress."""
         manager = WorktreeManager(config)
-        fail_proc = _make_proc(returncode=1, stderr=b"fatal: no merge in progress")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: no merge in progress")
 
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             # Should not raise
@@ -1140,7 +1126,7 @@ class TestGetConflictingFiles:
         """Should return file names from git diff --name-only --diff-filter=U."""
         manager = WorktreeManager(config)
         output = b"src/foo.py\nsrc/bar.py\n"
-        proc = _make_proc(returncode=0, stdout=output)
+        proc = make_proc(returncode=0, stdout=output)
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager.get_conflicting_files(tmp_path)
@@ -1153,7 +1139,7 @@ class TestGetConflictingFiles:
     ) -> None:
         """Should return empty list when no files have conflicts."""
         manager = WorktreeManager(config)
-        proc = _make_proc(returncode=0, stdout=b"")
+        proc = make_proc(returncode=0, stdout=b"")
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager.get_conflicting_files(tmp_path)
@@ -1164,7 +1150,7 @@ class TestGetConflictingFiles:
     async def test_returns_empty_on_failure(self, config, tmp_path: Path) -> None:
         """Should return empty list when git command fails."""
         manager = WorktreeManager(config)
-        proc = _make_proc(returncode=1, stderr=b"fatal: not a git repo")
+        proc = make_proc(returncode=1, stderr=b"fatal: not a git repo")
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager.get_conflicting_files(tmp_path)
@@ -1178,7 +1164,7 @@ class TestGetConflictingFiles:
         """Should strip leading/trailing whitespace from each filename."""
         manager = WorktreeManager(config)
         output = b"  foo.py  \n  bar.py  \n\n"
-        proc = _make_proc(returncode=0, stdout=output)
+        proc = make_proc(returncode=0, stdout=output)
 
         with patch("asyncio.create_subprocess_exec", return_value=proc):
             result = await manager.get_conflicting_files(tmp_path)
@@ -1200,8 +1186,8 @@ class TestGetMainDiffForFiles:
     ) -> None:
         """Should return the diff output for the given files."""
         manager = WorktreeManager(config)
-        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
-        diff_proc = _make_proc(
+        merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
+        diff_proc = make_proc(
             returncode=0, stdout=b"diff --git a/foo.py b/foo.py\n+added\n"
         )
 
@@ -1237,9 +1223,9 @@ class TestGetMainDiffForFiles:
     async def test_truncates_large_diff(self, config, tmp_path: Path) -> None:
         """Should truncate diff exceeding max_chars and append marker."""
         manager = WorktreeManager(config)
-        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
         large_diff = b"x" * 50_000
-        diff_proc = _make_proc(returncode=0, stdout=large_diff)
+        diff_proc = make_proc(returncode=0, stdout=large_diff)
 
         call_count = 0
 
@@ -1264,7 +1250,7 @@ class TestGetMainDiffForFiles:
     ) -> None:
         """Should return empty string when git merge-base fails."""
         manager = WorktreeManager(config)
-        fail_proc = _make_proc(returncode=1, stderr=b"fatal: bad revision")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: bad revision")
 
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             result = await manager.get_main_diff_for_files(tmp_path, ["foo.py"])
@@ -1275,8 +1261,8 @@ class TestGetMainDiffForFiles:
     async def test_returns_empty_on_diff_failure(self, config, tmp_path: Path) -> None:
         """Should return empty string when git diff fails."""
         manager = WorktreeManager(config)
-        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
-        diff_fail_proc = _make_proc(returncode=1, stderr=b"fatal: bad path")
+        merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
+        diff_fail_proc = make_proc(returncode=1, stderr=b"fatal: bad path")
 
         call_count = 0
 
@@ -1296,8 +1282,8 @@ class TestGetMainDiffForFiles:
     async def test_passes_multiple_files(self, config, tmp_path: Path) -> None:
         """Should pass all files to the git diff command."""
         manager = WorktreeManager(config)
-        merge_base_proc = _make_proc(returncode=0, stdout=b"abc123\n")
-        diff_proc = _make_proc(returncode=0, stdout=b"combined diff\n")
+        merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
+        diff_proc = make_proc(returncode=0, stdout=b"combined diff\n")
 
         call_count = 0
 
@@ -1335,9 +1321,9 @@ class TestGetMainCommitsSinceDiverge:
         """Should return oneline commits from HEAD..origin/main."""
         manager = WorktreeManager(config)
 
-        fetch_proc = _make_proc(returncode=0)
+        fetch_proc = make_proc(returncode=0)
         log_output = b"abc1234 Add feature X\ndef5678 Fix bug Y\n"
-        log_proc = _make_proc(returncode=0, stdout=log_output)
+        log_proc = make_proc(returncode=0, stdout=log_output)
 
         call_count = 0
 
@@ -1358,7 +1344,7 @@ class TestGetMainCommitsSinceDiverge:
     async def test_returns_empty_on_fetch_failure(self, config, tmp_path: Path) -> None:
         """Should return empty string when git fetch fails."""
         manager = WorktreeManager(config)
-        fail_proc = _make_proc(returncode=1, stderr=b"fatal: network error")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: network error")
 
         with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
             result = await manager.get_main_commits_since_diverge(tmp_path)
@@ -1370,8 +1356,8 @@ class TestGetMainCommitsSinceDiverge:
         """Should return empty string when git log fails."""
         manager = WorktreeManager(config)
 
-        fetch_proc = _make_proc(returncode=0)
-        log_fail_proc = _make_proc(returncode=1, stderr=b"fatal: bad revision")
+        fetch_proc = make_proc(returncode=0)
+        log_fail_proc = make_proc(returncode=1, stderr=b"fatal: bad revision")
 
         call_count = 0
 
@@ -1394,8 +1380,8 @@ class TestGetMainCommitsSinceDiverge:
         """Should return empty string when branch is up to date with main."""
         manager = WorktreeManager(config)
 
-        fetch_proc = _make_proc(returncode=0)
-        log_proc = _make_proc(returncode=0, stdout=b"")
+        fetch_proc = make_proc(returncode=0)
+        log_proc = make_proc(returncode=0, stdout=b"")
 
         call_count = 0
 
@@ -1416,7 +1402,7 @@ class TestGetMainCommitsSinceDiverge:
         """Should pass -30 to limit the number of commits."""
         manager = WorktreeManager(config)
 
-        success_proc = _make_proc(returncode=0, stdout=b"abc123 commit\n")
+        success_proc = make_proc(returncode=0, stdout=b"abc123 commit\n")
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc
@@ -1776,7 +1762,7 @@ class TestInstallHooksDocker:
         """Confirm host mode still sets core.hooksPath (regression check)."""
         assert config.execution_mode == "host"
         manager = WorktreeManager(config)
-        success_proc = _make_proc()
+        success_proc = make_proc()
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=success_proc

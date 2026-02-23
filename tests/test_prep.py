@@ -10,6 +10,7 @@ import pytest
 
 from models import AuditCheckStatus
 from prep import HYDRAFLOW_LABELS, PrepResult, _list_existing_labels, ensure_labels
+from tests.conftest import SubprocessMockBuilder
 from tests.helpers import AuditCheckFactory, AuditResultFactory, ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -54,17 +55,6 @@ class TestPrepResultSummary:
 # ---------------------------------------------------------------------------
 
 
-def _make_subprocess_mock(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> AsyncMock:
-    """Build a mock for asyncio.create_subprocess_exec."""
-    mock_proc = AsyncMock()
-    mock_proc.returncode = returncode
-    mock_proc.communicate = AsyncMock(return_value=(stdout.encode(), stderr.encode()))
-    mock_proc.wait = AsyncMock(return_value=returncode)
-    return AsyncMock(return_value=mock_proc)
-
-
 class TestListExistingLabels:
     """Tests for _list_existing_labels()."""
 
@@ -72,7 +62,7 @@ class TestListExistingLabels:
     async def test_parses_json(self) -> None:
         config = ConfigFactory.create()
         labels_json = json.dumps([{"name": "bug"}, {"name": "hydraflow-plan"}])
-        mock = _make_subprocess_mock(stdout=labels_json)
+        mock = SubprocessMockBuilder().with_stdout(labels_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await _list_existing_labels(config)
@@ -82,7 +72,7 @@ class TestListExistingLabels:
     @pytest.mark.asyncio
     async def test_empty_repo(self) -> None:
         config = ConfigFactory.create()
-        mock = _make_subprocess_mock(stdout="[]")
+        mock = SubprocessMockBuilder().with_stdout("[]").build()
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await _list_existing_labels(config)
@@ -92,7 +82,9 @@ class TestListExistingLabels:
     @pytest.mark.asyncio
     async def test_error_returns_empty(self) -> None:
         config = ConfigFactory.create()
-        mock = _make_subprocess_mock(returncode=1, stderr="not found")
+        mock = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await _list_existing_labels(config)
@@ -204,7 +196,7 @@ class TestEnsureLabels:
     async def test_dry_run_skips_creation(self) -> None:
         """In dry-run mode, no gh commands should be called."""
         config = ConfigFactory.create(dry_run=True)
-        mock = _make_subprocess_mock()
+        mock = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await ensure_labels(config)

@@ -19,24 +19,14 @@ from subprocess_util import (
     run_subprocess,
     run_subprocess_with_retry,
 )
-
-
-def _make_proc(
-    returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
-) -> AsyncMock:
-    """Build a minimal mock subprocess object."""
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.communicate = AsyncMock(return_value=(stdout, stderr))
-    return proc
-
+from tests.helpers import make_proc
 
 # --- success path ---
 
 
 @pytest.mark.asyncio
 async def test_returns_stdout_on_success() -> None:
-    proc = _make_proc(stdout=b"  hello world  ")
+    proc = make_proc(stdout=b"  hello world  ")
     with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
         result = await run_subprocess("echo", "hi")
 
@@ -49,7 +39,7 @@ async def test_returns_stdout_on_success() -> None:
 
 @pytest.mark.asyncio
 async def test_raises_runtime_error_on_nonzero_exit() -> None:
-    proc = _make_proc(returncode=1, stderr=b"boom")
+    proc = make_proc(returncode=1, stderr=b"boom")
     with (
         patch("asyncio.create_subprocess_exec", return_value=proc),
         pytest.raises(RuntimeError, match=r"boom"),
@@ -59,7 +49,7 @@ async def test_raises_runtime_error_on_nonzero_exit() -> None:
 
 @pytest.mark.asyncio
 async def test_error_message_includes_command_and_returncode() -> None:
-    proc = _make_proc(returncode=42, stderr=b"bad stuff")
+    proc = make_proc(returncode=42, stderr=b"bad stuff")
     with (
         patch("asyncio.create_subprocess_exec", return_value=proc),
         pytest.raises(RuntimeError, match=r"rc=42") as exc_info,
@@ -73,7 +63,7 @@ async def test_error_message_includes_command_and_returncode() -> None:
 
 @pytest.mark.asyncio
 async def test_strips_claudecode_from_env() -> None:
-    proc = _make_proc()
+    proc = make_proc()
     with (
         patch.dict("os.environ", {"CLAUDECODE": "1", "HOME": "/tmp"}, clear=False),
         patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec,
@@ -86,7 +76,7 @@ async def test_strips_claudecode_from_env() -> None:
 
 @pytest.mark.asyncio
 async def test_sets_gh_token_when_provided() -> None:
-    proc = _make_proc()
+    proc = make_proc()
     with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
         await run_subprocess("gh", "pr", "list", gh_token="ghp_secret")
 
@@ -97,7 +87,7 @@ async def test_sets_gh_token_when_provided() -> None:
 @pytest.mark.asyncio
 async def test_no_gh_token_when_empty() -> None:
     """When gh_token is empty, GH_TOKEN is not injected into the env."""
-    proc = _make_proc()
+    proc = make_proc()
     env_without_token = {"HOME": "/tmp", "PATH": "/usr/bin"}
     with (
         patch.dict("os.environ", env_without_token, clear=True),
@@ -111,7 +101,7 @@ async def test_no_gh_token_when_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_does_not_inject_gh_token_when_absent_from_env() -> None:
-    proc = _make_proc()
+    proc = make_proc()
     env_without_token = {"HOME": "/tmp", "PATH": "/usr/bin"}
     with (
         patch.dict("os.environ", env_without_token, clear=True),
@@ -128,7 +118,7 @@ async def test_does_not_inject_gh_token_when_absent_from_env() -> None:
 
 @pytest.mark.asyncio
 async def test_passes_cwd_when_provided() -> None:
-    proc = _make_proc()
+    proc = make_proc()
     with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
         await run_subprocess("ls", cwd=Path("/some/dir"))
 
@@ -138,7 +128,7 @@ async def test_passes_cwd_when_provided() -> None:
 
 @pytest.mark.asyncio
 async def test_no_cwd_when_none() -> None:
-    proc = _make_proc()
+    proc = make_proc()
     with patch("asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
         await run_subprocess("ls")
 
@@ -435,7 +425,7 @@ class TestAuthenticationError:
 
     @pytest.mark.asyncio
     async def test_run_subprocess_raises_auth_error_on_401(self) -> None:
-        proc = _make_proc(returncode=1, stderr=b"HTTP 401 Unauthorized")
+        proc = make_proc(returncode=1, stderr=b"HTTP 401 Unauthorized")
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
             pytest.raises(AuthenticationError, match="401"),
@@ -444,7 +434,7 @@ class TestAuthenticationError:
 
     @pytest.mark.asyncio
     async def test_run_subprocess_raises_auth_error_on_not_logged_in(self) -> None:
-        proc = _make_proc(returncode=1, stderr=b"not logged in to github.com")
+        proc = make_proc(returncode=1, stderr=b"not logged in to github.com")
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
             pytest.raises(AuthenticationError, match="not logged in"),
@@ -514,7 +504,7 @@ class TestRunSubprocessTimeout:
     @pytest.mark.asyncio
     async def test_custom_timeout_value(self) -> None:
         """Custom timeout should be passed to wait_for."""
-        proc = _make_proc(stdout=b"ok")
+        proc = make_proc(stdout=b"ok")
         with (
             patch("asyncio.create_subprocess_exec", return_value=proc),
             patch("asyncio.wait_for", wraps=asyncio.wait_for) as mock_wait_for,

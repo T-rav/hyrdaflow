@@ -27,6 +27,21 @@ class AsyncLineIter:
             raise StopAsyncIteration from None
 
 
+def make_proc(
+    returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
+) -> AsyncMock:
+    """Build a minimal mock subprocess object (communicate style).
+
+    Unlike ``make_streaming_proc`` (which provides an async-iterable stdout for
+    line-by-line streaming), this helper returns a simple process mock whose
+    ``communicate()`` resolves to ``(stdout, stderr)`` bytes.
+    """
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    return proc
+
+
 def make_streaming_proc(
     returncode: int = 0, stdout: str = "", stderr: str = ""
 ) -> AsyncMock:

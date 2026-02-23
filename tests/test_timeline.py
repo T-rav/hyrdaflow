@@ -9,8 +9,7 @@ from pathlib import Path
 import pytest
 
 from events import EventBus, EventType, HydraFlowEvent
-from state import StateTracker
-from tests.conftest import EventFactory
+from tests.conftest import EventFactory, make_state
 from timeline import TimelineBuilder
 
 
@@ -617,16 +616,12 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 
 
-def _make_state(tmp_path: Path) -> StateTracker:
-    return StateTracker(tmp_path / "state.json")
-
-
 class TestTimelineEndpoints:
     def _make_router(self, config, event_bus, tmp_path):
         from dashboard_routes import create_router
         from pr_manager import PRManager
 
-        state = _make_state(tmp_path)
+        state = make_state(tmp_path)
         pr_mgr = PRManager(config, event_bus)
         return create_router(
             config=config,

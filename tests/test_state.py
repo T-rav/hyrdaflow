@@ -12,16 +12,7 @@ from pydantic import ValidationError
 
 from models import LifetimeStats, StateData
 from state import StateTracker
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def make_tracker(tmp_path: Path, *, filename: str = "state.json") -> StateTracker:
-    """Return a StateTracker backed by a temp file."""
-    return StateTracker(tmp_path / filename)
-
+from tests.conftest import make_state
 
 # ---------------------------------------------------------------------------
 # Initialization
@@ -31,7 +22,7 @@ def make_tracker(tmp_path: Path, *, filename: str = "state.json") -> StateTracke
 class TestInitialization:
     def test_defaults_when_no_file_exists(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should start from defaults."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_current_batch() == 0
         assert tracker.get_active_worktrees() == {}
         assert tracker.get_issue_status(1) is None
@@ -39,7 +30,7 @@ class TestInitialization:
         assert tracker.get_pr_status(1) is None
 
     def test_defaults_structure_matches_expected_keys(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         d = tracker.to_dict()
         assert "current_batch" in d
         assert "processed_issues" in d
@@ -73,21 +64,21 @@ class TestInitialization:
 
 class TestLoadSave:
     def test_save_creates_file(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         state_file = tmp_path / "state.json"
         assert not state_file.exists()
         tracker.save()
         assert state_file.exists()
 
     def test_save_writes_valid_json(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.save()
         raw = (tmp_path / "state.json").read_text()
         data = json.loads(raw)  # must not raise
         assert isinstance(data, dict)
 
     def test_save_sets_last_updated(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.save()
         d = tracker.to_dict()
         assert d["last_updated"] is not None
@@ -112,7 +103,7 @@ class TestLoadSave:
         assert tracker2.get_current_batch() == 1
 
     def test_explicit_load_returns_dict(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         result = tracker.load()
         assert isinstance(result, dict)
 
@@ -124,12 +115,12 @@ class TestLoadSave:
 
 class TestIssueTracking:
     def test_mark_issue_stores_status(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(42, "in_progress")
         assert tracker.get_issue_status(42) == "in_progress"
 
     def test_mark_issue_overwrites_previous_status(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(42, "in_progress")
         tracker.mark_issue(42, "success")
         assert tracker.get_issue_status(42) == "success"
@@ -142,31 +133,31 @@ class TestIssueTracking:
         assert state_file.exists()
 
     def test_is_processed_true_for_success(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(1, "success")
         assert tracker.is_processed(1) is True
 
     def test_is_processed_false_for_failed(self, tmp_path: Path) -> None:
         """Failed issues are NOT processed — they should be retried."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(2, "failed")
         assert tracker.is_processed(2) is False
 
     def test_is_processed_false_for_in_progress(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(3, "in_progress")
         assert tracker.is_processed(3) is False
 
     def test_is_processed_false_for_unknown_issue(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.is_processed(999) is False
 
     def test_get_issue_status_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_issue_status(123) is None
 
     def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.mark_issue(2, "failed")
         tracker.mark_issue(3, "in_progress")
@@ -183,7 +174,7 @@ class TestIssueTracking:
 
 class TestWorktreeTracking:
     def test_set_worktree_stores_path(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worktree(7, "/tmp/wt-7")
         assert tracker.get_active_worktrees() == {7: "/tmp/wt-7"}
 
@@ -194,32 +185,32 @@ class TestWorktreeTracking:
         assert state_file.exists()
 
     def test_remove_worktree_deletes_entry(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worktree(7, "/tmp/wt-7")
         tracker.remove_worktree(7)
         assert 7 not in tracker.get_active_worktrees()
 
     def test_remove_worktree_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         # Should not raise
         tracker.remove_worktree(999)
         assert tracker.get_active_worktrees() == {}
 
     def test_get_active_worktrees_returns_int_keys(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worktree(10, "/wt/10")
         tracker.set_worktree(20, "/wt/20")
         wt = tracker.get_active_worktrees()
         assert all(isinstance(k, int) for k in wt)
 
     def test_multiple_worktrees(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worktree(1, "/wt/1")
         tracker.set_worktree(2, "/wt/2")
         assert tracker.get_active_worktrees() == {1: "/wt/1", 2: "/wt/2"}
 
     def test_remove_one_worktree_leaves_others(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worktree(1, "/wt/1")
         tracker.set_worktree(2, "/wt/2")
         tracker.remove_worktree(1)
@@ -233,12 +224,12 @@ class TestWorktreeTracking:
 
 class TestBranchTracking:
     def test_set_and_get_branch(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_branch(42, "agent/issue-42")
         assert tracker.get_branch(42) == "agent/issue-42"
 
     def test_get_branch_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_branch(999) is None
 
     def test_set_branch_triggers_save(self, tmp_path: Path) -> None:
@@ -248,13 +239,13 @@ class TestBranchTracking:
         assert state_file.exists()
 
     def test_set_branch_overwrites(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_branch(5, "branch-v1")
         tracker.set_branch(5, "branch-v2")
         assert tracker.get_branch(5) == "branch-v2"
 
     def test_multiple_branches_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_branch(1, "agent/issue-1")
         tracker.set_branch(2, "agent/issue-2")
         assert tracker.get_branch(1) == "agent/issue-1"
@@ -268,18 +259,18 @@ class TestBranchTracking:
 
 class TestPRTracking:
     def test_mark_pr_stores_status(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_pr(101, "open")
         assert tracker.get_pr_status(101) == "open"
 
     def test_mark_pr_overwrites_status(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_pr(101, "open")
         tracker.mark_pr(101, "merged")
         assert tracker.get_pr_status(101) == "merged"
 
     def test_get_pr_status_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_pr_status(999) is None
 
     def test_mark_pr_triggers_save(self, tmp_path: Path) -> None:
@@ -289,7 +280,7 @@ class TestPRTracking:
         assert state_file.exists()
 
     def test_multiple_prs_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_pr(1, "open")
         tracker.mark_pr(2, "closed")
         assert tracker.get_pr_status(1) == "open"
@@ -303,12 +294,12 @@ class TestPRTracking:
 
 class TestHITLOriginTracking:
     def test_set_hitl_origin_stores_label(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_origin(42, "hydraflow-review")
         assert tracker.get_hitl_origin(42) == "hydraflow-review"
 
     def test_get_hitl_origin_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_hitl_origin(999) is None
 
     def test_set_hitl_origin_triggers_save(self, tmp_path: Path) -> None:
@@ -318,25 +309,25 @@ class TestHITLOriginTracking:
         assert state_file.exists()
 
     def test_set_hitl_origin_overwrites(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_origin(42, "hydraflow-find")
         tracker.set_hitl_origin(42, "hydraflow-review")
         assert tracker.get_hitl_origin(42) == "hydraflow-review"
 
     def test_remove_hitl_origin_deletes_entry(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_origin(42, "hydraflow-review")
         tracker.remove_hitl_origin(42)
         assert tracker.get_hitl_origin(42) is None
 
     def test_remove_hitl_origin_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         # Should not raise
         tracker.remove_hitl_origin(999)
         assert tracker.get_hitl_origin(999) is None
 
     def test_multiple_origins_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_origin(1, "hydraflow-find")
         tracker.set_hitl_origin(2, "hydraflow-review")
         assert tracker.get_hitl_origin(1) == "hydraflow-find"
@@ -351,7 +342,7 @@ class TestHITLOriginTracking:
         assert tracker2.get_hitl_origin(42) == "hydraflow-review"
 
     def test_reset_clears_hitl_origins(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_origin(42, "hydraflow-review")
         tracker.reset()
         assert tracker.get_hitl_origin(42) is None
@@ -383,12 +374,12 @@ class TestHITLOriginTracking:
 
 class TestHITLCauseTracking:
     def test_set_hitl_cause_stores_cause(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_cause(42, "CI failed after 2 fix attempts")
         assert tracker.get_hitl_cause(42) == "CI failed after 2 fix attempts"
 
     def test_get_hitl_cause_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_hitl_cause(999) is None
 
     def test_set_hitl_cause_triggers_save(self, tmp_path: Path) -> None:
@@ -398,25 +389,25 @@ class TestHITLCauseTracking:
         assert state_file.exists()
 
     def test_set_hitl_cause_overwrites(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_cause(42, "First cause")
         tracker.set_hitl_cause(42, "Second cause")
         assert tracker.get_hitl_cause(42) == "Second cause"
 
     def test_remove_hitl_cause_deletes_entry(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_cause(42, "Some cause")
         tracker.remove_hitl_cause(42)
         assert tracker.get_hitl_cause(42) is None
 
     def test_remove_hitl_cause_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         # Should not raise
         tracker.remove_hitl_cause(999)
         assert tracker.get_hitl_cause(999) is None
 
     def test_multiple_causes_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_cause(1, "CI failed after 2 fix attempts")
         tracker.set_hitl_cause(2, "Merge conflict with main branch")
         assert tracker.get_hitl_cause(1) == "CI failed after 2 fix attempts"
@@ -431,7 +422,7 @@ class TestHITLCauseTracking:
         assert tracker2.get_hitl_cause(42) == "PR merge failed on GitHub"
 
     def test_reset_clears_hitl_causes(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_hitl_cause(42, "Some cause")
         tracker.reset()
         assert tracker.get_hitl_cause(42) is None
@@ -464,16 +455,16 @@ class TestHITLCauseTracking:
 
 class TestBatchTracking:
     def test_initial_batch_is_zero(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_current_batch() == 0
 
     def test_increment_batch_returns_new_value(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         result = tracker.increment_batch()
         assert result == 1
 
     def test_increment_batch_multiple_times(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_batch()
         tracker.increment_batch()
         result = tracker.increment_batch()
@@ -503,31 +494,31 @@ class TestBatchTracking:
 
 class TestReset:
     def test_reset_clears_processed_issues(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.reset()
         assert tracker.get_issue_status(1) is None
 
     def test_reset_clears_active_worktrees(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worktree(1, "/wt/1")
         tracker.reset()
         assert tracker.get_active_worktrees() == {}
 
     def test_reset_clears_active_branches(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_branch(1, "agent/issue-1")
         tracker.reset()
         assert tracker.get_branch(1) is None
 
     def test_reset_clears_reviewed_prs(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_pr(99, "merged")
         tracker.reset()
         assert tracker.get_pr_status(99) is None
 
     def test_reset_resets_batch_to_zero(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_batch()
         tracker.increment_batch()
         tracker.reset()
@@ -544,7 +535,7 @@ class TestReset:
         assert tracker2.get_current_batch() == 0
 
     def test_reset_clears_all_state_at_once(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.set_worktree(1, "/wt/1")
         tracker.set_branch(1, "agent/issue-1")
@@ -623,11 +614,11 @@ class TestCorruptFileHandling:
 
 class TestToDict:
     def test_to_dict_returns_dict(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert isinstance(tracker.to_dict(), dict)
 
     def test_to_dict_contains_all_default_keys(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         d = tracker.to_dict()
         expected_keys = {
             "current_batch",
@@ -649,18 +640,18 @@ class TestToDict:
 
     def test_to_dict_returns_copy_not_reference(self, tmp_path: Path) -> None:
         """Mutating the returned dict must not affect the tracker's internal state."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         d = tracker.to_dict()
         d["current_batch"] = 999
         assert tracker.get_current_batch() == 0
 
     def test_to_dict_contains_lifetime_stats_key(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         d = tracker.to_dict()
         assert "lifetime_stats" in d
 
     def test_to_dict_reflects_current_state(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(7, "success")
         tracker.increment_batch()
         d = tracker.to_dict()
@@ -676,7 +667,7 @@ class TestToDict:
 class TestLifetimeStats:
     def test_defaults_include_lifetime_stats(self, tmp_path: Path) -> None:
         """A fresh tracker should include zeroed lifetime_stats."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         stats = tracker.get_lifetime_stats()
         assert stats.issues_completed == 0
         assert stats.prs_merged == 0
@@ -691,29 +682,29 @@ class TestLifetimeStats:
         assert stats.total_review_seconds == 0.0
 
     def test_record_issue_completed_increments(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_issue_completed()
         assert tracker.get_lifetime_stats().issues_completed == 1
 
     def test_record_pr_merged_increments(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_pr_merged()
         assert tracker.get_lifetime_stats().prs_merged == 1
 
     def test_record_issue_created_increments(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_issue_created()
         assert tracker.get_lifetime_stats().issues_created == 1
 
     def test_multiple_increments_accumulate(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(3):
             tracker.record_pr_merged()
         assert tracker.get_lifetime_stats().prs_merged == 3
 
     def test_get_lifetime_stats_returns_copy(self, tmp_path: Path) -> None:
         """Mutating the returned model must not affect internal state."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_issue_completed()
         stats = tracker.get_lifetime_stats()
         stats.issues_completed = 999
@@ -723,7 +714,7 @@ class TestLifetimeStats:
         self, tmp_path: Path
     ) -> None:
         """get_lifetime_stats should return a LifetimeStats model instance."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         result = tracker.get_lifetime_stats()
         assert isinstance(result, LifetimeStats)
 
@@ -740,7 +731,7 @@ class TestLifetimeStats:
         assert stats.issues_created == 2
 
     def test_reset_preserves_lifetime_stats(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_pr_merged()
         tracker.record_issue_completed()
         tracker.record_issue_created()
@@ -791,7 +782,7 @@ class TestLifetimeStats:
 class TestAtomicSave:
     def test_save_uses_atomic_replace(self, tmp_path: Path) -> None:
         """save() should write to a temp file then atomically replace."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         with patch("file_util.os.replace", wraps=os.replace) as mock_replace:
             tracker.save()
             mock_replace.assert_called_once()
@@ -803,7 +794,7 @@ class TestAtomicSave:
 
     def test_save_cleans_up_temp_on_write_failure(self, tmp_path: Path) -> None:
         """If writing to the temp file fails, the temp file should be removed."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         state_dir = tmp_path
 
         with (
@@ -818,7 +809,7 @@ class TestAtomicSave:
 
     def test_save_cleans_up_temp_on_fsync_failure(self, tmp_path: Path) -> None:
         """If fsync fails, the temp file should be cleaned up."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
 
         with (
             patch("file_util.os.fsync", side_effect=OSError("fsync failed")),
@@ -852,7 +843,7 @@ class TestAtomicSave:
 
     def test_no_temp_files_left_after_successful_save(self, tmp_path: Path) -> None:
         """After a normal save, no temp files should remain."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.save()
 
         temps = list(tmp_path.glob(".state-*.tmp"))
@@ -860,7 +851,7 @@ class TestAtomicSave:
 
     def test_save_temp_file_in_same_directory(self, tmp_path: Path) -> None:
         """The temp file must be created in the same dir as the state file."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         with patch(
             "file_util.tempfile.mkstemp", wraps=__import__("tempfile").mkstemp
         ) as mock_mkstemp:
@@ -877,28 +868,28 @@ class TestAtomicSave:
 
 class TestReviewAttemptTracking:
     def test_get_review_attempts_defaults_to_zero(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_review_attempts(42) == 0
 
     def test_increment_review_attempts_returns_new_count(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.increment_review_attempts(42) == 1
         assert tracker.increment_review_attempts(42) == 2
 
     def test_reset_review_attempts_clears_counter(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_review_attempts(42)
         tracker.increment_review_attempts(42)
         tracker.reset_review_attempts(42)
         assert tracker.get_review_attempts(42) == 0
 
     def test_reset_review_attempts_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.reset_review_attempts(999)
         assert tracker.get_review_attempts(999) == 0
 
     def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_review_attempts(1)
         tracker.increment_review_attempts(1)
         tracker.increment_review_attempts(2)
@@ -915,7 +906,7 @@ class TestReviewAttemptTracking:
         assert tracker2.get_review_attempts(42) == 2
 
     def test_reset_clears_review_attempts(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_review_attempts(42)
         tracker.reset()
         assert tracker.get_review_attempts(42) == 0
@@ -928,22 +919,22 @@ class TestReviewAttemptTracking:
 
 class TestReviewFeedbackStorage:
     def test_set_and_get_review_feedback(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_review_feedback(42, "Fix the error handling")
         assert tracker.get_review_feedback(42) == "Fix the error handling"
 
     def test_get_review_feedback_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_review_feedback(999) is None
 
     def test_clear_review_feedback(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_review_feedback(42, "Some feedback")
         tracker.clear_review_feedback(42)
         assert tracker.get_review_feedback(42) is None
 
     def test_clear_review_feedback_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.clear_review_feedback(999)
         assert tracker.get_review_feedback(999) is None
 
@@ -956,13 +947,13 @@ class TestReviewFeedbackStorage:
         assert tracker2.get_review_feedback(42) == "Needs more tests"
 
     def test_set_review_feedback_overwrites(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_review_feedback(42, "First feedback")
         tracker.set_review_feedback(42, "Updated feedback")
         assert tracker.get_review_feedback(42) == "Updated feedback"
 
     def test_reset_clears_review_feedback(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_review_feedback(42, "Some feedback")
         tracker.reset()
         assert tracker.get_review_feedback(42) is None
@@ -1040,7 +1031,7 @@ class TestStateDataModel:
 
     def test_save_writes_model_dump_json(self, tmp_path: Path) -> None:
         """The saved file should be parseable by StateData.model_validate_json."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.record_pr_merged()
 
@@ -1054,13 +1045,13 @@ class TestWorkerResultMeta:
     """Tests for worker result metadata tracking."""
 
     def test_set_and_get_worker_result_meta(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         meta = {"quality_fix_attempts": 2, "duration_seconds": 120.5, "error": None}
         tracker.set_worker_result_meta(42, meta)
         assert tracker.get_worker_result_meta(42) == meta
 
     def test_get_returns_empty_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_worker_result_meta(999) == {}
 
     def test_set_triggers_save(self, tmp_path: Path) -> None:
@@ -1079,14 +1070,14 @@ class TestWorkerResultMeta:
         assert tracker2.get_worker_result_meta(42) == meta
 
     def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worker_result_meta(1, {"quality_fix_attempts": 0})
         tracker.set_worker_result_meta(2, {"quality_fix_attempts": 3})
         assert tracker.get_worker_result_meta(1) == {"quality_fix_attempts": 0}
         assert tracker.get_worker_result_meta(2) == {"quality_fix_attempts": 3}
 
     def test_overwrites_previous_meta(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worker_result_meta(42, {"quality_fix_attempts": 1})
         tracker.set_worker_result_meta(42, {"quality_fix_attempts": 5})
         assert tracker.get_worker_result_meta(42) == {"quality_fix_attempts": 5}
@@ -1144,40 +1135,40 @@ class TestRecordingMethods:
     """Tests for the new lifetime stats recording methods."""
 
     def test_record_quality_fix_rounds(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_quality_fix_rounds(3)
         assert tracker.get_lifetime_stats().total_quality_fix_rounds == 3
 
     def test_record_quality_fix_rounds_accumulates(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_quality_fix_rounds(2)
         tracker.record_quality_fix_rounds(1)
         assert tracker.get_lifetime_stats().total_quality_fix_rounds == 3
 
     def test_record_ci_fix_rounds(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_ci_fix_rounds(2)
         assert tracker.get_lifetime_stats().total_ci_fix_rounds == 2
 
     def test_record_ci_fix_rounds_accumulates(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_ci_fix_rounds(1)
         tracker.record_ci_fix_rounds(3)
         assert tracker.get_lifetime_stats().total_ci_fix_rounds == 4
 
     def test_record_hitl_escalation(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_hitl_escalation()
         assert tracker.get_lifetime_stats().total_hitl_escalations == 1
 
     def test_record_hitl_escalation_increments(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_hitl_escalation()
         tracker.record_hitl_escalation()
         assert tracker.get_lifetime_stats().total_hitl_escalations == 2
 
     def test_record_review_verdict_approve(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_review_verdict("approve", fixes_made=False)
         stats = tracker.get_lifetime_stats()
         assert stats.total_review_approvals == 1
@@ -1185,7 +1176,7 @@ class TestRecordingMethods:
         assert stats.total_reviewer_fixes == 0
 
     def test_record_review_verdict_request_changes(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_review_verdict("request-changes", fixes_made=False)
         stats = tracker.get_lifetime_stats()
         assert stats.total_review_approvals == 0
@@ -1193,7 +1184,7 @@ class TestRecordingMethods:
         assert stats.total_reviewer_fixes == 0
 
     def test_record_review_verdict_with_fixes(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_review_verdict("approve", fixes_made=True)
         stats = tracker.get_lifetime_stats()
         assert stats.total_review_approvals == 1
@@ -1202,14 +1193,14 @@ class TestRecordingMethods:
     def test_record_review_verdict_comment_does_not_affect_counts(
         self, tmp_path: Path
     ) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_review_verdict("comment", fixes_made=False)
         stats = tracker.get_lifetime_stats()
         assert stats.total_review_approvals == 0
         assert stats.total_review_request_changes == 0
 
     def test_record_implementation_duration(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_implementation_duration(45.5)
         assert (
             tracker.get_lifetime_stats().total_implementation_seconds
@@ -1217,7 +1208,7 @@ class TestRecordingMethods:
         )
 
     def test_record_implementation_duration_accumulates(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_implementation_duration(10.0)
         tracker.record_implementation_duration(20.5)
         assert (
@@ -1226,12 +1217,12 @@ class TestRecordingMethods:
         )
 
     def test_record_review_duration(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_review_duration(30.0)
         assert tracker.get_lifetime_stats().total_review_seconds == pytest.approx(30.0)
 
     def test_record_review_duration_accumulates(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_review_duration(15.0)
         tracker.record_review_duration(25.0)
         assert tracker.get_lifetime_stats().total_review_seconds == pytest.approx(40.0)
@@ -1257,7 +1248,7 @@ class TestRecordingMethods:
         assert stats.total_review_seconds == pytest.approx(30.0)
 
     def test_new_stats_preserved_across_reset(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_quality_fix_rounds(3)
         tracker.record_hitl_escalation()
         tracker.record_implementation_duration(100.0)
@@ -1281,23 +1272,23 @@ class TestMetricsState:
     """Tests for metrics state tracking methods."""
 
     def test_get_metrics_issue_number_default(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_metrics_issue_number() is None
 
     def test_set_and_get_metrics_issue_number(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_metrics_issue_number(42)
         assert tracker.get_metrics_issue_number() == 42
 
     def test_get_metrics_state_default(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         issue_num, hash_val, synced = tracker.get_metrics_state()
         assert issue_num is None
         assert hash_val == ""
         assert synced is None
 
     def test_update_metrics_state(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_metrics_issue_number(99)
         tracker.update_metrics_state("abc123")
         issue_num, hash_val, synced = tracker.get_metrics_state()
@@ -1306,11 +1297,11 @@ class TestMetricsState:
         assert synced is not None
 
     def test_metrics_state_persists_across_reloads(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_metrics_issue_number(77)
         tracker.update_metrics_state("def456")
 
-        tracker2 = make_tracker(tmp_path)
+        tracker2 = make_state(tmp_path)
         issue_num, hash_val, synced = tracker2.get_metrics_state()
         assert issue_num == 77
         assert hash_val == "def456"
@@ -1326,24 +1317,24 @@ class TestThresholdTracking:
     """Tests for threshold-based improvement proposal logic."""
 
     def test_mark_threshold_fired(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_threshold_fired("quality_fix_rate")
         assert "quality_fix_rate" in tracker.get_fired_thresholds()
 
     def test_mark_threshold_fired_idempotent(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_threshold_fired("quality_fix_rate")
         tracker.mark_threshold_fired("quality_fix_rate")
         assert tracker.get_fired_thresholds().count("quality_fix_rate") == 1
 
     def test_clear_threshold_fired(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_threshold_fired("quality_fix_rate")
         tracker.clear_threshold_fired("quality_fix_rate")
         assert "quality_fix_rate" not in tracker.get_fired_thresholds()
 
     def test_clear_threshold_fired_noop_if_not_present(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.clear_threshold_fired("nonexistent")
         assert tracker.get_fired_thresholds() == []
 
@@ -1359,7 +1350,7 @@ class TestThresholdTracking:
         assert "hitl_rate" in fired
 
     def test_fired_thresholds_preserved_across_reset(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_threshold_fired("approval_rate")
         tracker.reset()
         assert "approval_rate" in tracker.get_fired_thresholds()
@@ -1368,7 +1359,7 @@ class TestThresholdTracking:
         self, tmp_path: Path
     ) -> None:
         """Thresholds require at least 5 completed issues to activate."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(4):
             tracker.record_issue_completed()
         tracker.record_quality_fix_rounds(10)  # high rate
@@ -1376,7 +1367,7 @@ class TestThresholdTracking:
         assert proposals == []
 
     def test_check_thresholds_quality_fix_rate_crossed(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(5):
             tracker.record_issue_completed()
         tracker.record_quality_fix_rounds(4)  # rate = 4/5 = 0.8 > 0.5
@@ -1385,7 +1376,7 @@ class TestThresholdTracking:
         assert "quality_fix_rate" in names
 
     def test_check_thresholds_approval_rate_crossed(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(5):
             tracker.record_issue_completed()
         # 1 approval, 4 request-changes → rate = 1/5 = 0.2 < 0.5
@@ -1397,7 +1388,7 @@ class TestThresholdTracking:
         assert "approval_rate" in names
 
     def test_check_thresholds_hitl_rate_crossed(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(5):
             tracker.record_issue_completed()
         for _ in range(2):
@@ -1407,7 +1398,7 @@ class TestThresholdTracking:
         assert "hitl_rate" in names
 
     def test_check_thresholds_does_not_re_fire(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(5):
             tracker.record_issue_completed()
         tracker.record_quality_fix_rounds(4)
@@ -1418,7 +1409,7 @@ class TestThresholdTracking:
         assert not any(p["name"] == "quality_fix_rate" for p in proposals2)
 
     def test_check_thresholds_clears_recovered(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.mark_threshold_fired("quality_fix_rate")
         for _ in range(5):
             tracker.record_issue_completed()
@@ -1427,12 +1418,12 @@ class TestThresholdTracking:
         assert "quality_fix_rate" not in tracker.get_fired_thresholds()
 
     def test_check_thresholds_no_issues_returns_empty(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         proposals = tracker.check_thresholds(0.5, 0.5, 0.2)
         assert proposals == []
 
     def test_check_thresholds_returns_correct_values(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         for _ in range(10):
             tracker.record_issue_completed()
         tracker.record_quality_fix_rounds(8)  # rate = 0.8
@@ -1453,26 +1444,26 @@ class TestVerificationIssueTracking:
 
     def test_set_and_get_verification_issue(self, tmp_path: Path) -> None:
         """Round-trip: set then get returns the verification issue number."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_verification_issue(42, 500)
         assert tracker.get_verification_issue(42) == 500
 
     def test_get_returns_none_when_not_set(self, tmp_path: Path) -> None:
         """Returns None when no verification issue is tracked."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_verification_issue(42) is None
 
     def test_persists_across_reload(self, tmp_path: Path) -> None:
         """Verification issue mapping survives reload from disk."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_verification_issue(42, 500)
 
-        tracker2 = make_tracker(tmp_path)
+        tracker2 = make_state(tmp_path)
         assert tracker2.get_verification_issue(42) == 500
 
     def test_multiple_issues_tracked(self, tmp_path: Path) -> None:
         """Multiple original issues can each have verification issues."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_verification_issue(42, 500)
         tracker.set_verification_issue(99, 501)
 
@@ -1487,28 +1478,28 @@ class TestVerificationIssueTracking:
 
 class TestIssueAttemptTracking:
     def test_get_issue_attempts_defaults_to_zero(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_issue_attempts(42) == 0
 
     def test_increment_issue_attempts_returns_new_count(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.increment_issue_attempts(42) == 1
         assert tracker.increment_issue_attempts(42) == 2
 
     def test_reset_issue_attempts_clears_counter(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_issue_attempts(42)
         tracker.increment_issue_attempts(42)
         tracker.reset_issue_attempts(42)
         assert tracker.get_issue_attempts(42) == 0
 
     def test_reset_issue_attempts_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.reset_issue_attempts(999)
         assert tracker.get_issue_attempts(999) == 0
 
     def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_issue_attempts(1)
         tracker.increment_issue_attempts(1)
         tracker.increment_issue_attempts(2)
@@ -1525,7 +1516,7 @@ class TestIssueAttemptTracking:
         assert tracker2.get_issue_attempts(42) == 2
 
     def test_reset_clears_issue_attempts(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.increment_issue_attempts(42)
         tracker.reset()
         assert tracker.get_issue_attempts(42) == 0
@@ -1555,16 +1546,16 @@ class TestIssueAttemptTracking:
 
 class TestActiveIssueNumbersTracking:
     def test_get_returns_empty_default(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_active_issue_numbers() == []
 
     def test_set_and_get_active_issues(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_active_issue_numbers([1, 2, 3])
         assert tracker.get_active_issue_numbers() == [1, 2, 3]
 
     def test_set_overwrites_previous(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_active_issue_numbers([1, 2])
         tracker.set_active_issue_numbers([3, 4])
         assert tracker.get_active_issue_numbers() == [3, 4]
@@ -1578,14 +1569,14 @@ class TestActiveIssueNumbersTracking:
         assert tracker2.get_active_issue_numbers() == [10, 20]
 
     def test_reset_clears_active_issues(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_active_issue_numbers([1, 2])
         tracker.reset()
         assert tracker.get_active_issue_numbers() == []
 
     def test_get_returns_copy(self, tmp_path: Path) -> None:
         """Mutating the returned list must not affect internal state."""
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_active_issue_numbers([1, 2])
         result = tracker.get_active_issue_numbers()
         result.append(99)
@@ -1615,11 +1606,11 @@ class TestWorkerIntervals:
     """Tests for worker interval override persistence."""
 
     def test_get_returns_empty_dict_initially(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_worker_intervals() == {}
 
     def test_set_and_get_round_trip(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worker_intervals({"memory_sync": 1800, "metrics": 7200})
         assert tracker.get_worker_intervals() == {"memory_sync": 1800, "metrics": 7200}
 
@@ -1632,7 +1623,7 @@ class TestWorkerIntervals:
         assert tracker2.get_worker_intervals() == {"memory_sync": 3600}
 
     def test_get_returns_copy(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.set_worker_intervals({"memory_sync": 1800})
         result1 = tracker.get_worker_intervals()
         result2 = tracker.get_worker_intervals()
@@ -1649,19 +1640,19 @@ class TestMergeDurationTracking:
     """Tests for time-to-merge tracking."""
 
     def test_record_merge_duration_stores_value(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_merge_duration(3600.5)
         stats = tracker.get_lifetime_stats()
         assert 3600.5 in stats.merge_durations
 
     def test_get_merge_duration_stats_empty(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_merge_duration_stats() == {}
 
     def test_get_merge_duration_stats_computes_percentiles(
         self, tmp_path: Path
     ) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         durations = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
         for d in durations:
             tracker.record_merge_duration(float(d))
@@ -1671,7 +1662,7 @@ class TestMergeDurationTracking:
         assert stats["p90"] == 1000.0  # 90th percentile
 
     def test_merge_durations_persist(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_merge_duration(42.0)
         tracker2 = StateTracker(tracker._path)
         assert 42.0 in tracker2.get_lifetime_stats().merge_durations
@@ -1686,7 +1677,7 @@ class TestRetriesPerStage:
     """Tests for retry-per-stage tracking."""
 
     def test_record_stage_retry_increments(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_stage_retry(42, "quality_fix")
         tracker.record_stage_retry(42, "quality_fix")
         tracker.record_stage_retry(42, "ci_fix")
@@ -1695,11 +1686,11 @@ class TestRetriesPerStage:
         assert summary["ci_fix"] == 1
 
     def test_get_retries_summary_empty(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         assert tracker.get_retries_summary() == {}
 
     def test_retries_across_issues(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_stage_retry(1, "quality_fix")
         tracker.record_stage_retry(2, "quality_fix")
         tracker.record_stage_retry(2, "ci_fix")
@@ -1708,7 +1699,7 @@ class TestRetriesPerStage:
         assert summary["ci_fix"] == 1
 
     def test_retries_persist(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
+        tracker = make_state(tmp_path)
         tracker.record_stage_retry(42, "quality_fix")
         tracker2 = StateTracker(tracker._path)
         assert tracker2.get_retries_summary() == {"quality_fix": 1}

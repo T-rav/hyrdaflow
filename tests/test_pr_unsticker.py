@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from models import GitHubIssue, HITLItem
 from pr_unsticker import PRUnsticker
-from state import StateTracker
+from tests.conftest import make_state
 from tests.helpers import ConfigFactory
 
 
@@ -29,10 +29,6 @@ def _make_config(tmp_path: Path, **overrides) -> MagicMock:
     )
 
 
-def _make_state(tmp_path: Path) -> StateTracker:
-    return StateTracker(tmp_path / "state.json")
-
-
 def _make_unsticker(
     tmp_path: Path,
     *,
@@ -45,7 +41,7 @@ def _make_unsticker(
     **config_overrides,
 ):
     cfg = config or _make_config(tmp_path, **config_overrides)
-    st = state or _make_state(tmp_path)
+    st = state or make_state(tmp_path)
     bus = AsyncMock()
     bus.publish = AsyncMock()
     prs = pr_manager or AsyncMock()

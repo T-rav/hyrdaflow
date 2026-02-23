@@ -15,24 +15,7 @@ import pytest
 from agent import AgentRunner
 from events import EventBus, EventType
 from models import WorkerStatus
-from tests.helpers import ConfigFactory, make_streaming_proc
-
-# ---------------------------------------------------------------------------
-# Helpers (agent-specific)
-# ---------------------------------------------------------------------------
-
-
-def _make_proc(
-    returncode: int = 0,
-    stdout: bytes = b"",
-    stderr: bytes = b"",
-) -> AsyncMock:
-    """Build a minimal mock subprocess object (communicate style)."""
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.communicate = AsyncMock(return_value=(stdout, stderr))
-    return proc
-
+from tests.helpers import ConfigFactory, make_proc, make_streaming_proc
 
 # ---------------------------------------------------------------------------
 # AgentRunner._build_command
@@ -679,7 +662,7 @@ class TestVerifyResult:
         """_verify_result should run make quality and return OK on success."""
         runner = AgentRunner(config, event_bus)
 
-        quality_proc = _make_proc(returncode=0, stdout=b"All checks passed")
+        quality_proc = make_proc(returncode=0, stdout=b"All checks passed")
 
         with (
             patch.object(
@@ -707,7 +690,7 @@ class TestVerifyResult:
         """_verify_result should return (False, ...) when make quality exits non-zero."""
         runner = AgentRunner(config, event_bus)
 
-        fail_proc = _make_proc(
+        fail_proc = make_proc(
             returncode=1, stdout=b"FAILED test_foo.py::test_bar", stderr=b""
         )
 
@@ -729,7 +712,7 @@ class TestVerifyResult:
         """_verify_result should include the last 3000 chars of output on failure."""
         runner = AgentRunner(config, event_bus)
 
-        fail_proc = _make_proc(
+        fail_proc = make_proc(
             returncode=1,
             stdout=b"error: type mismatch on line 42",
             stderr=b"pyright found 1 error",
@@ -780,7 +763,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should return the integer from git rev-list output."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=0, stdout=b"3\n")
+        mock_proc = make_proc(returncode=0, stdout=b"3\n")
 
         with patch(
             "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)
@@ -805,7 +788,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should correctly parse multi-digit counts."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=0, stdout=b"15\n")
+        mock_proc = make_proc(returncode=0, stdout=b"15\n")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             result = await runner._count_commits(tmp_path, "agent/issue-42")
@@ -818,7 +801,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should return 0 when stdout is empty (ValueError)."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=0, stdout=b"")
+        mock_proc = make_proc(returncode=0, stdout=b"")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             result = await runner._count_commits(tmp_path, "agent/issue-42")
@@ -831,7 +814,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should return 0 when git exits with non-zero code."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=1, stdout=b"")
+        mock_proc = make_proc(returncode=1, stdout=b"")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             result = await runner._count_commits(tmp_path, "agent/issue-42")
