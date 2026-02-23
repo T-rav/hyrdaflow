@@ -6,9 +6,13 @@ sub-projects/workspaces, and CI/CD configuration. Persists the result to
 from the start of each run.
 
 Consolidates the scattered ``_PYTHON_MARKERS`` / ``_JS_MARKERS`` constants
-and the duplicated ``detect_language()`` function that were previously
-spread across ``ci_scaffold.py``, ``lint_scaffold.py``,
-``makefile_scaffold.py``, ``test_scaffold.py``, and ``prep_hooks.py``.
+previously duplicated across ``ci_scaffold.py``, ``lint_scaffold.py``,
+``makefile_scaffold.py``, ``test_scaffold.py``, and ``prep_hooks.py``, and
+the ``detect_language()`` function previously duplicated across
+``ci_scaffold.py``, ``lint_scaffold.py``, ``makefile_scaffold.py``, and
+``test_scaffold.py``.  ``prep_hooks.py`` retains its own
+``detect_language`` variant that returns ``"typescript"`` as a distinct
+value.
 """
 
 from __future__ import annotations
