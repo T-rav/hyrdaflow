@@ -440,6 +440,25 @@ class TestPRsRoute:
 
         assert response.json() == []
 
+    _TWO_MOCK_PRS = [
+        PRListItem(
+            pr=10,
+            issue=42,
+            branch="agent/issue-42",
+            url="https://github.com/org/repo/pull/10",
+            draft=False,
+            title="Fix widget",
+        ),
+        PRListItem(
+            pr=11,
+            issue=55,
+            branch="agent/issue-55",
+            url="https://github.com/org/repo/pull/11",
+            draft=True,
+            title="Add feature",
+        ),
+    ]
+
     def test_prs_happy_path_returns_correct_count(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -450,27 +469,10 @@ class TestPRsRoute:
         dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
-        mock_prs = [
-            PRListItem(
-                pr=10,
-                issue=42,
-                branch="agent/issue-42",
-                url="https://github.com/org/repo/pull/10",
-                draft=False,
-                title="Fix widget",
-            ),
-            PRListItem(
-                pr=11,
-                issue=55,
-                branch="agent/issue-55",
-                url="https://github.com/org/repo/pull/11",
-                draft=True,
-                title="Add feature",
-            ),
-        ]
-
         client = TestClient(app)
-        with patch("pr_manager.PRManager.list_open_prs", return_value=mock_prs):
+        with patch(
+            "pr_manager.PRManager.list_open_prs", return_value=self._TWO_MOCK_PRS
+        ):
             response = client.get("/api/prs")
 
         body = response.json()
@@ -486,27 +488,10 @@ class TestPRsRoute:
         dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
 
-        mock_prs = [
-            PRListItem(
-                pr=10,
-                issue=42,
-                branch="agent/issue-42",
-                url="https://github.com/org/repo/pull/10",
-                draft=False,
-                title="Fix widget",
-            ),
-            PRListItem(
-                pr=11,
-                issue=55,
-                branch="agent/issue-55",
-                url="https://github.com/org/repo/pull/11",
-                draft=True,
-                title="Add feature",
-            ),
-        ]
-
         client = TestClient(app)
-        with patch("pr_manager.PRManager.list_open_prs", return_value=mock_prs):
+        with patch(
+            "pr_manager.PRManager.list_open_prs", return_value=self._TWO_MOCK_PRS
+        ):
             response = client.get("/api/prs")
 
         body = response.json()
