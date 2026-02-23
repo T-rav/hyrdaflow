@@ -194,7 +194,7 @@ class TestImplementBatch:
 
         await phase.run_batch()
 
-        status = phase._state.get_issue_status(55)
+        status = phase._state.to_dict()["processed_issues"].get(str(55))
         assert status == "success"
 
     @pytest.mark.asyncio
@@ -207,7 +207,7 @@ class TestImplementBatch:
 
         await phase.run_batch()
 
-        status = phase._state.get_issue_status(66)
+        status = phase._state.to_dict()["processed_issues"].get(str(66))
         assert status == "failed"
 
     @pytest.mark.asyncio
@@ -416,7 +416,7 @@ class TestWorkerExceptionIsolation:
 
         await phase.run_batch()
 
-        assert phase._state.get_issue_status(42) == "failed"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
 
     @pytest.mark.asyncio
     async def test_worker_exception_releases_active_issues(
@@ -1032,7 +1032,10 @@ class TestAlreadySatisfiedZeroCommit:
 
         await phase.run_batch()
 
-        assert phase._state.get_issue_status(42) == "already_satisfied"
+        assert (
+            phase._state.to_dict()["processed_issues"].get(str(42))
+            == "already_satisfied"
+        )
 
     @pytest.mark.asyncio
     async def test_zero_commit_removes_ready_labels(
@@ -1098,7 +1101,7 @@ class TestAlreadySatisfiedZeroCommit:
 
         # Should NOT close the issue
         mock_prs.close_issue.assert_not_awaited()
-        assert phase._state.get_issue_status(42) == "failed"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -1512,7 +1515,10 @@ class TestHandleImplementationResult:
 
         returned = await phase._handle_implementation_result(issue, result, False)
 
-        assert phase._state.get_issue_status(42) == "already_satisfied"
+        assert (
+            phase._state.to_dict()["processed_issues"].get(str(42))
+            == "already_satisfied"
+        )
         mock_prs.close_issue.assert_awaited_once_with(42)
         assert returned is result
 
@@ -1536,7 +1542,7 @@ class TestHandleImplementationResult:
 
         assert returned.pr_info is not None
         assert returned.pr_info.number == 101
-        assert phase._state.get_issue_status(42) == "success"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "success"
 
         mock_prs.swap_pipeline_labels.assert_awaited_once_with(
             42, config.review_label[0], pr_number=101
@@ -1569,7 +1575,7 @@ class TestHandleImplementationResult:
 
         await phase._handle_implementation_result(issue, result, False)
 
-        assert phase._state.get_issue_status(42) == "failed"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
 
     @pytest.mark.asyncio
     async def test_empty_worktree_path_skips_push_and_pr(
@@ -1590,7 +1596,7 @@ class TestHandleImplementationResult:
 
         mock_prs.push_branch.assert_not_awaited()
         mock_prs.create_pr.assert_not_awaited()
-        assert phase._state.get_issue_status(42) == "success"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "success"
         assert returned is result
 
 

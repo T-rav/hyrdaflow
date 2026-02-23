@@ -32,16 +32,14 @@ class TestInitialization:
     def test_defaults_when_no_file_exists(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should start from defaults."""
         tracker = make_tracker(tmp_path)
-        assert tracker.get_current_batch() == 0
         assert tracker.get_active_worktrees() == {}
-        assert tracker.get_issue_status(1) is None
+        assert tracker.to_dict()["processed_issues"].get(str(1)) is None
         assert tracker.get_branch(1) is None
-        assert tracker.get_pr_status(1) is None
+        assert tracker.to_dict()["reviewed_prs"].get(str(1)) is None
 
     def test_defaults_structure_matches_expected_keys(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         d = tracker.to_dict()
-        assert "current_batch" in d
         assert "processed_issues" in d
         assert "active_worktrees" in d
         assert "active_branches" in d
@@ -52,7 +50,6 @@ class TestInitialization:
         """If a state file already exists on disk it should be loaded."""
         state_file = tmp_path / "state.json"
         initial_data = {
-            "current_batch": 3,
             "processed_issues": {"7": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -62,8 +59,7 @@ class TestInitialization:
         state_file.write_text(json.dumps(initial_data))
 
         tracker = StateTracker(state_file)
-        assert tracker.get_current_batch() == 3
-        assert tracker.get_issue_status(7) == "success"
+        assert tracker.to_dict()["processed_issues"].get(str(7)) == "success"
 
 
 # ---------------------------------------------------------------------------
@@ -101,15 +97,13 @@ class TestLoadSave:
         tracker.set_worktree(10, "/tmp/wt-10")
         tracker.set_branch(10, "agent/issue-10")
         tracker.mark_pr(99, "merged")
-        tracker.increment_batch()
 
         # Load a second tracker from the same file
         tracker2 = StateTracker(state_file)
-        assert tracker2.get_issue_status(10) == "success"
+        assert tracker2.to_dict()["processed_issues"].get(str(10)) == "success"
         assert tracker2.get_active_worktrees() == {10: "/tmp/wt-10"}
         assert tracker2.get_branch(10) == "agent/issue-10"
-        assert tracker2.get_pr_status(99) == "merged"
-        assert tracker2.get_current_batch() == 1
+        assert tracker2.to_dict()["reviewed_prs"].get(str(99)) == "merged"
 
     def test_explicit_load_returns_dict(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -126,13 +120,13 @@ class TestIssueTracking:
     def test_mark_issue_stores_status(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(42, "in_progress")
-        assert tracker.get_issue_status(42) == "in_progress"
+        assert tracker.to_dict()["processed_issues"].get(str(42)) == "in_progress"
 
     def test_mark_issue_overwrites_previous_status(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(42, "in_progress")
         tracker.mark_issue(42, "success")
-        assert tracker.get_issue_status(42) == "success"
+        assert tracker.to_dict()["processed_issues"].get(str(42)) == "success"
 
     def test_mark_issue_triggers_save(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
@@ -141,39 +135,15 @@ class TestIssueTracking:
         # File must exist after mark_issue
         assert state_file.exists()
 
-    def test_is_processed_true_for_success(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.mark_issue(1, "success")
-        assert tracker.is_processed(1) is True
-
-    def test_is_processed_false_for_failed(self, tmp_path: Path) -> None:
-        """Failed issues are NOT processed — they should be retried."""
-        tracker = make_tracker(tmp_path)
-        tracker.mark_issue(2, "failed")
-        assert tracker.is_processed(2) is False
-
-    def test_is_processed_false_for_in_progress(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.mark_issue(3, "in_progress")
-        assert tracker.is_processed(3) is False
-
-    def test_is_processed_false_for_unknown_issue(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        assert tracker.is_processed(999) is False
-
-    def test_get_issue_status_returns_none_for_unknown(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        assert tracker.get_issue_status(123) is None
-
     def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.mark_issue(2, "failed")
         tracker.mark_issue(3, "in_progress")
 
-        assert tracker.get_issue_status(1) == "success"
-        assert tracker.get_issue_status(2) == "failed"
-        assert tracker.get_issue_status(3) == "in_progress"
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
+        assert tracker.to_dict()["processed_issues"].get(str(2)) == "failed"
+        assert tracker.to_dict()["processed_issues"].get(str(3)) == "in_progress"
 
 
 # ---------------------------------------------------------------------------
@@ -270,17 +240,17 @@ class TestPRTracking:
     def test_mark_pr_stores_status(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_pr(101, "open")
-        assert tracker.get_pr_status(101) == "open"
+        assert tracker.to_dict()["reviewed_prs"].get(str(101)) == "open"
 
     def test_mark_pr_overwrites_status(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_pr(101, "open")
         tracker.mark_pr(101, "merged")
-        assert tracker.get_pr_status(101) == "merged"
+        assert tracker.to_dict()["reviewed_prs"].get(str(101)) == "merged"
 
-    def test_get_pr_status_returns_none_for_unknown(self, tmp_path: Path) -> None:
+    def test_get_pr_returns_none_for_unknown(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        assert tracker.get_pr_status(999) is None
+        assert tracker.to_dict()["reviewed_prs"].get(str(999)) is None
 
     def test_mark_pr_triggers_save(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
@@ -292,8 +262,8 @@ class TestPRTracking:
         tracker = make_tracker(tmp_path)
         tracker.mark_pr(1, "open")
         tracker.mark_pr(2, "closed")
-        assert tracker.get_pr_status(1) == "open"
-        assert tracker.get_pr_status(2) == "closed"
+        assert tracker.to_dict()["reviewed_prs"].get(str(1)) == "open"
+        assert tracker.to_dict()["reviewed_prs"].get(str(2)) == "closed"
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +330,6 @@ class TestHITLOriginTracking:
         """Loading a state file without hitl_origins should default to {}."""
         state_file = tmp_path / "state.json"
         old_data = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -372,8 +341,7 @@ class TestHITLOriginTracking:
         tracker = StateTracker(state_file)
         assert tracker.get_hitl_origin(1) is None
         # Existing data is preserved
-        assert tracker.get_current_batch() == 5
-        assert tracker.get_issue_status(1) == "success"
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +408,6 @@ class TestHITLCauseTracking:
         """Loading a state file without hitl_causes should default to {}."""
         state_file = tmp_path / "state.json"
         old_data = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -453,47 +420,7 @@ class TestHITLCauseTracking:
         tracker = StateTracker(state_file)
         assert tracker.get_hitl_cause(42) is None
         # Existing data is preserved
-        assert tracker.get_current_batch() == 5
-        assert tracker.get_issue_status(1) == "success"
-
-
-# ---------------------------------------------------------------------------
-# Batch tracking
-# ---------------------------------------------------------------------------
-
-
-class TestBatchTracking:
-    def test_initial_batch_is_zero(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        assert tracker.get_current_batch() == 0
-
-    def test_increment_batch_returns_new_value(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        result = tracker.increment_batch()
-        assert result == 1
-
-    def test_increment_batch_multiple_times(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.increment_batch()
-        tracker.increment_batch()
-        result = tracker.increment_batch()
-        assert result == 3
-        assert tracker.get_current_batch() == 3
-
-    def test_increment_batch_triggers_save(self, tmp_path: Path) -> None:
-        state_file = tmp_path / "state.json"
-        tracker = StateTracker(state_file)
-        tracker.increment_batch()
-        assert state_file.exists()
-
-    def test_increment_batch_persists(self, tmp_path: Path) -> None:
-        state_file = tmp_path / "state.json"
-        tracker = StateTracker(state_file)
-        tracker.increment_batch()
-        tracker.increment_batch()
-
-        tracker2 = StateTracker(state_file)
-        assert tracker2.get_current_batch() == 2
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +433,7 @@ class TestReset:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.reset()
-        assert tracker.get_issue_status(1) is None
+        assert tracker.to_dict()["processed_issues"].get(str(1)) is None
 
     def test_reset_clears_active_worktrees(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -524,14 +451,7 @@ class TestReset:
         tracker = make_tracker(tmp_path)
         tracker.mark_pr(99, "merged")
         tracker.reset()
-        assert tracker.get_pr_status(99) is None
-
-    def test_reset_resets_batch_to_zero(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.increment_batch()
-        tracker.increment_batch()
-        tracker.reset()
-        assert tracker.get_current_batch() == 0
+        assert tracker.to_dict()["reviewed_prs"].get(str(99)) is None
 
     def test_reset_persists_to_disk(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
@@ -540,8 +460,7 @@ class TestReset:
         tracker.reset()
 
         tracker2 = StateTracker(state_file)
-        assert tracker2.get_issue_status(1) is None
-        assert tracker2.get_current_batch() == 0
+        assert tracker2.to_dict()["processed_issues"].get(str(1)) is None
 
     def test_reset_clears_all_state_at_once(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -551,17 +470,15 @@ class TestReset:
         tracker.mark_pr(10, "open")
         tracker.set_hitl_origin(1, "hydraflow-review")
         tracker.set_hitl_cause(1, "CI failed after 2 fix attempts")
-        tracker.increment_batch()
         tracker.increment_issue_attempts(1)
         tracker.set_active_issue_numbers([1, 2])
 
         tracker.reset()
 
-        assert tracker.get_current_batch() == 0
         assert tracker.get_active_worktrees() == {}
-        assert tracker.get_issue_status(1) is None
+        assert tracker.to_dict()["processed_issues"].get(str(1)) is None
         assert tracker.get_branch(1) is None
-        assert tracker.get_pr_status(10) is None
+        assert tracker.to_dict()["reviewed_prs"].get(str(10)) is None
         assert tracker.get_hitl_origin(1) is None
         assert tracker.get_hitl_cause(1) is None
         assert tracker.get_issue_attempts(1) == 0
@@ -580,7 +497,6 @@ class TestCorruptFileHandling:
 
         # Should not raise; should silently reset to defaults
         tracker = StateTracker(state_file)
-        assert tracker.get_current_batch() == 0
         assert tracker.get_active_worktrees() == {}
 
     def test_empty_file_falls_back_to_defaults(self, tmp_path: Path) -> None:
@@ -588,7 +504,7 @@ class TestCorruptFileHandling:
         state_file.write_text("")
 
         tracker = StateTracker(state_file)
-        assert tracker.get_current_batch() == 0
+        assert tracker.get_active_worktrees() == {}
 
     def test_load_with_corrupt_file_falls_back_to_defaults(
         self, tmp_path: Path
@@ -611,7 +527,7 @@ class TestCorruptFileHandling:
         # Constructing a tracker on a file containing 'null' should not raise
         try:
             tracker = StateTracker(state_file)
-            _ = tracker.get_current_batch()
+            _ = tracker.get_active_worktrees()
         except Exception as exc:  # noqa: BLE001
             pytest.fail(f"Unexpected exception for corrupt file: {exc}")
 
@@ -630,7 +546,6 @@ class TestToDict:
         tracker = make_tracker(tmp_path)
         d = tracker.to_dict()
         expected_keys = {
-            "current_batch",
             "processed_issues",
             "active_worktrees",
             "active_branches",
@@ -651,8 +566,8 @@ class TestToDict:
         """Mutating the returned dict must not affect the tracker's internal state."""
         tracker = make_tracker(tmp_path)
         d = tracker.to_dict()
-        d["current_batch"] = 999
-        assert tracker.get_current_batch() == 0
+        d["processed_issues"]["999"] = "hacked"
+        assert tracker.to_dict()["processed_issues"].get("999") is None
 
     def test_to_dict_contains_lifetime_stats_key(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -662,10 +577,8 @@ class TestToDict:
     def test_to_dict_reflects_current_state(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(7, "success")
-        tracker.increment_batch()
         d = tracker.to_dict()
         assert d["processed_issues"]["7"] == "success"
-        assert d["current_batch"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -745,13 +658,11 @@ class TestLifetimeStats:
         tracker.record_issue_completed()
         tracker.record_issue_created()
         tracker.mark_issue(1, "success")
-        tracker.increment_batch()
 
         tracker.reset()
 
-        # Batch and issues should be cleared
-        assert tracker.get_current_batch() == 0
-        assert tracker.get_issue_status(1) is None
+        # Issues should be cleared
+        assert tracker.to_dict()["processed_issues"].get(str(1)) is None
         # Lifetime stats should survive
         stats = tracker.get_lifetime_stats()
         assert stats.prs_merged == 1
@@ -762,7 +673,6 @@ class TestLifetimeStats:
         """Loading a state file without lifetime_stats should inject zero defaults."""
         state_file = tmp_path / "state.json"
         old_data = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -779,8 +689,7 @@ class TestLifetimeStats:
         assert stats.total_quality_fix_rounds == 0
         assert stats.total_hitl_escalations == 0
         # Existing data is preserved
-        assert tracker.get_current_batch() == 5
-        assert tracker.get_issue_status(1) == "success"
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 # ---------------------------------------------------------------------------
@@ -977,7 +886,6 @@ class TestStateDataModel:
     def test_defaults(self) -> None:
         """StateData() should have correct zero/empty defaults."""
         data = StateData()
-        assert data.current_batch == 0
         assert data.processed_issues == {}
         assert data.active_worktrees == {}
         assert data.active_branches == {}
@@ -995,7 +903,6 @@ class TestStateDataModel:
     def test_validates_correct_data(self) -> None:
         """model_validate should accept a well-formed dict."""
         raw = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {"2": "/wt/2"},
             "active_branches": {"2": "agent/issue-2"},
@@ -1010,27 +917,25 @@ class TestStateDataModel:
             "last_updated": "2025-01-01T00:00:00",
         }
         data = StateData.model_validate(raw)
-        assert data.current_batch == 5
         assert data.processed_issues["1"] == "success"
         assert data.hitl_causes["42"] == "CI failed after 2 fix attempts"
         assert data.lifetime_stats.prs_merged == 1
 
     def test_handles_partial_data(self) -> None:
         """Missing keys should get defaults — enables migration from old files."""
-        data = StateData.model_validate({"current_batch": 2})
-        assert data.current_batch == 2
-        assert data.processed_issues == {}
+        data = StateData.model_validate({"processed_issues": {"1": "success"}})
+        assert data.processed_issues == {"1": "success"}
+        assert data.active_worktrees == {}
         assert data.lifetime_stats.issues_completed == 0
 
     def test_rejects_wrong_types(self) -> None:
         """Pydantic should reject structurally invalid data."""
         with pytest.raises(ValidationError):
-            StateData.model_validate({"current_batch": "not_an_int"})
+            StateData.model_validate({"processed_issues": "not_a_dict"})
 
     def test_model_dump_roundtrip(self) -> None:
         """model_dump_json → model_validate_json should round-trip."""
         original = StateData(
-            current_batch=3,
             processed_issues={"1": "success"},
             lifetime_stats=LifetimeStats(issues_completed=5),
         )
@@ -1097,7 +1002,6 @@ class TestWorkerResultMeta:
         """Loading a state file without worker_result_meta should default to {}."""
         state_file = tmp_path / "state.json"
         old_data = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -1108,7 +1012,7 @@ class TestWorkerResultMeta:
 
         tracker = StateTracker(state_file)
         assert tracker.get_worker_result_meta(42) == {}
-        assert tracker.get_current_batch() == 5
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 class TestLifetimeStatsModel:
@@ -1265,7 +1169,7 @@ class TestRecordingMethods:
 
         tracker.reset()
 
-        assert tracker.get_issue_status(1) is None
+        assert tracker.to_dict()["processed_issues"].get(str(1)) is None
         stats = tracker.get_lifetime_stats()
         assert stats.total_quality_fix_rounds == 3
         assert stats.total_hitl_escalations == 1
@@ -1534,7 +1438,6 @@ class TestIssueAttemptTracking:
         """Loading a state file without issue_attempts should default to {}."""
         state_file = tmp_path / "state.json"
         old_data = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -1545,7 +1448,7 @@ class TestIssueAttemptTracking:
 
         tracker = StateTracker(state_file)
         assert tracker.get_issue_attempts(1) == 0
-        assert tracker.get_current_batch() == 5
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 # ---------------------------------------------------------------------------
@@ -1597,7 +1500,6 @@ class TestActiveIssueNumbersTracking:
         """Loading a state file without active_issue_numbers should default to []."""
         state_file = tmp_path / "state.json"
         old_data = {
-            "current_batch": 5,
             "processed_issues": {"1": "success"},
             "active_worktrees": {},
             "active_branches": {},
@@ -1608,7 +1510,7 @@ class TestActiveIssueNumbersTracking:
 
         tracker = StateTracker(state_file)
         assert tracker.get_active_issue_numbers() == []
-        assert tracker.get_current_batch() == 5
+        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 class TestWorkerIntervals:

@@ -92,7 +92,7 @@ class TestReviewPRs:
 
         await phase.review_prs([pr], [issue])
 
-        assert phase._state.get_pr_status(101) == "approve"
+        assert phase._state.to_dict()["reviewed_prs"].get(str(101)) == "approve"
 
     @pytest.mark.asyncio
     async def test_reviewer_concurrency_limited_by_config_max_reviewers(
@@ -563,7 +563,7 @@ class TestReviewPRs:
 
         await phase.review_prs([pr], [issue])
 
-        assert phase._state.get_issue_status(42) == "merged"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "merged"
 
     @pytest.mark.asyncio
     async def test_review_merge_failure_keeps_reviewed_status(
@@ -584,7 +584,7 @@ class TestReviewPRs:
 
         await phase.review_prs([pr], [issue])
 
-        assert phase._state.get_issue_status(42) == "reviewed"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "reviewed"
 
     @pytest.mark.asyncio
     async def test_review_posts_pr_comment_with_summary(
@@ -701,9 +701,9 @@ class TestReviewPRs:
 
         assert len(results) == 1
         # PR should still be marked with request-changes verdict
-        assert phase._state.get_pr_status(101) == "request-changes"
+        assert phase._state.to_dict()["reviewed_prs"].get(str(101)) == "request-changes"
         # Issue should be marked as reviewed
-        assert phase._state.get_issue_status(42) == "reviewed"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "reviewed"
         # Review summary was posted as PR comment
         phase._prs.post_pr_comment.assert_awaited_once_with(101, "Looks good.")
         # No exception propagated — result is returned normally
@@ -752,11 +752,11 @@ class TestReviewPRs:
         # Both PRs should have been processed
         assert len(results) == 2
         # Both PRs marked in state
-        assert phase._state.get_pr_status(101) == "request-changes"
-        assert phase._state.get_pr_status(102) == "request-changes"
+        assert phase._state.to_dict()["reviewed_prs"].get(str(101)) == "request-changes"
+        assert phase._state.to_dict()["reviewed_prs"].get(str(102)) == "request-changes"
         # Both issues marked as reviewed
-        assert phase._state.get_issue_status(1) == "reviewed"
-        assert phase._state.get_issue_status(2) == "reviewed"
+        assert phase._state.to_dict()["processed_issues"].get(str(1)) == "reviewed"
+        assert phase._state.to_dict()["processed_issues"].get(str(2)) == "reviewed"
 
     @pytest.mark.asyncio
     async def test_review_skips_pr_comment_when_summary_empty(
@@ -4291,7 +4291,7 @@ class TestHandleApprovedMerge:
         await phase._handle_approved_merge(pr, issue, result, "diff", 0)
 
         assert result.merged is True
-        assert phase._state.get_issue_status(42) == "merged"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "merged"
 
     @pytest.mark.asyncio
     async def test_merge_failure_escalates(
@@ -4540,7 +4540,7 @@ class TestReviewOneInner:
         result = await phase._review_one_inner(0, pr, {42: issue})
 
         assert result.merged is True
-        assert phase._state.get_pr_status(101) == "approve"
+        assert phase._state.to_dict()["reviewed_prs"].get(str(101)) == "approve"
 
     @pytest.mark.asyncio
     async def test_returns_merge_conflict_summary_when_merge_fails(

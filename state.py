@@ -56,18 +56,6 @@ class StateTracker:
         self._data.processed_issues[str(issue_number)] = status
         self.save()
 
-    def is_processed(self, issue_number: int) -> bool:
-        """Return *True* if the issue was successfully processed.
-
-        Failed issues are NOT considered processed so they can be
-        retried on the next run.
-        """
-        return self._data.processed_issues.get(str(issue_number)) == "success"
-
-    def get_issue_status(self, issue_number: int) -> str | None:
-        """Return the status string for *issue_number*, or *None*."""
-        return self._data.processed_issues.get(str(issue_number))
-
     # --- worktree tracking ---
 
     def get_active_worktrees(self) -> dict[int, str]:
@@ -96,9 +84,6 @@ class StateTracker:
     def mark_pr(self, pr_number: int, status: str) -> None:
         self._data.reviewed_prs[str(pr_number)] = status
         self.save()
-
-    def get_pr_status(self, pr_number: int) -> str | None:
-        return self._data.reviewed_prs.get(str(pr_number))
 
     # --- HITL origin tracking ---
 
@@ -236,16 +221,6 @@ class StateTracker:
     def get_worker_result_meta(self, issue_number: int) -> dict[str, Any]:
         """Return worker result metadata for *issue_number*, or empty dict."""
         return self._data.worker_result_meta.get(str(issue_number), {})
-
-    # --- batch tracking ---
-
-    def get_current_batch(self) -> int:
-        return self._data.current_batch
-
-    def increment_batch(self) -> int:
-        self._data.current_batch += 1
-        self.save()
-        return self._data.current_batch
 
     # --- reset ---
 

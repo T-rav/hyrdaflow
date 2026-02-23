@@ -532,24 +532,6 @@ class PRManager:
             logger.error("Could not get diff file names for PR #%d: %s", pr_number, exc)
             return []
 
-    async def get_pr_status(self, pr_number: int) -> dict[str, object]:
-        """Fetch PR status as JSON."""
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "pr",
-                "view",
-                str(pr_number),
-                "--repo",
-                self._repo,
-                "--json",
-                "number,state,mergeable,title,isDraft",
-            )
-            return json.loads(raw)  # type: ignore[no-any-return]
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.error("Could not get status for PR #%d: %s", pr_number, exc)
-            return {}
-
     async def pull_main(self) -> bool:
         """Pull latest main into the local repo."""
         if self._config.dry_run:

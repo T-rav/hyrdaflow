@@ -1069,36 +1069,6 @@ async def test_get_pr_diff_failure_returns_empty_string(config, event_bus):
 
 
 # ---------------------------------------------------------------------------
-# get_pr_status
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_get_pr_status_returns_parsed_json(config, event_bus):
-    manager = _make_manager(config, event_bus)
-    status_json = '{"number": 101, "state": "OPEN", "mergeable": "MERGEABLE", "title": "Fix bug", "isDraft": false}'
-    mock_create = _make_subprocess_mock(returncode=0, stdout=status_json)
-
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        status = await manager.get_pr_status(101)
-
-    assert status["number"] == 101
-    assert status["state"] == "OPEN"
-    assert status["isDraft"] is False
-
-
-@pytest.mark.asyncio
-async def test_get_pr_status_failure_returns_empty_dict(config, event_bus):
-    manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
-
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        status = await manager.get_pr_status(999)
-
-    assert status == {}
-
-
-# ---------------------------------------------------------------------------
 # pull_main
 # ---------------------------------------------------------------------------
 
@@ -2169,18 +2139,6 @@ class TestRetryWrapperUsage:
         mock_retry.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_get_pr_status_uses_retry(self, config, event_bus):
-        """get_pr_status (read operation) should use run_subprocess_with_retry."""
-        mgr = _make_manager(config, event_bus)
-        with patch(
-            "pr_manager.run_subprocess_with_retry", new_callable=AsyncMock
-        ) as mock_retry:
-            mock_retry.return_value = '{"number": 101}'
-            await mgr.get_pr_status(101)
-
-        mock_retry.assert_awaited_once()
-
-    @pytest.mark.asyncio
     async def test_get_pr_diff_uses_retry(self, config, event_bus):
         """get_pr_diff (read operation) should use run_subprocess_with_retry."""
         mgr = _make_manager(config, event_bus)
@@ -2243,8 +2201,8 @@ class TestRetryWrapperUsage:
         with patch(
             "pr_manager.run_subprocess_with_retry", new_callable=AsyncMock
         ) as mock_retry:
-            mock_retry.return_value = '{"number": 101}'
-            await mgr.get_pr_status(101)
+            mock_retry.return_value = "diff content"
+            await mgr.get_pr_diff(101)
 
         _, kwargs = mock_retry.call_args
         assert kwargs["max_retries"] == 5

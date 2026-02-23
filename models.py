@@ -433,7 +433,6 @@ class LifetimeStats(BaseModel):
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
-    current_batch: int = 0
     processed_issues: dict[str, str] = Field(default_factory=dict)
     active_worktrees: dict[str, str] = Field(default_factory=dict)
     active_branches: dict[str, str] = Field(default_factory=dict)
