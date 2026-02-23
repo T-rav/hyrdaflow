@@ -1,6 +1,7 @@
 import React from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
+import { HarnessInsightsPanel } from './HarnessInsightsPanel'
 function TrendIndicator({ current, previous, label, format }) {
   if (previous == null || current == null) return null
   const diff = current - previous
@@ -225,6 +226,9 @@ export function MetricsPanel() {
       )}
 
       <SnapshotTimeline snapshots={snapshots} />
+
+      <h3 style={styles.heading}>Harness Insights</h3>
+      <HarnessInsightsPanel />
 
     </div>
   )
