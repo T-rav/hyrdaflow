@@ -111,7 +111,19 @@ class ReviewPhase:
         results: list[ReviewResult] = []
 
         async def _review_one(idx: int, pr: PRInfo) -> ReviewResult:
+            if self._stop_event.is_set():
+                return ReviewResult(
+                    pr_number=pr.number,
+                    issue_number=pr.issue_number,
+                    summary="stopped",
+                )
             async with semaphore:
+                if self._stop_event.is_set():
+                    return ReviewResult(
+                        pr_number=pr.number,
+                        issue_number=pr.issue_number,
+                        summary="stopped",
+                    )
                 self._active_issues.add(pr.issue_number)
                 self._state.set_active_issue_numbers(list(self._active_issues))
                 self._store.mark_active(pr.issue_number, "review")

@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from orchestrator import HydraFlowOrchestrator
 
 from tests.conftest import IssueFactory, PRInfoFactory, ReviewResultFactory
 from tests.helpers import ConfigFactory, make_review_phase
@@ -79,7 +83,7 @@ class TestStateInterruptedIssues:
 # ---------------------------------------------------------------------------
 
 
-def _make_orchestrator(tmp_path: Path):
+def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
     """Build a minimal orchestrator with mocked dependencies for stop tests."""
 
     config = ConfigFactory.create(
@@ -430,9 +434,15 @@ class TestWorktreePreservation:
         pr = PRInfoFactory.create()
 
         # COMMENT verdict: no merge happens (result.merged stays False).
-        # Stop event is set → stop-specific guard should preserve the worktree.
+        # Stop event is set DURING the review → the stop-specific guard at the
+        # end of _review_one_inner should preserve the worktree.
         result = ReviewResultFactory.create(verdict=ReviewVerdict.COMMENT)
-        phase._reviewers.review = AsyncMock(return_value=result)
+
+        async def _review_and_stop(*_args, **_kwargs):
+            phase._stop_event.set()  # Set stop while review is in-flight
+            return result
+
+        phase._reviewers.review = AsyncMock(side_effect=_review_and_stop)
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
         phase._prs.get_pr_diff_names = AsyncMock(return_value=[])
         phase._prs.push_branch = AsyncMock(return_value=True)
@@ -447,9 +457,6 @@ class TestWorktreePreservation:
         # Create worktree path
         wt = config.worktree_base / "issue-42"
         wt.mkdir(parents=True, exist_ok=True)
-
-        # Set stop event BEFORE running review
-        phase._stop_event.set()
 
         await phase.review_prs([pr], [issue])
 
@@ -476,7 +483,14 @@ class TestWorktreePreservation:
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
         phase._prs.get_pr_diff_names = AsyncMock(return_value=[])
         phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
+
+        async def _merge_and_stop(_pr_number: int) -> bool:
+            # Stop arrives while merge is in-flight — merged PR should still
+            # have its worktree cleaned up (not "preserved" for resume).
+            phase._stop_event.set()
+            return True
+
+        phase._prs.merge_pr = AsyncMock(side_effect=_merge_and_stop)
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
         phase._prs.post_pr_comment = AsyncMock()
@@ -486,9 +500,6 @@ class TestWorktreePreservation:
 
         wt = config.worktree_base / "issue-42"
         wt.mkdir(parents=True, exist_ok=True)
-
-        # Stop event is set, but the PR gets merged successfully
-        phase._stop_event.set()
 
         await phase.review_prs([pr], [issue])
 
