@@ -233,9 +233,6 @@ setup: deps
 	else \
 		echo "  .env.sample not found: skipping .env bootstrap"; \
 	fi
-	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
-	@echo "  target repo: $(TARGET_REPO_ROOT)"
-	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep
 	@echo "$(BLUE)Setting up git hooks...$(RESET)"
 	@if [ "$(TARGET_REPO_ROOT)" != "$(PROJECT_ROOT)" ]; then \
 		mkdir -p "$(TARGET_REPO_ROOT)/.githooks"; \
@@ -246,6 +243,9 @@ setup: deps
 		echo "  target is HydraFlow repo; using existing .githooks files"; \
 	fi
 	@git -C "$(TARGET_REPO_ROOT)" config core.hooksPath .githooks
+	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
+	@echo "  target repo: $(TARGET_REPO_ROOT)"
+	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep
 	@echo "$(BLUE)Detecting local agent assets (Claude/Codex)...$(RESET)"
 	@if [ -d "$(PROJECT_ROOT)/.claude/hooks" ]; then \
 		for HOOK in "$(PROJECT_ROOT)"/.claude/hooks/*.sh; do \
