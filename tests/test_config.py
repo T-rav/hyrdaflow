@@ -3308,6 +3308,34 @@ class TestDockerSizeNotationValidator:
                 state_file=tmp_path / "s.json",
             )
 
+    def test_valid_size_4g(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            docker_memory_limit="4g",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.docker_memory_limit == "4g"
+
+    def test_invalid_size_with_suffix_gb(self, tmp_path: Path) -> None:
+        """'4gb' should fail — only single-char unit suffix is valid."""
+        with pytest.raises(ValueError, match="Invalid Docker size notation"):
+            HydraFlowConfig(
+                docker_memory_limit="4gb",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    def test_invalid_size_alpha_only(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid Docker size notation"):
+            HydraFlowConfig(
+                docker_memory_limit="abc",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Docker config – env var overrides
@@ -3713,7 +3741,6 @@ class TestDockerConfig:
                 state_file=tmp_path / "s.json",
                 docker_spawn_delay=31.0,
             )
-
 
 
 class TestAgentToolFields:
