@@ -43,3 +43,10 @@ def should_escalate_debug(
         reasons.append("subskill_retries_exhausted")
 
     return EscalationDecision(escalate=bool(reasons), reasons=reasons)
+
+
+def high_risk_diff_touched(diff: str) -> bool:
+    """Check whether *diff* touches any high-risk file paths."""
+    patterns = ("/auth", "/security", "/payment", "migration", "infra/")
+    diff_lower = diff.lower()
+    return any(p in diff_lower for p in patterns)

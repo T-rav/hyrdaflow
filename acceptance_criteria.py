@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from escalation_gate import should_escalate_debug
+from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from execution import get_default_runner
 from models import VerificationCriteria
 from runner_utils import stream_claude_process
@@ -68,7 +68,7 @@ class AcceptanceCriteriaGenerator:
         diff_summary = self._summarize_diff(diff)
         test_files = self._extract_test_files(diff)
         precheck_context = await self._run_precheck_context(
-            issue, issue_number, pr_number, diff_summary
+            issue, issue_number, pr_number, diff_summary, diff
         )
 
         prompt = self._build_prompt(
@@ -240,7 +240,12 @@ Diff summary:
         return risk, confidence, escalate, summary, parse_failed
 
     async def _run_precheck_context(
-        self, issue: GitHubIssue, issue_number: int, pr_number: int, diff_summary: str
+        self,
+        issue: GitHubIssue,
+        issue_number: int,
+        pr_number: int,
+        diff_summary: str,
+        diff: str,
     ) -> str:
         if self._config.max_subskill_attempts <= 0:
             return "Low-tier precheck disabled."
@@ -284,7 +289,7 @@ Diff summary:
             retry_count=self._config.max_subskill_attempts,
             max_subskill_attempts=self._config.max_subskill_attempts,
             risk=risk,
-            high_risk_files_touched=False,
+            high_risk_files_touched=high_risk_diff_touched(diff),
         )
 
         context = [

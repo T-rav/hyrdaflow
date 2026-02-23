@@ -22,6 +22,7 @@ from acceptance_criteria import (
     _VERIFY_START,
     AcceptanceCriteriaGenerator,
 )
+from escalation_gate import EscalationDecision
 from models import VerificationCriteria
 from tests.conftest import IssueFactory
 
@@ -658,3 +659,99 @@ class TestGenerate:
 
         assert "## The Plan" in captured_prompt["prompt"]
         assert "Do stuff." in captured_prompt["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# TestPrecheckHighRiskFiles
+# ---------------------------------------------------------------------------
+
+
+HIGH_RISK_DIFF = """\
+diff --git a/src/auth/login.py b/src/auth/login.py
+index abc123..def456 100644
+--- a/src/auth/login.py
++++ b/src/auth/login.py
+@@ -1,3 +1,8 @@
++def new_login():
++    pass
+"""
+
+SAFE_DIFF = """\
+diff --git a/src/utils.py b/src/utils.py
+index abc123..def456 100644
+--- a/src/utils.py
++++ b/src/utils.py
+@@ -1,3 +1,8 @@
++def helper():
++    pass
+"""
+
+
+class TestPrecheckHighRiskFiles:
+    """Verify _run_precheck_context passes high_risk_files_touched correctly."""
+
+    @pytest.mark.asyncio
+    async def test_high_risk_diff_passes_true(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(max_subskill_attempts=1)
+        gen, _ = _make_generator(cfg, event_bus)
+        issue = IssueFactory.create()
+
+        precheck_transcript = (
+            "PRECHECK_RISK: high\n"
+            "PRECHECK_CONFIDENCE: 0.5\n"
+            "PRECHECK_ESCALATE: no\n"
+            "PRECHECK_SUMMARY: risky auth change\n"
+        )
+
+        with (
+            patch(
+                "acceptance_criteria.stream_claude_process",
+                new_callable=AsyncMock,
+                return_value=precheck_transcript,
+            ),
+            patch(
+                "acceptance_criteria.should_escalate_debug",
+                return_value=EscalationDecision(escalate=False, reasons=[]),
+            ) as mock_escalate,
+        ):
+            await gen._run_precheck_context(issue, 42, 101, "summary", HIGH_RISK_DIFF)
+
+        mock_escalate.assert_called_once()
+        assert mock_escalate.call_args[1]["high_risk_files_touched"] is True
+
+    @pytest.mark.asyncio
+    async def test_safe_diff_passes_false(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(max_subskill_attempts=1)
+        gen, _ = _make_generator(cfg, event_bus)
+        issue = IssueFactory.create()
+
+        precheck_transcript = (
+            "PRECHECK_RISK: low\n"
+            "PRECHECK_CONFIDENCE: 0.9\n"
+            "PRECHECK_ESCALATE: no\n"
+            "PRECHECK_SUMMARY: safe change\n"
+        )
+
+        with (
+            patch(
+                "acceptance_criteria.stream_claude_process",
+                new_callable=AsyncMock,
+                return_value=precheck_transcript,
+            ),
+            patch(
+                "acceptance_criteria.should_escalate_debug",
+                return_value=EscalationDecision(escalate=False, reasons=[]),
+            ) as mock_escalate,
+        ):
+            await gen._run_precheck_context(issue, 42, 101, "summary", SAFE_DIFF)
+
+        mock_escalate.assert_called_once()
+        assert mock_escalate.call_args[1]["high_risk_files_touched"] is False
