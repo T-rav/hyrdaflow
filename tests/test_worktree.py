@@ -945,6 +945,19 @@ class TestSetupDotenv:
         assert gitignore.exists()
         assert ".env" in [ln.strip() for ln in gitignore.read_text().splitlines()]
 
+    def test_source_absent_is_noop(self, config, tmp_path: Path) -> None:
+        """_setup_dotenv should be a no-op when .env source doesn't exist."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # No .env file in repo_root
+        manager._setup_dotenv(wt_path, docker=False)
+
+        assert not (wt_path / ".env").exists()
+
 
 # ---------------------------------------------------------------------------
 # WorktreeManager._setup_claude_settings
@@ -973,6 +986,35 @@ class TestSetupClaudeSettings:
         assert settings_dst.exists()
         assert not settings_dst.is_symlink()
         assert settings_dst.read_text() == '{"allowed": []}'
+
+    def test_source_absent_is_noop(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should be a no-op when settings.local.json doesn't exist."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        # No .claude/settings.local.json in repo_root
+        manager._setup_claude_settings(wt_path)
+
+        assert not (wt_path / ".claude" / "settings.local.json").exists()
+
+    def test_oserror_during_write_is_suppressed(self, config, tmp_path: Path) -> None:
+        """_setup_claude_settings should suppress OSError during file write."""
+        manager = WorktreeManager(config)
+        repo_root = config.repo_root
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        claude_dir = repo_root / ".claude"
+        claude_dir.mkdir()
+        settings_src = claude_dir / "settings.local.json"
+        settings_src.write_text('{"allowed": []}')
+
+        with patch.object(Path, "write_text", side_effect=OSError("read-only")):
+            manager._setup_claude_settings(wt_path)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -1018,6 +1060,30 @@ class TestSetupNodeModules:
         assert ui_nm_dst.exists()
         assert not ui_nm_dst.is_symlink()
         assert (ui_nm_dst / "pkg" / "index.js").read_text() == "exports = {}"
+
+    def test_multiple_ui_dirs_all_symlinked(self, tmp_path: Path) -> None:
+        """_setup_node_modules should symlink node_modules for every UI directory."""
+        from tests.helpers import ConfigFactory
+
+        repo_root = tmp_path / "repo"
+        cfg = ConfigFactory.create(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            ui_dirs=["frontend", "admin"],
+        )
+        manager = WorktreeManager(cfg)
+        repo_root.mkdir(parents=True, exist_ok=True)
+        wt_path = tmp_path / "worktree"
+        wt_path.mkdir()
+
+        (repo_root / "frontend" / "node_modules").mkdir(parents=True)
+        (repo_root / "admin" / "node_modules").mkdir(parents=True)
+
+        manager._setup_node_modules(wt_path, docker=False)
+
+        assert (wt_path / "frontend" / "node_modules").is_symlink()
+        assert (wt_path / "admin" / "node_modules").is_symlink()
 
 
 # ---------------------------------------------------------------------------
