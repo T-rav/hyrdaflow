@@ -21,7 +21,7 @@ from test_scaffold import (
 class TestTestScaffoldResult:
     """Tests for the TestScaffoldResult dataclass."""
 
-    def test_default_values(self) -> None:
+    def test_scaffold_result_defaults_to_empty_fields(self) -> None:
         result = TestScaffoldResult()
 
         assert result.created_dirs == []
@@ -31,7 +31,7 @@ class TestTestScaffoldResult:
         assert result.skip_reason == ""
         assert result.language == ""
 
-    def test_custom_values(self) -> None:
+    def test_scaffold_result_stores_explicit_field_values(self) -> None:
         result = TestScaffoldResult(
             created_dirs=["tests/"],
             created_files=["tests/__init__.py"],
@@ -522,7 +522,7 @@ class TestScaffoldTests:
         assert len(result.created_dirs) > 0 or len(result.created_files) > 0
         assert not (tmp_path / "tests").exists()
 
-    def test_idempotent(self, tmp_path: Path) -> None:
+    def test_scaffold_tests_is_idempotent_when_run_twice(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
 
         first = scaffold_tests(tmp_path)

@@ -10,6 +10,7 @@ import pytest
 
 from models import AuditCheckStatus
 from prep import HYDRAFLOW_LABELS, PrepResult, _list_existing_labels, ensure_labels
+from tests.conftest import SubprocessMockBuilder
 from tests.helpers import AuditCheckFactory, AuditResultFactory, ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ class TestPrepResultSummary:
         result = PrepResult(created=[], existed=["a", "b"], failed=[])
         assert result.summary() == "Created 0 labels, 2 already existed"
 
-    def test_mixed(self) -> None:
+    def test_summary_reports_created_and_existed_counts(self) -> None:
         result = PrepResult(
             created=["a", "b", "c", "d", "e"],
             existed=["f", "g"],
@@ -44,7 +45,7 @@ class TestPrepResultSummary:
         )
         assert result.summary() == "Created 1 label, 1 already existed, 2 failed"
 
-    def test_empty(self) -> None:
+    def test_summary_reports_zero_when_no_labels(self) -> None:
         result = PrepResult()
         assert result.summary() == "Created 0 labels, 0 already existed"
 
@@ -54,17 +55,6 @@ class TestPrepResultSummary:
 # ---------------------------------------------------------------------------
 
 
-def _make_subprocess_mock(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> AsyncMock:
-    """Build a mock for asyncio.create_subprocess_exec."""
-    mock_proc = AsyncMock()
-    mock_proc.returncode = returncode
-    mock_proc.communicate = AsyncMock(return_value=(stdout.encode(), stderr.encode()))
-    mock_proc.wait = AsyncMock(return_value=returncode)
-    return AsyncMock(return_value=mock_proc)
-
-
 class TestListExistingLabels:
     """Tests for _list_existing_labels()."""
 
@@ -72,7 +62,7 @@ class TestListExistingLabels:
     async def test_parses_json(self) -> None:
         config = ConfigFactory.create()
         labels_json = json.dumps([{"name": "bug"}, {"name": "hydraflow-plan"}])
-        mock = _make_subprocess_mock(stdout=labels_json)
+        mock = SubprocessMockBuilder().with_stdout(labels_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await _list_existing_labels(config)
@@ -80,9 +70,9 @@ class TestListExistingLabels:
         assert result == {"bug", "hydraflow-plan"}
 
     @pytest.mark.asyncio
-    async def test_empty_repo(self) -> None:
+    async def test_empty_repo_returns_empty_label_set(self) -> None:
         config = ConfigFactory.create()
-        mock = _make_subprocess_mock(stdout="[]")
+        mock = SubprocessMockBuilder().with_stdout("[]").build()
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await _list_existing_labels(config)
@@ -92,7 +82,9 @@ class TestListExistingLabels:
     @pytest.mark.asyncio
     async def test_error_returns_empty(self) -> None:
         config = ConfigFactory.create()
-        mock = _make_subprocess_mock(returncode=1, stderr="not found")
+        mock = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await _list_existing_labels(config)
@@ -138,7 +130,7 @@ class TestEnsureLabels:
         assert len(result.failed) == 0
 
     @pytest.mark.asyncio
-    async def test_reports_existing(self) -> None:
+    async def test_reports_already_existing_labels_in_existed_list(self) -> None:
         """Labels already in the repo are classified as 'existed'."""
         config = ConfigFactory.create()
         # Use actual label names from config (ConfigFactory uses "test-label"
@@ -204,7 +196,7 @@ class TestEnsureLabels:
     async def test_dry_run_skips_creation(self) -> None:
         """In dry-run mode, no gh commands should be called."""
         config = ConfigFactory.create(dry_run=True)
-        mock = _make_subprocess_mock()
+        mock = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock):
             result = await ensure_labels(config)
@@ -684,7 +676,7 @@ class TestCheckLinting:
         assert check.status == AuditCheckStatus.PRESENT
         assert "ruff" in check.detail
 
-    def test_eslintrc(self, tmp_path: Path) -> None:
+    def test_check_linting_detects_eslintrc_file(self, tmp_path: Path) -> None:
         """Should detect .eslintrc.json."""
         (tmp_path / ".eslintrc.json").write_text("{}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -1011,7 +1003,7 @@ class TestCheckLabels:
         assert check.status == AuditCheckStatus.PRESENT
 
     @pytest.mark.asyncio
-    async def test_partial_labels(self, tmp_path: Path) -> None:
+    async def test_partial_labels_returns_partial_status(self, tmp_path: Path) -> None:
         """Should report PARTIAL when some labels are missing."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -1027,7 +1019,7 @@ class TestCheckLabels:
         assert check.status == AuditCheckStatus.PARTIAL
 
     @pytest.mark.asyncio
-    async def test_no_labels(self, tmp_path: Path) -> None:
+    async def test_no_labels_returns_missing_status(self, tmp_path: Path) -> None:
         """Should report MISSING when no HydraFlow labels exist."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor

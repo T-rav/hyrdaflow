@@ -26,7 +26,7 @@ from tests.helpers import ConfigFactory
 class TestParseMemorySuggestion:
     """Tests for parsing MEMORY_SUGGESTION blocks from transcripts."""
 
-    def test_valid_block(self) -> None:
+    def test_valid_block_extracts_title_and_learning(self) -> None:
         transcript = (
             "Some output here\n"
             "MEMORY_SUGGESTION_START\n"

@@ -95,7 +95,7 @@ class TestVerifyDelta:
         assert report.has_drift
         assert "src/extra.py" in report.unexpected
 
-    def test_mixed_drift(self) -> None:
+    def test_mixed_drift_reports_missing_and_unexpected_files(self) -> None:
         planned = ["src/a.py", "src/b.py"]
         actual = ["src/a.py", "src/c.py"]
         report = verify_delta(planned, actual)
@@ -103,17 +103,17 @@ class TestVerifyDelta:
         assert report.missing == ["src/b.py"]
         assert report.unexpected == ["src/c.py"]
 
-    def test_empty_planned(self) -> None:
+    def test_empty_planned_treats_all_actual_as_unexpected(self) -> None:
         report = verify_delta([], ["src/a.py"])
         assert report.has_drift
         assert report.unexpected == ["src/a.py"]
 
-    def test_empty_actual(self) -> None:
+    def test_empty_actual_treats_all_planned_as_missing(self) -> None:
         report = verify_delta(["src/a.py"], [])
         assert report.has_drift
         assert report.missing == ["src/a.py"]
 
-    def test_both_empty(self) -> None:
+    def test_both_empty_reports_no_drift(self) -> None:
         report = verify_delta([], [])
         assert not report.has_drift
 

@@ -67,7 +67,7 @@ class TestSessionLogModel:
         assert session.issues_failed == 1
         assert session.status == "completed"
 
-    def test_default_values(self) -> None:
+    def test_session_log_defaults_to_active_status_with_empty_lists(self) -> None:
         session = SessionLog(
             id="s1",
             repo="owner/repo",

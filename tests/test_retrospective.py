@@ -132,7 +132,7 @@ class TestParsePlannedFiles:
 
 
 class TestComputeAccuracy:
-    def test_perfect_match(self) -> None:
+    def test_perfect_match_returns_full_accuracy_with_no_gaps(self) -> None:
         accuracy, unplanned, missed = RetrospectiveCollector._compute_accuracy(
             ["src/foo.py", "src/bar.py"],
             ["src/foo.py", "src/bar.py"],
@@ -141,7 +141,7 @@ class TestComputeAccuracy:
         assert unplanned == []
         assert missed == []
 
-    def test_partial_overlap(self) -> None:
+    def test_partial_overlap_returns_proportional_accuracy_and_file_lists(self) -> None:
         accuracy, unplanned, missed = RetrospectiveCollector._compute_accuracy(
             ["src/foo.py", "src/bar.py"],
             ["src/foo.py", "src/baz.py"],
@@ -150,7 +150,7 @@ class TestComputeAccuracy:
         assert unplanned == ["src/baz.py"]
         assert missed == ["src/bar.py"]
 
-    def test_no_overlap(self) -> None:
+    def test_no_overlap_returns_zero_accuracy(self) -> None:
         accuracy, unplanned, missed = RetrospectiveCollector._compute_accuracy(
             ["src/foo.py"],
             ["src/bar.py"],
@@ -159,7 +159,7 @@ class TestComputeAccuracy:
         assert unplanned == ["src/bar.py"]
         assert missed == ["src/foo.py"]
 
-    def test_empty_planned_list(self) -> None:
+    def test_empty_planned_list_treats_all_actual_as_unplanned(self) -> None:
         accuracy, unplanned, missed = RetrospectiveCollector._compute_accuracy(
             [],
             ["src/bar.py"],
@@ -168,7 +168,7 @@ class TestComputeAccuracy:
         assert unplanned == ["src/bar.py"]
         assert missed == []
 
-    def test_empty_actual_list(self) -> None:
+    def test_empty_actual_list_treats_all_planned_as_missed(self) -> None:
         accuracy, unplanned, missed = RetrospectiveCollector._compute_accuracy(
             ["src/foo.py"],
             [],
@@ -177,7 +177,7 @@ class TestComputeAccuracy:
         assert unplanned == []
         assert missed == ["src/foo.py"]
 
-    def test_both_empty(self) -> None:
+    def test_both_empty_returns_zero_accuracy(self) -> None:
         accuracy, unplanned, missed = RetrospectiveCollector._compute_accuracy([], [])
         assert accuracy == 0.0
         assert unplanned == []
@@ -650,7 +650,7 @@ class TestFiledPatterns:
 
 
 class TestRetrospectiveEntry:
-    def test_defaults(self) -> None:
+    def test_entry_initializes_with_zero_accuracy_and_empty_file_lists(self) -> None:
         entry = RetrospectiveEntry(
             issue_number=42,
             pr_number=101,

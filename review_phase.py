@@ -13,6 +13,7 @@ from agent import AgentRunner
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
+from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
@@ -60,6 +61,7 @@ class ReviewPhase:
         verification_judge: VerificationJudge | None = None,
         transcript_summarizer: TranscriptSummarizer | None = None,
         epic_checker: EpicCompletionChecker | None = None,
+        harness_insights: HarnessInsightStore | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -75,6 +77,7 @@ class ReviewPhase:
         self._verification_judge = verification_judge
         self._summarizer = transcript_summarizer
         self._epic_checker = epic_checker
+        self._harness_insights = harness_insights
         self._insights = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
         self._active_issues: set[int] = set()
         self._conflict_resolver = MergeConflictResolver(
@@ -215,6 +218,13 @@ class ReviewPhase:
         if result.duration_seconds > 0:
             self._state.record_review_duration(result.duration_seconds)
         await self._record_review_insight(result)
+        if result.verdict != ReviewVerdict.APPROVE:
+            self._record_harness_failure(
+                pr.issue_number,
+                FailureCategory.REVIEW_REJECTION,
+                f"Review verdict: {result.verdict.value}. {result.summary[:200]}",
+                pr_number=pr.number,
+            )
 
         # Verdict-specific handling
         skip_worktree_cleanup = False
@@ -464,6 +474,12 @@ class ReviewPhase:
         # CI failed after all attempts — escalate to human
         result.ci_passed = False
         self._state.record_ci_fix_rounds(result.ci_fix_attempts)
+        self._record_harness_failure(
+            issue.number,
+            FailureCategory.CI_FAILURE,
+            f"CI failed after {result.ci_fix_attempts} fix attempt(s): {summary[:200]}",
+            pr_number=pr.number,
+        )
         await self._publish_review_status(pr, worker_id, "escalating")
         cause = f"CI failed after {result.ci_fix_attempts} fix attempt(s)"
         await self._escalate_to_hitl(
@@ -704,6 +720,12 @@ class ReviewPhase:
                 max_attempts,
                 pr.issue_number,
             )
+            self._record_harness_failure(
+                pr.issue_number,
+                FailureCategory.HITL_ESCALATION,
+                f"Review fix cap exceeded after {max_attempts} attempt(s)",
+                pr_number=pr.number,
+            )
             await self._publish_review_status(pr, worker_id, "escalating")
             await self._escalate_to_hitl(
                 pr.issue_number,
@@ -718,6 +740,36 @@ class ReviewPhase:
                 event_cause="review_fix_cap_exceeded",
             )
             return False  # Destroy worktree
+
+    def _record_harness_failure(
+        self,
+        issue_number: int,
+        category: FailureCategory,
+        details: str,
+        *,
+        pr_number: int = 0,
+    ) -> None:
+        """Record a failure to the harness insight store (non-blocking)."""
+        if self._harness_insights is None:
+            return
+        try:
+            from harness_insights import extract_subcategories
+
+            record = FailureRecord(
+                issue_number=issue_number,
+                pr_number=pr_number,
+                category=category,
+                subcategories=extract_subcategories(details),
+                details=details,
+                stage="review",
+            )
+            self._harness_insights.append_failure(record)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to record harness failure for issue #%d",
+                issue_number,
+                exc_info=True,
+            )
 
     # Delegate properties for backward compatibility in tests
     @property

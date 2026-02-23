@@ -988,7 +988,7 @@ class TestPRListItem:
         item = PRListItem(pr=42)
         assert item.pr == 42
 
-    def test_defaults(self) -> None:
+    def test_pr_list_item_defaults_to_empty_branch_and_no_draft(self) -> None:
         item = PRListItem(pr=1)
         assert item.issue == 0
         assert item.branch == ""
@@ -1038,7 +1038,7 @@ class TestHITLItem:
         item = HITLItem(issue=42)
         assert item.issue == 42
 
-    def test_defaults(self) -> None:
+    def test_hitl_item_defaults_to_empty_title_and_pending_status(self) -> None:
         item = HITLItem(issue=1)
         assert item.title == ""
         assert item.issueUrl == ""
@@ -1333,7 +1333,9 @@ class TestJudgeResult:
         assert len(failed) == 2
         assert {c.description for c in failed} == {"A", "C"}
 
-    def test_defaults(self) -> None:
+    def test_judge_result_defaults_to_empty_criteria_instructions_and_summary(
+        self,
+    ) -> None:
         judge = JudgeResult(issue_number=1, pr_number=2)
         assert judge.criteria == []
         assert judge.verification_instructions == ""

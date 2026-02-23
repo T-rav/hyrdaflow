@@ -33,7 +33,7 @@ class TestSubprocessRunnerProtocol:
 class TestSimpleResult:
     """SimpleResult dataclass tests."""
 
-    def test_fields(self) -> None:
+    def test_simple_result_stores_stdout_stderr_and_returncode(self) -> None:
         result = SimpleResult(stdout="hello", stderr="", returncode=0)
         assert result.stdout == "hello"
         assert result.stderr == ""

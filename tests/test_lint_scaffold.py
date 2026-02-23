@@ -561,7 +561,7 @@ class TestScaffoldLintConfig:
         assert result.modified_files == []
         assert result.created_files == []
 
-    def test_idempotent(self, tmp_path: Path) -> None:
+    def test_scaffold_lint_is_idempotent_when_run_twice(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         first = scaffold_lint_config(tmp_path)
         assert len(first.scaffolded) > 0

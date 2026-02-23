@@ -99,7 +99,7 @@ class TestExtractCategories:
         cats = extract_categories("Everything looks great, no issues found")
         assert cats == []
 
-    def test_empty_summary(self) -> None:
+    def test_empty_summary_returns_empty_category_list(self) -> None:
         cats = extract_categories("")
         assert cats == []
 

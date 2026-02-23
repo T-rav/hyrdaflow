@@ -435,7 +435,7 @@ class TestHydraFlowConfigDefaults:
 class TestHydraFlowConfigCustomValues:
     """Tests that custom constructor values take precedence over defaults."""
 
-    def test_custom_label(self, tmp_path: Path) -> None:
+    def test_custom_label_overrides_ready_label_default(self, tmp_path: Path) -> None:
         # Arrange / Act
         cfg = HydraFlowConfig(
             ready_label=["sprint"],
@@ -3642,7 +3642,9 @@ class TestAgentToolFields:
 
 
 class TestTieringFields:
-    def test_defaults(self, tmp_path: Path) -> None:
+    def test_tiering_defaults_to_claude_subskill_with_debug_escalation_enabled(
+        self, tmp_path: Path
+    ) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",

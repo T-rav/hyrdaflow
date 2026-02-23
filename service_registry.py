@@ -13,6 +13,7 @@ from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus
 from execution import get_default_runner
+from harness_insights import HarnessInsightStore
 from hitl_phase import HITLPhase
 from hitl_runner import HITLRunner
 from implement_phase import ImplementPhase
@@ -123,6 +124,9 @@ def build_services(
     fetcher = IssueFetcher(config)
     store = IssueStore(config, fetcher, event_bus)
 
+    # Harness insight store (shared across phases)
+    harness_insights = HarnessInsightStore(config.repo_root / ".hydraflow" / "memory")
+
     # Phase coordinators
     triager = TriagePhase(config, state, store, triage, prs, event_bus, stop_event)
     planner_phase = PlanPhase(
@@ -134,6 +138,7 @@ def build_services(
         event_bus,
         stop_event,
         transcript_summarizer=summarizer,
+        harness_insights=harness_insights,
     )
     hitl_phase = HITLPhase(
         config,
@@ -157,6 +162,7 @@ def build_services(
         store,
         stop_event,
         run_recorder=run_recorder,
+        harness_insights=harness_insights,
     )
 
     from metrics_manager import MetricsManager
@@ -187,6 +193,7 @@ def build_services(
         verification_judge=verification_judge,
         transcript_summarizer=summarizer,
         epic_checker=epic_checker,
+        harness_insights=harness_insights,
     )
 
     # Background loops

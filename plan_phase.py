@@ -8,6 +8,7 @@ import logging
 from analysis import PlanAnalyzer
 from config import HydraFlowConfig
 from events import EventBus
+from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
 from models import GitHubIssue, PlanResult
@@ -32,6 +33,7 @@ class PlanPhase:
         event_bus: EventBus,
         stop_event: asyncio.Event,
         transcript_summarizer: TranscriptSummarizer | None = None,
+        harness_insights: HarnessInsightStore | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -41,6 +43,7 @@ class PlanPhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._summarizer = transcript_summarizer
+        self._harness_insights = harness_insights
 
     async def plan_issues(self) -> list[PlanResult]:
         """Run planning agents on issues from the plan queue."""
@@ -177,6 +180,11 @@ class PlanPhase:
                         await self._prs.swap_pipeline_labels(
                             issue.number, self._config.hitl_label[0]
                         )
+                        self._record_harness_failure(
+                            issue.number,
+                            FailureCategory.PLAN_VALIDATION,
+                            "; ".join(result.validation_errors),
+                        )
                         logger.warning(
                             "Planning failed validation for issue #%d after retry — "
                             "escalated to HITL",
@@ -251,3 +259,30 @@ class PlanPhase:
                     t.cancel()
 
         return results
+
+    def _record_harness_failure(
+        self,
+        issue_number: int,
+        category: FailureCategory,
+        details: str,
+    ) -> None:
+        """Record a failure to the harness insight store (non-blocking)."""
+        if self._harness_insights is None:
+            return
+        try:
+            from harness_insights import extract_subcategories
+
+            record = FailureRecord(
+                issue_number=issue_number,
+                category=category,
+                subcategories=extract_subcategories(details),
+                details=details,
+                stage="plan",
+            )
+            self._harness_insights.append_failure(record)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to record harness failure for issue #%d",
+                issue_number,
+                exc_info=True,
+            )

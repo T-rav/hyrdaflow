@@ -236,7 +236,7 @@ class TestScaffoldCI:
         assert result.workflow_path == ".github/workflows/quality.yml"
         assert not (tmp_path / ".github" / "workflows" / "quality.yml").exists()
 
-    def test_idempotent(self, tmp_path: Path) -> None:
+    def test_scaffold_ci_is_idempotent_when_run_twice(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").touch()
 
         first = scaffold_ci(tmp_path)

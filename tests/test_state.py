@@ -903,7 +903,9 @@ class TestReviewFeedbackStorage:
 
 
 class TestStateDataModel:
-    def test_defaults(self) -> None:
+    def test_state_data_initializes_with_empty_collections_and_zero_counters(
+        self,
+    ) -> None:
         """StateData() should have correct zero/empty defaults."""
         data = StateData()
         assert data.processed_issues == {}
@@ -1036,7 +1038,7 @@ class TestWorkerResultMeta:
 
 
 class TestLifetimeStatsModel:
-    def test_defaults(self) -> None:
+    def test_lifetime_stats_initializes_all_counters_to_zero(self) -> None:
         stats = LifetimeStats()
         assert stats.issues_completed == 0
         assert stats.prs_merged == 0

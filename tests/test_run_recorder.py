@@ -212,7 +212,7 @@ class TestRunRecorder:
 class TestRunManifest:
     """Tests for the RunManifest Pydantic model."""
 
-    def test_default_values(self) -> None:
+    def test_run_manifest_defaults_to_empty_outcome_and_zero_duration(self) -> None:
         m = RunManifest(issue_number=42, timestamp="20260101T000000Z")
         assert m.outcome == ""
         assert m.error is None
