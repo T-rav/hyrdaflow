@@ -46,7 +46,13 @@ def should_escalate_debug(
 
 
 def high_risk_diff_touched(diff: str) -> bool:
-    """Check whether *diff* touches any high-risk file paths."""
+    """Check whether *diff* contains any high-risk patterns.
+
+    Scans the full diff text (file paths, content, and comments) for
+    sensitive patterns.  A match on any pattern — including in code
+    content or variable names — returns True, which may cause false
+    positives for non-sensitive files that happen to mention these terms.
+    """
     patterns = ("/auth", "/security", "/payment", "migration", "infra/")
     diff_lower = diff.lower()
     return any(p in diff_lower for p in patterns)

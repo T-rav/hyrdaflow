@@ -1105,7 +1105,7 @@ class TestPrecheckHighRiskFiles:
     """Verify _run_precheck_context passes high_risk_files_touched correctly."""
 
     @pytest.mark.asyncio
-    async def test_high_risk_diff_passes_true(self, tmp_path):
+    async def test_high_risk_diff_passes_true(self, tmp_path) -> None:
         cfg = ConfigFactory.create(max_subskill_attempts=1, repo_root=tmp_path)
         judge = VerificationJudge(cfg, EventBus())
 
@@ -1131,7 +1131,7 @@ class TestPrecheckHighRiskFiles:
         assert mock_escalate.call_args[1]["high_risk_files_touched"] is True
 
     @pytest.mark.asyncio
-    async def test_safe_diff_passes_false(self, tmp_path):
+    async def test_safe_diff_passes_false(self, tmp_path) -> None:
         cfg = ConfigFactory.create(max_subskill_attempts=1, repo_root=tmp_path)
         judge = VerificationJudge(cfg, EventBus())
 
