@@ -604,6 +604,15 @@ export function reducer(state, action) {
     case 'SELECT_SESSION':
       return { ...state, selectedSessionId: action.data.sessionId }
 
+    case 'DELETE_SESSION':
+      return {
+        ...state,
+        sessions: state.sessions.filter(s => s.id !== action.data.sessionId),
+        selectedSessionId: state.selectedSessionId === action.data.sessionId
+          ? null
+          : state.selectedSessionId,
+      }
+
     default:
       return addEvent(state, action)
   }
@@ -665,6 +674,21 @@ export function HydraFlowProvider({ children }) {
   const selectSession = useCallback((sessionId) => {
     dispatch({ type: 'SELECT_SESSION', data: { sessionId } })
   }, [])
+
+  const deleteSession = useCallback(async (sessionId) => {
+    dispatch({ type: 'DELETE_SESSION', data: { sessionId } })
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        // Revert optimistic delete by re-fetching
+        fetchSessions()
+      }
+    } catch {
+      fetchSessions()
+    }
+  }, [fetchSessions])
 
   const submitIntent = useCallback(async (text) => {
     dispatch({ type: 'INTENT_SUBMITTED', data: { text } })
@@ -925,6 +949,7 @@ export function HydraFlowProvider({ children }) {
     updateBgWorkerInterval,
     refreshHitl: fetchHitlItems,
     selectSession,
+    deleteSession,
   }
 
   return (

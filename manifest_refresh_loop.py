@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from typing import Any
 
 from config import HydraFlowConfig
@@ -76,10 +77,19 @@ class ManifestRefreshLoop:
         try:
             content, digest_hash = self._manifest_manager.refresh()
             self._state.update_manifest_state(digest_hash)
-            self._status_cb(
-                "manifest_refresh",
-                "ok",
-                {"hash": digest_hash, "length": len(content)},
+            last_run = datetime.now(UTC).isoformat()
+            details = {"hash": digest_hash, "length": len(content)}
+            self._status_cb("manifest_refresh", "ok", details)
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.BACKGROUND_WORKER_STATUS,
+                    data={
+                        "worker": "manifest_refresh",
+                        "status": "ok",
+                        "last_run": last_run,
+                        "details": details,
+                    },
+                )
             )
             logger.info(
                 "Project manifest refreshed (hash=%s, %d chars)",
@@ -90,7 +100,19 @@ class ManifestRefreshLoop:
             raise
         except Exception:
             logger.exception("Manifest refresh failed -- will retry next cycle")
+            last_run = datetime.now(UTC).isoformat()
             self._status_cb("manifest_refresh", "error", None)
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.BACKGROUND_WORKER_STATUS,
+                    data={
+                        "worker": "manifest_refresh",
+                        "status": "error",
+                        "last_run": last_run,
+                        "details": {},
+                    },
+                )
+            )
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.ERROR,

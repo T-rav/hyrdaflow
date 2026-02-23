@@ -3,8 +3,10 @@ import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
 
 export function SessionSidebar() {
-  const { sessions, currentSessionId, selectedSessionId, selectSession } = useHydraFlow()
+  const { sessions, currentSessionId, selectedSessionId, selectSession, deleteSession } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
+  const [hoveredSession, setHoveredSession] = useState(null)
+  const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
 
   const repoGroups = useMemo(() => {
     const groups = {}
@@ -18,7 +20,18 @@ export function SessionSidebar() {
     setExpandedRepos(prev => ({ ...prev, [repo]: prev[repo] === false }))
   }
 
+  const handleDelete = (e, sessionId) => {
+    e.stopPropagation()
+    deleteSession(sessionId)
+  }
+
   const repos = Object.keys(repoGroups)
+
+  // Extract short repo slug (e.g. "org/repo" → "repo")
+  const shortRepo = (repo) => {
+    const parts = repo.split('/')
+    return parts.length > 1 ? parts[parts.length - 1] : repo
+  }
 
   return (
     <div style={styles.sidebar}>
@@ -56,6 +69,7 @@ export function SessionSidebar() {
                 const isActive = session.status === 'active'
                 const isCurrent = session.id === currentSessionId
                 const isSelected = session.id === selectedSessionId
+                const isHovered = session.id === hoveredSession
                 const issueCount = session.issues_processed?.length ?? 0
 
                 let rowStyle = styles.sessionRow
@@ -67,10 +81,13 @@ export function SessionSidebar() {
                   <div
                     key={session.id}
                     onClick={() => selectSession(session.id)}
+                    onMouseEnter={() => setHoveredSession(session.id)}
+                    onMouseLeave={() => setHoveredSession(null)}
                     style={rowStyle}
                   >
                     <span style={isActive ? styles.dotActive : styles.dotCompleted} />
                     <div style={styles.sessionInfo}>
+                      <span style={styles.sessionRepo}>{shortRepo(session.repo)}</span>
                       <span style={styles.sessionTime}>
                         {session.started_at ? new Date(session.started_at).toLocaleString() : ''}
                       </span>
@@ -86,6 +103,18 @@ export function SessionSidebar() {
                         )}
                       </div>
                     </div>
+                    {!isActive && isHovered && (
+                      <button
+                        onClick={(e) => handleDelete(e, session.id)}
+                        onMouseEnter={() => setHoveredDeleteId(session.id)}
+                        onMouseLeave={() => setHoveredDeleteId(null)}
+                        style={hoveredDeleteId === session.id ? deleteButtonHovered : styles.deleteButton}
+                        aria-label="Delete session"
+                        title="Delete session"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -195,6 +224,7 @@ const styles = {
     cursor: 'pointer',
     transition: 'background 0.15s',
     borderLeft: '3px solid transparent',
+    position: 'relative',
   },
   dotActive: {
     width: 8,
@@ -218,6 +248,14 @@ const styles = {
     flexDirection: 'column',
     gap: 2,
     minWidth: 0,
+  },
+  sessionRepo: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: theme.textMuted,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   sessionTime: {
     fontSize: 10,
@@ -244,6 +282,23 @@ const styles = {
     fontSize: 9,
     color: theme.red,
   },
+  deleteButton: {
+    position: 'absolute',
+    right: 8,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    background: 'none',
+    border: 'none',
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: '0 4px',
+    lineHeight: 1,
+    borderRadius: 4,
+    transition: 'color 0.15s, background 0.15s',
+    flexShrink: 0,
+  },
   empty: {
     padding: '16px 12px',
     fontSize: 11,
@@ -256,3 +311,4 @@ const styles = {
 const sessionRowSelected = { ...styles.sessionRow, background: theme.accentSubtle }
 const sessionRowCurrent = { ...styles.sessionRow, borderLeft: `3px solid ${theme.accent}` }
 const sessionRowCurrentSelected = { ...sessionRowCurrent, background: theme.accentSubtle }
+const deleteButtonHovered = { ...styles.deleteButton, color: theme.red, background: theme.redSubtle }

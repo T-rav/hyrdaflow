@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from typing import Any
 
 from config import HydraFlowConfig
@@ -71,14 +72,38 @@ class MemorySyncLoop:
                 ]
                 stats = await self._memory_sync.sync(issue_dicts)
                 await self._memory_sync.publish_sync_event(stats)
+                last_run = datetime.now(UTC).isoformat()
                 self._status_cb("memory_sync", "ok", dict(stats))
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.BACKGROUND_WORKER_STATUS,
+                        data={
+                            "worker": "memory_sync",
+                            "status": "ok",
+                            "last_run": last_run,
+                            "details": dict(stats),
+                        },
+                    )
+                )
             except (AuthenticationError, CreditExhaustedError):
                 raise
             except Exception:
                 logger.exception(
                     "Memory sync loop iteration failed — will retry next cycle"
                 )
+                last_run = datetime.now(UTC).isoformat()
                 self._status_cb("memory_sync", "error", None)
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.BACKGROUND_WORKER_STATUS,
+                        data={
+                            "worker": "memory_sync",
+                            "status": "error",
+                            "last_run": last_run,
+                            "details": {},
+                        },
+                    )
+                )
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.ERROR,

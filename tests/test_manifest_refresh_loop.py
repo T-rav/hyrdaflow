@@ -133,6 +133,28 @@ class TestManifestRefreshLoopRun:
         assert call_count >= 2
 
     @pytest.mark.asyncio
+    async def test_run__publishes_worker_status_event_on_success(
+        self, tmp_path: Path
+    ) -> None:
+        """The loop publishes a BACKGROUND_WORKER_STATUS event on success."""
+        loop, stop_event, _manager, _state = _make_loop(tmp_path)
+        stop_event.set()
+
+        await loop.run()
+
+        events = [
+            e
+            for e in loop._bus.get_history()
+            if e.type == EventType.BACKGROUND_WORKER_STATUS
+        ]
+        assert len(events) >= 1
+        data = events[0].data
+        assert data["worker"] == "manifest_refresh"
+        assert data["status"] == "ok"
+        assert "last_run" in data
+        assert "hash" in data["details"]
+
+    @pytest.mark.asyncio
     async def test_run__publishes_error_event_on_failure(self, tmp_path: Path) -> None:
         """The loop publishes an ERROR event when refresh fails."""
         loop, stop_event, manager, _state = _make_loop(tmp_path)
@@ -147,6 +169,31 @@ class TestManifestRefreshLoopRun:
         error_events = [e for e in loop._bus.get_history() if e.type == EventType.ERROR]
         assert len(error_events) == 1
         assert error_events[0].data["source"] == "manifest_refresh"
+
+    @pytest.mark.asyncio
+    async def test_run__publishes_worker_status_error_event_on_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """The loop publishes a BACKGROUND_WORKER_STATUS error event on failure."""
+        loop, stop_event, manager, _state = _make_loop(tmp_path)
+        stop_event.set()
+
+        manager.refresh = MagicMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("broken")
+        )
+
+        await loop.run()
+
+        events = [
+            e
+            for e in loop._bus.get_history()
+            if e.type == EventType.BACKGROUND_WORKER_STATUS
+        ]
+        assert len(events) >= 1
+        data = events[0].data
+        assert data["worker"] == "manifest_refresh"
+        assert data["status"] == "error"
+        assert "last_run" in data
 
     @pytest.mark.asyncio
     async def test_run__skips_when_disabled(self, tmp_path: Path) -> None:

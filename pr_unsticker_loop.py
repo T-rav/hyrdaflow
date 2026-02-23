@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from typing import Any
 
 from config import HydraFlowConfig
@@ -48,14 +49,38 @@ class PRUnstickerLoop:
             try:
                 hitl_items = await self._prs.list_hitl_items(self._config.hitl_label)
                 stats = await self._pr_unsticker.unstick(hitl_items)
+                last_run = datetime.now(UTC).isoformat()
                 self._status_cb("pr_unsticker", "ok", stats)
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.BACKGROUND_WORKER_STATUS,
+                        data={
+                            "worker": "pr_unsticker",
+                            "status": "ok",
+                            "last_run": last_run,
+                            "details": stats or {},
+                        },
+                    )
+                )
             except (AuthenticationError, CreditExhaustedError):
                 raise
             except Exception:
                 logger.exception(
                     "PR unsticker loop iteration failed — will retry next cycle"
                 )
+                last_run = datetime.now(UTC).isoformat()
                 self._status_cb("pr_unsticker", "error", None)
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.BACKGROUND_WORKER_STATUS,
+                        data={
+                            "worker": "pr_unsticker",
+                            "status": "error",
+                            "last_run": last_run,
+                            "details": {},
+                        },
+                    )
+                )
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.ERROR,

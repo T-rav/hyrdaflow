@@ -919,6 +919,78 @@ class TestGitHubMetricsEndpoint:
         assert data["total_merged"] == 8
 
 
+class TestMetricsHistoryEndpoint:
+    """Tests for GET /api/metrics/history endpoint — local-cache fallback path."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_cache(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Returns empty snapshots list when orchestrator is None and no local cache."""
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/metrics/history")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["snapshots"] == []
+
+    @pytest.mark.asyncio
+    async def test_returns_local_cache_when_no_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Serves metrics snapshots from local disk cache when orchestrator is None."""
+        import json
+
+        from metrics_manager import get_metrics_cache_dir
+        from models import MetricsSnapshot
+
+        # Write a snapshot directly to the local cache
+        snap = MetricsSnapshot(timestamp="2025-06-01T00:00:00", issues_completed=7)
+        cache_dir = get_metrics_cache_dir(config)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / "snapshots.jsonl"
+        cache_file.write_text(snap.model_dump_json() + "\n")
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/metrics/history")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert len(data["snapshots"]) == 1
+        assert data["snapshots"][0]["issues_completed"] == 7
+
+
 class TestBgWorkerToggleEndpoint:
     """Tests for POST /api/control/bg-worker endpoint."""
 
@@ -1512,3 +1584,101 @@ class TestRequestChangesEndpoint:
         data = json.loads(response.body)
         assert data["status"] == "ok"
         assert state.get_hitl_origin(99) == "review"
+
+
+class TestDeleteSessionEndpoint:
+    """Tests for DELETE /api/sessions/{session_id}."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path, method=None):
+        for route in router.routes:
+            if not (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                continue
+            if method is None or (
+                hasattr(route, "methods") and method in route.methods
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_delete_session_success(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import SessionLog
+
+        state.save_session(
+            SessionLog(
+                id="s1",
+                repo="org/repo",
+                started_at="2024-01-01T00:00:00",
+                status="completed",
+            )
+        )
+        router = self._make_router(config, event_bus, state, tmp_path)
+        delete_endpoint = self._find_endpoint(
+            router, "/api/sessions/{session_id}", method="DELETE"
+        )
+        assert delete_endpoint is not None
+        response = await delete_endpoint("s1")
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_delete_session_not_found(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        router = self._make_router(config, event_bus, state, tmp_path)
+        delete_endpoint = self._find_endpoint(
+            router, "/api/sessions/{session_id}", method="DELETE"
+        )
+        assert delete_endpoint is not None
+        response = await delete_endpoint("nonexistent")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_active_session_returns_400(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import SessionLog
+
+        state.save_session(
+            SessionLog(
+                id="active-s",
+                repo="org/repo",
+                started_at="2024-01-01T00:00:00",
+                status="active",
+            )
+        )
+        router = self._make_router(config, event_bus, state, tmp_path)
+        delete_endpoint = self._find_endpoint(
+            router, "/api/sessions/{session_id}", method="DELETE"
+        )
+        assert delete_endpoint is not None
+        response = await delete_endpoint("active-s")
+        assert response.status_code == 400
+        data = json.loads(response.body)
+        assert "active" in data["error"].lower()
