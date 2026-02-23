@@ -218,6 +218,9 @@ class ConfigFactory:
         inject_runtime_logs: bool = False,
         max_runtime_log_chars: int = 8_000,
         max_ci_log_chars: int = 12_000,
+        agent_timeout: int = 3600,
+        transcript_summary_timeout: int = 120,
+        memory_compaction_timeout: int = 60,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -342,6 +345,9 @@ class ConfigFactory:
             inject_runtime_logs=inject_runtime_logs,
             max_runtime_log_chars=max_runtime_log_chars,
             max_ci_log_chars=max_ci_log_chars,
+            agent_timeout=agent_timeout,
+            transcript_summary_timeout=transcript_summary_timeout,
+            memory_compaction_timeout=memory_compaction_timeout,
         )
 
 

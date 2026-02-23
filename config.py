@@ -45,6 +45,9 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
     ("max_runtime_log_chars", "HYDRAFLOW_MAX_RUNTIME_LOG_CHARS", 8_000),
     ("max_ci_log_chars", "HYDRAFLOW_MAX_CI_LOG_CHARS", 12_000),
+    ("agent_timeout", "HYDRAFLOW_AGENT_TIMEOUT", 3600),
+    ("transcript_summary_timeout", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", 120),
+    ("memory_compaction_timeout", "HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", 60),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -570,6 +573,26 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=30,
         description="Extra minutes to wait after reported credit reset time",
+    )
+
+    # Process timeouts
+    agent_timeout: int = Field(
+        default=3600,
+        ge=60,
+        le=14400,
+        description="Default timeout in seconds for agent process runs",
+    )
+    transcript_summary_timeout: int = Field(
+        default=120,
+        ge=30,
+        le=600,
+        description="Timeout in seconds for transcript summarization model calls",
+    )
+    memory_compaction_timeout: int = Field(
+        default=60,
+        ge=30,
+        le=600,
+        description="Timeout in seconds for memory compaction model calls",
     )
 
     # Execution mode

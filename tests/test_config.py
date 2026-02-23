@@ -3789,3 +3789,74 @@ class TestLabelValidation:
             state_file=tmp_path / "s.json",
         )
         assert cfg.ready_label == ["hydraflow-ready"]
+
+
+class TestTimeoutConfigFields:
+    """Tests for agent_timeout, transcript_summary_timeout, memory_compaction_timeout."""
+
+    def test_agent_timeout_default(self) -> None:
+        config = HydraFlowConfig(repo="test/repo")
+        assert config.agent_timeout == 3600
+
+    def test_transcript_summary_timeout_default(self) -> None:
+        config = HydraFlowConfig(repo="test/repo")
+        assert config.transcript_summary_timeout == 120
+
+    def test_memory_compaction_timeout_default(self) -> None:
+        config = HydraFlowConfig(repo="test/repo")
+        assert config.memory_compaction_timeout == 60
+
+    def test_agent_timeout_bounds_too_low(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HydraFlowConfig(repo="test/repo", agent_timeout=10)
+
+    def test_agent_timeout_bounds_too_high(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HydraFlowConfig(repo="test/repo", agent_timeout=20000)
+
+    def test_transcript_summary_timeout_bounds_too_low(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HydraFlowConfig(repo="test/repo", transcript_summary_timeout=5)
+
+    def test_transcript_summary_timeout_bounds_too_high(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HydraFlowConfig(repo="test/repo", transcript_summary_timeout=999)
+
+    def test_memory_compaction_timeout_bounds_too_low(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HydraFlowConfig(repo="test/repo", memory_compaction_timeout=5)
+
+    def test_memory_compaction_timeout_bounds_too_high(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            HydraFlowConfig(repo="test/repo", memory_compaction_timeout=999)
+
+    def test_agent_timeout_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HYDRAFLOW_AGENT_TIMEOUT", "7200")
+        config = HydraFlowConfig(repo="test/repo")
+        assert config.agent_timeout == 7200
+
+    def test_transcript_summary_timeout_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", "300")
+        config = HydraFlowConfig(repo="test/repo")
+        assert config.transcript_summary_timeout == 300
+
+    def test_memory_compaction_timeout_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", "90")
+        config = HydraFlowConfig(repo="test/repo")
+        assert config.memory_compaction_timeout == 90

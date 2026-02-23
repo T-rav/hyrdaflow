@@ -402,6 +402,7 @@ class DockerRunner:
         cwd: str | None = None,
         env: dict[str, str] | None = None,  # noqa: ARG002
         timeout: float = 120.0,
+        input: bytes | None = None,  # noqa: A002
     ) -> SimpleResult:
         """Run a command in a Docker container and return the result.
 
@@ -409,6 +410,9 @@ class DockerRunner:
             The ``env`` parameter is intentionally ignored — see
             :meth:`create_streaming_process` for the rationale.
         """
+        if input is not None:
+            msg = "stdin input not supported in Docker mode"
+            raise NotImplementedError(msg)
         await self._enforce_spawn_delay()
 
         loop = asyncio.get_running_loop()

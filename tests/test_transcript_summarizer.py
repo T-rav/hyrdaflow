@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from events import EventType
+from execution import SimpleResult
 from tests.helpers import ConfigFactory
 from transcript_summarizer import (
     TranscriptSummarizer,
@@ -151,6 +152,20 @@ class TestTruncateTranscript:
         assert result == text
 
 
+# --- Helpers for mock runner ---
+
+
+def _make_mock_runner(
+    *, stdout: str = "", stderr: str = "", returncode: int = 0
+) -> AsyncMock:
+    """Build a mock SubprocessRunner whose run_simple returns a SimpleResult."""
+    runner = AsyncMock()
+    runner.run_simple = AsyncMock(
+        return_value=SimpleResult(stdout=stdout, stderr=stderr, returncode=returncode)
+    )
+    return runner
+
+
 # --- TranscriptSummarizer.summarize_and_comment tests ---
 
 
@@ -166,31 +181,17 @@ class TestSummarizeAndComment:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="### Key Decisions\n- Used factory pattern")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"### Key Decisions\n- Used factory pattern\n", b"")
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 1000,
+            issue_number=42,
+            phase="implement",
+            status="success",
+            duration_seconds=60.0,
+            log_file=".hydraflow/logs/issue-42.txt",
         )
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_comment(
-                transcript="x" * 1000,
-                issue_number=42,
-                phase="implement",
-                status="success",
-                duration_seconds=60.0,
-                log_file=".hydraflow/logs/issue-42.txt",
-            )
 
         assert result is True
         prs.post_comment.assert_awaited_once()
@@ -209,26 +210,14 @@ class TestSummarizeAndComment:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            await summarizer.summarize_and_comment(
-                transcript="x" * 1000,
-                issue_number=42,
-                phase="review",
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_comment(
+            transcript="x" * 1000,
+            issue_number=42,
+            phase="review",
+        )
 
         bus.publish.assert_called_once()
         event = bus.publish.call_args[0][0]
@@ -296,24 +285,12 @@ class TestSummarizeAndComment:
         prs.post_comment = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = _make_mock_runner(returncode=1, stderr="error")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_comment(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is False
         prs.post_comment.assert_not_called()
@@ -327,24 +304,12 @@ class TestSummarizeAndComment:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_comment(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is False
 
@@ -356,27 +321,13 @@ class TestSummarizeAndComment:
         prs.post_comment = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=TimeoutError)
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-
-        async def _raise_timeout(*a, **kw):  # noqa: ANN002, ANN003
-            raise TimeoutError
-
-        mock_proc.communicate = _raise_timeout
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_comment(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is False
         prs.post_comment.assert_not_called()
@@ -389,23 +340,59 @@ class TestSummarizeAndComment:
         prs.post_comment = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=FileNotFoundError("claude not found"))
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(side_effect=FileNotFoundError("claude not found")),
-            )
-            result = await summarizer.summarize_and_comment(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is False
         prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_uses_configured_timeout(self, tmp_path: Path) -> None:
+        """run_simple is called with timeout from config.transcript_summary_timeout."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summary_timeout=300
+        )
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
+
+        runner.run_simple.assert_awaited_once()
+        call_kwargs = runner.run_simple.call_args[1]
+        assert call_kwargs["timeout"] == 300
+
+    @pytest.mark.asyncio
+    async def test_calls_run_simple_not_raw_subprocess(self, tmp_path: Path) -> None:
+        """Verify run_simple is used (not asyncio.create_subprocess_exec)."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_comment(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
+
+        runner.run_simple.assert_awaited_once()
+        call_kwargs = runner.run_simple.call_args[1]
+        assert call_kwargs["input"] is not None
+        assert isinstance(call_kwargs["input"], bytes)
 
 
 # --- TranscriptSummarizer.summarize_and_publish tests ---
@@ -442,30 +429,16 @@ class TestSummarizeAndPublish:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="### Key Decisions\n- Used factory pattern")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"### Key Decisions\n- Used factory pattern\n", b"")
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000,
+            issue_number=42,
+            phase="implement",
+            issue_title="Add feature",
+            duration_seconds=60.0,
         )
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_publish(
-                transcript="x" * 1000,
-                issue_number=42,
-                phase="implement",
-                issue_title="Add feature",
-                duration_seconds=60.0,
-            )
 
         assert result == 999
         prs.create_issue.assert_called_once()
@@ -485,24 +458,12 @@ class TestSummarizeAndPublish:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary content")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary content", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         state.set_hitl_origin.assert_called_once_with(123, "hydraflow-improve")
         state.set_hitl_cause.assert_called_once_with(123, "Transcript summary")
@@ -517,24 +478,12 @@ class TestSummarizeAndPublish:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="review"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="review"
+        )
 
         bus.publish.assert_called_once()
         event = bus.publish.call_args[0][0]
@@ -613,34 +562,16 @@ class TestSummarizeAndPublish:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            await summarizer.summarize_and_publish(
-                transcript="x" * 50_000, issue_number=42, phase="implement"
-            )
-
-        # Verify the stdin passed to the model was truncated
-        call_args = mock_proc.communicate.call_args
-        stdin_data = (
-            call_args[1]["input"]
-            if "input" in call_args[1]
-            else call_args[0][0]
-            if call_args[0]
-            else None
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_publish(
+            transcript="x" * 50_000, issue_number=42, phase="implement"
         )
+
+        # Verify the input passed to run_simple was truncated
+        call_kwargs = runner.run_simple.call_args[1]
+        stdin_data = call_kwargs["input"]
         assert stdin_data is not None
         # The prompt includes the transcript, check it's capped
         assert len(stdin_data) < 50_000
@@ -654,24 +585,12 @@ class TestSummarizeAndPublish:
         prs.create_issue = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = _make_mock_runner(returncode=1, stderr="error")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is None
         prs.create_issue.assert_not_called()
@@ -685,27 +604,13 @@ class TestSummarizeAndPublish:
         prs.create_issue = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=TimeoutError)
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-
-        async def _raise_timeout(*a, **kw):  # noqa: ANN002, ANN003
-            raise TimeoutError
-
-        mock_proc.communicate = _raise_timeout
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is None
         prs.create_issue.assert_not_called()
@@ -719,20 +624,13 @@ class TestSummarizeAndPublish:
         prs.create_issue = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=FileNotFoundError("claude not found"))
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(side_effect=FileNotFoundError("claude not found")),
-            )
-            result = await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is None
         prs.create_issue.assert_not_called()
@@ -748,24 +646,12 @@ class TestSummarizeAndPublish:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         # create_issue is still called (it handles dry-run internally)
         prs.create_issue.assert_called_once()
@@ -786,24 +672,12 @@ class TestSummarizeAndPublish:
         bus = MagicMock()
         bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="Summary")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"Summary", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         call_args = prs.create_issue.call_args
         labels = call_args[0][2]
@@ -819,24 +693,12 @@ class TestSummarizeAndPublish:
         prs.create_issue = AsyncMock()
         bus = MagicMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(return_value=mock_proc),
-            )
-            result = await summarizer.summarize_and_publish(
-                transcript="x" * 1000, issue_number=42, phase="implement"
-            )
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
 
         assert result is None
         prs.create_issue.assert_not_called()

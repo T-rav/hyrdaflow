@@ -52,8 +52,11 @@ class SubprocessRunner(Protocol):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout: float = 120.0,
+        input: bytes | None = None,  # noqa: A002
     ) -> SimpleResult:
         """Run a command and return its output.
+
+        When *input* is provided, it is written to the process's stdin.
 
         Raises ``TimeoutError`` if the command exceeds *timeout* seconds
         (the process is killed before re-raising).
@@ -101,21 +104,26 @@ class HostRunner:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout: float = 120.0,
+        input: bytes | None = None,  # noqa: A002
     ) -> SimpleResult:
         """Run a command on the host and return its output.
 
+        When *input* is provided, it is written to the process's stdin.
+
         Raises ``TimeoutError`` if the command exceeds *timeout* seconds.
         """
+        stdin_pipe = asyncio.subprocess.PIPE if input is not None else None
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=cwd,
+            stdin=stdin_pipe,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
+                proc.communicate(input=input), timeout=timeout
             )
         except TimeoutError:
             proc.kill()

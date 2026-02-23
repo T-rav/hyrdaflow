@@ -118,7 +118,7 @@ def build_services(
     reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner)
     hitl_runner = HITLRunner(config, event_bus, runner=subprocess_runner)
     triage = TriageRunner(config, event_bus)
-    summarizer = TranscriptSummarizer(config, prs, event_bus, state)
+    summarizer = TranscriptSummarizer(config, prs, event_bus, state, runner=subprocess_runner)
 
     # Data layer
     fetcher = IssueFetcher(config)
@@ -171,7 +171,7 @@ def build_services(
     pr_unsticker = PRUnsticker(
         config, state, event_bus, prs, agents, worktrees, fetcher
     )
-    memory_sync = MemorySyncWorker(config, state, event_bus)
+    memory_sync = MemorySyncWorker(config, state, event_bus, runner=subprocess_runner)
     retrospective = RetrospectiveCollector(config, state, prs)
     ac_generator = AcceptanceCriteriaGenerator(
         config, prs, event_bus, runner=subprocess_runner

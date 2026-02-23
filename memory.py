@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import re
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from execution import SubprocessRunner, get_default_runner
 from file_util import atomic_write
 from models import (
     MEMORY_TYPE_DISPLAY_ORDER,
@@ -182,10 +182,12 @@ class MemorySyncWorker:
         config: HydraFlowConfig,
         state: StateTracker,
         event_bus: EventBus,
+        runner: SubprocessRunner | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._bus = event_bus
+        self._runner = runner or get_default_runner()
 
     # Type alias for typed learning tuples:
     # (issue_number, learning_text, created_at, memory_type)
@@ -418,31 +420,26 @@ class MemorySyncWorker:
         env = make_clean_env(self._config.gh_token)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            result = await self._runner.run_simple(
+                cmd,
                 env=env,
+                input=prompt.encode(),
+                timeout=self._config.memory_compaction_timeout,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=prompt.encode()), timeout=60
-            )
-            if proc.returncode != 0:
+            if result.returncode != 0:
                 logger.warning(
                     "Memory compaction model failed (rc=%d): %s",
-                    proc.returncode,
-                    stderr.decode().strip()[:200],
+                    result.returncode,
+                    result.stderr[:200],
                 )
                 return None
-            result = stdout.decode().strip()
-            if not result:
+            if not result.stdout:
                 return None
             now = datetime.now(UTC).isoformat()
             return (
                 f"## Accumulated Learnings\n"
                 f"*Summarised — last synced {now}*\n\n"
-                f"{result}\n"
+                f"{result.stdout}\n"
             )
         except TimeoutError:
             logger.warning("Memory compaction model timed out")

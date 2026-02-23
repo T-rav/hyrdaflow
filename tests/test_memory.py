@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from execution import SimpleResult
 from memory import (
     MemorySyncWorker,
     _parse_memory_type,
@@ -1013,21 +1014,16 @@ class TestSummariseWithModel:
         config = ConfigFactory.create(
             repo_root=tmp_path, memory_compaction_model="haiku"
         )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"- Condensed learning one\n- Condensed learning two\n", b"")
-        )
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(
+                stdout="- Condensed learning one\n- Condensed learning two",
+                stderr="",
+                returncode=0,
             )
-            result = await worker._summarise_with_model("long content", 4000)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        result = await worker._summarise_with_model("long content", 4000)
 
         assert result is not None
         assert "Accumulated Learnings" in result
@@ -1037,59 +1033,65 @@ class TestSummariseWithModel:
     @pytest.mark.asyncio
     async def test_nonzero_returncode_returns_none(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc)
-            )
-            result = await worker._summarise_with_model("content", 4000)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(stdout="", stderr="error", returncode=1)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        result = await worker._summarise_with_model("content", 4000)
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_timeout_returns_none(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        import asyncio as _asyncio
-
-        async def _raise_timeout(*a, **kw):  # noqa: ANN002, ANN003
-            raise TimeoutError
-
-        mock_proc = AsyncMock()
-        mock_proc.communicate = _raise_timeout
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc)
-            )
-            result = await worker._summarise_with_model("content", 4000)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=TimeoutError)
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        result = await worker._summarise_with_model("content", 4000)
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_file_not_found_returns_none(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        import asyncio as _asyncio
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                _asyncio,
-                "create_subprocess_exec",
-                AsyncMock(side_effect=FileNotFoundError("claude not found")),
-            )
-            result = await worker._summarise_with_model("content", 4000)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=FileNotFoundError("claude not found"))
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        result = await worker._summarise_with_model("content", 4000)
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_uses_configured_timeout(self, tmp_path: Path) -> None:
+        """run_simple is called with timeout from config.memory_compaction_timeout."""
+        config = ConfigFactory.create(repo_root=tmp_path, memory_compaction_timeout=90)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        await worker._summarise_with_model("content", 4000)
+
+        runner.run_simple.assert_awaited_once()
+        call_kwargs = runner.run_simple.call_args[1]
+        assert call_kwargs["timeout"] == 90
+
+    @pytest.mark.asyncio
+    async def test_calls_run_simple_not_raw_subprocess(self, tmp_path: Path) -> None:
+        """Verify run_simple is used (not asyncio.create_subprocess_exec)."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        await worker._summarise_with_model("content", 4000)
+
+        runner.run_simple.assert_awaited_once()
+        call_kwargs = runner.run_simple.call_args[1]
+        assert call_kwargs["input"] is not None
+        assert isinstance(call_kwargs["input"], bytes)
 
 
 # --- PR Manager tests ---

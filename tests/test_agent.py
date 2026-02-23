@@ -852,6 +852,7 @@ class TestCountCommits:
             "--count",
             "origin/main..agent/issue-42",
             cwd=str(tmp_path),
+            stdin=None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=None,
