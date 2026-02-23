@@ -503,12 +503,18 @@ describe('PipelineFlow visualization', () => {
     expect(screen.getByTestId('flow-dot-20')).toBeInTheDocument()
   })
 
-  it('does not render pipeline flow when no issues exist', () => {
+  it('renders pipeline flow even when no issues exist', () => {
     mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
       pipelineIssues: { triage: [], plan: [], implement: [], review: [] },
     }))
     render(<StreamView {...defaultProps} />)
-    expect(screen.queryByTestId('pipeline-flow')).not.toBeInTheDocument()
+    const flow = screen.getByTestId('pipeline-flow')
+    expect(flow).toBeInTheDocument()
+    expect(flow.textContent).toContain('Triage')
+    expect(flow.textContent).toContain('Plan')
+    expect(flow.textContent).toContain('Implement')
+    expect(flow.textContent).toContain('Review')
+    expect(flow.textContent).toContain('Merged')
   })
 
   it('shows all stage labels even when some stages have no issues', () => {
