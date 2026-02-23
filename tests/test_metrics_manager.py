@@ -546,9 +546,11 @@ class TestLocalCache:
         assert result[0].timestamp == "2025-01-03T00:00:00"
 
     def test_load_local_history_skips_corrupt_lines(
-        self, state, event_bus, tmp_path
+        self, state, event_bus, tmp_path, caplog
     ) -> None:
-        """Corrupt JSONL lines are silently skipped."""
+        """Corrupt JSONL lines are skipped with debug logging."""
+        import logging
+
         mgr, _, _, _ = make_manager(
             state, event_bus, state_file=tmp_path / "state.json"
         )
@@ -562,9 +564,12 @@ class TestLocalCache:
             f.write(valid.model_dump_json() + "\n")
             f.write("also broken\n")
 
-        result = mgr.load_local_history()
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.metrics_manager"):
+            result = mgr.load_local_history()
+
         assert len(result) == 1
         assert result[0].issues_completed == 5
+        assert "Skipping corrupt metrics snapshot line" in caplog.text
 
     def test_cache_dir_uses_repo_slug(self, state, event_bus, tmp_path) -> None:
         """Cache directory path is based on repo slug."""

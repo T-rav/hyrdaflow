@@ -422,3 +422,113 @@ class TestSessionConfig:
 
         config = ConfigFactory.create(max_sessions_per_repo=50)
         assert config.max_sessions_per_repo == 50
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling (issue #879)
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowedExceptionHandling:
+    """Verify that session JSONL parsing catches ValidationError (not bare Exception)
+    and emits debug/warning logs for corrupt lines."""
+
+    def test_load_sessions_logs_warning_for_corrupt_lines(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """load_sessions should log a warning for each corrupt line."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        sessions_file = tmp_path / "sessions.jsonl"
+        sessions_file.parent.mkdir(parents=True, exist_ok=True)
+        valid = make_session(id="valid-session")
+        with open(sessions_file, "w") as f:
+            f.write("{ corrupt json }\n")
+            f.write(valid.model_dump_json() + "\n")
+            f.write("not json at all\n")
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
+            result = tracker.load_sessions()
+
+        assert len(result) == 1
+        assert result[0].id == "valid-session"
+        assert caplog.text.count("Skipping corrupt session line") >= 2
+
+    def test_load_sessions_warning_includes_exc_info(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """load_sessions warning logs should include exc_info for tracebacks."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        sessions_file = tmp_path / "sessions.jsonl"
+        sessions_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(sessions_file, "w") as f:
+            f.write("{ bad }\n")
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
+            tracker.load_sessions()
+
+        assert len(caplog.records) >= 1
+        assert caplog.records[0].exc_info is not None
+
+    def test_get_session_logs_debug_for_corrupt_lines(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """get_session should log debug for corrupt lines."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        sessions_file = tmp_path / "sessions.jsonl"
+        sessions_file.parent.mkdir(parents=True, exist_ok=True)
+        valid = make_session(id="target")
+        with open(sessions_file, "w") as f:
+            f.write("corrupt line\n")
+            f.write(valid.model_dump_json() + "\n")
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
+            result = tracker.get_session("target")
+
+        assert result is not None
+        assert result.id == "target"
+        assert "Skipping corrupt line" in caplog.text
+
+    def test_delete_session_logs_debug_for_corrupt_lines(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """delete_session should log debug for corrupt lines."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        sessions_file = tmp_path / "sessions.jsonl"
+        sessions_file.parent.mkdir(parents=True, exist_ok=True)
+        valid = make_session(id="s1", status="completed")
+        with open(sessions_file, "w") as f:
+            f.write("corrupt\n")
+            f.write(valid.model_dump_json() + "\n")
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
+            result = tracker.delete_session("s1")
+
+        assert result is True
+        assert "Skipping corrupt session line" in caplog.text
+
+    def test_prune_sessions_logs_debug_for_corrupt_lines(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """prune_sessions should log debug for corrupt lines."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        sessions_file = tmp_path / "sessions.jsonl"
+        sessions_file.parent.mkdir(parents=True, exist_ok=True)
+        valid = make_session(id="s1")
+        with open(sessions_file, "w") as f:
+            f.write("corrupt\n")
+            f.write(valid.model_dump_json() + "\n")
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
+            tracker.prune_sessions("test-org/test-repo", max_keep=10)
+
+        assert "Skipping corrupt session line" in caplog.text

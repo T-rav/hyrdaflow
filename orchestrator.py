@@ -348,17 +348,8 @@ class HydraFlowOrchestrator:
             )
         )
 
-    async def run(self) -> None:
-        """Run three independent, continuous loops — plan, implement, review.
-
-        Each loop polls for its own work on ``poll_interval`` and processes
-        whatever it finds.  No phase blocks another; new issues are picked
-        up as soon as they arrive.  Loops run until explicitly stopped.
-        """
-        self._stop_event.clear()
-        self._running = True
-
-        # Restore interval overrides from persisted state
+    def _restore_state(self) -> None:
+        """Restore interval overrides, crash-recovered issues, and interrupted issues."""
         saved_intervals = self._state.get_worker_intervals()
         if saved_intervals:
             self._bg_worker_intervals.update(saved_intervals)
@@ -367,7 +358,6 @@ class HydraFlowOrchestrator:
                 len(saved_intervals),
             )
 
-        # Restore active issues from persisted state for crash recovery
         recovered = set(self._state.get_active_issue_numbers())
         if recovered:
             self._recovered_issues = recovered
@@ -397,18 +387,8 @@ class HydraFlowOrchestrator:
             )
             self._state.clear_interrupted_issues()
 
-        await self._publish_status()
-        logger.info(
-            "HydraFlow starting — repo=%s label=%s workers=%d poll=%ds",
-            self._config.repo,
-            ",".join(self._config.ready_label),
-            self._config.max_workers,
-            self._config.poll_interval,
-        )
-
-        await self._prs.ensure_labels_exist()
-
-        # Start a new session
+    async def _start_session(self) -> None:
+        """Create a new session log and publish SESSION_START."""
         repo_slug = self._config.repo.replace("/", "-")
         session_start_time = datetime.now(UTC)
         session_id = f"{repo_slug}-{session_start_time.strftime('%Y%m%dT%H%M%S')}"
@@ -428,42 +408,68 @@ class HydraFlowOrchestrator:
             )
         )
 
+    async def _end_session(self) -> None:
+        """Close the current session log and publish SESSION_END."""
+        if not self._current_session:
+            return
+        self._current_session.ended_at = datetime.now(UTC).isoformat()
+        self._current_session.issues_processed = list(
+            self._session_issue_results.keys()
+        )
+        self._current_session.issues_succeeded = sum(
+            1 for s in self._session_issue_results.values() if s
+        )
+        self._current_session.issues_failed = sum(
+            1 for s in self._session_issue_results.values() if not s
+        )
+        self._current_session.status = "completed"
+        self._state.save_session(self._current_session)
+        self._state.prune_sessions(
+            self._config.repo, self._config.max_sessions_per_repo
+        )
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.SESSION_END,
+                session_id=self._current_session.id,
+                data={
+                    "session_id": self._current_session.id,
+                    "status": "completed",
+                    "issues_processed": self._current_session.issues_processed,
+                    "issues_succeeded": self._current_session.issues_succeeded,
+                    "issues_failed": self._current_session.issues_failed,
+                },
+            )
+        )
+        self._current_session = None
+        self._bus.set_session_id(None)
+
+    async def run(self) -> None:
+        """Run three independent, continuous loops — plan, implement, review.
+
+        Each loop polls for its own work on ``poll_interval`` and processes
+        whatever it finds.  No phase blocks another; new issues are picked
+        up as soon as they arrive.  Loops run until explicitly stopped.
+        """
+        self._stop_event.clear()
+        self._running = True
+        self._restore_state()
+
+        await self._publish_status()
+        logger.info(
+            "HydraFlow starting — repo=%s label=%s workers=%d poll=%ds",
+            self._config.repo,
+            ",".join(self._config.ready_label),
+            self._config.max_workers,
+            self._config.poll_interval,
+        )
+
+        await self._prs.ensure_labels_exist()
+        await self._start_session()
+
         try:
             await self._supervise_loops()
         finally:
-            # Close the session
-            if self._current_session:
-                self._current_session.ended_at = datetime.now(UTC).isoformat()
-                self._current_session.issues_processed = list(
-                    self._session_issue_results.keys()
-                )
-                self._current_session.issues_succeeded = sum(
-                    1 for s in self._session_issue_results.values() if s
-                )
-                self._current_session.issues_failed = sum(
-                    1 for s in self._session_issue_results.values() if not s
-                )
-                self._current_session.status = "completed"
-                self._state.save_session(self._current_session)
-                self._state.prune_sessions(
-                    self._config.repo, self._config.max_sessions_per_repo
-                )
-                await self._bus.publish(
-                    HydraFlowEvent(
-                        type=EventType.SESSION_END,
-                        session_id=self._current_session.id,
-                        data={
-                            "session_id": self._current_session.id,
-                            "status": "completed",
-                            "issues_processed": self._current_session.issues_processed,
-                            "issues_succeeded": self._current_session.issues_succeeded,
-                            "issues_failed": self._current_session.issues_failed,
-                        },
-                    )
-                )
-                self._current_session = None
-                self._bus.set_session_id(None)
-
+            await self._end_session()
             self._planners.terminate()
             self._agents.terminate()
             self._reviewers.terminate()
@@ -472,6 +478,53 @@ class HydraFlowOrchestrator:
             self._running = False
             await self._publish_status()
             logger.info("HydraFlow stopped")
+
+    async def _handle_loop_exception(
+        self,
+        name: str,
+        exc: BaseException,
+        tasks: dict[str, asyncio.Task[None]],
+        loop_factories: list[tuple[str, Callable[[], Coroutine[Any, Any, None]]]],
+    ) -> None:
+        """Handle a crashed loop task — auth failure, credit exhaustion, or generic restart."""
+        if isinstance(exc, AuthenticationError):
+            logger.error(
+                "GitHub authentication failed in %r — pausing all loops: %s",
+                name,
+                exc,
+            )
+            self._auth_failed = True
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.SYSTEM_ALERT,
+                    data={
+                        "message": (
+                            "GitHub authentication failed. "
+                            "Check your gh token and restart."
+                        ),
+                        "source": name,
+                    },
+                )
+            )
+            self._stop_event.set()
+            return
+
+        if isinstance(exc, CreditExhaustedError):
+            await self._pause_for_credits(exc, name, tasks, loop_factories)
+            return
+
+        logger.error("Loop %r crashed — restarting: %s", name, exc)
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.ERROR,
+                data={
+                    "message": f"Loop {name} crashed and was restarted",
+                    "source": name,
+                },
+            )
+        )
+        factory_fn = dict(loop_factories)[name]
+        tasks[name] = asyncio.create_task(factory_fn(), name=f"hydraflow-{name}")
 
     async def _supervise_loops(self) -> None:
         """Run all loops plus the IssueStore poller, restarting any that crash."""
@@ -507,49 +560,10 @@ class HydraFlowOrchestrator:
                         break
                     exc = task.exception()
                     if exc is not None:
-                        if isinstance(exc, AuthenticationError):
-                            logger.error(
-                                "GitHub authentication failed in %r — "
-                                "pausing all loops: %s",
-                                name,
-                                exc,
-                            )
-                            self._auth_failed = True
-                            await self._bus.publish(
-                                HydraFlowEvent(
-                                    type=EventType.SYSTEM_ALERT,
-                                    data={
-                                        "message": (
-                                            "GitHub authentication failed. "
-                                            "Check your gh token and restart."
-                                        ),
-                                        "source": name,
-                                    },
-                                )
-                            )
-                            self._stop_event.set()
-                            break
-
-                        if isinstance(exc, CreditExhaustedError):
-                            await self._pause_for_credits(
-                                exc, name, tasks, loop_factories
-                            )
-                            break
-
-                        logger.error("Loop %r crashed — restarting: %s", name, exc)
-                        await self._bus.publish(
-                            HydraFlowEvent(
-                                type=EventType.ERROR,
-                                data={
-                                    "message": f"Loop {name} crashed and was restarted",
-                                    "source": name,
-                                },
-                            )
+                        await self._handle_loop_exception(
+                            name, exc, tasks, loop_factories
                         )
-                        factory_fn = dict(loop_factories)[name]
-                        tasks[name] = asyncio.create_task(
-                            factory_fn(), name=f"hydraflow-{name}"
-                        )
+                        break
         finally:
             for task in tasks.values():
                 task.cancel()
@@ -644,6 +658,48 @@ class HydraFlowOrchestrator:
         """Continuously rescan the repo and update the project manifest."""
         await self._manifest_refresh_loop.run()
 
+    async def _post_run_hooks(
+        self,
+        transcript: str,
+        source: str,
+        reference: str,
+        issue_number: int,
+        phase: str,
+        status: str,
+        duration_seconds: float,
+        log_file: str,
+    ) -> None:
+        """Run memory-suggestion filing and transcript summarization for a completed run."""
+        try:
+            await file_memory_suggestion(
+                transcript,
+                source,
+                reference,
+                self._config,
+                self._prs,
+                self._state,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to file memory suggestion for %s",
+                reference,
+            )
+        if issue_number > 0:
+            try:
+                await self._summarizer.summarize_and_comment(
+                    transcript=transcript,
+                    issue_number=issue_number,
+                    phase=phase,
+                    status=status,
+                    duration_seconds=duration_seconds,
+                    log_file=log_file,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to post transcript summary for issue #%d",
+                    issue_number,
+                )
+
     async def _do_implement_work(self) -> None:
         """Work function for the implement loop."""
         # After one poll cycle, release crash-recovered issues
@@ -661,34 +717,16 @@ class HydraFlowOrchestrator:
         for result in results:
             self._session_issue_results[result.issue_number] = result.success
             if result.transcript:
-                try:
-                    await file_memory_suggestion(
-                        result.transcript,
-                        "implementer",
-                        f"issue #{result.issue_number}",
-                        self._config,
-                        self._prs,
-                        self._state,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to file memory suggestion for issue #%d",
-                        result.issue_number,
-                    )
-                try:
-                    await self._summarizer.summarize_and_comment(
-                        transcript=result.transcript,
-                        issue_number=result.issue_number,
-                        phase="implement",
-                        status="success" if result.success else "failed",
-                        duration_seconds=result.duration_seconds,
-                        log_file=f".hydraflow/logs/issue-{result.issue_number}.txt",
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to post transcript summary for issue #%d",
-                        result.issue_number,
-                    )
+                await self._post_run_hooks(
+                    transcript=result.transcript,
+                    source="implementer",
+                    reference=f"issue #{result.issue_number}",
+                    issue_number=result.issue_number,
+                    phase="implement",
+                    status="success" if result.success else "failed",
+                    duration_seconds=result.duration_seconds,
+                    log_file=f".hydraflow/logs/issue-{result.issue_number}.txt",
+                )
 
     async def _do_review_work(self) -> None:
         """Work function for the review loop."""
@@ -704,41 +742,22 @@ class HydraFlowOrchestrator:
         review_results = await self._reviewer.review_prs(prs, issues)
         for result in review_results:
             if result.transcript:
-                try:
-                    await file_memory_suggestion(
-                        result.transcript,
-                        "reviewer",
-                        f"PR #{result.pr_number}",
-                        self._config,
-                        self._prs,
-                        self._state,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to file memory suggestion for PR #%d",
-                        result.pr_number,
-                    )
-                if result.issue_number > 0:
-                    try:
-                        if result.merged:
-                            review_status = "success"
-                        elif result.ci_passed is False:
-                            review_status = "failed"
-                        else:
-                            review_status = "completed"
-                        await self._summarizer.summarize_and_comment(
-                            transcript=result.transcript,
-                            issue_number=result.issue_number,
-                            phase="review",
-                            status=review_status,
-                            duration_seconds=result.duration_seconds,
-                            log_file=f".hydraflow/logs/review-pr-{result.pr_number}.txt",
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Failed to post transcript summary for issue #%d",
-                            result.issue_number,
-                        )
+                if result.merged:
+                    review_status = "success"
+                elif result.ci_passed is False:
+                    review_status = "failed"
+                else:
+                    review_status = "completed"
+                await self._post_run_hooks(
+                    transcript=result.transcript,
+                    source="reviewer",
+                    reference=f"PR #{result.pr_number}",
+                    issue_number=result.issue_number,
+                    phase="review",
+                    status=review_status,
+                    duration_seconds=result.duration_seconds,
+                    log_file=f".hydraflow/logs/review-pr-{result.pr_number}.txt",
+                )
         if any(r.merged for r in review_results):
             await asyncio.sleep(5)
             await self._prs.pull_main()

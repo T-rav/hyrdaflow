@@ -9,6 +9,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import MetricsSnapshot, MetricsSyncResult, QueueStats
@@ -153,7 +155,11 @@ class MetricsManager:
                     continue
                 try:
                     snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                except Exception:
+                except ValidationError:
+                    logger.debug(
+                        "Skipping corrupt metrics snapshot line",
+                        exc_info=True,
+                    )
                     continue
 
         # Return oldest-first, capped at limit

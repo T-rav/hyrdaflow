@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from models import LifetimeStats, StateData
+from models import LifetimeStats, SessionLog, StateData
 from state import StateTracker
 
 # ---------------------------------------------------------------------------
@@ -1712,3 +1712,139 @@ class TestRetriesPerStage:
         tracker.record_stage_retry(42, "quality_fix")
         tracker2 = StateTracker(tracker._path)
         assert tracker2.get_retries_summary() == {"quality_fix": 1}
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling (issue #879)
+# ---------------------------------------------------------------------------
+
+
+def _make_session(session_id: str, repo: str = "org/repo") -> SessionLog:
+    return SessionLog(
+        id=session_id,
+        repo=repo,
+        started_at="2024-01-01T00:00:00",
+        status="completed",
+    )
+
+
+def _write_sessions(path: Path, lines: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+
+
+class TestLoadSessionsCorruptLines:
+    """Verify load_sessions skips corrupt JSONL lines with warning+exc_info."""
+
+    def test_skips_corrupt_lines_returns_valid(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Corrupt lines are skipped; valid sessions are still returned."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        session = _make_session("sess-1")
+        sessions_path = tracker._sessions_path
+        _write_sessions(
+            sessions_path,
+            [session.model_dump_json(), "corrupt garbage", session.model_dump_json()],
+        )
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
+            result = tracker.load_sessions()
+
+        assert len(result) == 1
+        assert result[0].id == "sess-1"
+        assert "Skipping corrupt session line" in caplog.text
+        warning_records = [r for r in caplog.records if r.exc_info is not None]
+        assert len(warning_records) >= 1
+
+    def test_corrupt_only_returns_empty(self, tmp_path: Path) -> None:
+        """A sessions file with only corrupt lines returns an empty list."""
+        tracker = make_tracker(tmp_path)
+        _write_sessions(tracker._sessions_path, ["bad line", "also bad"])
+
+        result = tracker.load_sessions()
+        assert result == []
+
+
+class TestGetSessionCorruptLines:
+    """Verify get_session skips corrupt JSONL lines with debug logging."""
+
+    def test_skips_corrupt_line_finds_valid(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Corrupt lines are skipped; the target session is still found."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        session = _make_session("sess-2")
+        sessions_path = tracker._sessions_path
+        _write_sessions(
+            sessions_path,
+            ["corrupt garbage", session.model_dump_json()],
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
+            result = tracker.get_session("sess-2")
+
+        assert result is not None
+        assert result.id == "sess-2"
+        assert "Skipping corrupt line" in caplog.text
+
+    def test_corrupt_only_returns_none(self, tmp_path: Path) -> None:
+        """A sessions file with only corrupt lines returns None."""
+        tracker = make_tracker(tmp_path)
+        _write_sessions(tracker._sessions_path, ["bad", "worse"])
+
+        assert tracker.get_session("any-id") is None
+
+
+class TestDeleteSessionCorruptLines:
+    """Verify delete_session skips corrupt JSONL lines with debug logging."""
+
+    def test_skips_corrupt_line_deletes_target(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Corrupt lines are skipped; the target session is still deleted."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        session = _make_session("sess-3")
+        sessions_path = tracker._sessions_path
+        _write_sessions(
+            sessions_path,
+            ["corrupt garbage", session.model_dump_json()],
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
+            deleted = tracker.delete_session("sess-3")
+
+        assert deleted is True
+        assert "Skipping corrupt session line" in caplog.text
+
+
+class TestPruneSessionsCorruptLines:
+    """Verify prune_sessions skips corrupt JSONL lines with debug logging."""
+
+    def test_skips_corrupt_lines_preserves_valid(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Corrupt lines are skipped; valid sessions are preserved."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        session = _make_session("sess-4")
+        sessions_path = tracker._sessions_path
+        _write_sessions(
+            sessions_path,
+            ["corrupt garbage", session.model_dump_json()],
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
+            tracker.prune_sessions("org/repo", max_keep=10)
+
+        assert "Skipping corrupt session line" in caplog.text
+        # Valid session should survive pruning
+        result = tracker.load_sessions()
+        assert any(s.id == "sess-4" for s in result)

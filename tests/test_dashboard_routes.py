@@ -2023,3 +2023,62 @@ class TestDeleteSessionEndpoint:
         assert response.status_code == 400
         data = json.loads(response.body)
         assert "active" in data["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling (issue #879)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadLocalMetricsCacheExceptionHandling:
+    """Verify _load_local_metrics_cache skips corrupt lines with debug logging."""
+
+    def test_skips_corrupt_lines_with_logging(
+        self, config, event_bus: EventBus, state, tmp_path: Path, caplog
+    ) -> None:
+        """Corrupt lines in metrics cache should be skipped with debug logging."""
+        import logging
+
+        from dashboard_routes import create_router
+        from metrics_manager import get_metrics_cache_dir
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        # Write corrupt lines to the metrics cache file
+        cache_dir = get_metrics_cache_dir(config)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / "snapshots.jsonl"
+        cache_file.write_text("corrupt line\nalso bad\n")
+
+        # Find the _load_local_metrics_cache function through the metrics/history endpoint
+        history_endpoint = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/metrics/history"
+                and hasattr(route, "endpoint")
+            ):
+                history_endpoint = route.endpoint
+                break
+
+        assert history_endpoint is not None
+
+        import asyncio
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.dashboard"):
+            asyncio.run(history_endpoint())
+
+        assert "Skipping corrupt metrics snapshot line" in caplog.text

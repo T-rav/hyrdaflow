@@ -628,3 +628,90 @@ class TestRotateSyncUsesAtomicWrite:
         assert content.endswith("\n")
         lines = [line for line in content.split("\n") if line.strip()]
         assert len(lines) == 5
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling (issue #879)
+# ---------------------------------------------------------------------------
+
+
+class TestRotateSyncCorruptLines:
+    """Verify _rotate_sync drops corrupt lines with debug logging."""
+
+    def test_rotate_sync_skips_corrupt_lines_with_logging(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Corrupt lines during rotation should be dropped with debug logging."""
+        import logging
+
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        valid_line = event.model_dump_json()
+        # Write a mix of valid and corrupt lines (enough to exceed size threshold)
+        lines = [valid_line, "corrupt garbage", valid_line, "also bad"]
+        log_path.write_text("\n".join(lines) + "\n")
+
+        event_log = EventLog(log_path)
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.events"):
+            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Dropping corrupt event line during rotation" in caplog.text
+        # Verify corrupt lines have exc_info
+        debug_records = [
+            r for r in caplog.records if "Dropping corrupt" in r.getMessage()
+        ]
+        assert len(debug_records) >= 1
+        assert debug_records[0].exc_info is not None
+
+    def test_rotate_sync_skips_bad_timestamp_with_logging(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Lines with a bad timestamp string (ValueError) should also be dropped."""
+        import json
+        import logging
+
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        valid_line = event.model_dump_json()
+        # Build a line that passes Pydantic validation but has an invalid timestamp
+        bad_ts_data = json.loads(valid_line)
+        bad_ts_data["timestamp"] = "not-a-datetime"
+        bad_ts_line = json.dumps(bad_ts_data)
+        lines = [valid_line, bad_ts_line, valid_line]
+        log_path.write_text("\n".join(lines) + "\n")
+
+        event_log = EventLog(log_path)
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.events"):
+            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Dropping corrupt event line during rotation" in caplog.text
+
+
+class TestLoadSyncCorruptLines:
+    """Verify EventLog._load_sync skips corrupt lines with warning+exc_info."""
+
+    def test_load_sync_skips_corrupt_lines_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Corrupt lines during load should be skipped with warning+exc_info."""
+        import logging
+
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        valid_line = event.model_dump_json()
+        lines = [valid_line, "corrupt garbage", valid_line]
+        log_path.write_text("\n".join(lines) + "\n")
+
+        event_log = EventLog(log_path)
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            result = event_log._load_sync()
+
+        assert len(result) == 2
+        assert "Skipping corrupt event log line" in caplog.text
+        warning_records = [
+            r
+            for r in caplog.records
+            if "Skipping corrupt event log line" in r.getMessage()
+        ]
+        assert len(warning_records) >= 1
+        assert warning_records[0].exc_info is not None

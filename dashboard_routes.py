@@ -98,7 +98,11 @@ def create_router(
                     continue
                 try:
                     snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                except Exception:
+                except ValidationError:
+                    logger.debug(
+                        "Skipping corrupt metrics snapshot line",
+                        exc_info=True,
+                    )
                     continue
         return snapshots[-limit:]
 
