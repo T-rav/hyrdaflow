@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from pathlib import Path
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -89,14 +90,7 @@ class PlannerRunner(BaseRunner):
                 result.success = True
                 result.summary = satisfied_explanation[:200]
                 result.duration_seconds = time.monotonic() - start
-                try:
-                    self._save_transcript("plan-issue", issue.number, result.transcript)
-                except OSError:
-                    logger.warning(
-                        "Failed to save transcript for issue #%d",
-                        issue.number,
-                        exc_info=True,
-                    )
+                self._save_transcript("plan-issue", issue.number, result.transcript)
                 await self._emit_status(issue.number, worker_id, PlannerStatus.DONE)
                 logger.info(
                     "Issue #%d already satisfied — no changes needed",
@@ -193,14 +187,7 @@ class PlannerRunner(BaseRunner):
             await self._emit_status(issue.number, worker_id, PlannerStatus.FAILED)
 
         result.duration_seconds = time.monotonic() - start
-        try:
-            self._save_transcript("plan-issue", issue.number, result.transcript)
-        except OSError:
-            logger.warning(
-                "Failed to save transcript for issue #%d",
-                issue.number,
-                exc_info=True,
-            )
+        self._save_transcript("plan-issue", issue.number, result.transcript)
         if result.success and result.plan:
             try:
                 self._save_plan(issue.number, result.plan, result.summary)
@@ -212,8 +199,13 @@ class PlannerRunner(BaseRunner):
                 )
         return result
 
-    def _build_command(self) -> list[str]:
-        """Construct the CLI invocation for planning."""
+    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:  # type: ignore[override]
+        """Construct the CLI invocation for planning.
+
+        The *_worktree_path* parameter is accepted for API compatibility with
+        ``BaseRunner._build_command`` but is unused — the planner always runs
+        against ``self._config.repo_root``, not an isolated worktree.
+        """
         return build_agent_command(
             tool=self._config.planner_tool,
             model=self._config.planner_model,
