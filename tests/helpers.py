@@ -131,6 +131,7 @@ class ConfigFactory:
         docker_network: str = "",
         docker_extra_mounts: list[str] | None = None,
         memory_auto_approve: bool = False,
+        transcript_summary_as_issue: bool = False,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -230,6 +231,7 @@ class ConfigFactory:
             if docker_extra_mounts is not None
             else [],
             memory_auto_approve=memory_auto_approve,
+            transcript_summary_as_issue=transcript_summary_as_issue,
         )
 
 

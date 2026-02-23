@@ -55,6 +55,11 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED",
         True,
     ),
+    (
+        "transcript_summary_as_issue",
+        "HYDRAFLOW_TRANSCRIPT_SUMMARY_AS_ISSUE",
+        False,
+    ),
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
 ]
 
@@ -330,6 +335,10 @@ class HydraFlowConfig(BaseModel):
         ge=5_000,
         le=500_000,
         description="Max transcript characters to send for summarization (truncated from end)",
+    )
+    transcript_summary_as_issue: bool = Field(
+        default=False,
+        description="Also create standalone GitHub issues for transcript summaries (default: off)",
     )
 
     # Git configuration

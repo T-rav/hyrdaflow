@@ -42,6 +42,36 @@ def build_transcript_summary_body(
     return "\n".join(lines)
 
 
+def build_phase_summary_comment(
+    phase: str,
+    status: str,
+    summary_content: str,
+    *,
+    duration_seconds: float = 0.0,
+    log_file: str = "",
+) -> str:
+    """Format a phase summary comment for posting on the original issue."""
+    lines: list[str] = []
+    lines.append(f"## Phase Summary: {phase.capitalize()}\n")
+    lines.append(f"**Status:** {status}")
+    if duration_seconds > 0:
+        lines.append(f"**Duration:** {duration_seconds:.0f}s")
+    lines.append("")
+    lines.append(summary_content)
+    if log_file:
+        lines.append("")
+        lines.append("<details>")
+        lines.append("<summary>Full transcript</summary>")
+        lines.append("")
+        lines.append(f"`{log_file}`")
+        lines.append("")
+        lines.append("</details>")
+    lines.append("")
+    lines.append("---")
+    lines.append(f"*Auto-generated phase summary ({phase})*")
+    return "\n".join(lines)
+
+
 def _truncate_transcript(transcript: str, max_chars: int) -> str:
     """Cap transcript size, keeping the end (most useful decisions/errors)."""
     if len(transcript) <= max_chars:
@@ -70,7 +100,7 @@ Do NOT include preamble or closing remarks — output ONLY the markdown sections
 
 
 class TranscriptSummarizer:
-    """Summarizes agent transcripts and publishes them as GitHub issues."""
+    """Summarizes agent transcripts and publishes them as GitHub issues or comments."""
 
     def __init__(
         self,
@@ -84,6 +114,110 @@ class TranscriptSummarizer:
         self._bus = event_bus
         self._state = state
 
+    # --- Shared summary generation ---
+
+    async def _generate_summary(self, transcript: str) -> str | None:
+        """Generate a structured summary from a transcript.
+
+        Returns the summary content string, or ``None`` if the transcript
+        is too short, empty, disabled, or the model call fails.
+        """
+        if not self._config.transcript_summarization_enabled:
+            return None
+
+        if not transcript or not transcript.strip():
+            return None
+
+        if len(transcript.strip()) < _MIN_TRANSCRIPT_LENGTH:
+            return None
+
+        truncated = _truncate_transcript(
+            transcript, self._config.max_transcript_summary_chars
+        )
+        prompt = _SUMMARIZATION_PROMPT.format(transcript=truncated)
+        return await self._call_model(prompt)
+
+    # --- Comment-based summaries (new default) ---
+
+    async def summarize_and_comment(
+        self,
+        transcript: str,
+        issue_number: int,
+        phase: str,
+        *,
+        status: str = "success",
+        issue_title: str = "",
+        duration_seconds: float = 0.0,
+        log_file: str = "",
+    ) -> bool:
+        """Summarize a transcript and post as a comment on the original issue.
+
+        Returns ``True`` on success, ``False`` if skipped or failed.
+        Never raises — all errors are logged and swallowed.
+        """
+        try:
+            return await self._summarize_and_comment_inner(
+                transcript,
+                issue_number,
+                phase,
+                status=status,
+                issue_title=issue_title,
+                duration_seconds=duration_seconds,
+                log_file=log_file,
+            )
+        except Exception:
+            logger.exception(
+                "Transcript summary comment failed for issue #%d (%s phase)",
+                issue_number,
+                phase,
+            )
+            return False
+
+    async def _summarize_and_comment_inner(
+        self,
+        transcript: str,
+        issue_number: int,
+        phase: str,
+        *,
+        status: str,
+        issue_title: str,
+        duration_seconds: float,
+        log_file: str,
+    ) -> bool:
+        """Inner implementation for comment-based summaries — may raise."""
+        summary_content = await self._generate_summary(transcript)
+        if not summary_content:
+            return False
+
+        body = build_phase_summary_comment(
+            phase=phase,
+            status=status,
+            summary_content=summary_content,
+            duration_seconds=duration_seconds,
+            log_file=log_file,
+        )
+
+        await self._prs.post_comment(issue_number, body)
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.TRANSCRIPT_SUMMARY,
+                data={
+                    "source_issue": issue_number,
+                    "phase": phase,
+                    "posted_as": "comment",
+                },
+            )
+        )
+        logger.info(
+            "Posted transcript summary comment on issue #%d (%s phase)",
+            issue_number,
+            phase,
+        )
+        return True
+
+    # --- Issue-based summaries (legacy, configurable) ---
+
     async def summarize_and_publish(
         self,
         transcript: str,
@@ -95,8 +229,11 @@ class TranscriptSummarizer:
         """Summarize a transcript and publish as a GitHub issue.
 
         Returns the created issue number, or ``None`` if skipped/failed.
+        Only active when ``transcript_summary_as_issue`` is enabled.
         Never raises — all errors are logged and swallowed.
         """
+        if not self._config.transcript_summary_as_issue:
+            return None
         try:
             return await self._summarize_and_publish_inner(
                 transcript, issue_number, phase, issue_title, duration_seconds
@@ -118,23 +255,7 @@ class TranscriptSummarizer:
         duration_seconds: float,
     ) -> int | None:
         """Inner implementation — may raise."""
-        if not self._config.transcript_summarization_enabled:
-            return None
-
-        if not transcript or not transcript.strip():
-            return None
-
-        if len(transcript.strip()) < _MIN_TRANSCRIPT_LENGTH:
-            return None
-
-        # Truncate if needed (keep the end)
-        truncated = _truncate_transcript(
-            transcript, self._config.max_transcript_summary_chars
-        )
-
-        # Build prompt and call model
-        prompt = _SUMMARIZATION_PROMPT.format(transcript=truncated)
-        summary_content = await self._call_model(prompt)
+        summary_content = await self._generate_summary(transcript)
         if not summary_content:
             return None
 

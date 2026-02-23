@@ -2134,13 +2134,13 @@ SUMMARY_TRANSCRIPT = "x" * 1000  # Long enough to trigger summarization
 
 
 class TestTranscriptSummaryFiling:
-    """Transcript summaries from implementer and reviewer transcripts are filed."""
+    """Transcript summaries from implementer and reviewer transcripts are posted as comments."""
 
     @pytest.mark.asyncio
-    async def test_implement_loop_calls_transcript_summary(
+    async def test_implement_loop_calls_summarize_and_comment(
         self, config: HydraFlowConfig
     ) -> None:
-        """Implementer transcripts trigger transcript summary filing."""
+        """Implementer transcripts trigger transcript summary comment on the issue."""
         orch = HydraFlowOrchestrator(config)
         result = make_worker_result(issue_number=42, transcript=SUMMARY_TRANSCRIPT)
 
@@ -2149,7 +2149,7 @@ class TestTranscriptSummaryFiling:
             return [result], [make_issue(42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
-        orch._summarizer.summarize_and_publish = AsyncMock()  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
 
         with patch(
             "orchestrator.file_memory_suggestion",
@@ -2157,10 +2157,39 @@ class TestTranscriptSummaryFiling:
         ):
             await orch._implement_loop()
 
-        orch._summarizer.summarize_and_publish.assert_awaited_once_with(
-            transcript=SUMMARY_TRANSCRIPT,
-            issue_number=42,
-            phase="implement",
+        orch._summarizer.summarize_and_comment.assert_awaited_once()
+        call_kwargs = orch._summarizer.summarize_and_comment.call_args
+        assert call_kwargs.kwargs["transcript"] == SUMMARY_TRANSCRIPT
+        assert call_kwargs.kwargs["issue_number"] == 42
+        assert call_kwargs.kwargs["phase"] == "implement"
+        assert call_kwargs.kwargs["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_implement_loop_passes_failed_status(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Failed implementer results post summary with status='failed'."""
+        orch = HydraFlowOrchestrator(config)
+        result = make_worker_result(
+            issue_number=42, transcript=SUMMARY_TRANSCRIPT, success=False
+        )
+
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+            orch._stop_event.set()
+            return [result], [make_issue(42)]
+
+        orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion",
+            new_callable=AsyncMock,
+        ):
+            await orch._implement_loop()
+
+        assert (
+            orch._summarizer.summarize_and_comment.call_args.kwargs["status"]
+            == "failed"
         )
 
     @pytest.mark.asyncio
@@ -2176,7 +2205,7 @@ class TestTranscriptSummaryFiling:
             return [result], [make_issue(42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
-        orch._summarizer.summarize_and_publish = AsyncMock()  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
 
         with patch(
             "orchestrator.file_memory_suggestion",
@@ -2184,13 +2213,13 @@ class TestTranscriptSummaryFiling:
         ):
             await orch._implement_loop()
 
-        orch._summarizer.summarize_and_publish.assert_not_awaited()
+        orch._summarizer.summarize_and_comment.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_review_loop_calls_transcript_summary(
+    async def test_review_loop_calls_summarize_and_comment_on_issue(
         self, config: HydraFlowConfig
     ) -> None:
-        """Reviewer transcripts trigger transcript summary filing."""
+        """Reviewer transcripts post summary on the original issue (not the PR)."""
         orch = HydraFlowOrchestrator(config)
         review_issue = make_issue(42)
         pr = make_pr_info(number=101, issue_number=42)
@@ -2204,7 +2233,7 @@ class TestTranscriptSummaryFiling:
         )
         orch._reviewer.review_prs = AsyncMock(return_value=[review_result])  # type: ignore[method-assign]
         orch._prs.pull_main = AsyncMock()  # type: ignore[method-assign]
-        orch._summarizer.summarize_and_publish = AsyncMock()  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
 
         call_count = 0
 
@@ -2224,11 +2253,155 @@ class TestTranscriptSummaryFiling:
         ):
             await orch._review_loop()
 
-        orch._summarizer.summarize_and_publish.assert_awaited_once_with(
+        orch._summarizer.summarize_and_comment.assert_awaited_once()
+        call_kwargs = orch._summarizer.summarize_and_comment.call_args
+        # Fix for #767: should use issue_number (42), not pr_number (101)
+        assert call_kwargs.kwargs["issue_number"] == 42
+        assert call_kwargs.kwargs["phase"] == "review"
+        # Default make_review_result has merged=False, ci_passed=None → "completed"
+        assert call_kwargs.kwargs["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_review_loop_passes_success_status_when_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Merged review results post summary with status='success'."""
+        orch = HydraFlowOrchestrator(config)
+        review_issue = make_issue(42)
+        pr = make_pr_info(number=101, issue_number=42)
+        review_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
             transcript=SUMMARY_TRANSCRIPT,
-            issue_number=101,
-            phase="review",
+            merged=True,
+            verdict=ReviewVerdict.APPROVE,
+            summary="Looks good.",
         )
+
+        orch._store.get_active_issues = lambda: {42: "review"}  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(  # type: ignore[method-assign]
+            return_value=([pr], [review_issue])
+        )
+        orch._reviewer.review_prs = AsyncMock(return_value=[review_result])  # type: ignore[method-assign]
+        orch._prs.pull_main = AsyncMock()  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [review_issue]
+            orch._stop_event.set()
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion",
+            new_callable=AsyncMock,
+        ):
+            await orch._review_loop()
+
+        assert (
+            orch._summarizer.summarize_and_comment.call_args.kwargs["status"]
+            == "success"
+        )
+
+    @pytest.mark.asyncio
+    async def test_review_loop_passes_failed_status_when_ci_failed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CI-failed review results post summary with status='failed'."""
+        orch = HydraFlowOrchestrator(config)
+        review_issue = make_issue(42)
+        pr = make_pr_info(number=101, issue_number=42)
+        review_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            transcript=SUMMARY_TRANSCRIPT,
+            merged=False,
+            ci_passed=False,
+            verdict=ReviewVerdict.COMMENT,
+            summary="CI failed.",
+        )
+
+        orch._store.get_active_issues = lambda: {42: "review"}  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(  # type: ignore[method-assign]
+            return_value=([pr], [review_issue])
+        )
+        orch._reviewer.review_prs = AsyncMock(return_value=[review_result])  # type: ignore[method-assign]
+        orch._prs.pull_main = AsyncMock()  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [review_issue]
+            orch._stop_event.set()
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion",
+            new_callable=AsyncMock,
+        ):
+            await orch._review_loop()
+
+        assert (
+            orch._summarizer.summarize_and_comment.call_args.kwargs["status"]
+            == "failed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_review_loop_skips_summary_when_issue_number_zero(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Review results with issue_number=0 skip transcript summary posting."""
+        orch = HydraFlowOrchestrator(config)
+        review_issue = make_issue(0)
+        pr = make_pr_info(number=101, issue_number=0)
+        review_result = ReviewResult(
+            pr_number=101,
+            issue_number=0,
+            transcript=SUMMARY_TRANSCRIPT,
+            merged=True,
+            verdict=ReviewVerdict.APPROVE,
+            summary="Looks good.",
+        )
+
+        orch._store.get_active_issues = lambda: {0: "review"}  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(  # type: ignore[method-assign]
+            return_value=([pr], [review_issue])
+        )
+        orch._reviewer.review_prs = AsyncMock(return_value=[review_result])  # type: ignore[method-assign]
+        orch._prs.pull_main = AsyncMock()  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [review_issue]
+            orch._stop_event.set()
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+
+        with patch(
+            "orchestrator.file_memory_suggestion",
+            new_callable=AsyncMock,
+        ):
+            await orch._review_loop()
+
+        orch._summarizer.summarize_and_comment.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_transcript_summary_failure_does_not_block_pipeline(
@@ -2244,7 +2417,7 @@ class TestTranscriptSummaryFiling:
             return [r1, r2], [make_issue(10), make_issue(20)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
-        orch._summarizer.summarize_and_publish = AsyncMock(  # type: ignore[method-assign]
+        orch._summarizer.summarize_and_comment = AsyncMock(  # type: ignore[method-assign]
             side_effect=[RuntimeError("transient"), None]
         )
 
@@ -2256,4 +2429,4 @@ class TestTranscriptSummaryFiling:
             await orch._implement_loop()
 
         # Both calls should have been attempted despite the first one failing
-        assert orch._summarizer.summarize_and_publish.await_count == 2
+        assert orch._summarizer.summarize_and_comment.await_count == 2

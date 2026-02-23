@@ -616,14 +616,17 @@ class HydraFlowOrchestrator:
                         result.issue_number,
                     )
                 try:
-                    await self._summarizer.summarize_and_publish(
+                    await self._summarizer.summarize_and_comment(
                         transcript=result.transcript,
                         issue_number=result.issue_number,
                         phase="implement",
+                        status="success" if result.success else "failed",
+                        duration_seconds=result.duration_seconds,
+                        log_file=f".hydraflow/logs/issue-{result.issue_number}.txt",
                     )
                 except Exception:
                     logger.exception(
-                        "Failed to file transcript summary for issue #%d",
+                        "Failed to post transcript summary for issue #%d",
                         result.issue_number,
                     )
 
@@ -655,17 +658,27 @@ class HydraFlowOrchestrator:
                         "Failed to file memory suggestion for PR #%d",
                         result.pr_number,
                     )
-                try:
-                    await self._summarizer.summarize_and_publish(
-                        transcript=result.transcript,
-                        issue_number=result.pr_number,
-                        phase="review",
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to file transcript summary for PR #%d",
-                        result.pr_number,
-                    )
+                if result.issue_number > 0:
+                    try:
+                        if result.merged:
+                            review_status = "success"
+                        elif result.ci_passed is False:
+                            review_status = "failed"
+                        else:
+                            review_status = "completed"
+                        await self._summarizer.summarize_and_comment(
+                            transcript=result.transcript,
+                            issue_number=result.issue_number,
+                            phase="review",
+                            status=review_status,
+                            duration_seconds=result.duration_seconds,
+                            log_file=f".hydraflow/logs/review-pr-{result.pr_number}.txt",
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to post transcript summary for issue #%d",
+                            result.issue_number,
+                        )
         if any(r.merged for r in review_results):
             await asyncio.sleep(5)
             await self._prs.pull_main()
