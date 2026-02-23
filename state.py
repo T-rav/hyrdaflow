@@ -497,6 +497,45 @@ class StateTracker:
                     found = session  # keep scanning; later entry is more up-to-date
         return found
 
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a single session by ID from sessions.jsonl.
+
+        Returns True if the session was found and deleted, False otherwise.
+        Raises ValueError if the session is currently active.
+        """
+        if not self._sessions_path.exists():
+            return False
+
+        # last-write-wins deduplication
+        seen: dict[str, SessionLog] = {}
+        with open(self._sessions_path) as f:
+            for raw_line in f:
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                try:
+                    s = SessionLog.model_validate_json(stripped)
+                    seen[s.id] = s
+                except Exception:
+                    continue
+
+        target = seen.get(session_id)
+        if target is None:
+            return False
+        if target.status == "active":
+            msg = f"Cannot delete active session {session_id}"
+            raise ValueError(msg)
+
+        del seen[session_id]
+
+        # Rebuild file
+        result = sorted(seen.values(), key=lambda s: s.started_at)
+        content = "\n".join(s.model_dump_json() for s in result)
+        if content:
+            content += "\n"
+        atomic_write(self._sessions_path, content)
+        return True
+
     def prune_sessions(self, repo: str, max_keep: int) -> None:
         """Remove oldest sessions for *repo* beyond *max_keep*.
 

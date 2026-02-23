@@ -15,6 +15,7 @@ function defaultContext(overrides = {}) {
     currentSessionId: null,
     selectedSessionId: null,
     selectSession: vi.fn(),
+    deleteSession: vi.fn(),
     ...overrides,
   }
 }
@@ -251,5 +252,93 @@ describe('SessionSidebar session naming', () => {
     // Relative time strings like "Xm ago", "Xh ago", "Xd ago" should not appear
     expect(screen.queryByText(/\d+[mhd] ago/)).toBeNull()
     expect(screen.queryByText('just now')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Repo slug in session row
+// ---------------------------------------------------------------------------
+
+describe('SessionSidebar repo slug display', () => {
+  it('shows short repo name in each session row', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_A] })
+    )
+    render(<SessionSidebar />)
+    // Short repo slug "repo" should appear in session row
+    expect(screen.getByText('repo')).toBeDefined()
+  })
+
+  it('shows short repo name for multi-segment repo', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_OTHER] })
+    )
+    render(<SessionSidebar />)
+    // Short slug for 'other-org/other-repo' is 'other-repo'
+    expect(screen.getByText('other-repo')).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Delete button
+// ---------------------------------------------------------------------------
+
+describe('SessionSidebar delete button', () => {
+  it('shows delete button on hover for completed session', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_A] })
+    )
+    render(<SessionSidebar />)
+    // Find the session row by its success count
+    const successEl = screen.getByText('2✓')
+    const sessionRow = successEl.closest('[style]')
+    // Simulate hover
+    fireEvent.mouseEnter(sessionRow)
+    expect(screen.getByLabelText('Delete session')).toBeDefined()
+  })
+
+  it('does not show delete button for active session', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        sessions: [SESSION_B],
+        currentSessionId: SESSION_B.id,
+      })
+    )
+    render(<SessionSidebar />)
+    // SESSION_B is active — no delete button should exist
+    expect(screen.queryByLabelText('Delete session')).toBeNull()
+  })
+
+  it('calls deleteSession when clicking delete button', () => {
+    const deleteSession = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_A], deleteSession })
+    )
+    render(<SessionSidebar />)
+    // Hover to reveal delete button
+    const successEl = screen.getByText('2✓')
+    const sessionRow = successEl.closest('[style]')
+    fireEvent.mouseEnter(sessionRow)
+    const deleteBtn = screen.getByLabelText('Delete session')
+    fireEvent.click(deleteBtn)
+    expect(deleteSession).toHaveBeenCalledWith(SESSION_A.id)
+  })
+
+  it('delete button click does not trigger selectSession', () => {
+    const selectSession = vi.fn()
+    const deleteSession = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_A], selectSession, deleteSession })
+    )
+    render(<SessionSidebar />)
+    const successEl = screen.getByText('2✓')
+    const sessionRow = successEl.closest('[style]')
+    fireEvent.mouseEnter(sessionRow)
+    const deleteBtn = screen.getByLabelText('Delete session')
+    // Reset selectSession calls (hovering may have triggered mouseEnter)
+    selectSession.mockClear()
+    fireEvent.click(deleteBtn)
+    // selectSession should not have been called by the click on the delete button
+    expect(selectSession).not.toHaveBeenCalled()
   })
 })

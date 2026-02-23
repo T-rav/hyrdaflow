@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
@@ -17,11 +18,22 @@ from state import StateTracker
 logger = logging.getLogger("hydraflow.metrics_manager")
 
 
+def get_metrics_cache_dir(config: HydraFlowConfig) -> Path:
+    """Return the local metrics cache directory for a given config.
+
+    Path: ``<state_dir>/metrics/{repo_slug}/`` where *repo_slug* is the repo
+    name with ``/`` replaced by ``-`` (e.g. ``owner/repo`` → ``owner-repo``).
+    """
+    repo_slug = config.repo.replace("/", "-") or "unknown"
+    return config.state_file.parent / "metrics" / repo_slug
+
+
 class MetricsManager:
     """Aggregates metrics into timestamped snapshots and persists to GitHub.
 
     Each snapshot is posted as a comment on a ``hydraflow-metrics`` issue.
-    The latest snapshot is cached in memory for fast API access.
+    Snapshots are also written to a local disk cache at
+    ``.hydraflow/metrics/{repo_slug}/snapshots.jsonl`` for fast dashboard access.
     Hash-based change detection avoids posting duplicate comments.
     """
 
@@ -43,6 +55,11 @@ class MetricsManager:
         """Return the most recent in-memory snapshot."""
         return self._latest_snapshot
 
+    @property
+    def _cache_dir(self) -> Path:
+        """Return the local metrics cache directory for the current repo."""
+        return get_metrics_cache_dir(self._config)
+
     async def sync(self, queue_stats: QueueStats | None = None) -> MetricsSyncResult:
         """Aggregate, snapshot, and persist metrics. Returns status details."""
         snapshot = await self._build_snapshot(queue_stats)
@@ -61,6 +78,9 @@ class MetricsManager:
                 "timestamp": snapshot.timestamp,
             }
 
+        # Always write to local cache first
+        self._save_to_local_cache(snapshot)
+
         if self._config.dry_run:
             logger.info("[dry-run] Would post metrics snapshot")
             self._state.update_metrics_state(snapshot_hash)
@@ -74,7 +94,9 @@ class MetricsManager:
         issue_number = await self._ensure_metrics_issue()
         if issue_number == 0:
             logger.warning("Could not find or create metrics issue — skipping post")
-            return {"status": "error", "reason": "no_metrics_issue"}
+            # Still update state since local cache was written
+            self._state.update_metrics_state(snapshot_hash)
+            return {"status": "cached_locally", "reason": "no_metrics_issue"}
 
         # Post snapshot as comment
         comment_body = self._format_snapshot_comment(snapshot)
@@ -100,6 +122,42 @@ class MetricsManager:
             "snapshot_hash": snapshot_hash,
             "timestamp": snapshot.timestamp,
         }
+
+    def _save_to_local_cache(self, snapshot: MetricsSnapshot) -> None:
+        """Append a snapshot to the local JSONL cache file."""
+        cache_dir = self._cache_dir
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        snapshots_file = cache_dir / "snapshots.jsonl"
+        try:
+            with open(snapshots_file, "a") as f:
+                f.write(snapshot.model_dump_json() + "\n")
+                f.flush()
+            logger.debug("Metrics snapshot cached locally at %s", snapshots_file)
+        except OSError:
+            logger.warning("Failed to write metrics cache to %s", snapshots_file)
+
+    def load_local_history(self, limit: int = 100) -> list[MetricsSnapshot]:
+        """Load metrics snapshots from local disk cache.
+
+        Returns up to *limit* snapshots, oldest-first.
+        """
+        snapshots_file = self._cache_dir / "snapshots.jsonl"
+        if not snapshots_file.exists():
+            return []
+
+        snapshots: list[MetricsSnapshot] = []
+        with open(snapshots_file) as f:
+            for raw_line in f:
+                stripped = raw_line.strip()
+                if not stripped:
+                    continue
+                try:
+                    snapshots.append(MetricsSnapshot.model_validate_json(stripped))
+                except Exception:
+                    continue
+
+        # Return oldest-first, capped at limit
+        return snapshots[-limit:]
 
     async def _build_snapshot(
         self, queue_stats: QueueStats | None = None
@@ -264,10 +322,13 @@ class MetricsManager:
         return "\n".join(lines)
 
     async def fetch_history_from_issue(self) -> list[MetricsSnapshot]:
-        """Parse JSON blocks from issue comments. Returns oldest-first."""
+        """Parse JSON blocks from issue comments. Returns oldest-first.
+
+        Falls back to local cache if the GitHub issue is unavailable.
+        """
         issue_number = self._state.get_metrics_issue_number()
         if issue_number is None:
-            return []
+            return self.load_local_history()
 
         try:
             from issue_fetcher import IssueFetcher
@@ -276,9 +337,10 @@ class MetricsManager:
             comments = await fetcher.fetch_issue_comments(issue_number)
         except Exception:
             logger.warning(
-                "Could not fetch comments for metrics issue #%s", issue_number
+                "Could not fetch comments for metrics issue #%s — falling back to local cache",
+                issue_number,
             )
-            return []
+            return self.load_local_history()
 
         snapshots: list[MetricsSnapshot] = []
         json_pattern = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
