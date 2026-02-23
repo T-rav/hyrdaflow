@@ -46,11 +46,13 @@ _AUTH_PATTERNS = ("401", "not logged in", "authentication required", "auth token
 _CREDIT_PATTERNS = (
     "usage limit reached",
     "credit balance is too low",
+    "you've hit your limit",
 )
 
-# Matches e.g. "reset at 3pm (America/New_York)" or "reset at 3am"
+# Matches e.g. "reset at 3pm (America/New_York)", "reset at 3am",
+# "resets 5am (America/Denver)", "resets at 5am"
 _RESET_TIME_RE = re.compile(
-    r"reset\s+at\s+(\d{1,2})\s*(am|pm)"
+    r"resets?\s+(?:at\s+)?(\d{1,2})\s*(am|pm)"
     r"(?:\s*\(([^)]+)\))?",
     re.IGNORECASE,
 )
@@ -65,9 +67,10 @@ def is_credit_exhaustion(text: str) -> bool:
 def parse_credit_resume_time(text: str) -> datetime | None:
     """Extract the credit reset time from an error message.
 
-    Looks for patterns like ``"reset at 3pm (America/New_York)"`` or
-    ``"reset at 3am"``. Returns a timezone-aware UTC datetime, or
-    ``None`` if no parseable time is found.
+    Looks for patterns like ``"reset at 3pm (America/New_York)"``,
+    ``"reset at 3am"``, or ``"resets 5am (America/Denver)"``.
+    Returns a timezone-aware UTC datetime, or ``None`` if no
+    parseable time is found.
 
     When the parsed time is already past, we assume the reset is
     tomorrow at the same time.

@@ -82,9 +82,13 @@ class TestIsCreditExhaustion:
     def test_returns_false_for_normal_text(self) -> None:
         assert is_credit_exhaustion("Everything is fine") is False
 
+    def test_detects_youve_hit_your_limit(self) -> None:
+        assert is_credit_exhaustion("You've hit your limit · resets 5am") is True
+
     def test_is_case_insensitive(self) -> None:
         assert is_credit_exhaustion("USAGE LIMIT REACHED") is True
         assert is_credit_exhaustion("Credit Balance Is Too Low") is True
+        assert is_credit_exhaustion("YOU'VE HIT YOUR LIMIT") is True
 
 
 # ===========================================================================
@@ -158,6 +162,20 @@ class TestParseCreditResumeTime:
         assert parse_credit_resume_time("reset at 0am") is None
         assert parse_credit_resume_time("reset at 13pm") is None
         assert parse_credit_resume_time("reset at 99am") is None
+
+    def test_extracts_resets_format(self) -> None:
+        """Matches 'resets 5am (America/Denver)' — no 'at', verb is 'resets'."""
+        text = "You've hit your limit · resets 5am (America/Denver)"
+        result = parse_credit_resume_time(text)
+        assert result is not None
+        denver = result.astimezone(ZoneInfo("America/Denver"))
+        assert denver.hour == 5
+
+    def test_extracts_resets_at_format(self) -> None:
+        """Matches 'resets at 5am' — 'resets' + 'at'."""
+        text = "resets at 5am"
+        result = parse_credit_resume_time(text)
+        assert result is not None
 
     def test_invalid_timezone_falls_back(self) -> None:
         """Unknown timezone should not crash, falls back to local time."""
@@ -268,6 +286,27 @@ class TestStreamClaudeProcessCreditDetection:
             await stream_claude_process(
                 **_default_stream_kwargs(event_bus, on_output=kill_immediately)
             )
+
+    @pytest.mark.asyncio
+    async def test_raises_credit_exhausted_on_hit_limit_message(
+        self, event_bus
+    ) -> None:
+        """'You've hit your limit' in stdout triggers CreditExhaustedError with parsed resume_at."""
+        mock_create = make_streaming_proc(
+            returncode=1,
+            stdout="You've hit your limit · resets 5am (America/Denver)",
+            stderr="",
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            pytest.raises(CreditExhaustedError) as exc_info,
+        ):
+            await stream_claude_process(**_default_stream_kwargs(event_bus))
+
+        assert exc_info.value.resume_at is not None
+        denver = exc_info.value.resume_at.astimezone(ZoneInfo("America/Denver"))
+        assert denver.hour == 5
 
     @pytest.mark.asyncio
     async def test_credit_exhausted_with_no_time_has_none_resume(
