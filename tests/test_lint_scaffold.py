@@ -20,7 +20,6 @@ from lint_scaffold import (
     _scaffold_pyright,
     _scaffold_ruff,
     _scaffold_tsconfig,
-    detect_language,
     has_typescript_files,
     scaffold_lint_config,
 )
@@ -70,39 +69,6 @@ class TestLintScaffoldResultFactory:
         assert result.scaffolded == ["ruff"]
         assert result.skipped == ["pyright"]
         assert result.language == "mixed"
-
-
-# ---------------------------------------------------------------------------
-# detect_language tests
-# ---------------------------------------------------------------------------
-
-
-class TestDetectLanguage:
-    """Tests for detect_language."""
-
-    def test_detects_python_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_python_from_setup_py(self, tmp_path: Path) -> None:
-        (tmp_path / "setup.py").touch()
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_python_from_requirements_txt(self, tmp_path: Path) -> None:
-        (tmp_path / "requirements.txt").touch()
-        assert detect_language(tmp_path) == "python"
-
-    def test_detects_javascript_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").write_text("{}")
-        assert detect_language(tmp_path) == "javascript"
-
-    def test_detects_mixed_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        (tmp_path / "package.json").write_text("{}")
-        assert detect_language(tmp_path) == "mixed"
-
-    def test_detects_unknown_repo(self, tmp_path: Path) -> None:
-        assert detect_language(tmp_path) == "unknown"
 
 
 # ---------------------------------------------------------------------------

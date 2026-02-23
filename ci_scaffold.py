@@ -4,8 +4,8 @@ Generates a `.github/workflows/quality.yml` workflow that runs `make quality`
 on pull requests and pushes to main. Supports Python, JavaScript/TypeScript,
 and mixed-language repositories.
 
-Part of the HydraFlow prep epic (#561). Language detection is self-contained
-to avoid blocking on #562/#563; consolidate when `prep.py` lands.
+Part of the HydraFlow prep epic (#561). Language detection is provided by
+the shared ``manifest.detect_language`` utility (consolidated in #896).
 """
 
 from __future__ import annotations
@@ -13,11 +13,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from manifest import JS_MARKERS, PYTHON_MARKERS
-
-# Aliases preserved for backward compatibility.
-_PYTHON_MARKERS = PYTHON_MARKERS
-_JS_MARKERS = JS_MARKERS
+from manifest import detect_language
 
 
 @dataclasses.dataclass
@@ -29,26 +25,6 @@ class CIScaffoldResult:
     skip_reason: str = ""
     language: str = ""
     workflow_path: str = ""
-
-
-# --- Language Detection ---
-
-
-def detect_language(repo_root: Path) -> str:
-    """Detect the primary language of a repository from marker files.
-
-    Returns ``"python"``, ``"javascript"``, ``"mixed"``, or ``"unknown"``.
-    """
-    has_python = any((repo_root / m).exists() for m in PYTHON_MARKERS)
-    has_js = any((repo_root / m).exists() for m in JS_MARKERS)
-
-    if has_python and has_js:
-        return "mixed"
-    if has_python:
-        return "python"
-    if has_js:
-        return "javascript"
-    return "unknown"
 
 
 # --- Existing Workflow Detection ---

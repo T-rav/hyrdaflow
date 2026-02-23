@@ -6,8 +6,13 @@ sub-projects/workspaces, and CI/CD configuration. Persists the result to
 from the start of each run.
 
 Consolidates the scattered ``_PYTHON_MARKERS`` / ``_JS_MARKERS`` constants
-that were previously duplicated across ``ci_scaffold.py``,
-``lint_scaffold.py``, ``makefile_scaffold.py``, and ``prep_hooks.py``.
+previously duplicated across ``ci_scaffold.py``, ``lint_scaffold.py``,
+``makefile_scaffold.py``, ``test_scaffold.py``, and ``prep_hooks.py``, and
+the ``detect_language()`` function previously duplicated across
+``ci_scaffold.py``, ``lint_scaffold.py``, ``makefile_scaffold.py``, and
+``test_scaffold.py``.  ``prep_hooks.py`` retains its own
+``detect_language`` variant that returns ``"typescript"`` as a distinct
+value.
 """
 
 from __future__ import annotations
@@ -98,6 +103,23 @@ def detect_languages(repo_root: Path) -> list[str]:
     if any((repo_root / m).exists() for m in JAVA_MARKERS):
         languages.append("java")
     return languages
+
+
+def detect_language(repo_root: Path) -> str:
+    """Detect the primary language of a repository from marker files.
+
+    Returns ``"python"``, ``"javascript"``, ``"mixed"``, or ``"unknown"``.
+    """
+    has_python = any((repo_root / m).exists() for m in PYTHON_MARKERS)
+    has_js = any((repo_root / m).exists() for m in JS_MARKERS)
+
+    if has_python and has_js:
+        return "mixed"
+    if has_python:
+        return "python"
+    if has_js:
+        return "javascript"
+    return "unknown"
 
 
 def detect_build_systems(repo_root: Path) -> list[str]:

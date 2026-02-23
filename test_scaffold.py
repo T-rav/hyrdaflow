@@ -12,11 +12,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# --- Python markers ---
-_PYTHON_MARKERS = ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt")
-
-# --- JS/TS markers ---
-_JS_MARKERS = ("package.json", "tsconfig.json")
+from manifest import detect_language
 
 # --- Test file patterns ---
 _PYTHON_TEST_PATTERNS = ("test_*.py", "*_test.py")
@@ -74,23 +70,6 @@ class TestScaffoldResult:
     skipped: bool = False
     skip_reason: str = ""
     language: str = ""
-
-
-def detect_language(repo_root: Path) -> str:
-    """Detect repository language from marker files.
-
-    Returns "python", "javascript", "mixed", or "unknown".
-    """
-    has_python = any((repo_root / m).exists() for m in _PYTHON_MARKERS)
-    has_js = any((repo_root / m).exists() for m in _JS_MARKERS)
-
-    if has_python and has_js:
-        return "mixed"
-    if has_python:
-        return "python"
-    if has_js:
-        return "javascript"
-    return "unknown"
 
 
 def _has_python_test_files(repo_root: Path) -> list[str]:

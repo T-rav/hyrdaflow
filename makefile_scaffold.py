@@ -10,11 +10,7 @@ import dataclasses
 import re
 from pathlib import Path
 
-from manifest import JS_MARKERS, PYTHON_MARKERS
-
-# Aliases preserved for backward compatibility.
-_PYTHON_MARKERS = PYTHON_MARKERS
-_JS_MARKERS = JS_MARKERS
+from manifest import detect_language
 
 _PYTHON_TARGETS: dict[str, str] = {
     "lint": "\truff check . --fix && ruff format .\n",
@@ -47,22 +43,6 @@ class ScaffoldResult:
     warnings: list[str] = dataclasses.field(default_factory=list)
     skipped: list[str] = dataclasses.field(default_factory=list)
     language: str = "unknown"
-
-
-def detect_language(repo_root: Path) -> str:
-    """Detect the primary language of a repo from marker files.
-
-    Returns "python", "javascript", "mixed", or "unknown".
-    """
-    has_python = any((repo_root / m).exists() for m in _PYTHON_MARKERS)
-    has_js = any((repo_root / m).exists() for m in _JS_MARKERS)
-    if has_python and has_js:
-        return "mixed"
-    if has_python:
-        return "python"
-    if has_js:
-        return "javascript"
-    return "unknown"
 
 
 def parse_makefile(content: str) -> dict[str, str]:
