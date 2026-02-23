@@ -241,7 +241,7 @@ def test_escalation_when_max_attempts_is_zero() -> None:
     assert decision.reasons == ["subskill_retries_exhausted"]
 
 
-def test_no_escalation_when_risk_omitted_defaults_to_empty_string() -> None:
+def test_no_escalation_when_optional_risk_and_files_omitted() -> None:
     decision = should_escalate_debug(
         enabled=True,
         confidence=0.9,
