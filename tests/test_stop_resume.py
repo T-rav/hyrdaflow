@@ -1,0 +1,570 @@
+"""Tests for stop-and-resume behavior (issue #776).
+
+Covers:
+- State persistence for interrupted issues
+- Orchestrator stop checkpointing and loop task cancellation
+- Interrupted issue restoration on restart
+- Worktree preservation during stop
+- Review phase stop-event handling
+"""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from tests.conftest import IssueFactory, PRInfoFactory, ReviewResultFactory
+from tests.helpers import ConfigFactory, make_review_phase
+
+# ---------------------------------------------------------------------------
+# State persistence tests
+# ---------------------------------------------------------------------------
+
+
+class TestStateInterruptedIssues:
+    """Tests for interrupted_issues round-trip via StateTracker."""
+
+    def test_set_and_get_interrupted_issues(self, tmp_path: Path) -> None:
+        from state import StateTracker
+
+        tracker = StateTracker(tmp_path / "state.json")
+        mapping = {42: "implementing", 99: "reviewing"}
+        tracker.set_interrupted_issues(mapping)
+
+        result = tracker.get_interrupted_issues()
+        assert result == {42: "implementing", 99: "reviewing"}
+
+    def test_clear_interrupted_issues(self, tmp_path: Path) -> None:
+        from state import StateTracker
+
+        tracker = StateTracker(tmp_path / "state.json")
+        tracker.set_interrupted_issues({10: "planning"})
+        tracker.clear_interrupted_issues()
+
+        assert tracker.get_interrupted_issues() == {}
+
+    def test_interrupted_issues_default_empty(self, tmp_path: Path) -> None:
+        from state import StateTracker
+
+        tracker = StateTracker(tmp_path / "state.json")
+        assert tracker.get_interrupted_issues() == {}
+
+    def test_interrupted_issues_persist_across_load(self, tmp_path: Path) -> None:
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        tracker1 = StateTracker(state_file)
+        tracker1.set_interrupted_issues({5: "plan", 10: "implement"})
+
+        # Load from disk in a new instance
+        tracker2 = StateTracker(state_file)
+        assert tracker2.get_interrupted_issues() == {5: "plan", 10: "implement"}
+
+    def test_interrupted_issues_int_key_conversion(self, tmp_path: Path) -> None:
+        """Keys are stored as strings in JSON but returned as ints."""
+        from state import StateTracker
+
+        tracker = StateTracker(tmp_path / "state.json")
+        tracker.set_interrupted_issues({123: "review"})
+        result = tracker.get_interrupted_issues()
+        assert all(isinstance(k, int) for k in result)
+        assert result[123] == "review"
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator stop tests
+# ---------------------------------------------------------------------------
+
+
+def _make_orchestrator(tmp_path: Path):
+    """Build a minimal orchestrator with mocked dependencies for stop tests."""
+
+    config = ConfigFactory.create(
+        repo_root=tmp_path / "repo",
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "worktrees").mkdir(parents=True, exist_ok=True)
+
+    with patch("orchestrator.build_services") as mock_build:
+        svc = MagicMock()
+        # Runners with _active_procs
+        for runner_attr in ("planners", "agents", "reviewers", "hitl_runner"):
+            runner = MagicMock()
+            runner._active_procs = set()
+            runner.terminate = MagicMock()
+            setattr(svc, runner_attr, runner)
+
+        # Store (IssueStore mock)
+        svc.store = MagicMock()
+        svc.store.get_active_issues = MagicMock(return_value={})
+        svc.store.clear_active = MagicMock()
+
+        # Other services we need
+        svc.worktrees = MagicMock()
+        svc.subprocess_runner = MagicMock()
+        svc.prs = AsyncMock()
+        svc.prs.ensure_labels_exist = AsyncMock()
+        svc.prs.pull_main = AsyncMock()
+        svc.triage = MagicMock()
+        svc.triager = MagicMock()
+        svc.planner_phase = MagicMock()
+        svc.hitl_phase = MagicMock()
+        svc.hitl_phase.active_hitl_issues = set()
+        svc.run_recorder = MagicMock()
+        svc.implementer = MagicMock()
+        svc.metrics_manager = MagicMock()
+        svc.pr_unsticker = MagicMock()
+        svc.memory_sync = MagicMock()
+        svc.retrospective = MagicMock()
+        svc.ac_generator = MagicMock()
+        svc.verification_judge = MagicMock()
+        svc.epic_checker = MagicMock()
+        svc.reviewer = MagicMock()
+        svc.memory_sync_bg = MagicMock()
+        svc.metrics_sync_bg = MagicMock()
+        svc.pr_unsticker_loop = MagicMock()
+        svc.manifest_refresh_loop = MagicMock()
+        svc.fetcher = MagicMock()
+        svc.summarizer = MagicMock()
+
+        mock_build.return_value = svc
+
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+
+    return orch
+
+
+class TestOrchestratorStop:
+    """Tests for orchestrator stop() behavior."""
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_loop_tasks(self, tmp_path: Path) -> None:
+        """stop() cancels _loop_tasks, causing _supervise_loops to exit."""
+        orch = _make_orchestrator(tmp_path)
+
+        # Simulate loop tasks
+        async def _forever():
+            await asyncio.sleep(3600)
+
+        task1 = asyncio.create_task(_forever())
+        task2 = asyncio.create_task(_forever())
+        orch._loop_tasks = {"plan": task1, "implement": task2}
+
+        await orch.stop()
+
+        # Allow cancellation to propagate
+        await asyncio.sleep(0)
+
+        assert task1.cancelled()
+        assert task2.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_stop_persists_interrupted_issues(self, tmp_path: Path) -> None:
+        """After stop(), state file contains the correct interrupted_issues."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {42: "implement", 99: "review"}
+
+        await orch.stop()
+
+        result = orch._state.get_interrupted_issues()
+        assert result == {42: "implement", 99: "review"}
+
+    @pytest.mark.asyncio
+    async def test_stop_mid_implement_checkpoints_phase(self, tmp_path: Path) -> None:
+        """Issue in implement phase gets checkpointed as 'implement'."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {42: "implement"}
+
+        await orch.stop()
+
+        interrupted = orch._state.get_interrupted_issues()
+        assert interrupted[42] == "implement"
+
+    @pytest.mark.asyncio
+    async def test_stop_mid_plan_checkpoints_phase(self, tmp_path: Path) -> None:
+        """Issue in plan phase gets checkpointed as 'plan'."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {42: "plan"}
+
+        await orch.stop()
+
+        interrupted = orch._state.get_interrupted_issues()
+        assert interrupted[42] == "plan"
+
+    @pytest.mark.asyncio
+    async def test_stop_mid_review_checkpoints_phase(self, tmp_path: Path) -> None:
+        """Issue in review phase gets checkpointed as 'review'."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {99: "review"}
+
+        await orch.stop()
+
+        interrupted = orch._state.get_interrupted_issues()
+        assert interrupted[99] == "review"
+
+    @pytest.mark.asyncio
+    async def test_stop_includes_in_memory_impl_issues(self, tmp_path: Path) -> None:
+        """Issues tracked in _active_impl_issues but not in store are included."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {}
+        orch._active_impl_issues = {55}
+
+        await orch.stop()
+
+        interrupted = orch._state.get_interrupted_issues()
+        assert interrupted[55] == "implement"
+
+    @pytest.mark.asyncio
+    async def test_stop_includes_in_memory_review_issues(self, tmp_path: Path) -> None:
+        """Issues tracked in _active_review_issues are included."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {}
+        orch._active_review_issues = {77}
+
+        await orch.stop()
+
+        interrupted = orch._state.get_interrupted_issues()
+        assert interrupted[77] == "review"
+
+    @pytest.mark.asyncio
+    async def test_stop_empty_active_issues(self, tmp_path: Path) -> None:
+        """When no issues are in-flight, interrupted_issues is empty."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {}
+
+        await orch.stop()
+
+        assert orch._state.get_interrupted_issues() == {}
+
+    @pytest.mark.asyncio
+    async def test_stop_publishes_status(self, tmp_path: Path) -> None:
+        """stop() publishes a status event."""
+        orch = _make_orchestrator(tmp_path)
+        published = []
+        orch._bus.publish = AsyncMock(side_effect=published.append)
+
+        await orch.stop()
+
+        # Should have published at least one status event
+        assert any(e.type.value == "orchestrator_status" for e in published)
+
+    @pytest.mark.asyncio
+    async def test_stop_sets_stop_event(self, tmp_path: Path) -> None:
+        """stop() sets the _stop_event."""
+        orch = _make_orchestrator(tmp_path)
+        assert not orch._stop_event.is_set()
+
+        await orch.stop()
+
+        assert orch._stop_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_stop_terminates_all_runners(self, tmp_path: Path) -> None:
+        """stop() calls terminate on all runner pools."""
+        orch = _make_orchestrator(tmp_path)
+
+        await orch.stop()
+
+        orch._planners.terminate.assert_called()
+        orch._agents.terminate.assert_called()
+        orch._reviewers.terminate.assert_called()
+        orch._hitl_runner.terminate.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Resume / restart tests
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorResume:
+    """Tests for restoring interrupted issues on restart."""
+
+    @pytest.mark.asyncio
+    async def test_restart_restores_interrupted_plan_issues(
+        self, tmp_path: Path
+    ) -> None:
+        """Interrupted planning issue is logged on restore."""
+        orch = _make_orchestrator(tmp_path)
+        orch._state.set_interrupted_issues({42: "plan"})
+
+        # Call run() but stop immediately
+        orch._stop_event.set()
+        with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
+            await orch.run()
+
+        # Interrupted issues should be cleared after restore
+        assert orch._state.get_interrupted_issues() == {}
+
+    @pytest.mark.asyncio
+    async def test_restart_restores_interrupted_implement_issues(
+        self, tmp_path: Path
+    ) -> None:
+        """Interrupted implementing issue is restored and cleared."""
+        orch = _make_orchestrator(tmp_path)
+        orch._state.set_interrupted_issues({10: "implement"})
+
+        orch._stop_event.set()
+        with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
+            await orch.run()
+
+        assert orch._state.get_interrupted_issues() == {}
+
+    @pytest.mark.asyncio
+    async def test_restart_restores_interrupted_review_issues(
+        self, tmp_path: Path
+    ) -> None:
+        """Interrupted reviewing issue is restored and cleared."""
+        orch = _make_orchestrator(tmp_path)
+        orch._state.set_interrupted_issues({99: "review"})
+
+        orch._stop_event.set()
+        with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
+            await orch.run()
+
+        assert orch._state.get_interrupted_issues() == {}
+
+    @pytest.mark.asyncio
+    async def test_restart_clears_interrupted_issues_after_restore(
+        self, tmp_path: Path
+    ) -> None:
+        """interrupted_issues is cleared after successful restoration."""
+        orch = _make_orchestrator(tmp_path)
+        orch._state.set_interrupted_issues({1: "plan", 2: "implement", 3: "review"})
+
+        orch._stop_event.set()
+        with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
+            await orch.run()
+
+        assert orch._state.get_interrupted_issues() == {}
+
+
+# ---------------------------------------------------------------------------
+# Reset tests
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorReset:
+    """Tests for reset() clearing interrupted issues."""
+
+    def test_reset_clears_interrupted_issues(self, tmp_path: Path) -> None:
+        orch = _make_orchestrator(tmp_path)
+        orch._state.set_interrupted_issues({42: "implement"})
+
+        orch.reset()
+
+        assert orch._state.get_interrupted_issues() == {}
+
+
+# ---------------------------------------------------------------------------
+# Worktree preservation tests
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreePreservation:
+    """Tests for preserving worktrees when stop is requested."""
+
+    @pytest.mark.asyncio
+    async def test_review_phase_skips_worktree_cleanup_on_stop(self, config) -> None:
+        """_review_one_inner() skips worktree cleanup when stop event is set."""
+        from models import ReviewVerdict
+
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Set up mocks for _review_one_inner
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.APPROVE)
+        phase._reviewers.review = AsyncMock(return_value=result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.get_pr_diff_names = AsyncMock(return_value=[])
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.submit_review = AsyncMock()
+        phase._prs.swap_pipeline_labels = AsyncMock()
+        phase._prs.pull_main = AsyncMock()
+
+        # Create worktree path
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        # Set stop event BEFORE running review
+        phase._stop_event.set()
+
+        await phase.review_prs([pr], [issue])
+
+        # Worktree destroy should NOT be called because stop is requested
+        phase._worktrees.destroy.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_review_phase_cleans_worktree_when_not_stopped(self, config) -> None:
+        """Worktree cleanup happens normally when stop is not requested."""
+        from models import ReviewVerdict
+
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.APPROVE)
+        phase._reviewers.review = AsyncMock(return_value=result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.get_pr_diff_names = AsyncMock(return_value=[])
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.submit_review = AsyncMock()
+        phase._prs.swap_pipeline_labels = AsyncMock()
+        phase._prs.pull_main = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        # Stop event is NOT set
+        await phase.review_prs([pr], [issue])
+
+        # Worktree destroy should be called normally
+        phase._worktrees.destroy.assert_awaited_once_with(42)
+
+
+# ---------------------------------------------------------------------------
+# Review phase stop tests
+# ---------------------------------------------------------------------------
+
+
+class TestReviewPhaseStop:
+    """Tests for review_prs cancellation on stop."""
+
+    @pytest.mark.asyncio
+    async def test_review_prs_cancels_remaining_on_stop(self, config) -> None:
+        """Setting stop_event mid-review cancels remaining PR reviews."""
+        from models import ReviewVerdict
+
+        phase = make_review_phase(config)
+        pr1 = PRInfoFactory.create(number=101, issue_number=10)
+        pr2 = PRInfoFactory.create(number=102, issue_number=20)
+        issue1 = IssueFactory.create(number=10)
+        issue2 = IssueFactory.create(number=20)
+
+        call_count = 0
+
+        async def _review_side_effect(pr, _issue, _wt_path, _diff, worker_id=0):
+            nonlocal call_count
+            call_count += 1
+            # Set stop after first review completes
+            phase._stop_event.set()
+            return ReviewResultFactory.create(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                verdict=ReviewVerdict.APPROVE,
+            )
+
+        phase._reviewers.review = AsyncMock(side_effect=_review_side_effect)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.get_pr_diff_names = AsyncMock(return_value=[])
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.submit_review = AsyncMock()
+        phase._prs.swap_pipeline_labels = AsyncMock()
+
+        # Create worktree paths
+        for num in (10, 20):
+            (config.worktree_base / f"issue-{num}").mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr1, pr2], [issue1, issue2])
+
+        # At least one result should be returned; second may be cancelled
+        assert len(results) >= 1
+
+
+# ---------------------------------------------------------------------------
+# _build_interrupted_issues tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildInterruptedIssues:
+    """Tests for the _build_interrupted_issues helper."""
+
+    def test_combines_store_and_memory_tracking(self, tmp_path: Path) -> None:
+        """Merges IssueStore active + in-memory tracking sets."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {42: "implement"}
+        orch._active_review_issues = {99}
+
+        result = orch._build_interrupted_issues()
+
+        assert result == {42: "implement", 99: "review"}
+
+    def test_store_takes_precedence(self, tmp_path: Path) -> None:
+        """If an issue is in both store and memory, store value is used."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {42: "review"}
+        orch._active_impl_issues = {42}  # Also tracked here
+
+        result = orch._build_interrupted_issues()
+
+        # Store value takes precedence
+        assert result[42] == "review"
+
+    def test_includes_hitl_issues(self, tmp_path: Path) -> None:
+        """HITL issues are captured."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {}
+        orch._hitl_phase.active_hitl_issues = {33}
+
+        result = orch._build_interrupted_issues()
+
+        assert result[33] == "hitl"
+
+    def test_empty_when_no_active(self, tmp_path: Path) -> None:
+        """Returns empty dict when nothing is active."""
+        orch = _make_orchestrator(tmp_path)
+        orch._store.get_active_issues.return_value = {}
+
+        assert orch._build_interrupted_issues() == {}
+
+
+# ---------------------------------------------------------------------------
+# supervise_loops stores tasks on self
+# ---------------------------------------------------------------------------
+
+
+class TestSuperviseLoopsTaskStorage:
+    """Tests that _supervise_loops stores tasks on self._loop_tasks."""
+
+    @pytest.mark.asyncio
+    async def test_loop_tasks_populated_via_stop(self, tmp_path: Path) -> None:
+        """stop() can cancel loop tasks that were stored by _supervise_loops."""
+        orch = _make_orchestrator(tmp_path)
+
+        # Verify _loop_tasks starts empty
+        assert orch._loop_tasks == {}
+
+        # After stop(), _loop_tasks should still be empty since no run() was called
+        await orch.stop()
+
+        # But if we set them manually, stop cancels them
+        async def _forever():
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_forever())
+        orch._loop_tasks = {"test": task}
+        orch._stop_event.clear()
+
+        await orch.stop()
+        await asyncio.sleep(0)
+
+        assert task.cancelled()

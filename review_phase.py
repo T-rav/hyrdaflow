@@ -137,6 +137,11 @@ class ReviewPhase:
         tasks = [asyncio.create_task(_review_one(i, pr)) for i, pr in enumerate(prs)]
         for task in asyncio.as_completed(tasks):
             results.append(await task)
+            # Cancel remaining tasks if stop requested
+            if self._stop_event.is_set():
+                for t in tasks:
+                    t.cancel()
+                break
 
         return results
 
@@ -231,6 +236,10 @@ class ReviewPhase:
             ReviewVerdict.COMMENT,
         ):
             skip_worktree_cleanup = await self._handle_rejected_review(pr, result, idx)
+
+        # Preserve worktrees when stop is requested so work can be resumed
+        if self._stop_event.is_set():
+            skip_worktree_cleanup = True
 
         if not skip_worktree_cleanup:
             try:
