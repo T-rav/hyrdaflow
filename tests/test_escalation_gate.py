@@ -170,7 +170,7 @@ def test_no_escalation_when_retries_below_max() -> None:
     assert decision.reasons == []
 
 
-def test_multi_reason_escalation() -> None:
+def test_all_signals_active_simultaneously_escalates_with_all_five_reasons() -> None:
     decision = should_escalate_debug(
         enabled=True,
         confidence=0.3,
@@ -182,12 +182,13 @@ def test_multi_reason_escalation() -> None:
         high_risk_files_touched=True,
     )
     assert decision.escalate is True
-    assert "precheck_parse_failed" in decision.reasons
-    assert "low_confidence" in decision.reasons
-    assert "risk_critical" in decision.reasons
-    assert "high_risk_files" in decision.reasons
-    assert "subskill_retries_exhausted" in decision.reasons
-    assert len(decision.reasons) == 5
+    assert set(decision.reasons) == {
+        "precheck_parse_failed",
+        "low_confidence",
+        "risk_critical",
+        "high_risk_files",
+        "subskill_retries_exhausted",
+    }
 
 
 def test_risk_normalization_whitespace_and_case() -> None:
@@ -218,6 +219,23 @@ def test_no_escalation_on_medium_risk() -> None:
     )
     assert decision.escalate is False
     assert decision.reasons == []
+
+
+def test_escalation_when_max_attempts_is_zero() -> None:
+    # max_subskill_attempts=0 is the production default; retry_count=0 satisfies
+    # the >= condition immediately, so the gate fires even on the first attempt.
+    decision = should_escalate_debug(
+        enabled=True,
+        confidence=0.9,
+        confidence_threshold=0.7,
+        parse_failed=False,
+        retry_count=0,
+        max_subskill_attempts=0,
+        risk="low",
+        high_risk_files_touched=False,
+    )
+    assert decision.escalate is True
+    assert decision.reasons == ["subskill_retries_exhausted"]
 
 
 def test_no_escalation_at_exact_confidence_threshold() -> None:
