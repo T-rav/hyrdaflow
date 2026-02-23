@@ -48,4 +48,4 @@ class PRUnstickerLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         hitl_items = await self._prs.list_hitl_items(self._config.hitl_label)
         stats = await self._pr_unsticker.unstick(hitl_items)
-        return stats
+        return dict(stats)

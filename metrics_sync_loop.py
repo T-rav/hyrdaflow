@@ -52,4 +52,4 @@ class MetricsSyncLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         queue_stats = self._store.get_queue_stats()
         stats = await self._metrics_manager.sync(queue_stats)
-        return stats
+        return dict(stats)
