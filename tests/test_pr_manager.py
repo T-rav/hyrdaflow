@@ -16,6 +16,8 @@ import pytest
 from events import EventType
 from models import ReviewVerdict
 from pr_manager import PRManager
+from tests.conftest import SubprocessMockBuilder
+from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
 # _chunk_body (static method)
@@ -115,19 +117,16 @@ def _assert_search_api_cmd(cmd: tuple[str, ...]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_post_comment_calls_gh_issue_comment(config, event_bus, tmp_path):
+async def test_post_comment_calls_gh_issue_comment(event_bus, tmp_path):
     """post_comment should call gh issue comment with --body-file."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await mgr.post_comment(42, "This is a plan comment")
@@ -148,7 +147,7 @@ async def test_post_comment_calls_gh_issue_comment(config, event_bus, tmp_path):
 async def test_post_comment_dry_run(dry_config, event_bus):
     """In dry-run mode, post_comment should not call subprocess."""
     mgr = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await mgr.post_comment(42, "This is a plan comment")
@@ -157,19 +156,21 @@ async def test_post_comment_dry_run(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_post_comment_handles_error(config, event_bus, tmp_path):
+async def test_post_comment_handles_error(event_bus, tmp_path):
     """post_comment should log warning on failure without raising."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="permission denied")
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("permission denied")
+        .build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
@@ -182,19 +183,16 @@ async def test_post_comment_handles_error(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_post_pr_comment_calls_gh_pr_comment(config, event_bus, tmp_path):
+async def test_post_pr_comment_calls_gh_pr_comment(event_bus, tmp_path):
     """post_pr_comment should call gh pr comment with --body-file."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await mgr.post_pr_comment(101, "Review summary here")
@@ -214,7 +212,7 @@ async def test_post_pr_comment_calls_gh_pr_comment(config, event_bus, tmp_path):
 async def test_post_pr_comment_dry_run(dry_config, event_bus):
     """In dry-run mode, post_pr_comment should not call subprocess."""
     mgr = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await mgr.post_pr_comment(101, "Review summary here")
@@ -223,19 +221,21 @@ async def test_post_pr_comment_dry_run(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_post_pr_comment_handles_error(config, event_bus, tmp_path):
+async def test_post_pr_comment_handles_error(event_bus, tmp_path):
     """post_pr_comment should log warning on failure without raising."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="permission denied")
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("permission denied")
+        .build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
@@ -248,19 +248,16 @@ async def test_post_pr_comment_handles_error(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_submit_review_approve_calls_correct_flag(config, event_bus, tmp_path):
+async def test_submit_review_approve_calls_correct_flag(event_bus, tmp_path):
     """submit_review with 'approve' should pass --approve flag and --body-file."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await mgr.submit_review(101, ReviewVerdict.APPROVE, "Looks good")
@@ -281,21 +278,16 @@ async def test_submit_review_approve_calls_correct_flag(config, event_bus, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_submit_review_request_changes_calls_correct_flag(
-    config, event_bus, tmp_path
-):
+async def test_submit_review_request_changes_calls_correct_flag(event_bus, tmp_path):
     """submit_review with 'request-changes' should pass --request-changes."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await mgr.submit_review(
@@ -312,19 +304,16 @@ async def test_submit_review_request_changes_calls_correct_flag(
 
 
 @pytest.mark.asyncio
-async def test_submit_review_comment_calls_correct_flag(config, event_bus, tmp_path):
+async def test_submit_review_comment_calls_correct_flag(event_bus, tmp_path):
     """submit_review with 'comment' should pass --comment."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await mgr.submit_review(101, ReviewVerdict.COMMENT, "FYI note")
@@ -342,7 +331,7 @@ async def test_submit_review_comment_calls_correct_flag(config, event_bus, tmp_p
 async def test_submit_review_dry_run(dry_config, event_bus):
     """In dry-run mode, submit_review should not call subprocess."""
     mgr = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await mgr.submit_review(101, ReviewVerdict.APPROVE, "LGTM")
@@ -352,19 +341,18 @@ async def test_submit_review_dry_run(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_submit_review_failure_returns_false(config, event_bus, tmp_path):
+async def test_submit_review_failure_returns_false(event_bus, tmp_path):
     """submit_review should return False on subprocess failure."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="review failed")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("review failed").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await mgr.submit_review(101, ReviewVerdict.APPROVE, "LGTM")
@@ -379,23 +367,24 @@ async def test_submit_review_failure_returns_false(config, event_bus, tmp_path):
 
 @pytest.mark.asyncio
 async def test_submit_review_raises_self_review_error_on_request_changes_own_pr(
-    config, event_bus, tmp_path
+    event_bus, tmp_path
 ):
     """submit_review should raise SelfReviewError when request-changes hits own PR."""
-    from config import HydraFlowConfig
     from pr_manager import SelfReviewError
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(
-        returncode=1,
-        stderr="GraphQL: Review Can not request changes on your own pull request (addPullRequestReview)",
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr(
+            "GraphQL: Review Can not request changes on your own pull request (addPullRequestReview)"
+        )
+        .build()
     )
 
     with (
@@ -407,23 +396,24 @@ async def test_submit_review_raises_self_review_error_on_request_changes_own_pr(
 
 @pytest.mark.asyncio
 async def test_submit_review_raises_self_review_error_on_approve_own_pr(
-    config, event_bus, tmp_path
+    event_bus, tmp_path
 ):
     """submit_review should raise SelfReviewError when approve hits own PR."""
-    from config import HydraFlowConfig
     from pr_manager import SelfReviewError
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(
-        returncode=1,
-        stderr="GraphQL: Cannot approve your own pull request (addPullRequestReview)",
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr(
+            "GraphQL: Cannot approve your own pull request (addPullRequestReview)"
+        )
+        .build()
     )
 
     with (
@@ -434,22 +424,20 @@ async def test_submit_review_raises_self_review_error_on_approve_own_pr(
 
 
 @pytest.mark.asyncio
-async def test_submit_review_returns_false_on_generic_error(
-    config, event_bus, tmp_path
-):
+async def test_submit_review_returns_false_on_generic_error(event_bus, tmp_path):
     """submit_review should return False on a generic (non-self-review) error."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(
-        returncode=1, stderr="GraphQL: Something else went wrong"
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("GraphQL: Something else went wrong")
+        .build()
     )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -466,19 +454,16 @@ async def test_submit_review_returns_false_on_generic_error(
 
 
 @pytest.mark.asyncio
-async def test_create_issue_returns_parsed_issue_number(config, event_bus, tmp_path):
-    from config import HydraFlowConfig
+async def test_create_issue_calls_gh_issue_create(event_bus, tmp_path):
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
     issue_url = "https://github.com/test-org/test-repo/issues/99"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=issue_url)
+    mock_create = SubprocessMockBuilder().with_stdout(issue_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         number = await mgr.create_issue("Bug found", "Details here", ["bug"])
@@ -515,19 +500,16 @@ async def test_create_issue_passes_correct_gh_args(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_create_issue_publishes_event(config, event_bus, tmp_path):
-    from config import HydraFlowConfig
+async def test_create_issue_publishes_event(event_bus, tmp_path):
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
     issue_url = "https://github.com/test-org/test-repo/issues/55"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=issue_url)
+    mock_create = SubprocessMockBuilder().with_stdout(issue_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await mgr.create_issue("Tech debt", "Needs refactor", ["tech-debt"])
@@ -544,7 +526,7 @@ async def test_create_issue_publishes_event(config, event_bus, tmp_path):
 @pytest.mark.asyncio
 async def test_create_issue_dry_run(dry_config, event_bus):
     mgr = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         number = await mgr.create_issue("Bug", "Details")
@@ -554,18 +536,20 @@ async def test_create_issue_dry_run(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_create_issue_failure_returns_zero(config, event_bus, tmp_path):
-    from config import HydraFlowConfig
+async def test_create_issue_failure_returns_zero(event_bus, tmp_path):
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="permission denied")
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("permission denied")
+        .build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         number = await mgr.create_issue("Bug", "Details")
@@ -574,19 +558,16 @@ async def test_create_issue_failure_returns_zero(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_create_issue_no_labels(config, event_bus, tmp_path):
-    from config import HydraFlowConfig
+async def test_create_issue_no_labels(event_bus, tmp_path):
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
     issue_url = "https://github.com/test-org/test-repo/issues/10"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=issue_url)
+    mock_create = SubprocessMockBuilder().with_stdout(issue_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         number = await mgr.create_issue("Bug", "Details")
@@ -604,7 +585,7 @@ async def test_create_issue_no_labels(config, event_bus, tmp_path):
 @pytest.mark.asyncio
 async def test_push_branch_calls_git_push(config, event_bus, tmp_path):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.push_branch(tmp_path, "agent/issue-42")
@@ -622,7 +603,12 @@ async def test_push_branch_calls_git_push(config, event_bus, tmp_path):
 @pytest.mark.asyncio
 async def test_push_branch_failure_returns_false(config, event_bus, tmp_path):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="error: failed to push")
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("error: failed to push")
+        .build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.push_branch(tmp_path, "agent/issue-99")
@@ -639,7 +625,7 @@ async def test_push_branch_failure_returns_false(config, event_bus, tmp_path):
 async def test_create_pr_calls_gh_pr_create(config, event_bus, issue):
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/55"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=pr_url)
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.create_pr(issue, "agent/issue-42")
@@ -672,7 +658,7 @@ async def test_create_pr_includes_required_flags(config, event_bus, issue):
 async def test_create_pr_parses_pr_number_from_url(config, event_bus, issue):
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/123"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=pr_url)
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         pr_info = await manager.create_pr(issue, "agent/issue-42")
@@ -687,7 +673,7 @@ async def test_create_pr_parses_pr_number_from_url(config, event_bus, issue):
 async def test_create_pr_with_draft_flag(config, event_bus, issue):
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/77"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=pr_url)
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         pr_info = await manager.create_pr(issue, "agent/issue-42", draft=True)
@@ -710,7 +696,7 @@ async def test_create_pr_title_not_truncated_when_short(config, event_bus):
     )
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/10"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=pr_url)
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.create_pr(short_issue, "agent/issue-1")
@@ -738,7 +724,7 @@ async def test_create_pr_title_truncated_at_70_chars(config, event_bus):
     )
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/200"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=pr_url)
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.create_pr(long_issue, "agent/issue-99")
@@ -755,7 +741,9 @@ async def test_create_pr_failure_returns_pr_info_with_number_zero(
     config, event_bus, issue
 ):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="gh: error")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         pr_info = await manager.create_pr(issue, "agent/issue-42")
@@ -769,7 +757,7 @@ async def test_create_pr_failure_returns_pr_info_with_number_zero(
 async def test_create_pr_publishes_pr_created_event(config, event_bus, issue):
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/55"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=pr_url)
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.create_pr(issue, "agent/issue-42")
@@ -787,7 +775,7 @@ async def test_create_pr_publishes_pr_created_event(config, event_bus, issue):
 @pytest.mark.asyncio
 async def test_create_pr_dry_run_skips_command(dry_config, event_bus, issue):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         pr_info = await manager.create_pr(issue, "agent/issue-42")
@@ -805,7 +793,7 @@ async def test_create_pr_dry_run_skips_command(dry_config, event_bus, issue):
 @pytest.mark.asyncio
 async def test_merge_pr_calls_gh_pr_merge(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.merge_pr(101)
@@ -835,7 +823,9 @@ async def test_merge_pr_uses_squash_and_delete_branch(config, event_bus):
 @pytest.mark.asyncio
 async def test_merge_pr_failure_returns_false(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="merge failed")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("merge failed").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.merge_pr(101)
@@ -846,7 +836,7 @@ async def test_merge_pr_failure_returns_false(config, event_bus):
 @pytest.mark.asyncio
 async def test_merge_pr_dry_run_skips_command(dry_config, event_bus):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.merge_pr(101)
@@ -863,7 +853,7 @@ async def test_merge_pr_dry_run_skips_command(dry_config, event_bus):
 @pytest.mark.asyncio
 async def test_add_labels_calls_gh_issue_edit_for_each_label(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.add_labels(42, ["bug", "enhancement"])
@@ -883,7 +873,7 @@ async def test_add_labels_calls_gh_issue_edit_for_each_label(config, event_bus):
 @pytest.mark.asyncio
 async def test_add_labels_dry_run_skips_command(dry_config, event_bus):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.add_labels(42, ["bug"])
@@ -894,7 +884,7 @@ async def test_add_labels_dry_run_skips_command(dry_config, event_bus):
 @pytest.mark.asyncio
 async def test_add_labels_empty_list_skips_command(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.add_labels(42, [])
@@ -910,7 +900,7 @@ async def test_add_labels_empty_list_skips_command(config, event_bus):
 @pytest.mark.asyncio
 async def test_remove_label_calls_gh_issue_edit(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.remove_label(42, "ready")
@@ -928,7 +918,7 @@ async def test_remove_label_calls_gh_issue_edit(config, event_bus):
 @pytest.mark.asyncio
 async def test_remove_label_dry_run_skips_command(dry_config, event_bus):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.remove_label(42, "ready")
@@ -944,7 +934,7 @@ async def test_remove_label_dry_run_skips_command(dry_config, event_bus):
 @pytest.mark.asyncio
 async def test_add_pr_labels_calls_gh_pr_edit_for_each_label(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.add_pr_labels(101, ["bug", "enhancement"])
@@ -964,7 +954,7 @@ async def test_add_pr_labels_calls_gh_pr_edit_for_each_label(config, event_bus):
 @pytest.mark.asyncio
 async def test_add_pr_labels_dry_run_skips_command(dry_config, event_bus):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.add_pr_labels(101, ["bug"])
@@ -975,7 +965,7 @@ async def test_add_pr_labels_dry_run_skips_command(dry_config, event_bus):
 @pytest.mark.asyncio
 async def test_add_pr_labels_empty_list_skips_command(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.add_pr_labels(101, [])
@@ -986,7 +976,9 @@ async def test_add_pr_labels_empty_list_skips_command(config, event_bus):
 @pytest.mark.asyncio
 async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="label error")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("label error").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
@@ -1001,7 +993,7 @@ async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
 @pytest.mark.asyncio
 async def test_remove_pr_label_calls_gh_pr_edit(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.remove_pr_label(101, "hydraflow-review")
@@ -1016,7 +1008,7 @@ async def test_remove_pr_label_calls_gh_pr_edit(config, event_bus):
 @pytest.mark.asyncio
 async def test_remove_pr_label_dry_run_skips_command(dry_config, event_bus):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await manager.remove_pr_label(101, "hydraflow-review")
@@ -1027,7 +1019,9 @@ async def test_remove_pr_label_dry_run_skips_command(dry_config, event_bus):
 @pytest.mark.asyncio
 async def test_remove_pr_label_subprocess_error_does_not_raise(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="label error")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("label error").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
@@ -1043,7 +1037,7 @@ async def test_remove_pr_label_subprocess_error_does_not_raise(config, event_bus
 async def test_get_pr_diff_returns_diff_content(config, event_bus):
     manager = _make_manager(config, event_bus)
     expected_diff = "diff --git a/foo.py b/foo.py\n+added line"
-    mock_create = _make_subprocess_mock(returncode=0, stdout=expected_diff)
+    mock_create = SubprocessMockBuilder().with_stdout(expected_diff).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         diff = await manager.get_pr_diff(101)
@@ -1060,7 +1054,9 @@ async def test_get_pr_diff_returns_diff_content(config, event_bus):
 @pytest.mark.asyncio
 async def test_get_pr_diff_failure_returns_empty_string(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         diff = await manager.get_pr_diff(999)
@@ -1076,7 +1072,7 @@ async def test_get_pr_diff_failure_returns_empty_string(config, event_bus):
 @pytest.mark.asyncio
 async def test_pull_main_calls_git_pull(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="Already up to date.")
+    mock_create = SubprocessMockBuilder().with_stdout("Already up to date.").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.pull_main()
@@ -1092,7 +1088,12 @@ async def test_pull_main_calls_git_pull(config, event_bus):
 @pytest.mark.asyncio
 async def test_pull_main_failure_returns_false(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="fatal: pull failed")
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("fatal: pull failed")
+        .build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.pull_main()
@@ -1103,7 +1104,7 @@ async def test_pull_main_failure_returns_false(config, event_bus):
 @pytest.mark.asyncio
 async def test_pull_main_dry_run_skips_command(dry_config, event_bus):
     manager = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         result = await manager.pull_main()
@@ -1123,20 +1124,17 @@ async def test_pull_main_dry_run_skips_command(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_get_pr_checks_returns_parsed_json(config, event_bus, tmp_path):
+async def test_get_pr_checks_returns_parsed_json(event_bus, tmp_path):
     """get_pr_checks should return parsed check results."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
     checks_json = '[{"name":"ci","state":"SUCCESS"}]'
-    mock_create = _make_subprocess_mock(returncode=0, stdout=checks_json)
+    mock_create = SubprocessMockBuilder().with_stdout(checks_json).build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         checks = await mgr.get_pr_checks(101)
@@ -1147,18 +1145,17 @@ async def test_get_pr_checks_returns_parsed_json(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_get_pr_checks_returns_empty_on_failure(config, event_bus, tmp_path):
-    from config import HydraFlowConfig
+async def test_get_pr_checks_returns_empty_on_failure(event_bus, tmp_path):
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+    )
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         checks = await mgr.get_pr_checks(999)
@@ -1169,7 +1166,7 @@ async def test_get_pr_checks_returns_empty_on_failure(config, event_bus, tmp_pat
 @pytest.mark.asyncio
 async def test_get_pr_checks_dry_run_returns_empty(dry_config, event_bus):
     mgr = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         checks = await mgr.get_pr_checks(101)
@@ -1184,15 +1181,11 @@ async def test_get_pr_checks_dry_run_returns_empty(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_passes_when_all_succeed(config, event_bus, tmp_path):
+async def test_wait_for_ci_passes_when_all_succeed(event_bus, tmp_path):
     """wait_for_ci should return (True, ...) when all checks pass."""
     import asyncio
 
-    from config import HydraFlowConfig
-
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1215,15 +1208,11 @@ async def test_wait_for_ci_passes_when_all_succeed(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_fails_on_failure(config, event_bus, tmp_path):
+async def test_wait_for_ci_fails_on_failure(event_bus, tmp_path):
     """wait_for_ci should return (False, ...) when checks fail."""
     import asyncio
 
-    from config import HydraFlowConfig
-
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1246,15 +1235,11 @@ async def test_wait_for_ci_fails_on_failure(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_passes_when_no_checks(config, event_bus, tmp_path):
+async def test_wait_for_ci_passes_when_no_checks(event_bus, tmp_path):
     """wait_for_ci should return (True, ...) when no CI checks exist."""
     import asyncio
 
-    from config import HydraFlowConfig
-
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1273,15 +1258,11 @@ async def test_wait_for_ci_passes_when_no_checks(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_respects_stop_event(config, event_bus, tmp_path):
+async def test_wait_for_ci_respects_stop_event(event_bus, tmp_path):
     """wait_for_ci should return (False, 'Stopped') when stop_event is set."""
     import asyncio
 
-    from config import HydraFlowConfig
-
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1315,17 +1296,11 @@ async def test_wait_for_ci_dry_run_returns_success(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_already_complete_returns_immediately(
-    config, event_bus, tmp_path
-):
+async def test_wait_for_ci_already_complete_returns_immediately(event_bus, tmp_path):
     """When checks are already complete, should return without sleeping."""
     import asyncio
 
-    from config import HydraFlowConfig
-
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1343,15 +1318,11 @@ async def test_wait_for_ci_already_complete_returns_immediately(
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_publishes_ci_check_events(config, event_bus, tmp_path):
+async def test_wait_for_ci_publishes_ci_check_events(event_bus, tmp_path):
     """wait_for_ci should publish CI_CHECK events."""
     import asyncio
 
-    from config import HydraFlowConfig
-
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1377,15 +1348,10 @@ async def test_wait_for_ci_publishes_ci_check_events(config, event_bus, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_ensure_labels_exist_creates_all_hydraflow_labels(
-    config, event_bus, tmp_path
-):
+async def test_ensure_labels_exist_creates_all_hydraflow_labels(event_bus, tmp_path):
     """ensure_labels_exist should call gh label create --force for each label."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1424,9 +1390,8 @@ async def test_ensure_labels_exist_creates_all_hydraflow_labels(
 @pytest.mark.asyncio
 async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tmp_path):
     """ensure_labels_exist should use label names from config (not hardcoded defaults)."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
+    cfg = ConfigFactory.create(
         find_label=["custom-find"],
         ready_label=["custom-ready"],
         planner_label=["custom-plan"],
@@ -1439,7 +1404,6 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         metrics_label=["custom-metrics"],
         dup_label=["custom-dup"],
         epic_label=["custom-epic"],
-        repo=config.repo,
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1491,7 +1455,7 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
 async def test_ensure_labels_exist_dry_run_skips(dry_config, event_bus):
     """In dry-run mode, ensure_labels_exist should not call subprocess."""
     mgr = _make_manager(dry_config, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0)
+    mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
         await mgr.ensure_labels_exist()
@@ -1500,15 +1464,10 @@ async def test_ensure_labels_exist_dry_run_skips(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_ensure_labels_exist_handles_individual_failures(
-    config, event_bus, tmp_path
-):
+async def test_ensure_labels_exist_handles_individual_failures(event_bus, tmp_path):
     """If one label creation fails, others should still be attempted."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1581,19 +1540,16 @@ def test_makefile_setup_bootstraps_env_from_sample() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_with_body_file_writes_temp_file(config, event_bus, tmp_path):
+async def test_run_with_body_file_writes_temp_file(event_bus, tmp_path):
     """_run_with_body_file should write body to a temp .md file and pass --body-file."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="ok")
+    mock_create = SubprocessMockBuilder().with_stdout("ok").build()
     body_content = None
 
     original_mock = mock_create
@@ -1616,19 +1572,16 @@ async def test_run_with_body_file_writes_temp_file(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_run_with_body_file_cleans_up_temp_file(config, event_bus, tmp_path):
+async def test_run_with_body_file_cleans_up_temp_file(event_bus, tmp_path):
     """_run_with_body_file should delete the temp file after completion."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="ok")
+    mock_create = SubprocessMockBuilder().with_stdout("ok").build()
     temp_file_path = None
 
     original_mock = mock_create
@@ -1652,19 +1605,16 @@ async def test_run_with_body_file_cleans_up_temp_file(config, event_bus, tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_run_with_body_file_cleans_up_on_error(config, event_bus, tmp_path):
+async def test_run_with_body_file_cleans_up_on_error(event_bus, tmp_path):
     """_run_with_body_file should delete the temp file even on failure."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=1, stderr="fail")
+    mock_create = SubprocessMockBuilder().with_returncode(1).with_stderr("fail").build()
     temp_file_path = None
 
     original_mock = mock_create
@@ -1696,19 +1646,16 @@ async def test_run_with_body_file_cleans_up_on_error(config, event_bus, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_post_comment_chunks_large_body(config, event_bus, tmp_path):
+async def test_post_comment_chunks_large_body(event_bus, tmp_path):
     """post_comment should split oversized bodies into multiple comments."""
-    from config import HydraFlowConfig
 
-    cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
-        repo=config.repo,
+    cfg = ConfigFactory.create(
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = _make_manager(cfg, event_bus)
-    mock_create = _make_subprocess_mock(returncode=0, stdout="")
+    mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     # Body larger than the GitHub comment limit
     large_body = "x" * (PRManager._GITHUB_COMMENT_LIMIT + 1000)
@@ -1735,14 +1682,10 @@ class TestListOpenPrs:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_parses_pr_data_correctly(self, config, event_bus, tmp_path):
+    async def test_parses_pr_data_correctly(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -1760,7 +1703,7 @@ class TestListOpenPrs:
                 },
             ]
         )
-        mock_create = _make_subprocess_mock(returncode=0, stdout=pr_json)
+        mock_create = SubprocessMockBuilder().with_stdout(pr_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["test-label"])
@@ -1774,14 +1717,10 @@ class TestListOpenPrs:
         assert result[0].title == "Fix widget"
 
     @pytest.mark.asyncio
-    async def test_deduplicates_by_pr_number(self, config, event_bus, tmp_path):
+    async def test_deduplicates_by_pr_number(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -1799,7 +1738,7 @@ class TestListOpenPrs:
                 },
             ]
         )
-        mock_create = _make_subprocess_mock(returncode=0, stdout=pr_json)
+        mock_create = SubprocessMockBuilder().with_stdout(pr_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["label-a", "label-b"])
@@ -1809,14 +1748,10 @@ class TestListOpenPrs:
         assert result[0].pr == 42
 
     @pytest.mark.asyncio
-    async def test_extracts_issue_number_from_branch(self, config, event_bus, tmp_path):
+    async def test_extracts_issue_number_from_branch(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -1834,7 +1769,7 @@ class TestListOpenPrs:
                 },
             ]
         )
-        mock_create = _make_subprocess_mock(returncode=0, stdout=pr_json)
+        mock_create = SubprocessMockBuilder().with_stdout(pr_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["label"])
@@ -1842,16 +1777,10 @@ class TestListOpenPrs:
         assert result[0].issue == 99
 
     @pytest.mark.asyncio
-    async def test_returns_zero_issue_for_non_agent_branch(
-        self, config, event_bus, tmp_path
-    ):
+    async def test_returns_zero_issue_for_non_agent_branch(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -1869,7 +1798,7 @@ class TestListOpenPrs:
                 },
             ]
         )
-        mock_create = _make_subprocess_mock(returncode=0, stdout=pr_json)
+        mock_create = SubprocessMockBuilder().with_stdout(pr_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["label"])
@@ -1878,20 +1807,17 @@ class TestListOpenPrs:
         assert result[0].branch == "feature/my-branch"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_subprocess_failure(
-        self, config, event_bus, tmp_path
-    ):
-        from config import HydraFlowConfig
+    async def test_returns_empty_on_subprocess_failure(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="error")
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("error").build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["label"])
@@ -1901,7 +1827,7 @@ class TestListOpenPrs:
     @pytest.mark.asyncio
     async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
         mgr = _make_manager(dry_config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["label"])
@@ -1919,18 +1845,15 @@ class TestListHitlItems:
     """Tests for PRManager.list_hitl_items."""
 
     @pytest.mark.asyncio
-    async def test_returns_empty_when_no_issues(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_returns_empty_when_no_issues(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="[]")
+        mock_create = SubprocessMockBuilder().with_stdout("[]").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_hitl_items(["hydraflow-hitl"])
@@ -1938,14 +1861,10 @@ class TestListHitlItems:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_returns_issue_with_pr_info(self, config, event_bus, tmp_path):
+    async def test_returns_issue_with_pr_info(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -1993,14 +1912,10 @@ class TestListHitlItems:
         assert result[0].branch == "agent/issue-42"
 
     @pytest.mark.asyncio
-    async def test_returns_zero_pr_when_no_pr_found(self, config, event_bus, tmp_path):
+    async def test_returns_zero_pr_when_no_pr_found(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2034,14 +1949,10 @@ class TestListHitlItems:
         assert result[0].prUrl == ""
 
     @pytest.mark.asyncio
-    async def test_deduplicates_issues(self, config, event_bus, tmp_path):
+    async def test_deduplicates_issues(self, event_bus, tmp_path):
         import json
 
-        from config import HydraFlowConfig
-
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2065,20 +1976,17 @@ class TestListHitlItems:
         assert result[0].issue == 42
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_subprocess_failure(
-        self, config, event_bus, tmp_path
-    ):
-        from config import HydraFlowConfig
+    async def test_returns_empty_on_subprocess_failure(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="error")
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("error").build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_hitl_items(["hydraflow-hitl"])
@@ -2088,7 +1996,7 @@ class TestListHitlItems:
     @pytest.mark.asyncio
     async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
         mgr = _make_manager(dry_config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_hitl_items(["hydraflow-hitl"])
@@ -2162,13 +2070,10 @@ class TestRetryWrapperUsage:
         mock_retry.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_ensure_labels_uses_retry(self, config, event_bus, tmp_path):
+    async def test_ensure_labels_uses_retry(self, event_bus, tmp_path):
         """ensure_labels_exist should use run_subprocess_with_retry via prep."""
-        from config import HydraFlowConfig
 
-        cfg = HydraFlowConfig(
-            ready_label=["test-label"],
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2198,11 +2103,8 @@ class TestRetryWrapperUsage:
     @pytest.mark.asyncio
     async def test_max_retries_from_config(self, event_bus, tmp_path):
         """PRManager should pass gh_max_retries from config to retry wrapper."""
-        from config import HydraFlowConfig
 
-        cfg = HydraFlowConfig(
-            ready_label=["test-label"],
-            repo="test-org/test-repo",
+        cfg = ConfigFactory.create(
             gh_max_retries=5,
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -2228,12 +2130,9 @@ class TestGetLabelCounts:
     """Tests for PRManager.get_label_counts."""
 
     @pytest.mark.asyncio
-    async def test_returns_label_counts(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_returns_label_counts(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2268,12 +2167,9 @@ class TestGetLabelCounts:
         assert isinstance(result["open_by_label"], dict)
 
     @pytest.mark.asyncio
-    async def test_caches_results_for_30_seconds(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_caches_results_for_30_seconds(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2300,12 +2196,9 @@ class TestGetLabelCounts:
         assert result1 == result2
 
     @pytest.mark.asyncio
-    async def test_handles_errors_gracefully(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_handles_errors_gracefully(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2343,8 +2236,10 @@ class TestCreatePrEdgeCases:
         """create_pr should return PRInfo(number=0) when gh output is not a parseable URL."""
         manager = _make_manager(config, event_bus)
         # gh pr create returns non-URL text (unparseable)
-        mock_create = _make_subprocess_mock(
-            returncode=0, stdout="Created pull request successfully"
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_stdout("Created pull request successfully")
+            .build()
         )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -2435,7 +2330,7 @@ class TestListOpenPrsEdgeCases:
                 },
             ]
         )
-        mock_create = _make_subprocess_mock(returncode=0, stdout=pr_json)
+        mock_create = SubprocessMockBuilder().with_stdout(pr_json).build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["test-label"])
@@ -2454,18 +2349,15 @@ class TestCommentHelper:
     """Tests for the unified _comment() helper."""
 
     @pytest.mark.asyncio
-    async def test_comment_issue_target(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_comment_issue_target(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._comment("issue", 42, "test body")
@@ -2476,18 +2368,15 @@ class TestCommentHelper:
         assert "42" in cmd
 
     @pytest.mark.asyncio
-    async def test_comment_pr_target(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_comment_pr_target(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._comment("pr", 101, "test body")
@@ -2500,7 +2389,7 @@ class TestCommentHelper:
     @pytest.mark.asyncio
     async def test_comment_dry_run(self, dry_config, event_bus):
         mgr = _make_manager(dry_config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._comment("issue", 42, "body")
@@ -2508,19 +2397,21 @@ class TestCommentHelper:
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_comment_error_does_not_raise(self, config, event_bus, tmp_path):
+    async def test_comment_error_does_not_raise(self, event_bus, tmp_path):
         """_comment should log a warning on failure without propagating the error."""
-        from config import HydraFlowConfig
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="permission denied")
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("permission denied")
+            .build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
@@ -2538,7 +2429,7 @@ class TestAddLabelsHelper:
     @pytest.mark.asyncio
     async def test_add_labels_issue_target(self, config, event_bus):
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._add_labels("issue", 42, ["bug"])
@@ -2551,7 +2442,7 @@ class TestAddLabelsHelper:
     @pytest.mark.asyncio
     async def test_add_labels_pr_target(self, config, event_bus):
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._add_labels("pr", 101, ["enhancement"])
@@ -2564,7 +2455,7 @@ class TestAddLabelsHelper:
     @pytest.mark.asyncio
     async def test_add_labels_dry_run(self, dry_config, event_bus):
         mgr = _make_manager(dry_config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._add_labels("issue", 42, ["bug"])
@@ -2574,7 +2465,7 @@ class TestAddLabelsHelper:
     @pytest.mark.asyncio
     async def test_add_labels_empty_list(self, config, event_bus):
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._add_labels("pr", 101, [])
@@ -2585,7 +2476,12 @@ class TestAddLabelsHelper:
     async def test_add_labels_error_does_not_raise(self, config, event_bus):
         """_add_labels should log a warning on failure without propagating the error."""
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="label not found")
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("label not found")
+            .build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
@@ -2603,7 +2499,7 @@ class TestRemoveLabelHelper:
     @pytest.mark.asyncio
     async def test_remove_label_issue_target(self, config, event_bus):
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._remove_label("issue", 42, "ready")
@@ -2617,7 +2513,7 @@ class TestRemoveLabelHelper:
     @pytest.mark.asyncio
     async def test_remove_label_pr_target(self, config, event_bus):
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._remove_label("pr", 101, "hydraflow-review")
@@ -2631,7 +2527,7 @@ class TestRemoveLabelHelper:
     @pytest.mark.asyncio
     async def test_remove_label_dry_run(self, dry_config, event_bus):
         mgr = _make_manager(dry_config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await mgr._remove_label("pr", 101, "label")
@@ -2642,7 +2538,12 @@ class TestRemoveLabelHelper:
     async def test_remove_label_error_does_not_raise(self, config, event_bus):
         """_remove_label should log a warning on failure without propagating the error."""
         mgr = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="label not found")
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("label not found")
+            .build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
@@ -2658,12 +2559,9 @@ class TestCountHelpers:
     """Tests for _count_open_issues_by_label, _count_closed_issues, _count_merged_prs."""
 
     @pytest.mark.asyncio
-    async def test_count_open_issues_by_label(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_count_open_issues_by_label(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2683,14 +2581,9 @@ class TestCountHelpers:
         assert result == {"hydraflow-plan": 5, "hydraflow-ready": 5}
 
     @pytest.mark.asyncio
-    async def test_count_open_issues_by_label_handles_errors(
-        self, config, event_bus, tmp_path
-    ):
-        from config import HydraFlowConfig
+    async def test_count_open_issues_by_label_handles_errors(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2707,12 +2600,9 @@ class TestCountHelpers:
         assert result == {"hydraflow-plan": 0}
 
     @pytest.mark.asyncio
-    async def test_count_closed_issues(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_count_closed_issues(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2727,14 +2617,9 @@ class TestCountHelpers:
         assert result == 7
 
     @pytest.mark.asyncio
-    async def test_count_closed_issues_handles_errors(
-        self, config, event_bus, tmp_path
-    ):
-        from config import HydraFlowConfig
+    async def test_count_closed_issues_handles_errors(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2749,12 +2634,9 @@ class TestCountHelpers:
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_count_merged_prs(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_count_merged_prs(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2769,12 +2651,9 @@ class TestCountHelpers:
         assert result == 12
 
     @pytest.mark.asyncio
-    async def test_count_merged_prs_handles_errors(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_count_merged_prs_handles_errors(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2790,13 +2669,10 @@ class TestCountHelpers:
 
     @pytest.mark.asyncio
     async def test_count_open_issues_by_label_uses_search_api(
-        self, config, event_bus, tmp_path
+        self, event_bus, tmp_path
     ):
-        from config import HydraFlowConfig
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2824,14 +2700,9 @@ class TestCountHelpers:
         assert 'label:"hydraflow-plan"' in query_arg
 
     @pytest.mark.asyncio
-    async def test_count_closed_issues_uses_search_api(
-        self, config, event_bus, tmp_path
-    ):
-        from config import HydraFlowConfig
+    async def test_count_closed_issues_uses_search_api(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2857,12 +2728,9 @@ class TestCountHelpers:
         assert 'label:"hydraflow-fixed"' in query_arg
 
     @pytest.mark.asyncio
-    async def test_count_merged_prs_uses_search_api(self, config, event_bus, tmp_path):
-        from config import HydraFlowConfig
+    async def test_count_merged_prs_uses_search_api(self, event_bus, tmp_path):
 
-        cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
-            repo=config.repo,
+        cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
@@ -2899,7 +2767,7 @@ class TestCloseIssue:
     @pytest.mark.asyncio
     async def test_close_issue_calls_gh_issue_close(self, config, event_bus):
         manager = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await manager.close_issue(42)
@@ -2916,7 +2784,7 @@ class TestCloseIssue:
     @pytest.mark.asyncio
     async def test_close_issue_dry_run_skips_command(self, dry_config, event_bus):
         manager = _make_manager(dry_config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0)
+        mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             await manager.close_issue(42)
@@ -2926,7 +2794,9 @@ class TestCloseIssue:
     @pytest.mark.asyncio
     async def test_close_issue_handles_error_gracefully(self, config, event_bus):
         manager = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise
@@ -2944,7 +2814,7 @@ class TestGetPrDiffNames:
     @pytest.mark.asyncio
     async def test_get_pr_diff_names_returns_file_list(self, config, event_bus):
         manager = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="foo.py\nbar.py\n")
+        mock_create = SubprocessMockBuilder().with_stdout("foo.py\nbar.py\n").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await manager.get_pr_diff_names(101)
@@ -2960,7 +2830,9 @@ class TestGetPrDiffNames:
     @pytest.mark.asyncio
     async def test_get_pr_diff_names_returns_empty_on_failure(self, config, event_bus):
         manager = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=1, stderr="not found")
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await manager.get_pr_diff_names(999)
@@ -2972,7 +2844,7 @@ class TestGetPrDiffNames:
         self, config, event_bus
     ):
         manager = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(returncode=0, stdout="")
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await manager.get_pr_diff_names(101)
@@ -2982,8 +2854,8 @@ class TestGetPrDiffNames:
     @pytest.mark.asyncio
     async def test_get_pr_diff_names_strips_whitespace(self, config, event_bus):
         manager = _make_manager(config, event_bus)
-        mock_create = _make_subprocess_mock(
-            returncode=0, stdout="  foo.py  \n\n  bar.py \n  \n"
+        mock_create = (
+            SubprocessMockBuilder().with_stdout("  foo.py  \n\n  bar.py \n  \n").build()
         )
 
         with patch("asyncio.create_subprocess_exec", mock_create):

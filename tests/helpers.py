@@ -72,9 +72,11 @@ class ConfigFactory:
         max_issue_attempts: int = 3,
         review_label: list[str] | None = None,
         hitl_label: list[str] | None = None,
+        hitl_active_label: list[str] | None = None,
         fixed_label: list[str] | None = None,
         improve_label: list[str] | None = None,
         memory_label: list[str] | None = None,
+        metrics_label: list[str] | None = None,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
         find_label: list[str] | None = None,
@@ -182,6 +184,9 @@ class ConfigFactory:
             if review_label is not None
             else ["hydraflow-review"],
             hitl_label=hitl_label if hitl_label is not None else ["hydraflow-hitl"],
+            hitl_active_label=hitl_active_label
+            if hitl_active_label is not None
+            else ["hydraflow-hitl-active"],
             fixed_label=fixed_label if fixed_label is not None else ["hydraflow-fixed"],
             improve_label=improve_label
             if improve_label is not None
@@ -189,6 +194,9 @@ class ConfigFactory:
             memory_label=memory_label
             if memory_label is not None
             else ["hydraflow-memory"],
+            metrics_label=metrics_label
+            if metrics_label is not None
+            else ["hydraflow-metrics"],
             dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
             epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
             find_label=find_label if find_label is not None else ["hydraflow-find"],
