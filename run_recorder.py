@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-logger = logging.getLogger("hydra.run_recorder")
+logger = logging.getLogger("hydraflow.run_recorder")
 
 
 class RunManifest(BaseModel):
@@ -101,10 +101,10 @@ class RunContext:
 
 
 class RunRecorder:
-    """Records per-issue run artifacts under ``.hydra/runs/``."""
+    """Records per-issue run artifacts under ``.hydraflow/runs/``."""
 
     def __init__(self, config: HydraFlowConfig) -> None:
-        self._runs_dir = config.repo_root / ".hydra" / "runs"
+        self._runs_dir = config.repo_root / ".hydraflow" / "runs"
 
     @property
     def runs_dir(self) -> Path:
@@ -115,7 +115,7 @@ class RunRecorder:
         """Begin recording a run for *issue_number*.
 
         Creates a timestamped directory under
-        ``.hydra/runs/{issue_number}/{timestamp}/``.
+        ``.hydraflow/runs/{issue_number}/{timestamp}/``.
         """
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         run_dir = self._runs_dir / str(issue_number) / timestamp
