@@ -61,7 +61,7 @@ function formatTimestamp(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onViewLog, onUpdateInterval, events }) {
+function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onViewLog, onUpdateInterval, events, extraContent }) {
   const [showIntervalEditor, setShowIntervalEditor] = useState(false)
   const isPipelinePoller = def.key === 'pipeline_poller'
   const isSystem = def.system === true
@@ -148,7 +148,7 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
   const hasDetails = Object.keys(details).length > 0
 
   return (
-    <div style={styles.card}>
+    <div style={styles.card} data-testid={`worker-card-${def.key}`}>
       <div style={styles.cardHeader}>
         <span
           style={{ ...styles.dot, background: dotColor }}
@@ -230,6 +230,7 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
       {logLines.length > 0 && (
         <WorkerLogStream lines={logLines} />
       )}
+      {extraContent}
       {onViewLog && (
         <div style={styles.cardActions}>
           <span
@@ -330,7 +331,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, on
               })}
             </div>
             <h3 style={styles.sectionHeading}>System</h3>
-            <MemoryAutoApproveToggle />
             <div style={styles.grid}>
               {SYSTEM_WORKERS.map((def) => {
                 const state = backgroundWorkers.find(w => w.name === def.key)
@@ -346,6 +346,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, on
                     onViewLog={onViewLog}
                     onUpdateInterval={onUpdateInterval}
                     events={events}
+                    extraContent={def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> : undefined}
                   />
                 )
               })}
@@ -621,11 +622,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '8px 16px',
-    marginBottom: 12,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 8,
-    background: theme.surface,
+    borderTop: `1px solid ${theme.border}`,
+    paddingTop: 8,
+    marginTop: 8,
   },
   autoApproveLabel: {
     display: 'flex',

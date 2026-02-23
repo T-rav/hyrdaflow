@@ -34,7 +34,7 @@ describe('WorkerLogStream', () => {
       render(<WorkerLogStream lines={lines} />)
       const stream = screen.getByTestId('worker-log-stream')
       const scrollContainer = stream.firstChild
-      expect(scrollContainer.style.maxHeight).toBe('45px')
+      expect(scrollContainer.style.maxHeight).toBe('51px')
     })
 
     it('has overflow hidden when collapsed', () => {
@@ -80,7 +80,7 @@ describe('WorkerLogStream', () => {
       fireEvent.click(screen.getByTestId('worker-log-toggle'))
       const stream = screen.getByTestId('worker-log-stream')
       const scrollContainer = stream.firstChild
-      expect(scrollContainer.style.maxHeight).toBe('225px')
+      expect(scrollContainer.style.maxHeight).toBe('255px')
     })
 
     it('has overflow-y auto when expanded', () => {
@@ -106,7 +106,7 @@ describe('WorkerLogStream', () => {
       fireEvent.click(screen.getByTestId('worker-log-toggle'))
       const stream = screen.getByTestId('worker-log-stream')
       const scrollContainer = stream.firstChild
-      expect(scrollContainer.style.maxHeight).toBe('45px')
+      expect(scrollContainer.style.maxHeight).toBe('51px')
       expect(scrollContainer.style.overflowY).toBe('hidden')
       expect(screen.getByTestId('worker-log-toggle')).toHaveTextContent('Show more')
     })
@@ -154,9 +154,9 @@ describe('WorkerLogStream', () => {
       fireEvent.click(toggles[0])
 
       // First is expanded
-      expect(streams[0].firstChild.style.maxHeight).toBe('225px')
+      expect(streams[0].firstChild.style.maxHeight).toBe('255px')
       // Second stays collapsed
-      expect(streams[1].firstChild.style.maxHeight).toBe('45px')
+      expect(streams[1].firstChild.style.maxHeight).toBe('51px')
     })
   })
 

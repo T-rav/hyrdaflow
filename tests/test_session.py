@@ -318,6 +318,86 @@ class TestSessionPruning:
 
 
 # ---------------------------------------------------------------------------
+# Session Deletion
+# ---------------------------------------------------------------------------
+
+
+class TestSessionDeletion:
+    def test_delete_completed_session(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        s1 = make_session(id="s1", status="completed", started_at="2024-01-01T00:00:00")
+        s2 = make_session(id="s2", status="completed", started_at="2024-01-02T00:00:00")
+        tracker.save_session(s1)
+        tracker.save_session(s2)
+        result = tracker.delete_session("s1")
+        assert result is True
+        sessions = tracker.load_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].id == "s2"
+
+    def test_delete_nonexistent_returns_false(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.save_session(make_session(id="s1", status="completed"))
+        result = tracker.delete_session("nonexistent")
+        assert result is False
+
+    def test_delete_active_session_raises(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.save_session(make_session(id="s1", status="active"))
+        with pytest.raises(ValueError, match="Cannot delete active session"):
+            tracker.delete_session("s1")
+
+    def test_delete_returns_false_when_no_file(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        result = tracker.delete_session("anything")
+        assert result is False
+
+    def test_delete_preserves_other_sessions(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        for i in range(3):
+            tracker.save_session(
+                make_session(
+                    id=f"s{i}",
+                    status="completed",
+                    started_at=f"2024-01-0{i + 1}T00:00:00",
+                )
+            )
+        tracker.delete_session("s1")
+        sessions = tracker.load_sessions()
+        assert len(sessions) == 2
+        ids = {s.id for s in sessions}
+        assert ids == {"s0", "s2"}
+
+    def test_delete_deduplicates_before_removal(self, tmp_path: Path) -> None:
+        """Session saved twice (start + end) should be fully removed."""
+        tracker = make_tracker(tmp_path)
+        session = make_session(id="s1", status="active")
+        tracker.save_session(session)
+        session.status = "completed"
+        session.ended_at = "2024-03-15T15:00:00+00:00"
+        tracker.save_session(session)
+
+        result = tracker.delete_session("s1")
+        assert result is True
+        sessions = tracker.load_sessions()
+        assert len(sessions) == 0
+
+    def test_delete_persists_across_reload(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.save_session(make_session(id="s1", status="completed"))
+        tracker.save_session(
+            make_session(id="s2", status="completed", started_at="2024-01-02T00:00:00")
+        )
+        tracker.delete_session("s1")
+
+        # Reload from fresh tracker
+        tracker2 = make_tracker(tmp_path)
+        sessions = tracker2.load_sessions()
+        assert len(sessions) == 1
+        assert sessions[0].id == "s2"
+
+
+# ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
 

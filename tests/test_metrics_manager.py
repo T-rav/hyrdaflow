@@ -233,8 +233,10 @@ class TestSync:
         prs.post_comment.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_metrics_issue_returns_error(self, state, event_bus) -> None:
-        """When metrics issue cannot be created, returns error status."""
+    async def test_no_metrics_issue_returns_cached_locally(
+        self, state, event_bus
+    ) -> None:
+        """When metrics issue cannot be created, returns cached_locally status."""
         mgr, state, _, _ = make_manager(state, event_bus)
         state.record_issue_completed()
 
@@ -243,7 +245,7 @@ class TestSync:
         ):
             result = await mgr.sync()
 
-        assert result["status"] == "error"
+        assert result["status"] == "cached_locally"
         assert result["reason"] == "no_metrics_issue"
 
     @pytest.mark.asyncio
@@ -377,9 +379,13 @@ class TestFetchHistory:
         assert result[0].issues_completed == 5
 
     @pytest.mark.asyncio
-    async def test_returns_empty_when_no_issue(self, state, event_bus) -> None:
-        """Returns empty list when no metrics issue is configured."""
-        mgr, _, _, _ = make_manager(state, event_bus)
+    async def test_returns_empty_when_no_issue_and_no_cache(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """Returns empty list when no metrics issue and no local cache exist."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
         result = await mgr.fetch_history_from_issue()
         assert result == []
 
@@ -422,3 +428,165 @@ class TestFetchHistory:
         assert len(result) == 2
         assert result[0].timestamp == "2025-01-01T00:00:00"
         assert result[1].timestamp == "2025-01-02T00:00:00"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_local_cache_on_api_failure(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """Falls back to local cache when GitHub API fails."""
+        mgr, state, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        state.set_metrics_issue_number(42)
+
+        # Write a snapshot to local cache
+        snap = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=7)
+        mgr._save_to_local_cache(snap)
+
+        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
+            mock_fetcher = MockFetcher.return_value
+            mock_fetcher.fetch_issue_comments = AsyncMock(
+                side_effect=RuntimeError("API down")
+            )
+            result = await mgr.fetch_history_from_issue()
+
+        assert len(result) == 1
+        assert result[0].issues_completed == 7
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_local_cache_when_no_issue(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """Falls back to local cache when no metrics issue number is configured."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        # No issue number set — should return local cache
+        snap = MetricsSnapshot(timestamp="2025-03-01T00:00:00", prs_merged=3)
+        mgr._save_to_local_cache(snap)
+
+        result = await mgr.fetch_history_from_issue()
+        assert len(result) == 1
+        assert result[0].prs_merged == 3
+
+
+# ---------------------------------------------------------------------------
+# TestLocalCache
+# ---------------------------------------------------------------------------
+
+
+class TestLocalCache:
+    def test_save_creates_cache_file(self, state, event_bus, tmp_path) -> None:
+        """_save_to_local_cache creates the JSONL file and parent directories."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        snap = MetricsSnapshot(timestamp="2025-01-01T00:00:00")
+        mgr._save_to_local_cache(snap)
+
+        cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
+        assert cache_file.exists()
+
+    def test_save_appends_to_cache(self, state, event_bus, tmp_path) -> None:
+        """Multiple saves append to the same JSONL file."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        mgr._save_to_local_cache(MetricsSnapshot(timestamp="2025-01-01T00:00:00"))
+        mgr._save_to_local_cache(MetricsSnapshot(timestamp="2025-01-02T00:00:00"))
+
+        cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
+        lines = [ln for ln in cache_file.read_text().strip().split("\n") if ln.strip()]
+        assert len(lines) == 2
+
+    def test_load_local_history_returns_snapshots(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """load_local_history reads back saved snapshots."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        mgr._save_to_local_cache(
+            MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=1)
+        )
+        mgr._save_to_local_cache(
+            MetricsSnapshot(timestamp="2025-01-02T00:00:00", issues_completed=2)
+        )
+
+        result = mgr.load_local_history()
+        assert len(result) == 2
+        assert result[0].issues_completed == 1
+        assert result[1].issues_completed == 2
+
+    def test_load_local_history_empty_when_no_file(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """load_local_history returns empty list when no cache file exists."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        result = mgr.load_local_history()
+        assert result == []
+
+    def test_load_local_history_respects_limit(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """load_local_history caps results at the given limit."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        for i in range(5):
+            mgr._save_to_local_cache(
+                MetricsSnapshot(timestamp=f"2025-01-0{i + 1}T00:00:00")
+            )
+
+        result = mgr.load_local_history(limit=3)
+        assert len(result) == 3
+        # Should return the 3 most recent (oldest-first)
+        assert result[0].timestamp == "2025-01-03T00:00:00"
+
+    def test_load_local_history_skips_corrupt_lines(
+        self, state, event_bus, tmp_path
+    ) -> None:
+        """Corrupt JSONL lines are silently skipped."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        cache_dir = tmp_path / "metrics" / "test-owner-test-repo"
+        cache_dir.mkdir(parents=True)
+        cache_file = cache_dir / "snapshots.jsonl"
+
+        valid = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=5)
+        with open(cache_file, "w") as f:
+            f.write("{ corrupt }\n")
+            f.write(valid.model_dump_json() + "\n")
+            f.write("also broken\n")
+
+        result = mgr.load_local_history()
+        assert len(result) == 1
+        assert result[0].issues_completed == 5
+
+    def test_cache_dir_uses_repo_slug(self, state, event_bus, tmp_path) -> None:
+        """Cache directory path is based on repo slug."""
+        mgr, _, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        assert mgr._cache_dir == tmp_path / "metrics" / "test-owner-test-repo"
+
+    @pytest.mark.asyncio
+    async def test_sync_writes_to_local_cache(self, state, event_bus, tmp_path) -> None:
+        """sync() writes snapshot to local cache before posting to GitHub."""
+        mgr, state, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        state.record_issue_completed()
+
+        with patch.object(
+            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
+        ):
+            await mgr.sync()
+
+        cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
+        assert cache_file.exists()
+        lines = [ln for ln in cache_file.read_text().strip().split("\n") if ln.strip()]
+        assert len(lines) == 1

@@ -3,7 +3,8 @@ import { theme } from '../theme'
 
 const MAX_COLLAPSED = 3
 const MAX_EXPANDED = 15
-const LINE_HEIGHT = 15
+// fontSize(10) * lineHeight(1.5) + padding-top(1) + padding-bottom(1) = 17px per line
+const LINE_HEIGHT = 17
 const COLLAPSED_MAX_HEIGHT = MAX_COLLAPSED * LINE_HEIGHT
 const EXPANDED_MAX_HEIGHT = MAX_EXPANDED * LINE_HEIGHT
 
