@@ -201,6 +201,16 @@ describe('deriveStageStatus', () => {
       expect(result.workload.active).toBe(1)
       expect(result.workload.total).toBe(2)
     })
+
+    it('done is 0 when workers are active but no merges have occurred', () => {
+      const workers = {
+        1: { role: 'implementer', status: 'running' },
+        2: { role: 'implementer', status: 'testing' },
+        3: { role: 'planner', status: 'planning' },
+      }
+      const result = deriveStageStatus(emptyPipeline, workers, [], {})
+      expect(result.workload).toEqual({ total: 3, active: 3, done: 0, failed: 0 })
+    })
   })
 
   it('handles a full realistic scenario', () => {
