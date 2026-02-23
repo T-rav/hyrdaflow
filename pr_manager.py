@@ -715,6 +715,9 @@ class PRManager:
                 for p in json.loads(raw):
                     pr_num = p.get("number")
                     if pr_num is None:
+                        logger.debug(
+                            "Skipping PR in list_open_prs: missing 'number' key"
+                        )
                         continue
                     if pr_num in seen:
                         continue
