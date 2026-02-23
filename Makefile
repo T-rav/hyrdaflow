@@ -243,6 +243,13 @@ setup: deps
 		echo "  target is HydraFlow repo; using existing .githooks files"; \
 	fi
 	@git -C "$(TARGET_REPO_ROOT)" config core.hooksPath .githooks
+	@if [ ! -f "$(TARGET_REPO_ROOT)/.gitignore" ]; then \
+		touch "$(TARGET_REPO_ROOT)/.gitignore"; \
+	fi
+	@if ! grep -qx '\.pre' "$(TARGET_REPO_ROOT)/.gitignore"; then \
+		printf '\n.pre\n' >> "$(TARGET_REPO_ROOT)/.gitignore"; \
+		echo "  .gitignore updated: added .pre"; \
+	fi
 	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
 	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep
