@@ -88,8 +88,14 @@ git submodule update --init
 
 ```bash
 cd hydraflow
-uv venv venv --python 3.11
-uv pip install -e ".[test,dev,dashboard]" --python venv/bin/python
+make deps
+```
+
+This creates a `.venv/`, installs all dependencies (test, dev, dashboard, docker), and stamps the result so subsequent runs are instant. You can also install manually:
+
+```bash
+uv venv .venv --python 3.11
+uv pip install -e ".[test,dev,dashboard,docker]" --python .venv/bin/python
 ```
 
 ### 3. Configure environment
