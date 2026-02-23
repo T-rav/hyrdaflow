@@ -3639,3 +3639,20 @@ class TestAgentToolFields:
         assert cfg.triage_tool == "codex"
         assert cfg.ac_tool == "codex"
         assert cfg.verification_judge_tool == "codex"
+
+
+class TestTieringFields:
+    def test_defaults(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.subskill_tool == "claude"
+        assert cfg.subskill_model == "haiku"
+        assert cfg.max_subskill_attempts == 0
+        assert cfg.debug_escalation_enabled is True
+        assert cfg.debug_tool == "claude"
+        assert cfg.debug_model == "opus"
+        assert cfg.max_debug_attempts == 1
+        assert cfg.subskill_confidence_threshold == pytest.approx(0.7)

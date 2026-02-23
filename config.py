@@ -39,6 +39,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
+    ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
+    ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -46,6 +48,8 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
     ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
     ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
+    ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
+    ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -67,6 +71,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         False,
     ),
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
+    ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
 ]
 
 # Label env var overrides — maps env key → (field_name, default_value)
@@ -299,6 +304,44 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Agent prompt configuration
+    subskill_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for low-tier subskill/tool-chain passes",
+    )
+    subskill_model: str = Field(
+        default="haiku",
+        description="Model used for low-tier subskill/tool-chain passes",
+    )
+    max_subskill_attempts: int = Field(
+        default=0,
+        ge=0,
+        le=5,
+        description="Max low-tier subskill precheck attempts per stage",
+    )
+    debug_escalation_enabled: bool = Field(
+        default=True,
+        description="Enable automatic escalation to debug model when low-tier prechecks signal risk/ambiguity",
+    )
+    debug_tool: Literal["claude", "codex"] = Field(
+        default="claude",
+        description="CLI backend for debug escalation passes",
+    )
+    debug_model: str = Field(
+        default="opus",
+        description="Model used for debug escalation passes",
+    )
+    max_debug_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max debug escalation attempts per stage",
+    )
+    subskill_confidence_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Minimum low-tier confidence before skipping debug escalation",
+    )
     test_command: str = Field(
         default="make test",
         description="Quick test command for agent prompts",
@@ -767,6 +810,16 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
         env_judge_tool = os.environ.get("HYDRAFLOW_VERIFICATION_JUDGE_TOOL")
         if env_judge_tool in ("claude", "codex"):
             object.__setattr__(config, "verification_judge_tool", env_judge_tool)
+
+    if config.subskill_tool == "claude":
+        env_subskill_tool = os.environ.get("HYDRAFLOW_SUBSKILL_TOOL")
+        if env_subskill_tool in ("claude", "codex"):
+            object.__setattr__(config, "subskill_tool", env_subskill_tool)
+
+    if config.debug_tool == "claude":
+        env_debug_tool = os.environ.get("HYDRAFLOW_DEBUG_TOOL")
+        if env_debug_tool in ("claude", "codex"):
+            object.__setattr__(config, "debug_tool", env_debug_tool)
 
     # Lite plan labels (comma-separated list, special-case)
     env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")

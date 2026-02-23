@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from config import HydraFlowConfig
+from escalation_gate import should_escalate_debug
 from events import EventBus, EventType, HydraFlowEvent
 from execution import get_default_runner
 from manifest import load_project_manifest
@@ -95,8 +96,13 @@ class ReviewRunner:
             return result
 
         try:
+            precheck_context = await self._run_precheck_context(
+                pr, issue, diff, worktree_path
+            )
             cmd = self._build_command(worktree_path)
-            prompt = self._build_review_prompt(pr, issue, diff)
+            prompt = self._build_review_prompt(
+                pr, issue, diff, precheck_context=precheck_context
+            )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(cmd, prompt, worktree_path, pr.number)
             result.transcript = transcript
@@ -255,7 +261,13 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             budget_usd=self._config.review_budget_usd,
         )
 
-    def _build_review_prompt(self, pr: PRInfo, issue: GitHubIssue, diff: str) -> str:
+    def _build_review_prompt(
+        self,
+        pr: PRInfo,
+        issue: GitHubIssue,
+        diff: str,
+        precheck_context: str = "",
+    ) -> str:
         """Build the review prompt for the agent."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
         test_cmd = self._config.test_command
@@ -318,6 +330,10 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 ## Issue: {issue.title}
 
 {issue.body}{manifest_section}{memory_section}
+
+## Precheck Context
+
+{precheck_context or "No low-tier precheck context provided."}
 
 ## PR Diff
 
@@ -399,6 +415,147 @@ Types: knowledge (passive insight), config (suggests config change), instruction
 Actionable types (config, instruction, code) will be routed for human approval.
 Only suggest genuinely valuable learnings — not trivial observations.
 """
+
+    def _build_subskill_command(self) -> list[str]:
+        return build_agent_command(
+            tool=self._config.subskill_tool,
+            model=self._config.subskill_model,
+        )
+
+    def _build_debug_command(self) -> list[str]:
+        return build_agent_command(
+            tool=self._config.debug_tool,
+            model=self._config.debug_model,
+        )
+
+    def _build_precheck_prompt(self, pr: PRInfo, issue: GitHubIssue, diff: str) -> str:
+        max_diff = min(len(diff), 6000)
+        diff_snippet = diff[:max_diff]
+        return f"""Run a compact review precheck for PR #{pr.number} (issue #{issue.number}).
+
+Goal:
+- estimate risk and confidence
+- list top findings (max 5)
+- recommend whether debug escalation is needed
+
+Return EXACTLY:
+PRECHECK_RISK: low|medium|high
+PRECHECK_CONFIDENCE: <0.0-1.0>
+PRECHECK_ESCALATE: yes|no
+PRECHECK_SUMMARY: <one line>
+
+Issue title: {issue.title}
+Diff snippet:
+```diff
+{diff_snippet}
+```
+"""
+
+    @staticmethod
+    def _parse_precheck_transcript(
+        transcript: str,
+    ) -> tuple[str, float, bool, str, bool]:
+        risk_match = re.search(
+            r"PRECHECK_RISK:\s*(low|medium|high)",
+            transcript,
+            re.IGNORECASE,
+        )
+        confidence_match = re.search(
+            r"PRECHECK_CONFIDENCE:\s*([0-9]*\.?[0-9]+)",
+            transcript,
+            re.IGNORECASE,
+        )
+        escalate_match = re.search(
+            r"PRECHECK_ESCALATE:\s*(yes|no)",
+            transcript,
+            re.IGNORECASE,
+        )
+        summary_match = re.search(
+            r"PRECHECK_SUMMARY:\s*(.*)",
+            transcript,
+            re.IGNORECASE,
+        )
+        parse_failed = not (
+            risk_match and confidence_match and escalate_match and summary_match
+        )
+        risk = risk_match.group(1).lower() if risk_match else "medium"
+        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
+        escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
+        summary = summary_match.group(1).strip() if summary_match else ""
+        return risk, confidence, escalate, summary, parse_failed
+
+    @staticmethod
+    def _high_risk_diff_touched(diff: str) -> bool:
+        patterns = ("/auth", "/security", "/payment", "migration", "infra/")
+        diff_lower = diff.lower()
+        return any(p in diff_lower for p in patterns)
+
+    async def _run_precheck_context(
+        self, pr: PRInfo, issue: GitHubIssue, diff: str, worktree_path: Path
+    ) -> str:
+        if self._config.max_subskill_attempts <= 0:
+            return "Low-tier precheck disabled."
+        prompt = self._build_precheck_prompt(pr, issue, diff)
+        summary = ""
+        parse_failed = False
+        risk = "medium"
+        confidence = self._config.subskill_confidence_threshold
+        max_subskill = self._config.max_subskill_attempts
+
+        try:
+            for _attempt in range(1, max_subskill + 1):
+                transcript = await self._execute(
+                    self._build_subskill_command(),
+                    prompt,
+                    worktree_path,
+                    pr.number,
+                )
+                (
+                    risk,
+                    confidence,
+                    _escalate_signal,
+                    summary,
+                    parse_failed,
+                ) = self._parse_precheck_transcript(transcript)
+                if not parse_failed:
+                    break
+        except Exception:  # noqa: BLE001
+            return "Low-tier precheck failed; continuing without precheck context."
+
+        decision = should_escalate_debug(
+            enabled=self._config.debug_escalation_enabled,
+            confidence=confidence,
+            confidence_threshold=self._config.subskill_confidence_threshold,
+            parse_failed=parse_failed,
+            retry_count=max_subskill,
+            max_subskill_attempts=max_subskill,
+            risk=risk,
+            high_risk_files_touched=self._high_risk_diff_touched(diff),
+        )
+
+        context_lines = [
+            f"Precheck risk: {risk}",
+            f"Precheck confidence: {confidence:.2f}",
+            f"Precheck summary: {summary or 'N/A'}",
+            f"Debug escalation: {'yes' if decision.escalate else 'no'}",
+        ]
+
+        if decision.escalate and self._config.max_debug_attempts > 0:
+            debug_prompt = (
+                prompt
+                + "\n\nDEBUG MODE: Focus on root causes and concrete risky files."
+            )
+            debug_transcript = await self._execute(
+                self._build_debug_command(),
+                debug_prompt,
+                worktree_path,
+                pr.number,
+            )
+            context_lines.append("Debug precheck transcript:")
+            context_lines.append(debug_transcript[:1000])
+            context_lines.append(f"Escalation reasons: {', '.join(decision.reasons)}")
+
+        return "\n".join(context_lines)
 
     def _parse_verdict(self, transcript: str) -> ReviewVerdict:
         """Extract the verdict from the reviewer transcript."""
