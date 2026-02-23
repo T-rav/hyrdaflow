@@ -11,6 +11,7 @@ import pytest
 
 from events import EventBus, EventLog, EventType, HydraFlowEvent
 from tests.conftest import EventFactory
+from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -460,10 +461,8 @@ class TestEventLogConfig:
         assert config.event_log_retention_days == 7
 
     def test_custom_event_log_path(self, tmp_path: Path) -> None:
-        from config import HydraFlowConfig
-
         custom_path = tmp_path / "custom.jsonl"
-        config = HydraFlowConfig(repo="test/repo", event_log_path=custom_path)
+        config = ConfigFactory.create(event_log_path=custom_path)
         assert config.event_log_path == custom_path
 
     def test_max_size_mb_validation(self) -> None:
