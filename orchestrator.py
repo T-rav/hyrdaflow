@@ -361,6 +361,7 @@ class HydraFlowOrchestrator:
         recovered = set(self._state.get_active_issue_numbers())
         if recovered:
             self._recovered_issues = recovered
+            # Add to implementation active set so they're skipped for one poll cycle
             self._active_impl_issues.update(recovered)
             logger.info(
                 "Crash recovery: loaded %d active issue(s) from state: %s",
@@ -368,6 +369,10 @@ class HydraFlowOrchestrator:
                 recovered,
             )
 
+        # Restore interrupted issues from a previous stop.
+        # Remove them from crash-recovery tracking sets so the IssueStore
+        # can route each issue to the correct pipeline stage based on its
+        # current GitHub labels.
         interrupted = self._state.get_interrupted_issues()
         if interrupted:
             for issue_num in interrupted:
