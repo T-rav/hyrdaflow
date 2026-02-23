@@ -310,13 +310,15 @@ class TestParseVerdict:
         result = TriageRunner._parse_verdict(transcript, 1)
         assert result is None
 
-    def test_reasons_as_string_returns_empty_list(self) -> None:
-        """LLM returns reasons as a plain string instead of an array — must not explode."""
+    def test_reasons_as_string_coerced_to_list(self) -> None:
+        """LLM returns reasons as a plain string instead of an array — coerced to list."""
         transcript = '{"ready": false, "reasons": "Missing specificity"}'
         result = TriageRunner._parse_verdict(transcript, 1)
         assert result is not None
         assert result.ready is False
-        assert result.reasons == []  # non-list reasons silently dropped
+        assert result.reasons == [
+            "Missing specificity"
+        ]  # string preserved as single-item list
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +344,14 @@ class TestBuildCommand:
         assert "--max-turns" in cmd
         turns_idx = cmd.index("--max-turns")
         assert cmd[turns_idx + 1] == "1"
+
+    def test_command_includes_bypass_permissions(self, event_bus: EventBus) -> None:
+        config = ConfigFactory.create()
+        runner = TriageRunner(config, event_bus)
+        cmd = runner._build_command()
+        assert "--permission-mode" in cmd
+        perm_idx = cmd.index("--permission-mode")
+        assert cmd[perm_idx + 1] == "bypassPermissions"
 
 
 class TestBuildPrompt:

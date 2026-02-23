@@ -25,6 +25,21 @@ _MIN_TITLE_LENGTH = 10
 _MIN_BODY_LENGTH = 50
 
 
+def _coerce_reasons(raw: object) -> list[str]:
+    """Normalise the ``reasons`` field from an LLM JSON response.
+
+    - List → returned as-is (normal case).
+    - Non-empty string → wrapped in a single-element list so the reason
+      is preserved in HITL comments rather than silently dropped.
+    - Anything else (None, int, empty string, …) → empty list.
+    """
+    if isinstance(raw, list):
+        return list(raw)
+    if isinstance(raw, str) and raw.strip():
+        return [raw]
+    return []
+
+
 class TriageRunner:
     """Evaluates whether a GitHub issue has enough context for planning.
 
@@ -156,6 +171,8 @@ class TriageRunner:
             "--model",
             self._config.triage_model,
             "--verbose",
+            "--permission-mode",
+            "bypassPermissions",
             "--max-turns",
             "1",
         ]
@@ -246,7 +263,7 @@ or
                 return TriageResult(
                     issue_number=issue_number,
                     ready=bool(data["ready"]),
-                    reasons=list(raw) if isinstance(raw, list) else [],
+                    reasons=_coerce_reasons(raw),
                 )
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
@@ -261,7 +278,7 @@ or
                     return TriageResult(
                         issue_number=issue_number,
                         ready=bool(data["ready"]),
-                        reasons=list(raw) if isinstance(raw, list) else [],
+                        reasons=_coerce_reasons(raw),
                     )
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
@@ -276,7 +293,7 @@ or
                     return TriageResult(
                         issue_number=issue_number,
                         ready=bool(data["ready"]),
-                        reasons=list(raw) if isinstance(raw, list) else [],
+                        reasons=_coerce_reasons(raw),
                     )
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
