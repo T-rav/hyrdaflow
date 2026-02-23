@@ -2066,8 +2066,8 @@ class TestBuildPromptRuntimeLogs:
         issue = IssueFactory.create()
 
         with (
-            patch("agent.load_project_manifest", return_value=""),
-            patch("agent.load_memory_digest", return_value=""),
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
         ):
             prompt = runner._build_prompt(issue)
 
@@ -2082,8 +2082,8 @@ class TestBuildPromptRuntimeLogs:
         issue = IssueFactory.create()
 
         with (
-            patch("agent.load_project_manifest", return_value=""),
-            patch("agent.load_memory_digest", return_value=""),
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
         ):
             prompt = runner._build_prompt(issue)
 
@@ -2101,8 +2101,8 @@ class TestBuildPromptRuntimeLogs:
         issue = IssueFactory.create()
 
         with (
-            patch("agent.load_project_manifest", return_value=""),
-            patch("agent.load_memory_digest", return_value=""),
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
         ):
             prompt = runner._build_prompt(issue)
 

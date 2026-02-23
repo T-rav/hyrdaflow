@@ -1830,8 +1830,8 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
     issue = IssueFactory.create()
 
     with (
-        patch("reviewer.load_project_manifest", return_value=""),
-        patch("reviewer.load_memory_digest", return_value=""),
+        patch("base_runner.load_project_manifest", return_value=""),
+        patch("base_runner.load_memory_digest", return_value=""),
     ):
         prompt = runner._build_review_prompt(pr, issue, "diff --git a/foo.py")
 
@@ -1848,8 +1848,8 @@ def test_build_review_prompt_excludes_runtime_logs_when_disabled(config, event_b
     issue = IssueFactory.create()
 
     with (
-        patch("reviewer.load_project_manifest", return_value=""),
-        patch("reviewer.load_memory_digest", return_value=""),
+        patch("base_runner.load_project_manifest", return_value=""),
+        patch("base_runner.load_memory_digest", return_value=""),
     ):
         prompt = runner._build_review_prompt(pr, issue, "diff --git a/foo.py")
 
