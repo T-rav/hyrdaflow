@@ -168,9 +168,7 @@ class ImplementPhase:
 
     def _read_plan_for_recording(self, issue_number: int) -> str:
         """Read the plan file for *issue_number*, returning empty string on failure."""
-        plan_path = (
-            self._config.repo_root / ".hydraflow" / "plans" / f"issue-{issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{issue_number}.md"
         try:
             return plan_path.read_text()
         except OSError:

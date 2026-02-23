@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.orchestrator")
 
+# Delay after a merge to allow GitHub to propagate the merge state.
+_POST_MERGE_DELAY: int = 5
+
 
 class HydraFlowOrchestrator:
     """Coordinates the full HydraFlow pipeline.
@@ -753,7 +756,7 @@ class HydraFlowOrchestrator:
                     log_file=f".hydraflow/logs/review-pr-{result.pr_number}.txt",
                 )
         if any(r.merged for r in review_results):
-            await asyncio.sleep(5)
+            await asyncio.sleep(_POST_MERGE_DELAY)
             await self._prs.pull_main()
 
     async def _sleep_or_stop(self, seconds: int | float) -> None:

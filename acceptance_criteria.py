@@ -324,9 +324,7 @@ Diff summary:
 
     def _read_plan_file(self, issue_number: int) -> str:
         """Read the plan from ``.hydraflow/plans/issue-N.md``."""
-        plan_path = (
-            self._config.repo_root / ".hydraflow" / "plans" / f"issue-{issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{issue_number}.md"
         try:
             return plan_path.read_text()
         except OSError:

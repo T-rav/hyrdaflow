@@ -280,7 +280,7 @@ class PRUnsticker:
         self, issue_number: int, attempt: int, transcript: str
     ) -> None:
         """Save a conflict resolution transcript to ``.hydraflow/logs/``."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
+        log_dir = self._config.log_dir
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
             path = log_dir / f"unsticker-issue-{issue_number}-attempt-{attempt}.txt"

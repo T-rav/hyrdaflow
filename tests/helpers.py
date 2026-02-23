@@ -221,6 +221,10 @@ class ConfigFactory:
         agent_timeout: int = 3600,
         transcript_summary_timeout: int = 120,
         memory_compaction_timeout: int = 60,
+        quality_timeout: int = 3600,
+        git_command_timeout: int = 30,
+        summarizer_timeout: int = 120,
+        error_output_max_chars: int = 3000,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -348,6 +352,10 @@ class ConfigFactory:
             agent_timeout=agent_timeout,
             transcript_summary_timeout=transcript_summary_timeout,
             memory_compaction_timeout=memory_compaction_timeout,
+            quality_timeout=quality_timeout,
+            git_command_timeout=git_command_timeout,
+            summarizer_timeout=summarizer_timeout,
+            error_output_max_chars=error_output_max_chars,
         )
 
 

@@ -82,7 +82,7 @@ class ReviewPhase:
         self._summarizer = transcript_summarizer
         self._epic_checker = epic_checker
         self._harness_insights = harness_insights
-        self._insights = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
+        self._insights = ReviewInsightStore(config.memory_dir)
         self._active_issues: set[int] = set()
         self._conflict_resolver = MergeConflictResolver(
             config=config,
@@ -353,12 +353,7 @@ class ReviewPhase:
         """
         from delta_verifier import parse_file_delta, verify_delta
 
-        plan_path = (
-            self._config.repo_root
-            / ".hydraflow"
-            / "plans"
-            / f"issue-{pr.issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{pr.issue_number}.md"
         if not plan_path.exists():
             return ""
 

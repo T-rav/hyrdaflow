@@ -24,6 +24,9 @@ from transcript_summarizer import TranscriptSummarizer
 
 logger = logging.getLogger("hydraflow.plan_phase")
 
+# Minimum body length for auto-filed sub-issues discovered during planning.
+_MIN_ISSUE_BODY_CHARS: int = 50
+
 
 class PlanPhase:
     """Runs planning agents on issues and posts results."""
@@ -136,12 +139,13 @@ class PlanPhase:
 
                         # File new issues discovered during planning
                         for new_issue in result.new_issues:
-                            if len(new_issue.body) < 50:
+                            if len(new_issue.body) < _MIN_ISSUE_BODY_CHARS:
                                 logger.warning(
                                     "Skipping discovered issue %r — body too short "
-                                    "(%d chars, need ≥50)",
+                                    "(%d chars, need ≥%d)",
                                     new_issue.title,
                                     len(new_issue.body),
+                                    _MIN_ISSUE_BODY_CHARS,
                                 )
                                 continue
                             labels = new_issue.labels or [self._config.planner_label[0]]

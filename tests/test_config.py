@@ -3860,3 +3860,195 @@ class TestTimeoutConfigFields:
         monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", "90")
         config = HydraFlowConfig(repo="test/repo")
         assert config.memory_compaction_timeout == 90
+
+
+# ---------------------------------------------------------------------------
+# Directory properties (log_dir, plans_dir, memory_dir)
+# ---------------------------------------------------------------------------
+
+
+class TestDirectoryProperties:
+    """Tests for the computed directory @property methods on HydraFlowConfig."""
+
+    def test_log_dir_returns_hydraflow_logs_under_repo_root(
+        self, tmp_path: Path
+    ) -> None:
+        """log_dir should return repo_root / .hydraflow / logs."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.log_dir == tmp_path / ".hydraflow" / "logs"
+
+    def test_plans_dir_returns_hydraflow_plans_under_repo_root(
+        self, tmp_path: Path
+    ) -> None:
+        """plans_dir should return repo_root / .hydraflow / plans."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.plans_dir == tmp_path / ".hydraflow" / "plans"
+
+    def test_memory_dir_returns_hydraflow_memory_under_repo_root(
+        self, tmp_path: Path
+    ) -> None:
+        """memory_dir should return repo_root / .hydraflow / memory."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.memory_dir == tmp_path / ".hydraflow" / "memory"
+
+    def test_directory_properties_follow_repo_root(self, tmp_path: Path) -> None:
+        """All directory properties should be anchored to whatever repo_root is."""
+        custom_root = tmp_path / "custom" / "root"
+        custom_root.mkdir(parents=True)
+        cfg = HydraFlowConfig(
+            repo_root=custom_root,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.log_dir.parent.parent == custom_root
+        assert cfg.plans_dir.parent.parent == custom_root
+        assert cfg.memory_dir.parent.parent == custom_root
+
+
+# ---------------------------------------------------------------------------
+# Timeout and limit fields
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutAndLimitFields:
+    """Tests for quality_timeout, git_command_timeout, summarizer_timeout, error_output_max_chars."""
+
+    def test_quality_timeout_default(self, tmp_path: Path) -> None:
+        """quality_timeout should default to 3600."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.quality_timeout == 3600
+
+    def test_git_command_timeout_default(self, tmp_path: Path) -> None:
+        """git_command_timeout should default to 30."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_command_timeout == 30
+
+    def test_summarizer_timeout_default(self, tmp_path: Path) -> None:
+        """summarizer_timeout should default to 120."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.summarizer_timeout == 120
+
+    def test_error_output_max_chars_default(self, tmp_path: Path) -> None:
+        """error_output_max_chars should default to 3000."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.error_output_max_chars == 3000
+
+    def test_quality_timeout_custom(self, tmp_path: Path) -> None:
+        """quality_timeout should accept a custom value within range."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            quality_timeout=1800,
+        )
+        assert cfg.quality_timeout == 1800
+
+    def test_git_command_timeout_custom(self, tmp_path: Path) -> None:
+        """git_command_timeout should accept a custom value within range."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            git_command_timeout=60,
+        )
+        assert cfg.git_command_timeout == 60
+
+    def test_summarizer_timeout_custom(self, tmp_path: Path) -> None:
+        """summarizer_timeout should accept a custom value within range."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            summarizer_timeout=300,
+        )
+        assert cfg.summarizer_timeout == 300
+
+    def test_error_output_max_chars_custom(self, tmp_path: Path) -> None:
+        """error_output_max_chars should accept a custom value within range."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            error_output_max_chars=5000,
+        )
+        assert cfg.error_output_max_chars == 5000
+
+    def test_quality_timeout_below_minimum_rejected(self, tmp_path: Path) -> None:
+        """quality_timeout below ge=60 should be rejected by Pydantic."""
+        with pytest.raises(ValueError, match="greater than or equal to 60"):
+            HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+                quality_timeout=10,
+            )
+
+    def test_quality_timeout_above_maximum_rejected(self, tmp_path: Path) -> None:
+        """quality_timeout above le=7200 should be rejected by Pydantic."""
+        with pytest.raises(ValueError, match="less than or equal to 7200"):
+            HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+                quality_timeout=10000,
+            )
+
+    def test_git_command_timeout_below_minimum_rejected(self, tmp_path: Path) -> None:
+        """git_command_timeout below ge=5 should be rejected by Pydantic."""
+        with pytest.raises(ValueError, match="greater than or equal to 5"):
+            HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+                git_command_timeout=1,
+            )
+
+    def test_summarizer_timeout_below_minimum_rejected(self, tmp_path: Path) -> None:
+        """summarizer_timeout below ge=30 should be rejected by Pydantic."""
+        with pytest.raises(ValueError, match="greater than or equal to 30"):
+            HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+                summarizer_timeout=5,
+            )
+
+    def test_error_output_max_chars_below_minimum_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """error_output_max_chars below ge=500 should be rejected by Pydantic."""
+        with pytest.raises(ValueError, match="greater than or equal to 500"):
+            HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+                error_output_max_chars=100,
+            )

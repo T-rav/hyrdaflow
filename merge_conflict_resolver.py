@@ -229,7 +229,7 @@ class MergeConflictResolver:
         transcript: str,
     ) -> None:
         """Save a conflict resolution transcript to ``.hydraflow/logs/``."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
+        log_dir = self._config.log_dir
         log_dir.mkdir(parents=True, exist_ok=True)
         path = log_dir / f"conflict-pr-{pr_number}-attempt-{attempt}.txt"
         path.write_text(transcript)

@@ -587,7 +587,7 @@ Diff snippet:
             result = await self._runner.run_simple(
                 ["git", "rev-parse", "HEAD"],
                 cwd=str(worktree_path),
-                timeout=30,
+                timeout=self._config.git_command_timeout,
             )
         except (TimeoutError, FileNotFoundError):
             return None
@@ -607,7 +607,7 @@ Diff snippet:
             result = await self._runner.run_simple(
                 ["git", "status", "--porcelain"],
                 cwd=str(worktree_path),
-                timeout=30,
+                timeout=self._config.git_command_timeout,
             )
             return result.returncode == 0 and bool(result.stdout)
         except (TimeoutError, FileNotFoundError):

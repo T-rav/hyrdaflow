@@ -39,7 +39,7 @@ class AgentRunner(BaseRunner):
         runner: SubprocessRunner | None = None,
     ) -> None:
         super().__init__(config, event_bus, runner)
-        self._insights = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
+        self._insights = ReviewInsightStore(config.memory_dir)
 
     async def run(
         self,
@@ -203,9 +203,7 @@ class AgentRunner(BaseRunner):
 
         Returns the plan text or empty string if not found.
         """
-        plan_path = (
-            self._config.repo_root / ".hydraflow" / "plans" / f"issue-{issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{issue_number}.md"
         if not plan_path.is_file():
             return ""
 
@@ -364,7 +362,7 @@ class AgentRunner(BaseRunner):
 ## Quality Gate Failure Output
 
 ```
-{error_output[-3000:]}
+{error_output[-self._config.error_output_max_chars :]}
 ```
 
 ## Fix Attempt {attempt}
@@ -549,7 +547,7 @@ SUMMARY: <one-line summary>
                     f"origin/{self._config.main_branch}..{branch}",
                 ],
                 cwd=str(worktree_path),
-                timeout=30,
+                timeout=self._config.git_command_timeout,
             )
             return int(result.stdout)
         except (TimeoutError, ValueError, FileNotFoundError):

@@ -521,7 +521,7 @@ def get_docker_runner(config: HydraFlowConfig) -> DockerRunner | HostRunner:
         logger.warning("Docker daemon not available; falling back to host runner")
         return get_default_runner()
 
-    log_dir = config.repo_root / ".hydraflow" / "logs"
+    log_dir = config.log_dir
     return DockerRunner(
         image=config.docker_image,
         repo_root=config.repo_root,
