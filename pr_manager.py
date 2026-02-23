@@ -721,7 +721,8 @@ class PRManager:
                             title=p.get("title", ""),
                         )
                     )
-            except Exception:
+            except (RuntimeError, json.JSONDecodeError, KeyError):
+                logger.debug("Skipping PR in list_open_prs", exc_info=True)
                 continue
 
         return prs
@@ -761,7 +762,11 @@ class PRManager:
                         if issue["number"] not in seen_issues:
                             seen_issues.add(issue["number"])
                             raw_issues.append(issue)
-                except Exception:
+                except (RuntimeError, json.JSONDecodeError, KeyError):
+                    logger.warning(
+                        "Failed to fetch HITL issues for label",
+                        exc_info=True,
+                    )
                     continue
 
             items: list[HITLItem] = []
@@ -789,8 +794,12 @@ class PRManager:
                     if pr_data:
                         pr_number = pr_data[0]["number"]
                         pr_url = pr_data[0].get("url", "")
-                except Exception:
-                    pass
+                except (RuntimeError, json.JSONDecodeError, KeyError):
+                    logger.debug(
+                        "PR lookup failed for branch %s",
+                        branch,
+                        exc_info=True,
+                    )
 
                 items.append(
                     HITLItem(
@@ -804,7 +813,8 @@ class PRManager:
                 )
 
             return items
-        except Exception:
+        except (RuntimeError, json.JSONDecodeError, KeyError):
+            logger.warning("Failed to fetch HITL items", exc_info=True)
             return []
 
     # --- GitHub metrics helpers ---

@@ -12,7 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from file_util import atomic_write
 
@@ -183,8 +183,11 @@ class EventLog:
                     ts = datetime.fromisoformat(event.timestamp)
                     if ts >= cutoff:
                         kept_lines.append(stripped)
-                except Exception:
-                    # Drop corrupt / unparseable lines during rotation
+                except ValidationError:
+                    logger.debug(
+                        "Dropping corrupt event line during rotation",
+                        exc_info=True,
+                    )
                     continue
 
         content = "\n".join(kept_lines) + "\n" if kept_lines else ""
@@ -245,7 +248,7 @@ class EventBus:
         try:
             assert self._event_log is not None  # noqa: S101
             await self._event_log.append(event)
-        except Exception:
+        except (OSError, ValidationError):
             logger.warning("Failed to persist event to disk", exc_info=True)
 
     async def load_history_from_disk(self) -> None:

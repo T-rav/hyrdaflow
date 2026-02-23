@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from file_util import atomic_write
 from models import LifetimeStats, SessionLog, StateData, ThresholdProposal
 
@@ -474,11 +476,12 @@ class StateTracker:
                     continue
                 try:
                     session = SessionLog.model_validate_json(stripped)
-                except Exception:
+                except ValidationError:
                     logger.warning(
                         "Skipping corrupt session line %d in %s",
                         line_num,
                         self._sessions_path,
+                        exc_info=True,
                     )
                     continue
                 seen[session.id] = session
@@ -507,7 +510,12 @@ class StateTracker:
                     continue
                 try:
                     session = SessionLog.model_validate_json(stripped)
-                except Exception:
+                except ValidationError:
+                    logger.debug(
+                        "Skipping corrupt line in %s",
+                        self._sessions_path,
+                        exc_info=True,
+                    )
                     continue
                 if session.id == session_id:
                     found = session  # keep scanning; later entry is more up-to-date
@@ -532,7 +540,12 @@ class StateTracker:
                 try:
                     s = SessionLog.model_validate_json(stripped)
                     seen[s.id] = s
-                except Exception:
+                except ValidationError:
+                    logger.debug(
+                        "Skipping corrupt session line in %s",
+                        self._sessions_path,
+                        exc_info=True,
+                    )
                     continue
 
         target = seen.get(session_id)
@@ -570,7 +583,12 @@ class StateTracker:
                 try:
                     s = SessionLog.model_validate_json(stripped)
                     seen[s.id] = s
-                except Exception:
+                except ValidationError:
+                    logger.debug(
+                        "Skipping corrupt session line in %s",
+                        self._sessions_path,
+                        exc_info=True,
+                    )
                     continue
         all_sessions = list(seen.values())
 

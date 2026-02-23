@@ -2982,3 +2982,170 @@ class TestGetPrDiffNames:
             result = await manager.get_pr_diff_names(101)
 
         assert result == ["foo.py", "bar.py"]
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling (issue #879)
+# ---------------------------------------------------------------------------
+
+
+class TestListOpenPrsExceptionHandling:
+    """Verify list_open_prs logs debug on per-item failures."""
+
+    @pytest.mark.asyncio
+    async def test_logs_debug_on_per_item_key_error(
+        self, config, event_bus, caplog
+    ) -> None:
+        """A PR item missing 'number' key should be skipped with debug logging."""
+        import logging
+
+        mgr = _make_manager(config, event_bus)
+        # JSON with one item missing the 'number' key
+        pr_json = json.dumps([{"url": "...", "headRefName": "agent/issue-1"}])
+        mock_create = _make_subprocess_mock(returncode=0, stdout=pr_json)
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+        ):
+            result = await mgr.list_open_prs(["label"])
+
+        assert result == []
+        assert "Skipping PR in list_open_prs" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_logs_debug_on_subprocess_failure(
+        self, config, event_bus, caplog
+    ) -> None:
+        """Subprocess failure should be logged at debug and return empty."""
+        import logging
+
+        mgr = _make_manager(config, event_bus)
+        mock_create = _make_subprocess_mock(returncode=1, stderr="gh error")
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+        ):
+            result = await mgr.list_open_prs(["label"])
+
+        assert result == []
+        assert "Skipping PR in list_open_prs" in caplog.text
+
+
+class TestListHitlItemsExceptionHandling:
+    """Verify list_hitl_items logs for various failure scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_logs_warning_on_label_fetch_failure(
+        self, config, event_bus, tmp_path, caplog
+    ) -> None:
+        """Label fetch failure should log a warning."""
+        import logging
+
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = _make_subprocess_mock(returncode=1, stderr="gh error")
+
+        with (
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+        ):
+            result = await mgr.list_hitl_items(["hydraflow-hitl"])
+
+        assert result == []
+        assert "Failed to fetch HITL issues for label" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_logs_debug_on_pr_lookup_failure(
+        self, config, event_bus, tmp_path, caplog
+    ) -> None:
+        """PR lookup failure should log debug and set pr_number=0."""
+        import logging
+
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        issues_json = json.dumps([{"number": 42, "title": "Test", "url": ""}])
+        call_count = 0
+
+        async def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            mock_proc = AsyncMock()
+            if call_count == 1:
+                # Issue list succeeds
+                mock_proc.returncode = 0
+                mock_proc.communicate = AsyncMock(
+                    return_value=(issues_json.encode(), b"")
+                )
+            else:
+                # PR lookup fails
+                mock_proc.returncode = 1
+                mock_proc.communicate = AsyncMock(
+                    return_value=(b"", b"pr lookup error")
+                )
+            mock_proc.wait = AsyncMock(return_value=mock_proc.returncode)
+            return mock_proc
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", side_effect=side_effect),
+        ):
+            result = await mgr.list_hitl_items(["hydraflow-hitl"])
+
+        assert len(result) == 1
+        assert result[0].pr == 0
+        assert "PR lookup failed for branch" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_outer_failure_logs_warning(
+        self, config, event_bus, tmp_path, caplog
+    ) -> None:
+        """Outer exception in list_hitl_items should log warning and return []."""
+        import logging
+
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(
+            ready_label=config.ready_label,
+            repo=config.repo,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        # Issue list succeeds, but branch_for_issue raises KeyError
+        # which is outside the inner try/except blocks
+        issues_json = json.dumps([{"number": 42, "title": "Test", "url": ""}])
+        mock_create = _make_subprocess_mock(returncode=0, stdout=issues_json)
+
+        with (
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+            patch(
+                "config.HydraFlowConfig.branch_for_issue",
+                side_effect=KeyError("bad"),
+            ),
+        ):
+            result = await mgr.list_hitl_items(["hydraflow-hitl"])
+
+        assert result == []
+        assert "Failed to fetch HITL items" in caplog.text
