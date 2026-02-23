@@ -109,26 +109,17 @@ describe('PIPELINE_STAGES', () => {
 })
 
 describe('PIPELINE_LOOPS', () => {
-  it('has a configKey property on every entry', () => {
-    for (const loop of PIPELINE_LOOPS) {
-      expect(loop).toHaveProperty('configKey')
-    }
+  it('has entries for all non-merged pipeline stages', () => {
+    const stageKeys = PIPELINE_STAGES.filter(s => s.key !== 'merged').map(s => s.key)
+    expect(PIPELINE_LOOPS.map(l => l.key)).toEqual(stageKeys)
   })
 
-  it('configKey values match the corresponding PIPELINE_STAGES entries', () => {
-    const stageConfigMap = Object.fromEntries(PIPELINE_STAGES.map(s => [s.key, s.configKey]))
+  it('every loop has key, label, color, and dimColor properties', () => {
     for (const loop of PIPELINE_LOOPS) {
-      expect(loop.configKey).toBe(stageConfigMap[loop.key])
-    }
-  })
-
-  it('triage has null configKey and others have string configKeys', () => {
-    for (const loop of PIPELINE_LOOPS) {
-      if (loop.key === 'triage') {
-        expect(loop.configKey).toBeNull()
-      } else {
-        expect(typeof loop.configKey).toBe('string')
-      }
+      expect(loop).toHaveProperty('key')
+      expect(loop).toHaveProperty('label')
+      expect(loop).toHaveProperty('color')
+      expect(loop).toHaveProperty('dimColor')
     }
   })
 })

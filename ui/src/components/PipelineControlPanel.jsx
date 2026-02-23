@@ -113,7 +113,8 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
           const status = stageStatus[loop.key] || {}
           const enabled = status.enabled !== false
           const activeCount = status.workerCount || 0
-          const maxWorkers = loop.configKey ? config?.[loop.configKey] : null
+          const configKey = stageConfigKey[loop.key]
+          const maxWorkers = configKey ? config?.[configKey] : null
           return (
             <div key={loop.key} style={styles.loopChip}>
               <span style={enabled ? loopDotLit[loop.key] : loopDotDim[loop.key]} />
@@ -362,6 +363,9 @@ const styles = {
     overflowY: 'auto',
   },
 }
+
+// Pre-computed configKey lookup from PIPELINE_STAGES (single source of truth for stage metadata)
+const stageConfigKey = Object.fromEntries(PIPELINE_STAGES.map(s => [s.key, s.configKey]))
 
 // Pre-computed role badge style variants — keyed by role string (avoids object spread in render loops)
 const roleBadgeByRole = Object.fromEntries(
