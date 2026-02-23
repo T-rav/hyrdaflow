@@ -1,0 +1,509 @@
+"""Tests for review_phase.py — CI wait/fix loop."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from config import HydraFlowConfig
+
+from models import (
+    ReviewResult,
+    ReviewVerdict,
+)
+from tests.conftest import (
+    IssueFactory,
+    PRInfoFactory,
+    ReviewResultFactory,
+)
+from tests.helpers import make_review_phase
+
+# ---------------------------------------------------------------------------
+# CI wait/fix loop (wait_and_fix_ci)
+# ---------------------------------------------------------------------------
+
+
+class TestWaitAndFixCI:
+    """Tests for the wait_and_fix_ci method and CI gate in review_prs."""
+
+    @pytest.mark.asyncio
+    async def test_ci_passes_on_first_check_merges(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When CI passes on first check, PR should be merged."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=2,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(True, "All 3 checks passed"))
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert results[0].merged is True
+        assert results[0].ci_passed is True
+        phase._prs.merge_pr.assert_awaited_once_with(101)
+
+    @pytest.mark.asyncio
+    async def test_ci_fails_all_attempts_does_not_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When CI fails after all fix attempts, PR should not be merged."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=1,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        fix_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert results[0].merged is False
+        assert results[0].ci_passed is False
+        phase._prs.merge_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ci_wait_skipped_when_max_attempts_zero(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When max_ci_fix_attempts=0, CI wait is skipped entirely."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=0,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(True, "passed"))
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert results[0].merged is True
+        # wait_for_ci should NOT have been called
+        phase._prs.wait_for_ci.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ci_not_checked_for_non_approve_verdicts(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CI wait only triggers for APPROVE — REQUEST_CHANGES skips it."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=2,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(
+            return_value=ReviewResultFactory.create(
+                verdict=ReviewVerdict.REQUEST_CHANGES
+            )
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(True, "passed"))
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert results[0].merged is False
+        phase._prs.wait_for_ci.assert_not_awaited()
+        phase._prs.merge_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fix_loop_retries_after_agent_makes_changes(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When fix agent makes changes, loop should retry CI."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=2,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        # CI fails first, then passes after fix
+        ci_results = [
+            (False, "Failed checks: ci"),
+            (True, "All 2 checks passed"),
+        ]
+        ci_call_count = 0
+
+        async def fake_wait_for_ci(_pr_num, _timeout, _interval, _stop):
+            nonlocal ci_call_count
+            result = ci_results[ci_call_count]
+            ci_call_count += 1
+            return result
+
+        fix_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.APPROVE,
+            fixes_made=True,
+        )
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = fake_wait_for_ci
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert results[0].merged is True
+        assert results[0].ci_passed is True
+        assert results[0].ci_fix_attempts == 1
+        assert ci_call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fix_agent_no_changes_stops_retrying(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When fix agent makes no changes, loop should stop early."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=3,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        fix_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=False,  # No changes made
+        )
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert results[0].merged is False
+        assert results[0].ci_passed is False
+        # Only 1 fix attempt (stopped early because no changes)
+        assert results[0].ci_fix_attempts == 1
+        # fix_ci called once, not 3 times
+        phase._reviewers.fix_ci.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ci_failure_posts_comment_and_labels_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CI failure should post a comment and swap label to hydraflow-hitl."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=1,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        fix_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase.review_prs([pr], [issue])
+
+        # Should have posted a CI failure comment
+        comment_calls = [c.args for c in phase._prs.post_pr_comment.call_args_list]
+        ci_comments = [c for c in comment_calls if "CI failed" in c[1]]
+        assert len(ci_comments) == 1
+        assert "Failed checks: ci" in ci_comments[0][1]
+
+        # Should swap label to hydraflow-hitl on both issue and PR
+        phase._prs.swap_pipeline_labels.assert_any_call(
+            42, "hydraflow-hitl", pr_number=101
+        )
+
+    @pytest.mark.asyncio
+    async def test_ci_failure_sets_hitl_cause(self, config: HydraFlowConfig) -> None:
+        """CI failure escalation should record cause with attempt count in state."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=1,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        fix_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase.review_prs([pr], [issue])
+
+        assert phase._state.get_hitl_cause(42) == "CI failed after 1 fix attempt(s)"
+
+    @pytest.mark.asyncio
+    async def test_ci_failure_escalation_records_hitl_origin(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CI failure escalation should record review_label as HITL origin."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=1,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        fix_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+
+        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase.review_prs([pr], [issue])
+
+        assert phase._state.get_hitl_origin(42) == "hydraflow-review"
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests: fix_ci exception and stop_event during CI
+# ---------------------------------------------------------------------------
+
+
+class TestWaitAndFixCIEdgeCases:
+    """Edge case tests for wait_and_fix_ci and _review_one error handling."""
+
+    @pytest.mark.asyncio
+    async def test_fix_ci_exception_propagates_to_review_one_handler(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When fix_ci raises, the outer _review_one except catches it."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=2,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create(number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
+
+        phase._reviewers.review = AsyncMock(
+            return_value=ReviewResultFactory.create(
+                pr_number=101, issue_number=42, verdict=ReviewVerdict.APPROVE
+            )
+        )
+        # fix_ci raises an exception
+        phase._reviewers.fix_ci = AsyncMock(side_effect=RuntimeError("agent crashed"))
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: tests"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        # Exception caught by _review_one outer handler
+        assert len(results) == 1
+        assert results[0].pr_number == 101
+        assert results[0].summary == "Review failed due to unexpected error"
+        # PR should NOT have been merged
+        phase._prs.merge_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_event_during_ci_wait_returns_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When stop_event is set, wait_for_ci returns (False, 'Stopped')."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            max_ci_fix_attempts=2,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = IssueFactory.create(number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
+
+        phase._reviewers.review = AsyncMock(
+            return_value=ReviewResultFactory.create(
+                pr_number=101, issue_number=42, verdict=ReviewVerdict.APPROVE
+            )
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Stopped"))
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        # Set stop_event before running
+        phase._stop_event.set()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        results = await phase.review_prs([pr], [issue])
+
+        assert len(results) == 1
+        # PR should NOT have been merged due to CI failure
+        assert results[0].merged is False
