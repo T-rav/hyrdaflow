@@ -188,6 +188,7 @@ class WorkerStatus(StrEnum):
 
     QUEUED = "queued"
     RUNNING = "running"
+    PRE_QUALITY_REVIEW = "pre_quality_review"
     TESTING = "testing"
     COMMITTING = "committing"
     QUALITY_FIX = "quality_fix"
@@ -207,6 +208,7 @@ class WorkerResult(BaseModel):
     transcript: str = ""
     commits: int = 0
     duration_seconds: float = 0.0
+    pre_quality_review_attempts: int = 0
     quality_fix_attempts: int = 0
     pr_info: PRInfo | None = None
 

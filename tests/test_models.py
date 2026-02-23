@@ -394,6 +394,7 @@ class TestWorkerStatus:
         [
             (WorkerStatus.QUEUED, "queued"),
             (WorkerStatus.RUNNING, "running"),
+            (WorkerStatus.PRE_QUALITY_REVIEW, "pre_quality_review"),
             (WorkerStatus.TESTING, "testing"),
             (WorkerStatus.COMMITTING, "committing"),
             (WorkerStatus.QUALITY_FIX, "quality_fix"),
@@ -410,9 +411,9 @@ class TestWorkerStatus:
         # Assert
         assert isinstance(WorkerStatus.DONE, str)
 
-    def test_all_eight_members_present(self) -> None:
+    def test_all_nine_members_present(self) -> None:
         # Assert
-        assert len(WorkerStatus) == 8
+        assert len(WorkerStatus) == 9
 
     def test_lookup_by_value(self) -> None:
         # Act
@@ -462,6 +463,10 @@ class TestWorkerResult:
     def test_duration_seconds_defaults_to_zero(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
         assert result.duration_seconds == pytest.approx(0.0)
+
+    def test_pre_quality_review_attempts_defaults_to_zero(self) -> None:
+        result = WorkerResult(issue_number=1, branch="b")
+        assert result.pre_quality_review_attempts == 0
 
     def test_pr_info_defaults_to_none(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")

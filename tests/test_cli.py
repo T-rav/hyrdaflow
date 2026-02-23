@@ -59,6 +59,7 @@ class TestParseArgs:
             "ci_check_timeout",
             "ci_poll_interval",
             "max_ci_fix_attempts",
+            "max_pre_quality_review_attempts",
             "review_label",
             "hitl_label",
             "hitl_active_label",
@@ -140,11 +141,12 @@ class TestBuildConfig:
         assert cfg.implementation_tool == "claude"
         assert cfg.model == "opus"
         assert cfg.review_tool == "claude"
-        assert cfg.review_model == "opus"
+        assert cfg.review_model == "sonnet"
         assert cfg.review_budget_usd == pytest.approx(0)
         assert cfg.ci_check_timeout == 600
         assert cfg.ci_poll_interval == 30
         assert cfg.max_ci_fix_attempts == 2
+        assert cfg.max_pre_quality_review_attempts == 1
         assert cfg.review_label == ["hydraflow-review"]
         assert cfg.hitl_label == ["hydraflow-hitl"]
         assert cfg.fixed_label == ["hydraflow-fixed"]
@@ -305,12 +307,15 @@ class TestBuildConfig:
                 "10",
                 "--max-ci-fix-attempts",
                 "3",
+                "--max-pre-quality-review-attempts",
+                "2",
             ]
         )
         cfg = build_config(args)
         assert cfg.ci_check_timeout == 300
         assert cfg.ci_poll_interval == 10
         assert cfg.max_ci_fix_attempts == 3
+        assert cfg.max_pre_quality_review_attempts == 2
 
     def test_dashboard_port_passed_through(self) -> None:
         args = parse_args(["--dashboard-port", "8080"])

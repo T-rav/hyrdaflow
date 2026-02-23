@@ -76,7 +76,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--review-model",
         default=None,
-        help="Model for review agents (default: opus)",
+        help="Model for review agents (default: sonnet)",
     )
     parser.add_argument(
         "--review-tool",
@@ -107,6 +107,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Max CI fix-and-retry cycles; 0 disables CI wait (default: 2)",
+    )
+    parser.add_argument(
+        "--max-pre-quality-review-attempts",
+        type=int,
+        default=None,
+        help="Max pre-quality review/correction passes before make quality (default: 1)",
     )
     parser.add_argument(
         "--max-review-fix-attempts",
@@ -436,6 +442,7 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
         "ci_check_timeout",
         "ci_poll_interval",
         "max_ci_fix_attempts",
+        "max_pre_quality_review_attempts",
         "max_review_fix_attempts",
         "min_review_findings",
         "max_merge_conflict_fix_attempts",

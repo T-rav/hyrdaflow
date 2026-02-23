@@ -80,6 +80,23 @@ class AgentRunner:
             transcript = await self._execute(cmd, prompt, worktree_path, issue.number)
             result.transcript = transcript
 
+            # Mandatory pre-quality self-review/correction loop
+            (
+                pre_quality_success,
+                pre_quality_msg,
+                pre_quality_attempts,
+            ) = await self._run_pre_quality_review_loop(
+                issue, worktree_path, branch, worker_id
+            )
+            result.pre_quality_review_attempts = pre_quality_attempts
+            if not pre_quality_success:
+                result.success = False
+                result.error = pre_quality_msg
+                result.commits = await self._count_commits(worktree_path, branch)
+                await self._emit_status(issue.number, worker_id, WorkerStatus.FAILED)
+                result.duration_seconds = time.monotonic() - start
+                return result
+
             # Verify the agent produced valid work
             await self._emit_status(issue.number, worker_id, WorkerStatus.TESTING)
             success, verify_msg = await self._verify_result(worktree_path, branch)
@@ -324,10 +341,16 @@ class AgentRunner:
 2. Explore the codebase to understand the relevant code.
 3. Write comprehensive tests FIRST (TDD approach).
 4. Implement the solution.
-5. Run `make lint` to auto-fix formatting issues.
-6. Run `{test_cmd}` to quickly check for test failures.
-7. Run `make quality` to verify the full quality gate (lint + typecheck + security + tests).
-8. Commit your changes with a message: "Fixes #{issue.number}: <concise summary>"
+5. Run a **Pre-Quality Review Skill** (self-review and corrections before quality checks):
+   - validate correctness, plan adherence, and edge cases,
+   - identify missing/weak tests and add them,
+   - simplify/refactor obviously risky code paths.
+6. Run a **Run-Tool Skill** for executable checks:
+   - run `make lint`,
+   - run `{test_cmd}`,
+   - run `make quality`,
+   - fix failures and rerun until green or clearly blocked.
+7. Commit your changes with a message: "Fixes #{issue.number}: <concise summary>"
 {feedback_section}
 ## UI Guidelines
 
@@ -439,6 +462,131 @@ Only suggest genuinely valuable learnings — not trivial observations.
 
 Focus on fixing the root causes, not suppressing warnings.
 """
+
+    def _build_pre_quality_review_prompt(self, issue: GitHubIssue, attempt: int) -> str:
+        """Build the pre-quality review/correction skill prompt."""
+        return f"""You are running the Pre-Quality Review Skill for issue #{issue.number}: {issue.title}.
+
+Attempt: {attempt}
+
+Scope:
+- review current branch changes for correctness and plan adherence
+- add/fix tests for missing coverage and edge cases
+- apply code fixes directly in this working tree
+
+Constraints:
+- Do not push or open PRs
+- Prefer minimal safe changes
+- Keep edits scoped to issue intent
+
+Required output:
+PRE_QUALITY_REVIEW_RESULT: OK
+or
+PRE_QUALITY_REVIEW_RESULT: RETRY
+SUMMARY: <one-line summary>
+"""
+
+    def _build_pre_quality_run_tool_prompt(
+        self, issue: GitHubIssue, attempt: int
+    ) -> str:
+        """Build the run-tool skill prompt for quality/test commands."""
+        test_cmd = self._config.test_command
+        return f"""You are running the Run-Tool Skill for issue #{issue.number}: {issue.title}.
+
+Attempt: {attempt}
+
+Run these commands in order and fix failures:
+1. `make lint`
+2. `{test_cmd}`
+3. `make quality`
+
+Rules:
+- If a command fails, fix root causes and rerun from command 1
+- Do not skip tests or reduce quality gates
+- Keep changes scoped to this issue
+
+Required output:
+RUN_TOOL_RESULT: OK
+or
+RUN_TOOL_RESULT: RETRY
+SUMMARY: <one-line summary>
+"""
+
+    def _build_pre_quality_review_command(self) -> list[str]:
+        """Build the command used for pre-quality review skill."""
+        return build_agent_command(
+            tool=self._config.review_tool,
+            model=self._config.review_model,
+            budget_usd=self._config.review_budget_usd,
+        )
+
+    @staticmethod
+    def _parse_skill_result(transcript: str, marker: str) -> tuple[bool, str]:
+        """Parse a skill result marker line from transcript text.
+
+        Returns ``(ok, summary)``. Missing marker defaults to OK to preserve
+        backward compatibility with older prompts/tools.
+        """
+        pattern = rf"{re.escape(marker)}:\s*(OK|RETRY)"
+        match = re.search(pattern, transcript, re.IGNORECASE)
+        if not match:
+            return True, "No explicit result marker"
+        status = match.group(1).upper()
+        summary_match = re.search(r"SUMMARY:\s*(.+)", transcript, re.IGNORECASE)
+        summary = summary_match.group(1).strip() if summary_match else ""
+        return status == "OK", summary
+
+    async def _run_pre_quality_review_loop(
+        self,
+        issue: GitHubIssue,
+        worktree_path: Path,
+        branch: str,
+        worker_id: int,
+    ) -> tuple[bool, str, int]:
+        """Run mandatory pre-quality review + run-tool skills before verification."""
+        commits = await self._count_commits(worktree_path, branch)
+        max_attempts = self._config.max_pre_quality_review_attempts
+        if commits == 0 or max_attempts <= 0:
+            return True, "Skipped pre-quality review", 0
+
+        for attempt in range(1, max_attempts + 1):
+            await self._emit_status(
+                issue.number, worker_id, WorkerStatus.PRE_QUALITY_REVIEW
+            )
+
+            review_prompt = self._build_pre_quality_review_prompt(issue, attempt)
+            review_cmd = self._build_pre_quality_review_command()
+            review_transcript = await self._execute(
+                review_cmd, review_prompt, worktree_path, issue.number
+            )
+            review_ok, review_summary = self._parse_skill_result(
+                review_transcript, "PRE_QUALITY_REVIEW_RESULT"
+            )
+
+            run_tool_prompt = self._build_pre_quality_run_tool_prompt(issue, attempt)
+            run_tool_cmd = self._build_command(worktree_path)
+            run_tool_transcript = await self._execute(
+                run_tool_cmd, run_tool_prompt, worktree_path, issue.number
+            )
+            run_tool_ok, run_tool_summary = self._parse_skill_result(
+                run_tool_transcript, "RUN_TOOL_RESULT"
+            )
+
+            if review_ok and run_tool_ok:
+                return True, "OK", attempt
+
+            last_summary = "; ".join(
+                s for s in [review_summary, run_tool_summary] if s
+            ).strip()
+            if attempt == max_attempts:
+                return (
+                    False,
+                    "Pre-quality review loop exhausted"
+                    + (f": {last_summary}" if last_summary else ""),
+                    attempt,
+                )
+
+        return False, "Pre-quality review loop failed", max_attempts
 
     async def _run_quality_fix_loop(
         self,

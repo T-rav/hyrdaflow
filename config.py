@@ -18,6 +18,11 @@ logger = logging.getLogger("hydraflow.config")
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("min_plan_words", "HYDRAFLOW_MIN_PLAN_WORDS", 200),
+    (
+        "max_pre_quality_review_attempts",
+        "HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS",
+        1,
+    ),
     ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
     ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
     ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
@@ -120,7 +125,7 @@ class HydraFlowConfig(BaseModel):
         default="claude",
         description="CLI backend for review agents",
     )
-    review_model: str = Field(default="opus", description="Model for review agents")
+    review_model: str = Field(default="sonnet", description="Model for review agents")
     review_budget_usd: float = Field(
         default=0, ge=0, description="USD cap per review agent (0 = unlimited)"
     )
@@ -143,6 +148,12 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=5,
         description="Max quality fix-and-retry cycles before marking agent as failed",
+    )
+    max_pre_quality_review_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+        description="Max pre-quality review/correction passes before quality verification",
     )
     max_review_fix_attempts: int = Field(
         default=2,
