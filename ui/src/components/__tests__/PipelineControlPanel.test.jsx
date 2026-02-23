@@ -56,6 +56,7 @@ describe('PipelineControlPanel', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers }))
       render(<PipelineControlPanel />)
       expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1/2')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1/3')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1/2')
@@ -162,6 +163,17 @@ describe('PipelineControlPanel', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_planners: 2, max_workers: 5, max_reviewers: 2 } }))
       rerender(<PipelineControlPanel />)
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/5')
+    })
+
+    it('shows active/0 format when config max value is 0', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_planners: 0, max_workers: 0, max_reviewers: 0 } }))
+      render(<PipelineControlPanel />)
+      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('0/0')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/0')
+      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('0/0')
+      // Triage still shows no ratio since it has no configKey
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0')
+      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
     })
   })
 
