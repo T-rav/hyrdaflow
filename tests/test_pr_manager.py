@@ -1553,7 +1553,7 @@ def test_makefile_ensure_labels_runs_cli_prep() -> None:
 
     import re
 
-    match = re.search(r"^ensure-labels:\n((?:\t.*\n)+)", content, re.MULTILINE)
+    match = re.search(r"^ensure-labels:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "ensure-labels target block not found in Makefile"
     assert "--prep" in match.group(1), "ensure-labels target must call cli.py --prep"
 
@@ -1567,7 +1567,7 @@ def test_makefile_prep_runs_cli_scaffold() -> None:
 
     import re
 
-    match = re.search(r"^prep:\n((?:\t.*\n)+)", content, re.MULTILINE)
+    match = re.search(r"^prep:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "prep target block not found in Makefile"
     assert "--scaffold" in match.group(1), "prep target must call cli.py --scaffold"
 
@@ -1581,7 +1581,7 @@ def test_makefile_setup_runs_label_bootstrap() -> None:
 
     import re
 
-    match = re.search(r"^setup:\n((?:\t.*\n)+)", content, re.MULTILINE)
+    match = re.search(r"^setup:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "setup target block not found in Makefile"
     assert "--prep" in match.group(1), (
         "setup target must ensure labels via cli.py --prep"
