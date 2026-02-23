@@ -4986,3 +4986,47 @@ class TestHandleSelfFixReReview:
 
         assert result is original
         assert diff == "old diff"
+
+
+# ---------------------------------------------------------------------------
+# _run_delta_verification
+# ---------------------------------------------------------------------------
+
+
+class TestRunDeltaVerification:
+    """Regression tests for _run_delta_verification using .hydraflow/plans/."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_plan_file_missing(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(issue_number=99)
+
+        result = await phase._run_delta_verification(pr, "some diff")
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_reads_plan_from_hydraflow_plans_dir(
+        self, config: HydraFlowConfig
+    ) -> None:
+        plan_content = "## File Delta\n\n```\nMODIFIED: foo.py\nMODIFIED: bar.py\n```\n"
+        plans_dir = config.repo_root / ".hydraflow" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        (plans_dir / "issue-42.md").write_text(plan_content)
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(issue_number=42)
+
+        with (
+            patch("delta_verifier.parse_file_delta") as mock_parse,
+            patch("delta_verifier.verify_delta") as mock_verify,
+        ):
+            mock_parse.return_value = ["foo.py", "bar.py"]
+            mock_report = mock_verify.return_value
+            mock_report.has_drift = False
+
+            await phase._run_delta_verification(pr, "some diff")
+
+            mock_parse.assert_called_once_with(plan_content)

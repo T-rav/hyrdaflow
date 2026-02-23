@@ -1654,3 +1654,31 @@ class TestWorkerInner:
         result = await phase._worker_inner(0, issue, "agent/issue-42")
 
         assert result.success is True
+
+
+# ---------------------------------------------------------------------------
+# _read_plan_for_recording
+# ---------------------------------------------------------------------------
+
+
+class TestReadPlanForRecording:
+    """Regression tests for _read_plan_for_recording using .hydraflow/plans/."""
+
+    def test_reads_plan_from_hydraflow_plans_dir(self, config: HydraFlowConfig) -> None:
+        plan_content = "## Plan\n\n1. Fix the bug\n2. Add tests"
+        plans_dir = config.repo_root / ".hydraflow" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        (plans_dir / "issue-42.md").write_text(plan_content)
+
+        phase, _, _ = _make_phase(config, [])
+        result = phase._read_plan_for_recording(42)
+
+        assert result == plan_content
+
+    def test_returns_empty_string_when_plan_missing(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, _, _ = _make_phase(config, [])
+        result = phase._read_plan_for_recording(99)
+
+        assert result == ""

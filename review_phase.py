@@ -367,7 +367,10 @@ class ReviewPhase:
         from delta_verifier import parse_file_delta, verify_delta
 
         plan_path = (
-            self._config.repo_root / ".hydra" / "plans" / f"issue-{pr.issue_number}.md"
+            self._config.repo_root
+            / ".hydraflow"
+            / "plans"
+            / f"issue-{pr.issue_number}.md"
         )
         if not plan_path.exists():
             return ""
