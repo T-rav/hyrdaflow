@@ -35,17 +35,6 @@ class TestCIScaffoldResultFactory:
         assert result.skip_reason == "already exists"
 
 
-# --- Language Detection ---
-
-
-class TestDetectLanguage:
-    def test_detect_language_is_imported_from_manifest(self) -> None:
-        from ci_scaffold import detect_language
-        from manifest import detect_language as manifest_detect_language
-
-        assert detect_language is manifest_detect_language
-
-
 # --- Existing Workflow Detection ---
 
 

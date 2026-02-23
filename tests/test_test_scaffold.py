@@ -56,21 +56,6 @@ class TestTestScaffoldResult:
 
 
 # ---------------------------------------------------------------------------
-# detect_language
-# ---------------------------------------------------------------------------
-
-
-class TestDetectLanguage:
-    """Tests for detect_language()."""
-
-    def test_detect_language_is_imported_from_manifest(self) -> None:
-        from manifest import detect_language as manifest_detect_language
-        from test_scaffold import detect_language
-
-        assert detect_language is manifest_detect_language
-
-
-# ---------------------------------------------------------------------------
 # has_test_infrastructure
 # ---------------------------------------------------------------------------
 

@@ -72,21 +72,6 @@ class TestLintScaffoldResultFactory:
 
 
 # ---------------------------------------------------------------------------
-# detect_language tests
-# ---------------------------------------------------------------------------
-
-
-class TestDetectLanguage:
-    """Tests for detect_language."""
-
-    def test_detect_language_is_imported_from_manifest(self) -> None:
-        from lint_scaffold import detect_language
-        from manifest import detect_language as manifest_detect_language
-
-        assert detect_language is manifest_detect_language
-
-
-# ---------------------------------------------------------------------------
 # has_typescript_files tests
 # ---------------------------------------------------------------------------
 

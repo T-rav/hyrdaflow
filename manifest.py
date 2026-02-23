@@ -6,8 +6,9 @@ sub-projects/workspaces, and CI/CD configuration. Persists the result to
 from the start of each run.
 
 Consolidates the scattered ``_PYTHON_MARKERS`` / ``_JS_MARKERS`` constants
-that were previously duplicated across ``ci_scaffold.py``,
-``lint_scaffold.py``, ``makefile_scaffold.py``, and ``prep_hooks.py``.
+and the duplicated ``detect_language()`` function that were previously
+spread across ``ci_scaffold.py``, ``lint_scaffold.py``,
+``makefile_scaffold.py``, ``test_scaffold.py``, and ``prep_hooks.py``.
 """
 
 from __future__ import annotations
