@@ -1,9 +1,10 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import { theme } from '../theme'
 import { BACKGROUND_WORKERS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { Livestream } from './Livestream'
 import { PipelineControlPanel } from './PipelineControlPanel'
+import { WorkerLogStream } from './WorkerLogStream'
 
 const SUB_TABS = [
   { key: 'workers', label: 'Workers' },
@@ -54,7 +55,13 @@ function statusColor(status) {
   return theme.textInactive
 }
 
-function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onViewLog, onUpdateInterval }) {
+function formatTimestamp(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onViewLog, onUpdateInterval, events, extraContent }) {
   const [showIntervalEditor, setShowIntervalEditor] = useState(false)
   const isPipelinePoller = def.key === 'pipeline_poller'
   const isSystem = def.system === true
@@ -118,6 +125,22 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
     details = state.details || {}
   }
 
+  const logLines = useMemo(() => {
+    if (!events || events.length === 0) return []
+    return events
+      .filter(e => e.type === 'background_worker_status' && e.data?.worker === def.key)
+      .slice(0, 15)
+      .reverse()
+      .map(e => {
+        const time = formatTimestamp(e.timestamp)
+        const status = e.data?.status || ''
+        const det = e.data?.details
+          ? Object.entries(e.data.details).map(([k, v]) => `${k}: ${v}`).join(', ')
+          : ''
+        return det ? `${time} ${status} \u00b7 ${det}` : `${time} ${status}`
+      })
+  }, [events, def.key])
+
   const effectiveInterval = state?.interval_seconds ?? SYSTEM_WORKER_INTERVALS[def.key] ?? null
   const enabled = !isSystem && (state ? state.enabled !== false : true)
   const showToggle = onToggleBgWorker && !isSystem
@@ -125,7 +148,7 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
   const hasDetails = Object.keys(details).length > 0
 
   return (
-    <div style={styles.card}>
+    <div style={styles.card} data-testid={`worker-card-${def.key}`}>
       <div style={styles.cardHeader}>
         <span
           style={{ ...styles.dot, background: dotColor }}
@@ -204,6 +227,10 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
           ))}
         </div>
       )}
+      {logLines.length > 0 && (
+        <WorkerLogStream lines={logLines} />
+      )}
+      {extraContent}
       {onViewLog && (
         <div style={styles.cardActions}>
           <span
@@ -298,12 +325,12 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, on
                     onToggleBgWorker={onToggleBgWorker}
                     onViewLog={onViewLog}
                     onUpdateInterval={onUpdateInterval}
+                    events={events}
                   />
                 )
               })}
             </div>
             <h3 style={styles.sectionHeading}>System</h3>
-            <MemoryAutoApproveToggle />
             <div style={styles.grid}>
               {SYSTEM_WORKERS.map((def) => {
                 const state = backgroundWorkers.find(w => w.name === def.key)
@@ -318,6 +345,8 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onViewLog, on
                     onToggleBgWorker={onToggleBgWorker}
                     onViewLog={onViewLog}
                     onUpdateInterval={onUpdateInterval}
+                    events={events}
+                    extraContent={def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> : undefined}
                   />
                 )
               })}
@@ -593,11 +622,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '8px 16px',
-    marginBottom: 12,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 8,
-    background: theme.surface,
+    borderTop: `1px solid ${theme.border}`,
+    paddingTop: 8,
+    marginTop: 8,
   },
   autoApproveLabel: {
     display: 'flex',

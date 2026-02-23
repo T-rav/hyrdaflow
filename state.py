@@ -208,6 +208,22 @@ class StateTracker:
         self._data.active_issue_numbers = numbers
         self.save()
 
+    # --- interrupted issues ---
+
+    def set_interrupted_issues(self, mapping: dict[int, str]) -> None:
+        """Persist interrupted issue → phase mapping (int keys stored as strings)."""
+        self._data.interrupted_issues = {str(k): v for k, v in mapping.items()}
+        self.save()
+
+    def get_interrupted_issues(self) -> dict[int, str]:
+        """Return interrupted issue mapping with int keys."""
+        return {int(k): v for k, v in self._data.interrupted_issues.items()}
+
+    def clear_interrupted_issues(self) -> None:
+        """Clear the interrupted issues mapping and persist."""
+        self._data.interrupted_issues = {}
+        self.save()
+
     # --- worker result metadata ---
 
     def set_worker_result_meta(self, issue_number: int, meta: dict[str, Any]) -> None:

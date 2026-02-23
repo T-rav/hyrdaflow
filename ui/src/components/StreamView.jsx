@@ -67,7 +67,7 @@ function PipelineFlow({ stageGroups }) {
   )
 }
 
-function StageSection({ stage, issues, workerCount, intentMap, onViewTranscript, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
+function StageSection({ stage, issues, workerCount, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
   const activeCount = issues.filter(i => i.overallStatus === 'active').length
   const failedCount = issues.filter(i => i.overallStatus === 'failed').length
   const hitlCount = issues.filter(i => i.overallStatus === 'hitl').length
@@ -112,7 +112,6 @@ function StageSection({ stage, issues, workerCount, intentMap, onViewTranscript,
           issue={issue}
           intent={intentMap.get(issue.issueNumber)}
           defaultExpanded={issue.overallStatus === 'active'}
-          onViewTranscript={onViewTranscript}
           onRequestChanges={onRequestChanges}
           transcript={findWorkerTranscript(workers, prs, stage.key, issue.issueNumber)}
         />
@@ -200,7 +199,7 @@ export function findWorkerTranscript(workers, prs, stageKey, issueNumber) {
   return workers[key]?.transcript || []
 }
 
-export function StreamView({ intents, expandedStages, onToggleStage, onViewTranscript, onRequestChanges }) {
+export function StreamView({ intents, expandedStages, onToggleStage, onRequestChanges }) {
   const { pipelineIssues, prs, stageStatus, workers } = useHydraFlow()
 
   // Match intents to issues by issueNumber
@@ -268,7 +267,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onViewTrans
         <PendingIntentCard key={`pending-${i}`} intent={intent} />
       ))}
 
-      {totalIssues > 0 && <PipelineFlow stageGroups={stageGroups} />}
+      <PipelineFlow stageGroups={stageGroups} />
 
       {stageGroups.map(({ stage, issues: stageIssues }) => {
         const status = stageStatus[stage.key] || {}
@@ -291,7 +290,6 @@ export function StreamView({ intents, expandedStages, onToggleStage, onViewTrans
             issues={stageIssues}
             workerCount={workerCount}
             intentMap={intentMap}
-            onViewTranscript={onViewTranscript}
             onRequestChanges={stage.role ? onRequestChanges : undefined}
             open={!!expandedStages[stage.key]}
             onToggle={() => handleToggleStage(stage.key)}

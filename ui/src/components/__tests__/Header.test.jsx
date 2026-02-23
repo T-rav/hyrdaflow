@@ -14,8 +14,8 @@ vi.mock('../../context/HydraFlowContext', () => ({
 
 const { Header } = await import('../Header')
 
-function mockStageStatus(workers = {}) {
-  return deriveStageStatus({}, workers, [], {})
+function mockStageStatus(workers = {}, sessionCounters = {}) {
+  return deriveStageStatus({}, workers, [], sessionCounters)
 }
 
 beforeEach(() => {
@@ -95,12 +95,23 @@ describe('Header component', () => {
       4: { status: 'done', worker: 4, role: 'planner', title: 'Plan #4', branch: '', transcript: [], pr: null },
       5: { status: 'failed', worker: 5, role: 'implementer', title: 'Issue #5', branch: '', transcript: [], pr: null },
     }
-    mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(workers) })
+    mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(workers, { mergedCount: 1 }) })
     render(<Header {...defaultProps} />)
     expect(screen.getByText('5 total')).toBeInTheDocument()
     expect(screen.getByText('2 active')).toBeInTheDocument()
-    expect(screen.getByText('2 done')).toBeInTheDocument()
+    expect(screen.getByText('1 done')).toBeInTheDocument()  // mergedCount, not workers with 'done' status
     expect(screen.getByText('1 failed')).toBeInTheDocument()
+  })
+
+  it('renders stats in correct order: active, done, failed, total', () => {
+    const workers = {
+      1: { status: 'running', worker: 1, role: 'implementer', title: 'Issue #1', branch: '', transcript: [], pr: null },
+    }
+    mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(workers, { mergedCount: 1 }) })
+    render(<Header {...defaultProps} />)
+    const workloadDiv = screen.getByText('1 active').parentElement
+    const statSpans = Array.from(workloadDiv.children).filter(el => el.textContent !== '|')
+    expect(statSpans.map(s => s.textContent)).toEqual(['1 active', '1 done', '0 failed', '1 total'])
   })
 
   it('counts quality_fix workers as active in workload summary', () => {

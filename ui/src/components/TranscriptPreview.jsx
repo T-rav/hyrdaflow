@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { theme } from '../theme'
 
-export function TranscriptPreview({ transcript, maxCollapsedLines = 3, maxHeight = 200, inline = false }) {
+export function TranscriptPreview({ transcript, maxCollapsedLines = 3, maxHeight = 375 /* ~22 visible lines: 10px font × 1.5 line-height = 15px + 2px padding (styles.line) = 17px/line; 375 ÷ 17 ≈ 22 */ }) {
   const [expanded, setExpanded] = useState(false)
   const scrollRef = useRef(null)
 
@@ -20,7 +20,7 @@ export function TranscriptPreview({ transcript, maxCollapsedLines = 3, maxHeight
   const linesStyle = expanded ? { ...styles.lines, maxHeight, overflowY: 'auto' } : styles.lines
 
   return (
-    <div style={inline ? styles.containerInline : styles.container} data-testid={inline ? 'transcript-preview-inline' : 'transcript-preview'}>
+    <div style={styles.container} data-testid="transcript-preview">
       <div
         ref={scrollRef}
         style={linesStyle}
@@ -49,9 +49,6 @@ const styles = {
     borderTop: `1px solid ${theme.border}`,
     marginTop: 4,
     paddingTop: 4,
-  },
-  containerInline: {
-    paddingTop: 0,
   },
   lines: {
     fontFamily: 'monospace',

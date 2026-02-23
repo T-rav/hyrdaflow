@@ -79,7 +79,7 @@ describe('TranscriptPreview', () => {
     expect(screen.getByText('e')).toBeInTheDocument()
   })
 
-  it('applies maxHeight when expanded', () => {
+  it('applies custom maxHeight when expanded', () => {
     const lines = Array.from({ length: 50 }, (_, i) => `line ${i}`)
     render(<TranscriptPreview transcript={lines} maxHeight={150} />)
     fireEvent.click(screen.getByTestId('transcript-toggle'))
@@ -87,6 +87,16 @@ describe('TranscriptPreview', () => {
     const linesContainer = preview.querySelector('[style*="max-height"]') || preview.firstChild
     // When expanded, the lines container should have maxHeight set
     expect(linesContainer.style.maxHeight).toBe('150px')
+    expect(linesContainer.style.overflowY).toBe('auto')
+  })
+
+  it('uses default maxHeight of 375px when expanded', () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `line ${i}`)
+    render(<TranscriptPreview transcript={lines} />)
+    fireEvent.click(screen.getByTestId('transcript-toggle'))
+    const preview = screen.getByTestId('transcript-preview')
+    const linesContainer = preview.querySelector('[style*="max-height"]') || preview.firstChild
+    expect(linesContainer.style.maxHeight).toBe('375px')
     expect(linesContainer.style.overflowY).toBe('auto')
   })
 
@@ -105,39 +115,4 @@ describe('TranscriptPreview', () => {
     expect(screen.queryByTestId('transcript-toggle')).not.toBeInTheDocument()
   })
 
-  describe('inline mode', () => {
-    it('uses transcript-preview-inline testid when inline is true', () => {
-      render(<TranscriptPreview transcript={['hello']} inline />)
-      expect(screen.getByTestId('transcript-preview-inline')).toBeInTheDocument()
-      expect(screen.queryByTestId('transcript-preview')).not.toBeInTheDocument()
-    })
-
-    it('does not have border-top style when inline is true', () => {
-      render(<TranscriptPreview transcript={['hello']} inline />)
-      const container = screen.getByTestId('transcript-preview-inline')
-      expect(container.style.borderTop).toBe('')
-      expect(container.style.marginTop).toBe('')
-    })
-
-    it('still shows collapsed and expanded lines correctly in inline mode', () => {
-      const lines = ['line 1', 'line 2', 'line 3', 'line 4', 'line 5']
-      render(<TranscriptPreview transcript={lines} inline maxCollapsedLines={2} />)
-      // Collapsed: only last 2 lines
-      expect(screen.queryByText('line 1')).not.toBeInTheDocument()
-      expect(screen.queryByText('line 2')).not.toBeInTheDocument()
-      expect(screen.queryByText('line 3')).not.toBeInTheDocument()
-      expect(screen.getByText('line 4')).toBeInTheDocument()
-      expect(screen.getByText('line 5')).toBeInTheDocument()
-      // Expand
-      fireEvent.click(screen.getByTestId('transcript-toggle'))
-      expect(screen.getByText('line 1')).toBeInTheDocument()
-      expect(screen.getByText('line 5')).toBeInTheDocument()
-    })
-
-    it('uses default transcript-preview testid when inline is false', () => {
-      render(<TranscriptPreview transcript={['hello']} inline={false} />)
-      expect(screen.getByTestId('transcript-preview')).toBeInTheDocument()
-      expect(screen.queryByTestId('transcript-preview-inline')).not.toBeInTheDocument()
-    })
-  })
 })

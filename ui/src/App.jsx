@@ -151,7 +151,6 @@ function AppContent() {
                 intents={intents}
                 expandedStages={expandedStages}
                 onToggleStage={setExpandedStages}
-                onViewTranscript={handleViewTranscript}
                 onRequestChanges={handleRequestChanges}
               />
             )}

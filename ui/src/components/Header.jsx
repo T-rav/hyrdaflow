@@ -57,13 +57,13 @@ export function Header({
         <div style={styles.sessionBox}>
           <span style={styles.sessionLabel}>Session</span>
           <div style={styles.workload}>
-            <span>{workload.total} total</span>
-            <span style={styles.workloadSep}>|</span>
             <span style={styles.workloadActive}>{workload.active} active</span>
             <span style={styles.workloadSep}>|</span>
             <span style={styles.workloadDone}>{workload.done} done</span>
             <span style={styles.workloadSep}>|</span>
             <span style={styles.workloadFailed}>{workload.failed} failed</span>
+            <span style={styles.workloadSep}>|</span>
+            <span>{workload.total} total</span>
           </div>
         </div>
       </div>

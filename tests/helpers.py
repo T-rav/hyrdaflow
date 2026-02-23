@@ -77,6 +77,7 @@ class ConfigFactory:
         find_label: list[str] | None = None,
         planner_label: list[str] | None = None,
         planner_model: str = "opus",
+        triage_model: str = "haiku",
         planner_budget_usd: float = 1.0,
         min_plan_words: int = 200,
         max_new_files_warning: int = 5,
@@ -175,6 +176,7 @@ class ConfigFactory:
             if planner_label is not None
             else ["hydraflow-plan"],
             planner_model=planner_model,
+            triage_model=triage_model,
             planner_budget_usd=planner_budget_usd,
             min_plan_words=min_plan_words,
             max_new_files_warning=max_new_files_warning,

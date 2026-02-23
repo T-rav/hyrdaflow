@@ -40,6 +40,7 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
     ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
+    ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -214,6 +215,9 @@ class HydraFlowConfig(BaseModel):
         description="Labels for issues needing plans (OR logic)",
     )
     planner_model: str = Field(default="opus", description="Model for planning agents")
+    triage_model: str = Field(
+        default="haiku", description="Model for triage evaluation (fast/cheap)"
+    )
     planner_budget_usd: float = Field(
         default=0, ge=0, description="USD cap per planning agent (0 = unlimited)"
     )

@@ -111,7 +111,19 @@ class ReviewPhase:
         results: list[ReviewResult] = []
 
         async def _review_one(idx: int, pr: PRInfo) -> ReviewResult:
+            if self._stop_event.is_set():
+                return ReviewResult(
+                    pr_number=pr.number,
+                    issue_number=pr.issue_number,
+                    summary="stopped",
+                )
             async with semaphore:
+                if self._stop_event.is_set():
+                    return ReviewResult(
+                        pr_number=pr.number,
+                        issue_number=pr.issue_number,
+                        summary="stopped",
+                    )
                 self._active_issues.add(pr.issue_number)
                 self._state.set_active_issue_numbers(list(self._active_issues))
                 self._store.mark_active(pr.issue_number, "review")
@@ -135,8 +147,19 @@ class ReviewPhase:
                     self._store.mark_complete(pr.issue_number)
 
         tasks = [asyncio.create_task(_review_one(i, pr)) for i, pr in enumerate(prs)]
-        for task in asyncio.as_completed(tasks):
-            results.append(await task)
+        try:
+            for task in asyncio.as_completed(tasks):
+                results.append(await task)
+                # Cancel remaining tasks if stop requested
+                if self._stop_event.is_set():
+                    for t in tasks:
+                        t.cancel()
+                    break
+        finally:
+            # Cancel any remaining tasks if this coroutine is cancelled externally
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
 
         return results
 
@@ -231,6 +254,11 @@ class ReviewPhase:
             ReviewVerdict.COMMENT,
         ):
             skip_worktree_cleanup = await self._handle_rejected_review(pr, result, idx)
+
+        # Preserve worktrees for interrupted reviews so work can be resumed.
+        # If the PR was already merged, the worktree is no longer needed.
+        if self._stop_event.is_set() and not result.merged:
+            skip_worktree_cleanup = True
 
         if not skip_worktree_cleanup:
             try:
