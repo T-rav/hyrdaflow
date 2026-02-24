@@ -108,7 +108,7 @@ def _discover_python_sources(repo_root: Path) -> list[Path]:
         if path.name.startswith("test_") or path.name.endswith("_test.py"):
             continue
         files.append(path)
-    return sorted(files)[:_DUMMY_TEST_LIMIT]
+    return sorted(files)
 
 
 def _discover_js_sources(repo_root: Path) -> list[Path]:
@@ -121,11 +121,14 @@ def _discover_js_sources(repo_root: Path) -> list[Path]:
                 continue
             if "__tests__" in rel.parts:
                 continue
+            if path.name in _JS_CONFIG_FILES:
+                continue
+            if path.name in {"vite.config.js", "vite.config.ts", "vite.config.mjs"}:
+                continue
             if ".test." in path.name or ".spec." in path.name:
                 continue
             files.append(path)
-    unique = sorted(set(files))
-    return unique[:_DUMMY_TEST_LIMIT]
+    return sorted(set(files))
 
 
 def _python_placeholder_test(rel_path: str, test_name: str) -> str:
@@ -216,6 +219,7 @@ class TestScaffoldResult:
     skipped: bool = False
     skip_reason: str = ""
     language: str = ""
+    progress: str = ""
 
 
 def _has_python_test_files(repo_root: Path) -> list[str]:
@@ -296,49 +300,66 @@ def has_test_infrastructure(repo_root: Path, language: str) -> tuple[bool, list[
     return False, details
 
 
-def _scaffold_python_tests(repo_root: Path) -> TestScaffoldResult:
+def _scaffold_python_tests(
+    repo_root: Path, *, include_baseline: bool = True
+) -> TestScaffoldResult:
     """Create Python test baseline: tests/, conftest, pytest config, smoke test."""
     result = TestScaffoldResult(language="python")
     tests_dir = repo_root / "tests"
 
     # Create tests/ directory
-    if not tests_dir.is_dir():
+    if include_baseline and not tests_dir.is_dir():
         tests_dir.mkdir(parents=True)
         result.created_dirs.append("tests")
 
     # Create tests/__init__.py
     init_file = tests_dir / "__init__.py"
-    if not init_file.exists():
+    if include_baseline and not init_file.exists():
         init_file.write_text("")
         result.created_files.append("tests/__init__.py")
 
     # Create tests/conftest.py
     conftest = tests_dir / "conftest.py"
-    if not conftest.exists():
+    if include_baseline and not conftest.exists():
         conftest.write_text(_CONFTEST_TEMPLATE)
         result.created_files.append("tests/conftest.py")
 
     smoke_test = tests_dir / "test_prep_smoke.py"
-    if not smoke_test.exists():
+    if include_baseline and not smoke_test.exists():
         smoke_test.write_text(_PYTHON_SMOKE_TEST_TEMPLATE)
         result.created_files.append("tests/test_prep_smoke.py")
 
-    for src in _discover_python_sources(repo_root):
+    sources = _discover_python_sources(repo_root)
+    pending_before = 0
+    placeholder_created = 0
+    for src in sources:
         rel = src.relative_to(repo_root).as_posix()
         test_name = _sanitize_test_name(rel)
         placeholder = tests_dir / f"test_prep_{test_name}.py"
+        if not placeholder.exists():
+            pending_before += 1
+        if placeholder_created >= _DUMMY_TEST_LIMIT:
+            continue
         if placeholder.exists():
             continue
         placeholder.write_text(_python_placeholder_test(rel, test_name))
         result.created_files.append(f"tests/{placeholder.name}")
+        placeholder_created += 1
+
+    result.progress = (
+        "python placeholder batching: "
+        f"created {placeholder_created} file(s) this run; "
+        f"pending before batch {pending_before}; "
+        f"batch limit {_DUMMY_TEST_LIMIT}"
+    )
 
     # Handle pyproject.toml
     pyproject = repo_root / "pyproject.toml"
-    if not pyproject.is_file():
+    if include_baseline and not pyproject.is_file():
         # Create minimal pyproject.toml with pytest config
         pyproject.write_text(_PYTEST_CONFIG_TEMPLATE.lstrip())
         result.created_files.append("pyproject.toml")
-    elif not _has_pytest_config(repo_root):
+    elif include_baseline and not _has_pytest_config(repo_root):
         # Append pytest config to existing pyproject.toml
         existing = pyproject.read_text()
         separator = "" if existing.endswith("\n") else "\n"
@@ -348,40 +369,57 @@ def _scaffold_python_tests(repo_root: Path) -> TestScaffoldResult:
     return result
 
 
-def _scaffold_js_tests(repo_root: Path) -> TestScaffoldResult:
+def _scaffold_js_tests(
+    repo_root: Path, *, include_baseline: bool = True
+) -> TestScaffoldResult:
     """Create JS/TS baseline: __tests__/, vitest config, deps, smoke test."""
     result = TestScaffoldResult(language="javascript")
     tests_dir = repo_root / "__tests__"
 
     # Create __tests__/ directory
-    if not tests_dir.is_dir():
+    if include_baseline and not tests_dir.is_dir():
         tests_dir.mkdir(parents=True)
         result.created_dirs.append("__tests__")
 
     # Create vitest.config.js (only if no test config exists)
     existing_configs = _has_js_test_config(repo_root)
-    if not existing_configs:
+    if include_baseline and not existing_configs:
         vitest_config = repo_root / "vitest.config.js"
         vitest_config.write_text(_VITEST_CONFIG_TEMPLATE)
         result.created_files.append("vitest.config.js")
 
     smoke_test = tests_dir / "prep.smoke.test.js"
-    if not smoke_test.exists():
+    if include_baseline and not smoke_test.exists():
         smoke_test.write_text(_JS_SMOKE_TEST_TEMPLATE)
         result.created_files.append("__tests__/prep.smoke.test.js")
 
-    for src in _discover_js_sources(repo_root):
+    sources = _discover_js_sources(repo_root)
+    pending_before = 0
+    placeholder_created = 0
+    for src in sources:
         rel = src.relative_to(repo_root).as_posix()
         test_name = _sanitize_test_name(rel)
         placeholder = tests_dir / f"prep.{test_name}.test.js"
+        if not placeholder.exists():
+            pending_before += 1
+        if placeholder_created >= _DUMMY_TEST_LIMIT:
+            continue
         if placeholder.exists():
             continue
         placeholder.write_text(_js_placeholder_test(rel))
         result.created_files.append(f"__tests__/{placeholder.name}")
+        placeholder_created += 1
+
+    result.progress = (
+        "javascript placeholder batching: "
+        f"created {placeholder_created} file(s) this run; "
+        f"pending before batch {pending_before}; "
+        f"batch limit {_DUMMY_TEST_LIMIT}"
+    )
 
     # Modify package.json if it exists
     pkg_path = repo_root / "package.json"
-    if pkg_path.is_file():
+    if include_baseline and pkg_path.is_file():
         try:
             pkg = json.loads(pkg_path.read_text())
         except (json.JSONDecodeError, OSError):
@@ -421,6 +459,7 @@ def _merge_results(a: TestScaffoldResult, b: TestScaffoldResult) -> TestScaffold
         skipped=False,
         skip_reason="",
         language="mixed",
+        progress="; ".join([p for p in (a.progress, b.progress) if p]),
     )
 
 
@@ -440,24 +479,19 @@ def scaffold_tests(repo_root: Path, *, dry_run: bool = False) -> TestScaffoldRes
         )
 
     has_infra, details = has_test_infrastructure(repo_root, language)
-    if has_infra:
-        return TestScaffoldResult(
-            skipped=True,
-            skip_reason=f"Test infrastructure already exists: {'; '.join(details)}",
-            language=language,
-        )
 
     if dry_run:
         return _dry_run_scaffold(repo_root, language)
 
+    include_baseline = not has_infra
     if language == "python":
-        result = _scaffold_python_tests(repo_root)
+        result = _scaffold_python_tests(repo_root, include_baseline=include_baseline)
     elif language == "javascript":
-        result = _scaffold_js_tests(repo_root)
+        result = _scaffold_js_tests(repo_root, include_baseline=include_baseline)
     else:
         # mixed
-        py_result = _scaffold_python_tests(repo_root)
-        js_result = _scaffold_js_tests(repo_root)
+        py_result = _scaffold_python_tests(repo_root, include_baseline=include_baseline)
+        js_result = _scaffold_js_tests(repo_root, include_baseline=include_baseline)
         result = _merge_results(py_result, js_result)
 
     # If nothing was created or modified, scaffold already ran
@@ -467,7 +501,11 @@ def scaffold_tests(repo_root: Path, *, dry_run: bool = False) -> TestScaffoldRes
         and not result.modified_files
     ):
         result.skipped = True
-        result.skip_reason = "Test infrastructure already exists"
+        result.skip_reason = (
+            f"Test infrastructure already exists: {'; '.join(details)}"
+            if has_infra and details
+            else "Test infrastructure already exists"
+        )
 
     return result
 

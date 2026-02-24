@@ -30,6 +30,7 @@ class TestTestScaffoldResult:
         assert result.skipped is False
         assert result.skip_reason == ""
         assert result.language == ""
+        assert result.progress == ""
 
     def test_scaffold_result_stores_explicit_field_values(self) -> None:
         result = TestScaffoldResult(
@@ -45,6 +46,7 @@ class TestTestScaffoldResult:
         assert result.created_files == ["tests/__init__.py"]
         assert result.modified_files == ["pyproject.toml"]
         assert result.language == "python"
+        assert result.progress == ""
 
     def test_mutable_default_independence(self) -> None:
         """Each instance should get its own list."""
@@ -331,6 +333,30 @@ class TestScaffoldPythonTests:
         assert "tests/test_prep_src_alpha_py.py" in result.created_files
         assert "tests/test_prep_src_beta_py.py" in result.created_files
 
+    def test_batches_python_placeholders_and_progresses_next_run(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        for idx in range(8):
+            (src_dir / f"file_{idx}.py").write_text(f"VALUE_{idx} = {idx}\n")
+
+        first = _scaffold_python_tests(tmp_path)
+        second = _scaffold_python_tests(tmp_path)
+
+        first_placeholders = [
+            f for f in first.created_files if f.startswith("tests/test_prep_src_file_")
+        ]
+        second_placeholders = [
+            f for f in second.created_files if f.startswith("tests/test_prep_src_file_")
+        ]
+        assert len(first_placeholders) == 6
+        assert len(second_placeholders) == 2
+        assert "batch limit 6" in first.progress
+        assert "pending before batch 8" in first.progress
+        assert "pending before batch 2" in second.progress
+
 
 # ---------------------------------------------------------------------------
 # _scaffold_js_tests
@@ -489,6 +515,30 @@ class TestScaffoldJsTests:
         assert "__tests__/prep.src_alpha_ts.test.js" in result.created_files
         assert "__tests__/prep.src_beta_js.test.js" in result.created_files
 
+    def test_batches_js_placeholders_and_progresses_next_run(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "package.json").write_text('{"name": "foo"}\n')
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        for idx in range(9):
+            (src_dir / f"part_{idx}.js").write_text(f"export const n{idx} = {idx};\n")
+
+        first = _scaffold_js_tests(tmp_path)
+        second = _scaffold_js_tests(tmp_path)
+
+        first_placeholders = [
+            f for f in first.created_files if f.startswith("__tests__/prep.src_part_")
+        ]
+        second_placeholders = [
+            f for f in second.created_files if f.startswith("__tests__/prep.src_part_")
+        ]
+        assert len(first_placeholders) == 6
+        assert len(second_placeholders) == 3
+        assert "batch limit 6" in first.progress
+        assert "pending before batch 9" in first.progress
+        assert "pending before batch 3" in second.progress
+
 
 # ---------------------------------------------------------------------------
 # scaffold_tests (top-level orchestrator)
@@ -578,6 +628,39 @@ class TestScaffoldTests:
 
         assert first.skipped is False
         assert second.skipped is True
+
+    def test_scaffold_tests_batches_existing_infra_placeholders(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\nname = 'foo'\n\n"
+            "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+        )
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_existing.py").write_text("def test_existing(): pass\n")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        for idx in range(7):
+            (src_dir / f"module_{idx}.py").write_text(f"VAL_{idx} = {idx}\n")
+
+        first = scaffold_tests(tmp_path)
+        second = scaffold_tests(tmp_path)
+
+        first_placeholders = [
+            f
+            for f in first.created_files
+            if f.startswith("tests/test_prep_src_module_")
+        ]
+        second_placeholders = [
+            f
+            for f in second.created_files
+            if f.startswith("tests/test_prep_src_module_")
+        ]
+        assert len(first_placeholders) == 6
+        assert len(second_placeholders) == 1
+        assert first.skipped is False
+        assert second.skipped is False
 
     def test_generates_smoke_test_files(self, tmp_path: Path) -> None:
         """Scaffold should create baseline smoke tests for both stacks."""

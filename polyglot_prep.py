@@ -45,7 +45,7 @@ def _discover_go_sources(repo_root: Path) -> list[Path]:
         if path.name.endswith("_test.go"):
             continue
         files.append(path)
-    return sorted(files)[:_PLACEHOLDER_LIMIT]
+    return sorted(files)
 
 
 def _go_package_name(source_file: Path) -> str:
@@ -69,7 +69,7 @@ def _discover_rust_sources(repo_root: Path) -> list[Path]:
         if _is_ignored_rel_path(rel):
             continue
         files.append(path)
-    return sorted(files)[:_PLACEHOLDER_LIMIT]
+    return sorted(files)
 
 
 def detect_prep_stack(repo_root: Path) -> str:
@@ -199,10 +199,15 @@ def _scaffold_csharp_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult
 def _scaffold_go_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
     result = TestScaffoldResult(language="go")
     sources = _discover_go_sources(repo_root)
+    pending_before = 0
+    created_batch = 0
     for source in sources:
         test_path = source.with_name(f"{source.stem}_test.go")
-        if test_path.is_file():
+        if not test_path.is_file():
+            pending_before += 1
+        if created_batch >= _PLACEHOLDER_LIMIT or test_path.is_file():
             continue
+
         package_name = _go_package_name(source)
         fn_name = _sanitize_ident(source.stem)
         rel = source.relative_to(repo_root).as_posix()
@@ -250,6 +255,7 @@ def _scaffold_go_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
             "\tif bytes.Contains(data, []byte{0}) {\n"
             f'\t\tt.Fatalf("expected source file {rel} to have no NUL bytes")\n'
             "\t}\n"
+            "}\n"
             f"\nfunc TestPrepPlaceholder_{fn_name}_HasAtLeastOneLine(t *testing.T) {{\n"
             f"\tdata := prepRead_{fn_name}(t)\n"
             "\tif len(bytes.Split(data, []byte{'\\n'})) < 1 {\n"
@@ -269,6 +275,7 @@ def _scaffold_go_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
         result.created_files.append(str(test_path.relative_to(repo_root)))
         if not dry_run:
             test_path.write_text(content, encoding="utf-8")
+        created_batch += 1
 
     if not sources:
         smoke = repo_root / "prep_smoke_test.go"
@@ -279,6 +286,13 @@ def _scaffold_go_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
             result.created_files.append("prep_smoke_test.go")
             if not dry_run:
                 smoke.write_text(content, encoding="utf-8")
+
+    result.progress = (
+        "go placeholder batching: "
+        f"created {created_batch} file(s) this run; "
+        f"pending before batch {pending_before}; "
+        f"batch limit {_PLACEHOLDER_LIMIT}"
+    )
     if not result.created_files:
         result.skipped = True
         result.skip_reason = "Go test infrastructure already exists"
@@ -289,6 +303,8 @@ def _scaffold_rust_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
     result = TestScaffoldResult(language="rust")
     tests_dir = repo_root / "tests"
     sources = _discover_rust_sources(repo_root)
+    pending_before = 0
+    created_batch = 0
     if not tests_dir.is_dir():
         result.created_dirs.append("tests")
         if not dry_run:
@@ -298,6 +314,10 @@ def _scaffold_rust_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
         rel = source.relative_to(repo_root).as_posix()
         test_name = _sanitize_ident(rel)
         test_file = tests_dir / f"prep_{test_name}.rs"
+        if not test_file.is_file():
+            pending_before += 1
+        if created_batch >= _PLACEHOLDER_LIMIT:
+            continue
         if test_file.is_file():
             continue
         content = (
@@ -338,6 +358,7 @@ def _scaffold_rust_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
         result.created_files.append(str(test_file.relative_to(repo_root)))
         if not dry_run:
             test_file.write_text(content, encoding="utf-8")
+        created_batch += 1
 
     if not sources:
         smoke = tests_dir / "prep_smoke.rs"
@@ -346,6 +367,12 @@ def _scaffold_rust_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
             result.created_files.append("tests/prep_smoke.rs")
             if not dry_run:
                 smoke.write_text(content, encoding="utf-8")
+    result.progress = (
+        "rust placeholder batching: "
+        f"created {created_batch} file(s) this run; "
+        f"pending before batch {pending_before}; "
+        f"batch limit {_PLACEHOLDER_LIMIT}"
+    )
     if not result.created_dirs and not result.created_files:
         result.skipped = True
         result.skip_reason = "Rust test infrastructure already exists"
