@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from config import HydraFlowConfig
-from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from events import EventBus, EventType, HydraFlowEvent
 from execution import get_default_runner
 from models import (
@@ -19,8 +18,8 @@ from models import (
     InstructionsQualityResult,
     JudgeVerdict,
     ParsedCriteria,
-    PrecheckResult,
 )
+from precheck import run_precheck_context
 from runner_utils import stream_claude_process, terminate_processes
 from subprocess_util import CreditExhaustedError
 
@@ -354,18 +353,6 @@ REFINED_INSTRUCTIONS_END
             disallowed_tools="Write,Edit,NotebookEdit",
         )
 
-    def _build_subskill_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.subskill_tool,
-            model=self._config.subskill_model,
-        )
-
-    def _build_debug_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.debug_tool,
-            model=self._config.debug_model,
-        )
-
     def _build_precheck_prompt(
         self, issue_number: int, criteria: str, diff: str
     ) -> str:
@@ -384,102 +371,22 @@ Diff excerpt:
 {diff[:3000]}
 """
 
-    @staticmethod
-    def _parse_precheck_transcript(
-        transcript: str,
-    ) -> PrecheckResult:
-        risk_match = re.search(
-            r"PRECHECK_RISK:\s*(low|medium|high)",
-            transcript,
-            re.IGNORECASE,
-        )
-        confidence_match = re.search(
-            r"PRECHECK_CONFIDENCE:\s*([0-9]*\.?[0-9]+)",
-            transcript,
-            re.IGNORECASE,
-        )
-        escalate_match = re.search(
-            r"PRECHECK_ESCALATE:\s*(yes|no)",
-            transcript,
-            re.IGNORECASE,
-        )
-        summary_match = re.search(
-            r"PRECHECK_SUMMARY:\s*(.*)",
-            transcript,
-            re.IGNORECASE,
-        )
-        parse_failed = not (
-            risk_match and confidence_match and escalate_match and summary_match
-        )
-        risk = risk_match.group(1).lower() if risk_match else "medium"
-        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
-        escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
-        summary = summary_match.group(1).strip() if summary_match else ""
-        return PrecheckResult(
-            risk=risk,
-            confidence=confidence,
-            escalate=escalate,
-            summary=summary,
-            parse_failed=parse_failed,
-        )
-
     async def _run_precheck_context(
         self, issue_number: int, criteria_text: str, diff: str
     ) -> str:
-        if self._config.max_subskill_attempts <= 0:
-            return "Low-tier precheck disabled."
         prompt = self._build_precheck_prompt(issue_number, criteria_text, diff)
-        risk = "medium"
-        confidence = self._config.subskill_confidence_threshold
-        summary = ""
-        parse_failed = False
 
-        try:
-            for _attempt in range(self._config.max_subskill_attempts):
-                transcript = await self._execute(
-                    self._build_subskill_command(),
-                    prompt,
-                    issue_number,
-                )
-                precheck = self._parse_precheck_transcript(transcript)
-                risk = precheck.risk
-                confidence = precheck.confidence
-                summary = precheck.summary
-                parse_failed = precheck.parse_failed
-                if not parse_failed:
-                    break
-        except Exception:  # noqa: BLE001
-            return "Low-tier precheck failed; continuing without precheck context."
+        async def execute(cmd: list[str], p: str) -> str:
+            return await self._execute(cmd, p, issue_number)
 
-        decision = should_escalate_debug(
-            enabled=self._config.debug_escalation_enabled,
-            confidence=confidence,
-            confidence_threshold=self._config.subskill_confidence_threshold,
-            parse_failed=parse_failed,
-            retry_count=self._config.max_subskill_attempts,
-            max_subskill_attempts=self._config.max_subskill_attempts,
-            risk=risk,
-            high_risk_files_touched=high_risk_diff_touched(diff),
+        return await run_precheck_context(
+            config=self._config,
+            prompt=prompt,
+            diff=diff,
+            execute=execute,
+            debug_message="DEBUG MODE: focus on failure and ambiguity hotspots.",
+            logger=logger,
         )
-
-        context = [
-            f"Precheck risk: {risk}",
-            f"Precheck confidence: {confidence:.2f}",
-            f"Precheck summary: {summary or 'N/A'}",
-            f"Debug escalation: {'yes' if decision.escalate else 'no'}",
-        ]
-
-        if decision.escalate and self._config.max_debug_attempts > 0:
-            debug_transcript = await self._execute(
-                self._build_debug_command(),
-                prompt + "\n\nDEBUG MODE: focus on failure and ambiguity hotspots.",
-                issue_number,
-            )
-            context.append("Debug precheck transcript:")
-            context.append(debug_transcript[:1000])
-            context.append(f"Escalation reasons: {', '.join(decision.reasons)}")
-
-        return "\n".join(context)
 
     def _parse_criteria_results(self, transcript: str) -> list[CriterionResult]:
         """Parse criterion results from the transcript."""

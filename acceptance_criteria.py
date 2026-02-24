@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from execution import get_default_runner
-from models import PrecheckResult, VerificationCriteria
+from models import VerificationCriteria
+from precheck import run_precheck_context
 from runner_utils import stream_claude_process
 
 if TYPE_CHECKING:
@@ -176,18 +176,6 @@ class AcceptanceCriteriaGenerator:
 
         return "".join(parts)
 
-    def _build_subskill_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.subskill_tool,
-            model=self._config.subskill_model,
-        )
-
-    def _build_debug_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.debug_tool,
-            model=self._config.debug_model,
-        )
-
     def _build_precheck_prompt(
         self, issue: GitHubIssue, issue_number: int, pr_number: int, diff_summary: str
     ) -> str:
@@ -206,45 +194,6 @@ Diff summary:
 {diff_summary[:3000]}
 """
 
-    @staticmethod
-    def _parse_precheck_transcript(
-        transcript: str,
-    ) -> PrecheckResult:
-        risk_match = re.search(
-            r"PRECHECK_RISK:\s*(low|medium|high)",
-            transcript,
-            re.IGNORECASE,
-        )
-        confidence_match = re.search(
-            r"PRECHECK_CONFIDENCE:\s*([0-9]*\.?[0-9]+)",
-            transcript,
-            re.IGNORECASE,
-        )
-        escalate_match = re.search(
-            r"PRECHECK_ESCALATE:\s*(yes|no)",
-            transcript,
-            re.IGNORECASE,
-        )
-        summary_match = re.search(
-            r"PRECHECK_SUMMARY:\s*(.*)",
-            transcript,
-            re.IGNORECASE,
-        )
-        parse_failed = not (
-            risk_match and confidence_match and escalate_match and summary_match
-        )
-        risk = risk_match.group(1).lower() if risk_match else "medium"
-        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
-        escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
-        summary = summary_match.group(1).strip() if summary_match else ""
-        return PrecheckResult(
-            risk=risk,
-            confidence=confidence,
-            escalate=escalate,
-            summary=summary,
-            parse_failed=parse_failed,
-        )
-
     async def _run_precheck_context(
         self,
         issue: GitHubIssue,
@@ -253,82 +202,35 @@ Diff summary:
         diff_summary: str,
         diff: str,
     ) -> str:
-        if self._config.max_subskill_attempts <= 0:
-            return "Low-tier precheck disabled."
         prompt = self._build_precheck_prompt(
             issue, issue_number, pr_number, diff_summary
         )
-        risk = "medium"
-        confidence = self._config.subskill_confidence_threshold
-        summary = ""
-        parse_failed = False
 
-        try:
-            for _attempt in range(self._config.max_subskill_attempts):
-                transcript = await stream_claude_process(
-                    cmd=self._build_subskill_command(),
-                    prompt=prompt,
-                    cwd=self._config.repo_root,
-                    active_procs=self._active_procs,
-                    event_bus=self._bus,
-                    event_data={
-                        "issue": issue_number,
-                        "pr": pr_number,
-                        "source": "ac_precheck",
-                    },
-                    logger=logger,
-                    timeout=self._config.agent_timeout,
-                    runner=self._runner,
-                )
-                precheck = self._parse_precheck_transcript(transcript)
-                risk = precheck.risk
-                confidence = precheck.confidence
-                summary = precheck.summary
-                parse_failed = precheck.parse_failed
-                if not parse_failed:
-                    break
-        except Exception:  # noqa: BLE001
-            return "Low-tier precheck failed; continuing without precheck context."
-
-        decision = should_escalate_debug(
-            enabled=self._config.debug_escalation_enabled,
-            confidence=confidence,
-            confidence_threshold=self._config.subskill_confidence_threshold,
-            parse_failed=parse_failed,
-            retry_count=self._config.max_subskill_attempts,
-            max_subskill_attempts=self._config.max_subskill_attempts,
-            risk=risk,
-            high_risk_files_touched=high_risk_diff_touched(diff),
-        )
-
-        context = [
-            f"Precheck risk: {risk}",
-            f"Precheck confidence: {confidence:.2f}",
-            f"Precheck summary: {summary or 'N/A'}",
-            f"Debug escalation: {'yes' if decision.escalate else 'no'}",
-        ]
-
-        if decision.escalate and self._config.max_debug_attempts > 0:
-            debug_transcript = await stream_claude_process(
-                cmd=self._build_debug_command(),
-                prompt=prompt + "\n\nDEBUG MODE: focus on ambiguity and failure modes.",
+        async def execute(cmd: list[str], p: str) -> str:
+            return await stream_claude_process(
+                cmd=cmd,
+                prompt=p,
                 cwd=self._config.repo_root,
                 active_procs=self._active_procs,
                 event_bus=self._bus,
                 event_data={
                     "issue": issue_number,
                     "pr": pr_number,
-                    "source": "ac_precheck_debug",
+                    "source": "ac_precheck",
                 },
                 logger=logger,
                 timeout=self._config.agent_timeout,
                 runner=self._runner,
             )
-            context.append("Debug precheck transcript:")
-            context.append(debug_transcript[:1000])
-            context.append(f"Escalation reasons: {', '.join(decision.reasons)}")
 
-        return "\n".join(context)
+        return await run_precheck_context(
+            config=self._config,
+            prompt=prompt,
+            diff=diff,
+            execute=execute,
+            debug_message="DEBUG MODE: focus on ambiguity and failure modes.",
+            logger=logger,
+        )
 
     def _read_plan_file(self, issue_number: int) -> str:
         """Read the plan from ``.hydraflow/plans/issue-N.md``."""

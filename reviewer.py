@@ -9,16 +9,9 @@ from pathlib import Path
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
-from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from events import EventType, HydraFlowEvent
-from models import (
-    GitHubIssue,
-    PrecheckResult,
-    PRInfo,
-    ReviewerStatus,
-    ReviewResult,
-    ReviewVerdict,
-)
+from models import GitHubIssue, PRInfo, ReviewerStatus, ReviewResult, ReviewVerdict
+from precheck import run_precheck_context
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
 
@@ -402,18 +395,6 @@ SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="review")}"""
 
-    def _build_subskill_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.subskill_tool,
-            model=self._config.subskill_model,
-        )
-
-    def _build_debug_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.debug_tool,
-            model=self._config.debug_model,
-        )
-
     def _build_precheck_prompt(self, pr: PRInfo, issue: GitHubIssue, diff: str) -> str:
         max_diff = min(len(diff), 6000)
         diff_snippet = diff[:max_diff]
@@ -437,109 +418,24 @@ Diff snippet:
 ```
 """
 
-    @staticmethod
-    def _parse_precheck_transcript(
-        transcript: str,
-    ) -> PrecheckResult:
-        risk_match = re.search(
-            r"PRECHECK_RISK:\s*(low|medium|high)",
-            transcript,
-            re.IGNORECASE,
-        )
-        confidence_match = re.search(
-            r"PRECHECK_CONFIDENCE:\s*([0-9]*\.?[0-9]+)",
-            transcript,
-            re.IGNORECASE,
-        )
-        escalate_match = re.search(
-            r"PRECHECK_ESCALATE:\s*(yes|no)",
-            transcript,
-            re.IGNORECASE,
-        )
-        summary_match = re.search(
-            r"PRECHECK_SUMMARY:\s*(.*)",
-            transcript,
-            re.IGNORECASE,
-        )
-        parse_failed = not (
-            risk_match and confidence_match and escalate_match and summary_match
-        )
-        risk = risk_match.group(1).lower() if risk_match else "medium"
-        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
-        escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
-        summary = summary_match.group(1).strip() if summary_match else ""
-        return PrecheckResult(
-            risk=risk,
-            confidence=confidence,
-            escalate=escalate,
-            summary=summary,
-            parse_failed=parse_failed,
-        )
-
     async def _run_precheck_context(
         self, pr: PRInfo, issue: GitHubIssue, diff: str, worktree_path: Path
     ) -> str:
-        if self._config.max_subskill_attempts <= 0:
-            return "Low-tier precheck disabled."
         prompt = self._build_precheck_prompt(pr, issue, diff)
-        summary = ""
-        parse_failed = False
-        risk = "medium"
-        confidence = self._config.subskill_confidence_threshold
-        max_subskill = self._config.max_subskill_attempts
 
-        try:
-            for _attempt in range(1, max_subskill + 1):
-                transcript = await self._execute(
-                    self._build_subskill_command(),
-                    prompt,
-                    worktree_path,
-                    {"pr": pr.number, "source": "reviewer"},
-                )
-                precheck = self._parse_precheck_transcript(transcript)
-                risk = precheck.risk
-                confidence = precheck.confidence
-                summary = precheck.summary
-                parse_failed = precheck.parse_failed
-                if not parse_failed:
-                    break
-        except Exception:  # noqa: BLE001
-            return "Low-tier precheck failed; continuing without precheck context."
+        async def execute(cmd: list[str], p: str) -> str:
+            return await self._execute(
+                cmd, p, worktree_path, {"pr": pr.number, "source": "reviewer"}
+            )
 
-        decision = should_escalate_debug(
-            enabled=self._config.debug_escalation_enabled,
-            confidence=confidence,
-            confidence_threshold=self._config.subskill_confidence_threshold,
-            parse_failed=parse_failed,
-            retry_count=max_subskill,
-            max_subskill_attempts=max_subskill,
-            risk=risk,
-            high_risk_files_touched=high_risk_diff_touched(diff),
+        return await run_precheck_context(
+            config=self._config,
+            prompt=prompt,
+            diff=diff,
+            execute=execute,
+            debug_message="DEBUG MODE: Focus on root causes and concrete risky files.",
+            logger=logger,
         )
-
-        context_lines = [
-            f"Precheck risk: {risk}",
-            f"Precheck confidence: {confidence:.2f}",
-            f"Precheck summary: {summary or 'N/A'}",
-            f"Debug escalation: {'yes' if decision.escalate else 'no'}",
-        ]
-
-        if decision.escalate and self._config.max_debug_attempts > 0:
-            debug_prompt = (
-                prompt
-                + "\n\nDEBUG MODE: Focus on root causes and concrete risky files."
-            )
-            debug_transcript = await self._execute(
-                self._build_debug_command(),
-                debug_prompt,
-                worktree_path,
-                {"pr": pr.number, "source": "reviewer"},
-            )
-            context_lines.append("Debug precheck transcript:")
-            context_lines.append(debug_transcript[:1000])
-            context_lines.append(f"Escalation reasons: {', '.join(decision.reasons)}")
-
-        return "\n".join(context_lines)
 
     def _parse_verdict(self, transcript: str) -> ReviewVerdict:
         """Extract the verdict from the reviewer transcript."""
