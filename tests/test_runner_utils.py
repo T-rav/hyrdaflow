@@ -186,6 +186,23 @@ class TestStreamClaudeProcessConfig:
         env = mock_exec.call_args[1]["env"]
         assert "CLAUDECODE" not in env
 
+    @pytest.mark.asyncio
+    async def test_codex_exec_passes_prompt_as_argument(self, event_bus) -> None:
+        """Codex exec should receive prompt as CLI arg, not stdin pipe."""
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+        cmd = ["codex", "exec", "--json", "--model", "gpt-5.3"]
+        prompt = "do the thing"
+
+        with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
+            await stream_claude_process(
+                **_default_kwargs(event_bus, cmd=cmd, prompt=prompt)
+            )
+
+        args = list(mock_exec.call_args[0])
+        kwargs = mock_exec.call_args[1]
+        assert args[-1] == prompt
+        assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
 
 # ---------------------------------------------------------------------------
 # stream_claude_process — non-zero exit handling
