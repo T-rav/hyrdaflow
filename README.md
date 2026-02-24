@@ -17,6 +17,7 @@ HydraFlow is built for quality-first scaling: agents execute the work, but guard
 - Quality-gated pipeline, not "one-shot" agent code generation
 - Explicit stage controls (triage, plan, implement, review) before merge
 - CI checks and human-in-the-loop escalation when confidence drops
+- Coverage policy target across stacks: enforce 50% minimum and drive toward 70%+ on critical paths
 - Repeatable standards that keep output consistent as workload grows
 
 ## Why Teams Use It
