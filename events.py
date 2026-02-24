@@ -105,6 +105,7 @@ class EventLog:
 
     @property
     def path(self) -> Path:
+        """Return the filesystem path of the event log file."""
         return self._path
 
     def _append_sync(self, line: str) -> None:

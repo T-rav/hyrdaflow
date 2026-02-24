@@ -125,6 +125,7 @@ def _make_prep_output_tracker(
     )
 
     def on_output(accumulated_text: str) -> bool:
+        """Process accumulated agent output, writing new lines to the log file."""
         all_lines = [ln for ln in accumulated_text.splitlines() if ln.strip()]
         if len(all_lines) > state["written_line_count"]:
             new_lines = all_lines[state["written_line_count"] :]
@@ -184,6 +185,7 @@ def _make_prep_output_tracker(
         return False
 
     def get_tail() -> list[str]:
+        """Return the most recent display lines from the agent output."""
         return list(state["tail"])
 
     return on_output, get_tail, live_log_path

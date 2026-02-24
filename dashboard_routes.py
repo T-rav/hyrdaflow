@@ -117,14 +117,17 @@ def create_router(
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
+        """Serve the SPA index page."""
         return _serve_spa_index()
 
     @router.get("/api/state")
     async def get_state() -> JSONResponse:
+        """Return the full state tracker contents as JSON."""
         return JSONResponse(state.to_dict())
 
     @router.get("/api/stats")
     async def get_stats() -> JSONResponse:
+        """Return lifetime stats and optional queue depths."""
         data: dict[str, Any] = state.get_lifetime_stats().model_dump()
         orch = get_orchestrator()
         if orch:
@@ -203,6 +206,7 @@ def create_router(
 
     @router.get("/api/events")
     async def get_events(since: str | None = None) -> JSONResponse:
+        """Return event history, optionally filtered by *since* ISO timestamp."""
         if since is not None:
             from datetime import datetime
 
@@ -373,6 +377,7 @@ def create_router(
 
     @router.get("/api/human-input")
     async def get_human_input_requests() -> JSONResponse:
+        """Return pending human-input requests from the orchestrator."""
         orch = get_orchestrator()
         if orch:
             return JSONResponse(orch.human_input_requests)
@@ -382,6 +387,7 @@ def create_router(
     async def provide_human_input(
         issue_number: int, body: dict[str, Any]
     ) -> JSONResponse:
+        """Submit a human-input answer for the given issue."""
         orch = get_orchestrator()
         if orch:
             answer = body.get("answer", "")
@@ -391,6 +397,7 @@ def create_router(
 
     @router.post("/api/control/start")
     async def start_orchestrator() -> JSONResponse:
+        """Create and start a new orchestrator instance."""
         orch = get_orchestrator()
         if orch and orch.running:
             return JSONResponse({"error": "already running"}, status_code=409)
@@ -414,6 +421,7 @@ def create_router(
 
     @router.post("/api/control/stop")
     async def stop_orchestrator() -> JSONResponse:
+        """Request a graceful stop of the running orchestrator."""
         orch = get_orchestrator()
         if not orch or not orch.running:
             return JSONResponse({"error": "not running"}, status_code=400)
@@ -422,6 +430,7 @@ def create_router(
 
     @router.get("/api/control/status")
     async def get_control_status() -> JSONResponse:
+        """Return the orchestrator run status and current config snapshot."""
         orch = get_orchestrator()
         status = "idle"
         current_session = None
@@ -814,12 +823,14 @@ def create_router(
 
     @router.get("/api/timeline")
     async def get_timeline() -> JSONResponse:
+        """Return issue timelines built from event history."""
         builder = TimelineBuilder(event_bus)
         timelines = builder.build_all()
         return JSONResponse([t.model_dump() for t in timelines])
 
     @router.get("/api/timeline/issue/{issue_num}")
     async def get_timeline_issue(issue_num: int) -> JSONResponse:
+        """Return the timeline for a single issue."""
         builder = TimelineBuilder(event_bus)
         timeline = builder.build_for_issue(issue_num)
         if timeline is None:
@@ -878,6 +889,7 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        """Stream event history then live events over a WebSocket connection."""
         await ws.accept()
 
         # Snapshot history BEFORE subscribing to avoid duplicates.
@@ -910,6 +922,7 @@ def create_router(
     # This must be registered LAST so it doesn't shadow API/WS routes.
     @router.get("/{path:path}", response_model=None)
     async def spa_catchall(path: str) -> Response:
+        """Catch-all handler serving static files or the SPA index."""
         # Don't catch API, WebSocket, or static-asset paths
         if path.startswith(("api/", "ws/", "assets/", "static/")) or path == "ws":
             return JSONResponse({"detail": "Not Found"}, status_code=404)
