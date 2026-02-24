@@ -17,6 +17,7 @@ from cli import (
     _evaluate_coverage_validation_projects,
     _extract_coverage_percent,
     _parse_label_arg,
+    _parse_prep_result,
     _project_has_test_signal,
     _run_main,
     build_config,
@@ -64,6 +65,29 @@ class TestPrepFailureErrorMessage:
             transcript, ".hydraflow/prep/runs/20260224/b.log"
         )
         assert "turn limit" in msg
+
+
+class TestPrepResultParsing:
+    """Tests for structured prep result parsing."""
+
+    def test_prefers_json_success(self) -> None:
+        success, mode = _parse_prep_result(
+            '... PREP_RESULT_JSON: {"prep_status":"SUCCESS","summary":"ok"}'
+        )
+        assert success is True
+        assert mode == "json"
+
+    def test_json_failed_returns_false(self) -> None:
+        success, mode = _parse_prep_result(
+            '... PREP_RESULT_JSON: {"prep_status":"FAILED","summary":"broken"}'
+        )
+        assert success is False
+        assert mode == "json"
+
+    def test_falls_back_to_legacy_status(self) -> None:
+        success, mode = _parse_prep_result("PREP_STATUS: SUCCESS")
+        assert success is True
+        assert mode == "legacy"
 
 
 class TestPrepAgentPrompt:

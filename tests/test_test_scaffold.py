@@ -236,6 +236,13 @@ class TestScaffoldPythonTests:
         content = conftest.read_text()
         assert "fixtures" in content.lower() or "conftest" in content.lower()
 
+    def test_creates_python_smoke_test(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
+        result = _scaffold_python_tests(tmp_path)
+        smoke = tmp_path / "tests" / "test_prep_smoke.py"
+        assert smoke.is_file()
+        assert "tests/test_prep_smoke.py" in result.created_files
+
     def test_adds_pytest_config_to_pyproject(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
 
@@ -335,6 +342,13 @@ class TestScaffoldJsTests:
         assert "vitest.config.js" in result.created_files
         content = config_file.read_text()
         assert "defineConfig" in content
+
+    def test_creates_js_smoke_test(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text('{"name": "foo"}\n')
+        result = _scaffold_js_tests(tmp_path)
+        smoke = tmp_path / "__tests__" / "prep.smoke.test.js"
+        assert smoke.is_file()
+        assert "__tests__/prep.smoke.test.js" in result.created_files
 
     def test_adds_vitest_to_package_json(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
@@ -531,20 +545,15 @@ class TestScaffoldTests:
         assert first.skipped is False
         assert second.skipped is True
 
-    def test_does_not_generate_test_files(self, tmp_path: Path) -> None:
-        """Scaffold should NOT create test_*.py or *.test.js files."""
+    def test_generates_smoke_test_files(self, tmp_path: Path) -> None:
+        """Scaffold should create baseline smoke tests for both stacks."""
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
 
         scaffold_tests(tmp_path)
 
-        # Check Python test dir
-        py_tests = list((tmp_path / "tests").glob("test_*.py"))
-        assert py_tests == []
-
-        # Check JS test dir
-        js_tests = list((tmp_path / "__tests__").glob("*.test.*"))
-        assert js_tests == []
+        assert (tmp_path / "tests" / "test_prep_smoke.py").is_file()
+        assert (tmp_path / "__tests__" / "prep.smoke.test.js").is_file()
 
     def test_dry_run_js_repo_does_not_write(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')

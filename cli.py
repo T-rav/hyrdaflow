@@ -214,7 +214,9 @@ def _append_full_run_log_line(repo_root: Path, line: str) -> Path:
 
 def _build_prep_failure_error_message(transcript: str, transcript_ref: str) -> str:
     """Build a concrete failure message for local `.hydraflow/prep` issues."""
-    if re.search(r"PREP_STATUS\s*:\s*FAILED", transcript, re.IGNORECASE):
+    if re.search(r"PREP_RESULT_JSON\s*:\s*\{", transcript, re.IGNORECASE):
+        reason = "Agent returned PREP_RESULT_JSON with non-success status."
+    elif re.search(r"PREP_STATUS\s*:\s*FAILED", transcript, re.IGNORECASE):
         reason = "Agent returned PREP_STATUS: FAILED."
     elif re.search(r"File has not been read yet", transcript, re.IGNORECASE):
         reason = (
@@ -228,12 +230,36 @@ def _build_prep_failure_error_message(transcript: str, transcript_ref: str) -> s
     elif not transcript.strip():
         reason = "Agent produced an empty transcript."
     else:
-        reason = "Agent did not return PREP_STATUS: SUCCESS."
+        reason = "Agent did not return PREP_RESULT_JSON with prep_status SUCCESS."
 
     lines = [ln for ln in transcript.splitlines() if ln.strip()]
     tail = "\n".join(lines[-30:])
     tail = tail[-3000:] if tail else "(no output)"
     return f"{reason}\nTranscript path: {transcript_ref}\n\nLast output tail:\n{tail}"
+
+
+def _parse_prep_result(transcript: str) -> tuple[bool, str]:
+    """Parse structured prep result from transcript.
+
+    Returns ``(success, mode)`` where mode is ``json`` or ``legacy``.
+    """
+    json_match = re.search(
+        r"PREP_RESULT_JSON\s*:\s*(\{.*\})", transcript, re.IGNORECASE
+    )
+    if json_match:
+        try:
+            payload = json.loads(json_match.group(1))
+            status = str(payload.get("prep_status", "")).strip().upper()
+            if status == "SUCCESS":
+                return True, "json"
+            if status == "FAILED":
+                return False, "json"
+        except json.JSONDecodeError:
+            pass
+
+    return bool(
+        re.search(r"PREP_STATUS\s*:\s*SUCCESS", transcript, re.IGNORECASE)
+    ), "legacy"
 
 
 def _prep_failure_signature(error_message: str) -> str:
@@ -1184,13 +1210,14 @@ async def _run_prep_agent_workflow(
         "4) Run and fix quality/test/build failures iteratively.\n"
         "5) Use local `.hydraflow/prep/*.md` files as issue tracker; update and mark done when fixed.\n"
         "6) Keep changes minimal and safe.\n"
-        "7) End response with EXACTLY one final line: PREP_STATUS: SUCCESS or PREP_STATUS: FAILED.\n\n"
+        "7) End response with EXACTLY one final line in JSON form:\n"
+        'PREP_RESULT_JSON: {"prep_status":"SUCCESS|FAILED","summary":"...","coverage":{"status":"PASS|FAIL","notes":"..."}}\n\n'
         "8) Prefer Make targets for checks/fixes (lint-fix, lint-check, typecheck, test, "
         "quality-lite, quality) instead of ad-hoc commands.\n"
         "9) Before each Edit, Read that file first. If a tool error says the file was not "
         "read yet, read it and retry the edit.\n"
         "10) Continue until `make quality` passes or you can provide a concrete failing "
-        "command and file list, then emit the final PREP_STATUS line.\n"
+        "command and file list, then emit the final PREP_RESULT_JSON line.\n"
         "11) Keep edits scoped to prep-managed files only (Makefile, .github/workflows/*, "
         "package manager files, lint/type config, test scaffold, hooks). Avoid refactoring "
         "existing app source files for pre-existing lint debt.\n"
@@ -1199,7 +1226,7 @@ async def _run_prep_agent_workflow(
         "coverage should prioritize critical paths, not filler "
         "tests (for example, property-only inflation).\n"
         "14) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
-        "with command output + affected files, then end with PREP_STATUS: FAILED.\n\n"
+        "with command output + affected files, then end with PREP_RESULT_JSON prep_status FAILED.\n\n"
         "Current local prep issues:\n"
         f"{issue_list}\n"
     )
@@ -1219,7 +1246,7 @@ async def _run_prep_agent_workflow(
         on_output=on_output,
         timeout=1800.0,
     )
-    success = bool(re.search(r"PREP_STATUS\s*:\s*SUCCESS", transcript, re.IGNORECASE))
+    success, _mode = _parse_prep_result(transcript)
     return success, transcript
 
 
