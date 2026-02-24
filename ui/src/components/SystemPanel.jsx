@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { theme } from '../theme'
-import { BACKGROUND_WORKERS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS } from '../constants'
+import { BACKGROUND_WORKERS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS, UNSTICK_WORKER_OPTIONS } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { Livestream } from './Livestream'
 import { PipelineControlPanel } from './PipelineControlPanel'
@@ -279,6 +279,51 @@ function MemoryAutoApproveToggle() {
   )
 }
 
+function UnstickWorkersDropdown() {
+  const { config } = useHydraFlow()
+  const [localValue, setLocalValue] = useState(null)
+
+  const currentValue = localValue !== null ? localValue : (config?.unstick_max_workers ?? 3)
+
+  const handleChange = useCallback(async (e) => {
+    const newValue = parseInt(e.target.value, 10)
+    setLocalValue(newValue)
+    try {
+      const resp = await fetch('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unstick_max_workers: newValue, persist: true }),
+      })
+      if (!resp.ok) {
+        setLocalValue(currentValue)
+      }
+    } catch {
+      setLocalValue(currentValue)
+    }
+  }, [currentValue])
+
+  return (
+    <div style={styles.autoApproveRow}>
+      <div style={styles.autoApproveLabel}>
+        <span style={styles.autoApproveText}>Parallel Workers</span>
+        <span style={styles.autoApproveHint}>
+          Concurrent fix workers (1-10)
+        </span>
+      </div>
+      <select
+        value={currentValue}
+        onChange={handleChange}
+        style={styles.workersSelect}
+        data-testid="unstick-workers-dropdown"
+      >
+        {UNSTICK_WORKER_OPTIONS.map(n => (
+          <option key={n} value={n}>{n}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInterval }) {
   const { pipelinePollerLastRun, orchestratorStatus, events, pipelineIssues } = useHydraFlow()
   const [activeSubTab, setActiveSubTab] = useState('workers')
@@ -332,7 +377,11 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
                     onToggleBgWorker={onToggleBgWorker}
                     onUpdateInterval={onUpdateInterval}
                     events={events}
-                    extraContent={def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> : undefined}
+                    extraContent={
+                      def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> :
+                      def.key === 'pr_unsticker' ? <UnstickWorkersDropdown /> :
+                      undefined
+                    }
                   />
                 )
               })}
@@ -606,6 +655,17 @@ const styles = {
   autoApproveHint: {
     fontSize: 11,
     color: theme.textMuted,
+  },
+  workersSelect: {
+    padding: '2px 8px',
+    fontSize: 12,
+    fontWeight: 600,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 8,
+    background: theme.surface,
+    color: theme.text,
+    cursor: 'pointer',
+    outline: 'none',
   },
 }
 

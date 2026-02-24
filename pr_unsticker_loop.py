@@ -1,4 +1,4 @@
-"""Background worker loop — PR unsticker."""
+"""Background worker loop — goal-driven PR unsticker for all HITL causes."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ logger = logging.getLogger("hydraflow.pr_unsticker_loop")
 
 
 class PRUnstickerLoop(BaseBackgroundLoop):
-    """Polls HITL items and resolves merge-conflict PRs."""
+    """Polls HITL items and resolves all HITL causes (conflicts, CI, generic)."""
 
     def __init__(
         self,
@@ -46,6 +46,7 @@ class PRUnstickerLoop(BaseBackgroundLoop):
         return self._config.pr_unstick_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
+        """Resolve all HITL causes (conflicts, CI failures, generic)."""
         hitl_items = await self._prs.list_hitl_items(self._config.hitl_label)
         stats = await self._pr_unsticker.unstick(hitl_items)
         return dict(stats)

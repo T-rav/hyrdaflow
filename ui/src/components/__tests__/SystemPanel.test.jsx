@@ -148,7 +148,7 @@ describe('SystemPanel', () => {
       ]
       render(<SystemPanel backgroundWorkers={errorWorkers} />)
       expect(screen.getByText('Connection timeout')).toBeInTheDocument()
-      expect(screen.getByText('3')).toBeInTheDocument()
+      expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1)
     })
 
     it('shows error key in details section', () => {
