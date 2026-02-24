@@ -124,6 +124,12 @@ class TestCoverageValidation:
         assert pct == pytest.approx(72.4)
         assert source == "coverage/coverage-summary.json"
 
+    def test_extracts_coverage_xml_line_rate_percent(self, tmp_path: Path) -> None:
+        (tmp_path / "coverage.xml").write_text('<coverage line-rate="0.82"></coverage>')
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(82.0)
+        assert source == "coverage.xml"
+
     def test_validation_fails_without_artifact(self, tmp_path: Path) -> None:
         ok, warn, detail = _evaluate_coverage_validation(tmp_path)
         assert ok is False

@@ -13,7 +13,6 @@ import shutil
 import signal
 import sys
 import time
-import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -841,21 +840,31 @@ def _extract_coverage_percent(repo_root: Path) -> tuple[float | None, str]:
         if not path.is_file():
             continue
         try:
-            root = ET.parse(path).getroot()
-            line_rate = root.attrib.get("line-rate")
-            if line_rate is not None:
-                return float(line_rate) * 100.0, str(path.relative_to(repo_root))
-            counters = root.findall(".//counter[@type='LINE']")
-            if counters:
-                missed = 0
-                covered = 0
-                for c in counters:
-                    missed += int(c.attrib.get("missed", "0"))
-                    covered += int(c.attrib.get("covered", "0"))
-                total = missed + covered
-                if total > 0:
-                    return (covered / total) * 100.0, str(path.relative_to(repo_root))
-        except (OSError, ET.ParseError, ValueError):
+            content = path.read_text()
+            line_rate_match = re.search(
+                r"\bline-rate=['\"]([0-9]*\.?[0-9]+)['\"]", content
+            )
+            if line_rate_match:
+                return (
+                    float(line_rate_match.group(1)) * 100.0,
+                    str(path.relative_to(repo_root)),
+                )
+
+            missed = 0
+            covered = 0
+            for counter in re.finditer(
+                r"<counter\b[^>]*\btype=['\"]LINE['\"][^>]*>", content
+            ):
+                tag = counter.group(0)
+                missed_match = re.search(r"\bmissed=['\"](\d+)['\"]", tag)
+                covered_match = re.search(r"\bcovered=['\"](\d+)['\"]", tag)
+                if missed_match and covered_match:
+                    missed += int(missed_match.group(1))
+                    covered += int(covered_match.group(1))
+            total = missed + covered
+            if total > 0:
+                return (covered / total) * 100.0, str(path.relative_to(repo_root))
+        except (OSError, ValueError):
             continue
 
     lcov_reports = [repo_root / "coverage" / "lcov.info", repo_root / "lcov.info"]
