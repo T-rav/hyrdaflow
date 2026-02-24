@@ -9,7 +9,6 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | md5)"
 
 if [ ! -f "$MARKER_DIR/code-changed" ]; then
-  echo "No code changes — skipped reviews" >&2
   exit 2
 fi
 
