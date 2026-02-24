@@ -121,9 +121,12 @@ make quality
 
 ## Contributing
 
-- See `CLAUDE.md` for project conventions.
-- Open issues in GitHub and use lifecycle labels for pipeline pickup.
-- Keep changes green with `make quality` before PR.
+- Fork it.
+- Run HydraFlow on HydraFlow. (via `make run` in the repo)
+- Use the tool to extend the tool.
+- Commit the agent-produced output.
+- PR it back.
+- See `CLAUDE.md` for project conventions and lifecycle labels.
 
 ## License
 
