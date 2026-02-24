@@ -236,7 +236,7 @@ class DockerProcess:
         self.pid: int | None = None
 
     def kill(self) -> None:
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(OSError, RuntimeError):
             self._container.kill()
 
     async def wait(self) -> int:
@@ -282,6 +282,12 @@ class DockerRunner:
         self._spawn_lock = asyncio.Lock()
         self._last_spawn_time: float = 0.0
         self._containers: set[Any] = set()
+
+    async def __aenter__(self) -> DockerRunner:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.cleanup()
 
     def _build_mounts(self, cwd: str | None) -> dict[str, dict[str, str]]:
         """Build Docker volume mount specification."""

@@ -120,6 +120,7 @@ class HITLPhase:
             if self._stop_event.is_set():
                 for t in tasks:
                     t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
                 break
 
     async def _process_one_hitl(
