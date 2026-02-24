@@ -56,6 +56,7 @@ async def _poll_then_stop(
     orch: HydraFlowOrchestrator,
     *,
     max_iters: int = 5000,
+    timeout_s: float = 5.0,
 ) -> None:
     """Poll *condition* with zero-sleep yields, then stop the orchestrator.
 
@@ -63,13 +64,17 @@ async def _poll_then_stop(
     iterations so that test failures point at the unmet condition rather
     than at downstream assertions.
     """
-    for _ in range(max_iters):
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    iters = 0
+    while iters < max_iters and asyncio.get_running_loop().time() < deadline:
         if condition():
             break
+        iters += 1
         await asyncio.sleep(0)
     else:
         raise AssertionError(
-            f"_poll_then_stop: condition never became True after {max_iters} iterations"
+            "_poll_then_stop: condition never became True "
+            f"after {iters} iterations in {timeout_s:.2f}s"
         )
     await orch.stop()
 
