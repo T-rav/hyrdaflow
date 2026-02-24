@@ -183,14 +183,14 @@ class TestBuildRebuildPrompt:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo", max_review_diff_chars=1_000
         )
-        long_diff = "+" + "y" * 5000
+        long_diff = "+" + "z" * 5000
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=long_diff, config=config
         )
         diff_section = prompt.split("## Original PR Diff")[1].split("## Instructions")[
             0
         ]
-        assert diff_section.count("y") <= 1_010
+        assert diff_section.count("z") <= 1_000
 
     def test_includes_project_context_when_config_provided(
         self, tmp_path: Path

@@ -193,7 +193,8 @@ class TestLifecycleMetricRecording:
         """Merge conflict HITL escalation should increment the hitl counter."""
         mock_agents = AsyncMock()
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 
@@ -355,7 +356,6 @@ class TestRetrospectiveIntegration:
         """retrospective.record() should be called when PR is merged."""
         mock_retro = AsyncMock()
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
 
         issue = IssueFactory.create()
@@ -386,7 +386,6 @@ class TestRetrospectiveIntegration:
         """retrospective.record() should NOT be called when merge fails."""
         mock_retro = AsyncMock()
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
 
         issue = IssueFactory.create()
@@ -418,7 +417,6 @@ class TestRetrospectiveIntegration:
         mock_retro = AsyncMock()
         mock_retro.record = AsyncMock(side_effect=RuntimeError("retro boom"))
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
 
         issue = IssueFactory.create()
@@ -445,7 +443,7 @@ class TestRetrospectiveIntegration:
     ) -> None:
         """When no retrospective is set, merge should work normally."""
         phase = make_review_phase(config)
-        # phase._retrospective is None by default
+        # phase._post_merge._retrospective is None by default
 
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
@@ -679,7 +677,8 @@ class TestGranularReviewStatusEvents:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        phase = make_review_phase(config, agents=mock_agents, event_bus=event_bus)
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 
@@ -715,7 +714,8 @@ class TestGranularReviewStatusEvents:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
-        phase = make_review_phase(config, agents=mock_agents, event_bus=event_bus)
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 

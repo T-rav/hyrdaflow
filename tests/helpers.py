@@ -451,9 +451,7 @@ class AuditResultFactory:
 def make_review_phase(
     config,
     *,
-    agents=None,
     event_bus=None,
-    ac_generator=None,
 ):
     """Build a ReviewPhase with standard mock dependencies.
 
@@ -486,7 +484,5 @@ def make_review_phase(
         prs=mock_prs,
         stop_event=stop_event,
         store=mock_store,
-        agents=agents,
         event_bus=event_bus or EventBus(),
-        ac_generator=ac_generator,
     )

@@ -235,7 +235,8 @@ class TestReviewPRs:
         """When merge fails and agent can't resolve, should escalate to HITL."""
         mock_agents = AsyncMock()
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 
@@ -271,7 +272,8 @@ class TestReviewPRs:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 
@@ -299,7 +301,8 @@ class TestReviewPRs:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 
@@ -327,7 +330,8 @@ class TestReviewPRs:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 
@@ -1363,7 +1367,8 @@ class TestRunPostMergeHooks:
     async def test_calls_ac_generator(self, config: HydraFlowConfig) -> None:
         """Should call ac_generator.generate when configured."""
         mock_ac = AsyncMock()
-        phase = make_review_phase(config, ac_generator=mock_ac)
+        phase = make_review_phase(config)
+        phase._post_merge._ac_generator = mock_ac
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
         result = ReviewResultFactory.create()
@@ -1377,7 +1382,6 @@ class TestRunPostMergeHooks:
         """Should call retrospective.record when configured."""
         mock_retro = AsyncMock()
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
@@ -1395,8 +1399,8 @@ class TestRunPostMergeHooks:
         mock_ac = AsyncMock()
         mock_ac.generate = AsyncMock(side_effect=RuntimeError("AC failed"))
         mock_retro = AsyncMock()
-        phase = make_review_phase(config, ac_generator=mock_ac)
-        phase._retrospective = mock_retro
+        phase = make_review_phase(config)
+        phase._post_merge._ac_generator = mock_ac
         phase._post_merge._retrospective = mock_retro
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
@@ -1443,7 +1447,6 @@ class TestRunPostMergeHooks:
         )
         mock_judge.judge = AsyncMock(return_value=verdict)
         phase = make_review_phase(config)
-        phase._verification_judge = mock_judge
         phase._post_merge._verification_judge = mock_judge
         phase._prs.create_issue = AsyncMock(return_value=500)
         pr = PRInfoFactory.create()
@@ -1465,7 +1468,6 @@ class TestRunPostMergeHooks:
         mock_judge = AsyncMock()
         mock_judge.judge = AsyncMock(return_value=None)
         phase = make_review_phase(config)
-        phase._verification_judge = mock_judge
         phase._post_merge._verification_judge = mock_judge
         phase._prs.create_issue = AsyncMock(return_value=0)
         pr = PRInfoFactory.create()
@@ -1485,7 +1487,6 @@ class TestRunPostMergeHooks:
         mock_judge = AsyncMock()
         mock_judge.judge = AsyncMock(side_effect=RuntimeError("judge failed"))
         phase = make_review_phase(config)
-        phase._verification_judge = mock_judge
         phase._post_merge._verification_judge = mock_judge
         phase._prs.create_issue = AsyncMock(return_value=0)
         pr = PRInfoFactory.create()
@@ -1506,10 +1507,8 @@ class TestRunPostMergeHooks:
         mock_judge.judge = AsyncMock(return_value=verdict)
         mock_epic = AsyncMock()
         phase = make_review_phase(config)
-        phase._verification_judge = mock_judge
         phase._post_merge._verification_judge = mock_judge
         phase._prs.create_issue = AsyncMock(side_effect=RuntimeError("API failure"))
-        phase._epic_checker = mock_epic
         phase._post_merge._epic_checker = mock_epic
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
@@ -2197,3 +2196,232 @@ class TestCriticalExceptionPropagation:
 
         # finally block should still clean up active issues
         assert 42 not in phase._active_issues
+
+
+# ---------------------------------------------------------------------------
+# Extracted helper methods
+# ---------------------------------------------------------------------------
+
+
+class TestCheckShaSkipGuard:
+    """Tests for the _check_sha_skip_guard extracted helper."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_new_commits(self, config: HydraFlowConfig) -> None:
+        """When stored SHA differs from current HEAD, should return None."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        phase._state.set_last_reviewed_sha(pr.issue_number, "old_sha")
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="new_sha")
+
+        result = await phase._check_sha_skip_guard(pr)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_result_for_same_sha(self, config: HydraFlowConfig) -> None:
+        """When stored SHA matches current HEAD, should return a skip ReviewResult."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        phase._state.set_last_reviewed_sha(pr.issue_number, "abc123")
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="abc123")
+
+        result = await phase._check_sha_skip_guard(pr)
+
+        assert result is not None
+        assert "skipped" in result.summary.lower()
+        assert result.pr_number == pr.number
+        assert result.issue_number == pr.issue_number
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_stored_sha(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When there is no stored SHA, should return None (proceed with review)."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="some_sha")
+
+        result = await phase._check_sha_skip_guard(pr)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_head_sha_is_none(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When get_pr_head_sha returns None, should return None."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        phase._prs.get_pr_head_sha = AsyncMock(return_value=None)
+
+        result = await phase._check_sha_skip_guard(pr)
+
+        assert result is None
+
+
+class TestRecordReviewOutcome:
+    """Tests for the _record_review_outcome extracted helper."""
+
+    @pytest.mark.asyncio
+    async def test_records_all_state(self, config: HydraFlowConfig) -> None:
+        """Should call all expected state tracker methods."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create(duration_seconds=42.0)
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="sha_after_review")
+
+        await phase._record_review_outcome(pr, result)
+
+        assert phase._state._data.reviewed_prs[str(pr.number)] == "approve"
+        assert phase._state._data.processed_issues[str(pr.issue_number)] == "reviewed"
+        assert phase._state.get_last_reviewed_sha(pr.issue_number) == "sha_after_review"
+
+    @pytest.mark.asyncio
+    async def test_records_harness_failure_on_rejection(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Should record harness failure when verdict is not APPROVE."""
+        from unittest.mock import MagicMock, patch
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="sha")
+        phase._harness_insights = MagicMock()
+
+        with patch("review_phase.record_harness_failure") as mock_record:
+            await phase._record_review_outcome(pr, result)
+            mock_record.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_records_harness_failure_on_comment_verdict(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Should record harness failure when verdict is COMMENT (also non-APPROVE)."""
+        from unittest.mock import MagicMock, patch
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.COMMENT)
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="sha")
+        phase._harness_insights = MagicMock()
+
+        with patch("review_phase.record_harness_failure") as mock_record:
+            await phase._record_review_outcome(pr, result)
+            mock_record.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_harness_failure_on_approve(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Should NOT record harness failure when verdict is APPROVE."""
+        from unittest.mock import MagicMock, patch
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.APPROVE)
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="sha")
+        phase._harness_insights = MagicMock()
+
+        with patch("review_phase.record_harness_failure") as mock_record:
+            await phase._record_review_outcome(pr, result)
+            mock_record.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_duration_recording_when_zero(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Should not record duration when duration_seconds is 0."""
+        from unittest.mock import patch
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create(duration_seconds=0.0)
+        phase._prs.get_pr_head_sha = AsyncMock(return_value="sha")
+
+        with patch.object(phase._state, "record_review_duration") as mock_duration:
+            await phase._record_review_outcome(pr, result)
+            mock_duration.assert_not_called()
+
+
+class TestCleanupWorktree:
+    """Tests for the _cleanup_worktree extracted helper."""
+
+    @pytest.mark.asyncio
+    async def test_destroys_when_not_skipped(self, config: HydraFlowConfig) -> None:
+        """Worktree should be destroyed when skip=False and stop_event not set."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create()
+
+        await phase._cleanup_worktree(pr, result, skip=False)
+
+        phase._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
+
+    @pytest.mark.asyncio
+    async def test_preserves_when_skipped(self, config: HydraFlowConfig) -> None:
+        """Worktree should NOT be destroyed when skip=True."""
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create()
+
+        await phase._cleanup_worktree(pr, result, skip=True)
+
+        phase._worktrees.destroy.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_preserves_when_stop_event_set_and_not_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Worktree preserved when stop_event is set and PR not merged."""
+        phase = make_review_phase(config)
+        phase._stop_event.set()
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create()
+        result.merged = False
+
+        await phase._cleanup_worktree(pr, result, skip=False)
+
+        phase._worktrees.destroy.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_destroys_when_stop_event_set_but_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Worktree should be destroyed when stop_event is set but PR was merged."""
+        phase = make_review_phase(config)
+        phase._stop_event.set()
+        pr = PRInfoFactory.create()
+        result = ReviewResultFactory.create()
+        result.merged = True
+
+        await phase._cleanup_worktree(pr, result, skip=False)
+
+        phase._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
+
+
+class TestConstructorDefaultHelpers:
+    """Tests that ReviewPhase builds default helpers when not provided."""
+
+    def test_builds_default_conflict_resolver(self, config: HydraFlowConfig) -> None:
+        """ReviewPhase should build a MergeConflictResolver when not provided."""
+        from merge_conflict_resolver import MergeConflictResolver
+
+        phase = make_review_phase(config)
+
+        assert isinstance(phase._conflict_resolver, MergeConflictResolver)
+
+    def test_builds_default_post_merge_handler(self, config: HydraFlowConfig) -> None:
+        """ReviewPhase should build a PostMergeHandler with all optional deps None."""
+        from post_merge_handler import PostMergeHandler
+
+        phase = make_review_phase(config)
+
+        assert isinstance(phase._post_merge, PostMergeHandler)
+        # Verify all optional post-merge dependencies default to None, not to
+        # values carried over from removed ReviewPhase constructor parameters.
+        assert phase._post_merge._ac_generator is None
+        assert phase._post_merge._retrospective is None
+        assert phase._post_merge._verification_judge is None
+        assert phase._post_merge._epic_checker is None

@@ -10,10 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from acceptance_criteria import AcceptanceCriteriaGenerator
-from agent import AgentRunner
 from config import HydraFlowConfig
-from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
@@ -34,7 +31,6 @@ from phase_utils import (
 )
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
-from retrospective import RetrospectiveCollector
 from review_insights import (
     CATEGORY_DESCRIPTIONS,
     ReviewInsightStore,
@@ -46,8 +42,6 @@ from review_insights import (
 from reviewer import ReviewRunner
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
-from transcript_summarizer import TranscriptSummarizer
-from verification_judge import VerificationJudge
 from worktree import WorktreeManager
 
 logger = logging.getLogger("hydraflow.review_phase")
@@ -65,15 +59,10 @@ class ReviewPhase:
         prs: PRManager,
         stop_event: asyncio.Event,
         store: IssueStore,
-        agents: AgentRunner | None = None,
         event_bus: EventBus | None = None,
-        retrospective: RetrospectiveCollector | None = None,
-        ac_generator: AcceptanceCriteriaGenerator | None = None,
-        verification_judge: VerificationJudge | None = None,
-        transcript_summarizer: TranscriptSummarizer | None = None,
-        epic_checker: EpicCompletionChecker | None = None,
         harness_insights: HarnessInsightStore | None = None,
         conflict_resolver: MergeConflictResolver | None = None,
+        post_merge: PostMergeHandler | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -82,13 +71,7 @@ class ReviewPhase:
         self._prs = prs
         self._stop_event = stop_event
         self._store = store
-        self._agents = agents
         self._bus = event_bus or EventBus()
-        self._retrospective = retrospective
-        self._ac_generator = ac_generator
-        self._verification_judge = verification_judge
-        self._summarizer = transcript_summarizer
-        self._epic_checker = epic_checker
         self._harness_insights = harness_insights
         self._insights = ReviewInsightStore(config.memory_dir)
         self._active_issues: set[int] = set()
@@ -96,21 +79,21 @@ class ReviewPhase:
         self._conflict_resolver = conflict_resolver or MergeConflictResolver(
             config=config,
             worktrees=worktrees,
-            agents=agents,
+            agents=None,
             prs=prs,
             event_bus=self._bus,
             state=state,
-            summarizer=transcript_summarizer,
+            summarizer=None,
         )
-        self._post_merge = PostMergeHandler(
+        self._post_merge = post_merge or PostMergeHandler(
             config=config,
             state=state,
             prs=prs,
             event_bus=self._bus,
-            ac_generator=ac_generator,
-            retrospective=retrospective,
-            verification_judge=verification_judge,
-            epic_checker=epic_checker,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
         )
 
     async def review_prs(
@@ -185,7 +168,52 @@ class ReviewPhase:
                 summary="Issue not found",
             )
 
-        # Skip guard: avoid re-reviewing when no new commits since last review
+        skip_result = await self._check_sha_skip_guard(pr)
+        if skip_result:
+            return skip_result
+
+        wt_path = self._config.worktree_base / f"issue-{pr.issue_number}"
+        if not wt_path.exists():
+            wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
+
+        merged = await self._merge_with_main(pr, issue, wt_path, idx)
+        if not merged:
+            return ReviewResult(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                summary="Merge conflicts with main — escalated to HITL",
+            )
+
+        diff = await self._prs.get_pr_diff(pr.number)
+        await self._run_delta_verification(pr, diff)
+
+        result = await self._run_and_post_review(pr, issue, wt_path, diff, idx)
+
+        if result.fixes_made and result.verdict in (
+            ReviewVerdict.REQUEST_CHANGES,
+            ReviewVerdict.COMMENT,
+        ):
+            result, diff = await self._handle_self_fix_re_review(
+                pr, issue, wt_path, result, diff, idx
+            )
+
+        await self._record_review_outcome(pr, result)
+
+        skip_worktree_cleanup = False
+        if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
+            await self._handle_approved_merge(pr, issue, result, diff, idx)
+        elif result.verdict in (
+            ReviewVerdict.REQUEST_CHANGES,
+            ReviewVerdict.COMMENT,
+        ):
+            skip_worktree_cleanup = await self._handle_rejected_review(pr, result, idx)
+
+        await self._cleanup_worktree(pr, result, skip_worktree_cleanup)
+
+        return result
+
+    async def _check_sha_skip_guard(self, pr: PRInfo) -> ReviewResult | None:
+        """Return a skip result if no new commits since last review, else None."""
         current_sha = await self._prs.get_pr_head_sha(pr.number)
         if current_sha:
             stored_sha = self._state.get_last_reviewed_sha(pr.issue_number)
@@ -202,41 +230,17 @@ class ReviewPhase:
                     issue_number=pr.issue_number,
                     summary="Skipped — no new commits since last review",
                 )
+        return None
 
-        wt_path = self._config.worktree_base / f"issue-{pr.issue_number}"
-        if not wt_path.exists():
-            wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
+    async def _record_review_outcome(self, pr: PRInfo, result: ReviewResult) -> None:
+        """Record all post-review state: verdicts, SHA, duration, insights.
 
-        # Merge main and push — returns False on unresolvable conflicts
-        merged = await self._merge_with_main(pr, issue, wt_path, idx)
-        if not merged:
-            return ReviewResult(
-                pr_number=pr.number,
-                issue_number=pr.issue_number,
-                summary="Merge conflicts with main — escalated to HITL",
-            )
-
-        diff = await self._prs.get_pr_diff(pr.number)
-
-        # Delta verification: compare planned vs actual files
-        await self._run_delta_verification(pr, diff)
-
-        result = await self._run_and_post_review(pr, issue, wt_path, diff, idx)
-
-        # If reviewer fixed its own findings, re-review the updated code
-        if result.fixes_made and result.verdict in (
-            ReviewVerdict.REQUEST_CHANGES,
-            ReviewVerdict.COMMENT,
-        ):
-            result, diff = await self._handle_self_fix_re_review(
-                pr, issue, wt_path, result, diff, idx
-            )
-
+        Also records a harness failure for any non-APPROVE verdict.
+        """
         self._state.mark_pr(pr.number, result.verdict.value)
         self._state.mark_issue(pr.issue_number, "reviewed")
         self._state.record_review_verdict(result.verdict.value, result.fixes_made)
 
-        # Record the current remote HEAD SHA so the skip guard works next cycle
         post_review_sha = await self._prs.get_pr_head_sha(pr.number)
         if post_review_sha:
             self._state.set_last_reviewed_sha(pr.issue_number, post_review_sha)
@@ -254,22 +258,16 @@ class ReviewPhase:
                 pr_number=pr.number,
             )
 
-        # Verdict-specific handling
-        skip_worktree_cleanup = False
-        if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
-            await self._handle_approved_merge(pr, issue, result, diff, idx)
-        elif result.verdict in (
-            ReviewVerdict.REQUEST_CHANGES,
-            ReviewVerdict.COMMENT,
-        ):
-            skip_worktree_cleanup = await self._handle_rejected_review(pr, result, idx)
-
+    async def _cleanup_worktree(
+        self, pr: PRInfo, result: ReviewResult, skip: bool
+    ) -> None:
+        """Destroy the worktree unless it should be preserved."""
         # Preserve worktrees for interrupted reviews so work can be resumed.
         # If the PR was already merged, the worktree is no longer needed.
         if self._stop_event.is_set() and not result.merged:
-            skip_worktree_cleanup = True
+            skip = True
 
-        if not skip_worktree_cleanup:
+        if not skip:
             try:
                 await self._worktrees.destroy(pr.issue_number)
                 self._state.remove_worktree(pr.issue_number)
@@ -279,8 +277,6 @@ class ReviewPhase:
                     pr.issue_number,
                     exc,
                 )
-
-        return result
 
     async def _merge_with_main(
         self,

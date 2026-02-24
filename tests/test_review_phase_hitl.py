@@ -42,7 +42,8 @@ class TestHITLEscalationEvents:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
-        phase = make_review_phase(config, agents=mock_agents, event_bus=event_bus)
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._conflict_resolver._agents = mock_agents
         issue = IssueFactory.create()
         pr = PRInfoFactory.create()
 

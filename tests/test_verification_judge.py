@@ -1198,8 +1198,8 @@ class TestReviewPhaseWiring:
             stop_event=stop_event,
             store=MagicMock(),
             event_bus=event_bus,
-            verification_judge=mock_judge,
         )
+        phase._post_merge._verification_judge = mock_judge
 
         pr = PRInfo(
             number=101,
