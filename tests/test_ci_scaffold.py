@@ -150,3 +150,13 @@ class TestScaffoldCI:
         assert result.skipped is False
         assert result.language == "node"
         assert not (tmp_path / ".github" / "workflows" / "quality.yml").exists()
+
+    def test_scaffold_ci_is_idempotent_when_run_twice(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").touch()
+
+        first = scaffold_ci(tmp_path)
+        second = scaffold_ci(tmp_path)
+
+        assert first.created is True
+        assert second.created is False
+        assert second.skipped is True
