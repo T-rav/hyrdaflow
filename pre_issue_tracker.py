@@ -6,11 +6,13 @@ when it contains the marker ``<!-- status: done -->``.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 _DONE_MARKER = "<!-- status: done -->"
+_RUN_ID_ENV = "HYDRAFLOW_PREP_RUN_ID"
 
 
 @dataclass(frozen=True)
@@ -23,9 +25,12 @@ class LocalPrepIssue:
 
 
 def ensure_pre_dirs(repo_root: Path) -> tuple[Path, Path]:
-    """Create and return ``(.hydraflow/prep, .hydraflow/prep/runs/YYYYMMDD)``."""
+    """Create and return ``(.hydraflow/prep, .hydraflow/prep/runs/<run-id>)``."""
     pre_dir = repo_root / ".hydraflow" / "prep"
-    runs_dir = pre_dir / "runs" / datetime.now(tz=UTC).strftime("%Y%m%d")
+    run_id = os.environ.get(_RUN_ID_ENV) or datetime.now(tz=UTC).strftime(
+        "%Y%m%d-%H%M%S-%f"
+    )
+    runs_dir = pre_dir / "runs" / run_id
     pre_dir.mkdir(parents=True, exist_ok=True)
     runs_dir.mkdir(parents=True, exist_ok=True)
     return pre_dir, runs_dir
@@ -75,7 +80,7 @@ def mark_done(issue: LocalPrepIssue) -> None:
 
 
 def write_run_log(repo_root: Path, *, title: str, lines: list[str]) -> Path:
-    """Write a markdown run log under ``.hydraflow/prep/runs/YYYYMMDD``."""
+    """Write a markdown run log under ``.hydraflow/prep/runs/<run-id>``."""
     _, runs_dir = ensure_pre_dirs(repo_root)
     ts = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
     path = runs_dir / f"{ts}-prep-run.md"

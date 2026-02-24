@@ -186,7 +186,7 @@ def _write_prep_task_transcript(
     task_slug: str,
     transcript: str,
 ) -> Path | None:
-    """Persist a prep task transcript under ``.hydraflow/prep/runs/YYYYMMDD``."""
+    """Persist a prep task transcript under ``.hydraflow/prep/runs/<run-id>``."""
     from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
 
     if not transcript.strip():
@@ -200,7 +200,7 @@ def _write_prep_task_transcript(
 
 
 def _append_full_run_log_line(repo_root: Path, line: str) -> Path:
-    """Append one line to `.hydraflow/prep/runs/YYYYMMDD/full-run.log` and return its path."""
+    """Append one line to `.hydraflow/prep/runs/<run-id>/full-run.log` and return its path."""
     from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
 
     _pre_dir, runs_dir = ensure_pre_dirs(repo_root)
@@ -1009,6 +1009,8 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     from prep import RepoAuditor  # noqa: PLC0415
 
     use_color = _supports_color_output()
+    run_id = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S-%f")
+    os.environ["HYDRAFLOW_PREP_RUN_ID"] = run_id
     ensure_pre_dirs(config.repo_root)
     local_issues = load_open_issues(config.repo_root)
     selected_tool, selection_mode = _choose_prep_tool(config.subskill_tool)

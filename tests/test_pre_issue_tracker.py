@@ -19,6 +19,12 @@ def test_ensure_pre_dirs_creates_dirs(tmp_path):
     assert runs_dir.parent == pre_dir / "runs"
 
 
+def test_ensure_pre_dirs_uses_locked_run_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("HYDRAFLOW_PREP_RUN_ID", "20260224-010203-000001")
+    _pre_dir, runs_dir = ensure_pre_dirs(tmp_path)
+    assert runs_dir.name == "20260224-010203-000001"
+
+
 def test_load_open_issues_skips_done(tmp_path):
     pre_dir, _ = ensure_pre_dirs(tmp_path)
     (pre_dir / "001-open.md").write_text("# Open\nbody\n")
