@@ -795,11 +795,11 @@ class TestPersistEventErrorHandling:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Done callback should not log for cancelled tasks."""
-        future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         future.cancel()
 
         with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)  # type: ignore[arg-type]
+            _log_persist_failure(future)
 
         assert "Event persist task failed" not in caplog.text
 
@@ -808,11 +808,11 @@ class TestPersistEventErrorHandling:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Done callback should log warning when task has an exception."""
-        future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         future.set_exception(ValueError("bad serialization"))
 
         with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)  # type: ignore[arg-type]
+            _log_persist_failure(future)
 
         assert "Event persist task failed" in caplog.text
         records = [

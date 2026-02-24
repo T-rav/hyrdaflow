@@ -41,7 +41,7 @@ _event_counter = _Counter()
 logger = logging.getLogger("hydraflow.events")
 
 
-def _log_persist_failure(task: asyncio.Task[None]) -> None:
+def _log_persist_failure(task: asyncio.Future[None]) -> None:
     """Log unhandled exceptions from fire-and-forget persist tasks."""
     if task.cancelled():
         return
