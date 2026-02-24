@@ -16,44 +16,9 @@ import pytest
 
 from events import EventType
 from models import ReviewVerdict
-from pr_manager import CommentFormatter, PRManager
+from pr_manager import PRManager
 from tests.conftest import SubprocessMockBuilder
 from tests.helpers import ConfigFactory
-
-# ---------------------------------------------------------------------------
-# CommentFormatter
-# ---------------------------------------------------------------------------
-
-
-class TestCommentFormatter:
-    """Tests for CommentFormatter.chunk and CommentFormatter.cap."""
-
-    def test_chunk_short_body_single_chunk(self):
-        assert CommentFormatter.chunk("hello", limit=100) == ["hello"]
-
-    def test_chunk_at_boundary_single_chunk(self):
-        body = "x" * 100
-        assert CommentFormatter.chunk(body, limit=100) == [body]
-
-    def test_chunk_splits_at_newline(self):
-        body = "line1\nline2\nline3"
-        result = CommentFormatter.chunk(body, limit=12)
-        assert result[0] == "line1\nline2"
-        assert result[1] == "line3"
-
-    def test_cap_short_body_unchanged(self):
-        assert CommentFormatter.cap("hello", limit=100) == "hello"
-
-    def test_cap_over_limit_appends_truncation_marker(self):
-        body = "x" * 200
-        result = CommentFormatter.cap(body, limit=100)
-        assert len(result) == 100
-        assert result.endswith(CommentFormatter.TRUNCATION_MARKER)
-
-    def test_cap_default_limit_passes_short_body(self):
-        body = "y" * (CommentFormatter.GITHUB_COMMENT_LIMIT - 1)
-        assert CommentFormatter.cap(body) == body
-
 
 # ---------------------------------------------------------------------------
 # _chunk_body (static method)

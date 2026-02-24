@@ -1735,6 +1735,11 @@ class TestRecordReviewInsight:
             await phase._record_review_insight(result)
 
         phase._prs.create_task.assert_awaited_once()
+        call_title, _call_body, call_labels = phase._prs.create_task.call_args[0]
+        assert (
+            "test_coverage" in call_title.lower() or "Recurring feedback" in call_title
+        )
+        assert config.improve_label[0] in call_labels
         mock_insights.mark_category_proposed.assert_called_once_with("test_coverage")
 
     @pytest.mark.asyncio

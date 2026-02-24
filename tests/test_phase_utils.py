@@ -337,18 +337,14 @@ class TestRecordHarnessFailure:
 
     def test_extracts_subcategories(self, tmp_path: Path) -> None:
         """Should extract subcategories from the details string."""
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir()
-        store = HarnessInsightStore(memory_dir)
-
+        store = HarnessInsightStore(tmp_path)
         record_harness_failure(
             store,
-            42,
-            FailureCategory.QUALITY_GATE,
-            "ruff lint error: missing import",
+            issue_number=42,
+            category=FailureCategory.QUALITY_GATE,
+            details="ruff lint error: missing import",
             stage="implement",
         )
-
         records = store.load_recent()
         assert len(records) == 1
         assert "lint_error" in records[0].subcategories
