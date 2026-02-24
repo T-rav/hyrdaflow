@@ -4,7 +4,9 @@ from __future__ import annotations
 
 # The memory suggestion block is included verbatim in all runner and
 # conflict-resolution prompts.  Each caller uses
-# `MEMORY_SUGGESTION_PROMPT.format(context=...)` with its own context value.
+# `MEMORY_SUGGESTION_PROMPT.format(context=...)` with its own context value:
+# "implementation", "planning", "review", "correction", "conflict resolution",
+# or "rebuild".
 MEMORY_SUGGESTION_PROMPT = """\
 ## Optional: Memory Suggestion
 

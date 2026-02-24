@@ -206,6 +206,30 @@ class TestBuildRebuildPrompt:
         )
         assert "## Project Context" not in prompt
 
+    def test_omits_project_context_when_config_but_no_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        prompt = build_rebuild_prompt(
+            ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF, config=config
+        )
+        assert "## Project Context" not in prompt
+
+    def test_includes_accumulated_learnings_when_config_provided(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        digest_path = config.repo_root / ".hydraflow" / "memory" / "digest.md"
+        digest_path.parent.mkdir(parents=True, exist_ok=True)
+        digest_path.write_text("## Memory Digest\nAlways check edge cases")
+        prompt = build_rebuild_prompt(
+            ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF, config=config
+        )
+        assert "## Accumulated Learnings" in prompt
+        assert "Always check edge cases" in prompt
+
     def test_includes_memory_suggestion_instructions(self) -> None:
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
