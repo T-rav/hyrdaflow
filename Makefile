@@ -237,9 +237,9 @@ setup: deps
 	@if [ ! -f "$(TARGET_REPO_ROOT)/.gitignore" ]; then \
 		touch "$(TARGET_REPO_ROOT)/.gitignore"; \
 	fi
-	@if ! grep -qx '\.pre' "$(TARGET_REPO_ROOT)/.gitignore"; then \
-		printf '\n.pre\n' >> "$(TARGET_REPO_ROOT)/.gitignore"; \
-		echo "  .gitignore updated: added .pre"; \
+	@if ! grep -qx '\.hydraflow/prep' "$(TARGET_REPO_ROOT)/.gitignore"; then \
+		printf '\n.hydraflow/prep\n' >> "$(TARGET_REPO_ROOT)/.gitignore"; \
+		echo "  .gitignore updated: added .hydraflow/prep"; \
 	fi
 	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
@@ -285,8 +285,6 @@ REPO_SLUG := $(shell git remote get-url origin 2>/dev/null | sed 's|.*github\.co
 prep: deps
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
-	@echo "$(BLUE)Resetting prep scratch directories (.pre/.prep)...$(RESET)"
-	@rm -rf $(TARGET_REPO_ROOT)/.pre $(TARGET_REPO_ROOT)/.prep
 	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --scaffold
 	@echo "$(GREEN)Prep complete$(RESET)"
 

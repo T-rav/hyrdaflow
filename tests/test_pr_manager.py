@@ -1569,14 +1569,16 @@ def test_makefile_setup_bootstraps_env_from_sample() -> None:
 
 
 def test_makefile_setup_ignores_prep_scratch_dir() -> None:
-    """make setup should ensure .pre is ignored in the target repo."""
+    """make setup should ensure .hydraflow/prep is ignored in the target repo."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
     content = makefile.read_text()
 
     assert '.gitignore"' in content, "setup target must touch/update .gitignore"
-    assert "\\.pre" in content, "setup target must add .pre to .gitignore"
+    assert "\\.hydraflow/prep" in content, (
+        "setup target must add .hydraflow/prep to .gitignore"
+    )
 
 
 # ---------------------------------------------------------------------------

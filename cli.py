@@ -186,7 +186,7 @@ def _write_prep_task_transcript(
     task_slug: str,
     transcript: str,
 ) -> Path | None:
-    """Persist a prep task transcript under ``.pre/runs``."""
+    """Persist a prep task transcript under ``.hydraflow/prep/runs/YYYYMMDD``."""
     from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
 
     if not transcript.strip():
@@ -200,7 +200,7 @@ def _write_prep_task_transcript(
 
 
 def _append_full_run_log_line(repo_root: Path, line: str) -> Path:
-    """Append one line to `.pre/runs/full-run.log` and return its path."""
+    """Append one line to `.hydraflow/prep/runs/YYYYMMDD/full-run.log` and return its path."""
     from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
 
     _pre_dir, runs_dir = ensure_pre_dirs(repo_root)
@@ -211,7 +211,7 @@ def _append_full_run_log_line(repo_root: Path, line: str) -> Path:
 
 
 def _build_prep_failure_error_message(transcript: str, transcript_ref: str) -> str:
-    """Build a concrete failure message for local `.pre` issues."""
+    """Build a concrete failure message for local `.hydraflow/prep` issues."""
     if re.search(r"PREP_STATUS\s*:\s*FAILED", transcript, re.IGNORECASE):
         reason = "Agent returned PREP_STATUS: FAILED."
     elif re.search(r"File has not been read yet", transcript, re.IGNORECASE):
@@ -788,7 +788,7 @@ async def _run_hardening_step(
 
 
 def _slugify_issue_name(step_name: str) -> str:
-    """Convert a step name to a safe `.pre` issue slug."""
+    """Convert a step name to a safe `.hydraflow/prep` issue slug."""
     slug = re.sub(r"[^a-z0-9]+", "-", step_name.lower()).strip("-")
     return slug or "prep-step"
 
@@ -846,7 +846,10 @@ def _build_prep_agent_prompt(
             for step, cmd, err in failures
         ]
     )
-    issues = "\n".join([f"- .pre/{name}" for name in issue_filenames]) or "- (none)"
+    issues = (
+        "\n".join([f"- .hydraflow/prep/{name}" for name in issue_filenames])
+        or "- (none)"
+    )
     return (
         "You are the HydraFlow prep correction agent.\n"
         f"Stack: {stack}\n\n"
@@ -861,7 +864,7 @@ def _build_prep_agent_prompt(
         "been read yet, immediately read it and retry the edit.\n"
         "7) Do not run parallel/batch edits. Apply edits one file at a time.\n"
         "8) Do not refactor unrelated application source to chase existing lint debt. "
-        "If failures are outside prep-managed files, record/update `.pre` issues with "
+        "If failures are outside prep-managed files, record/update `.hydraflow/prep` issues with "
         "concrete failing commands and file paths.\n\n"
         "Local prep issue files:\n"
         f"{issues}\n\n"
@@ -935,7 +938,10 @@ async def _run_prep_agent_workflow(
     from runner_utils import stream_claude_process  # noqa: PLC0415
 
     logger = logging.getLogger("hydraflow.prep")
-    issue_list = "\n".join([f"- .pre/{name}" for name in local_issue_names]) or "- none"
+    issue_list = (
+        "\n".join([f"- .hydraflow/prep/{name}" for name in local_issue_names])
+        or "- none"
+    )
     prompt = (
         "You are the HydraFlow prep operator agent.\n"
         f"Driver: {tool}\n"
@@ -947,7 +953,7 @@ async def _run_prep_agent_workflow(
         "2) Ensure GitHub CI quality workflow exists for this stack.\n"
         "3) Ensure test scaffold exists for this stack.\n"
         "4) Run and fix quality/test/build failures iteratively.\n"
-        "5) Use local `.pre/*.md` files as issue tracker; update and mark done when fixed.\n"
+        "5) Use local `.hydraflow/prep/*.md` files as issue tracker; update and mark done when fixed.\n"
         "6) Keep changes minimal and safe.\n"
         "7) End response with EXACTLY one final line: PREP_STATUS: SUCCESS or PREP_STATUS: FAILED.\n\n"
         "8) Prefer Make targets for checks/fixes (lint-fix, lint-check, typecheck, test, "
@@ -960,7 +966,7 @@ async def _run_prep_agent_workflow(
         "package manager files, lint/type config, test scaffold, hooks). Avoid refactoring "
         "existing app source files for pre-existing lint debt.\n"
         "12) Never batch or parallelize edits. Work one file at a time and verify each step.\n"
-        "13) If remaining failures are in existing app source, create/update `.pre` issues "
+        "13) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
         "with command output + affected files, then end with PREP_STATUS: FAILED.\n\n"
         "Current local prep issues:\n"
         f"{issue_list}\n"
@@ -1143,7 +1149,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
         _append_full_run_log_line(config.repo_root, plain_line)
         stage_line = _prep_stage_line(
             "hardening",
-            f"attempt {attempt}/{max_attempts}: collecting open .pre issues",
+            f"attempt {attempt}/{max_attempts}: collecting open .hydraflow/prep issues",
             "start",
             use_color,
         )

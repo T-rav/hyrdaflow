@@ -46,13 +46,17 @@ class TestPrepFailureErrorMessage:
             "some output\n"
             "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>"
         )
-        msg = _build_prep_failure_error_message(transcript, ".pre/runs/a.log")
+        msg = _build_prep_failure_error_message(
+            transcript, ".hydraflow/prep/runs/20260224/a.log"
+        )
         assert "tool precondition failure" in msg
-        assert "Transcript path: .pre/runs/a.log" in msg
+        assert "Transcript path: .hydraflow/prep/runs/20260224/a.log" in msg
 
     def test_classifies_turn_limit_error(self) -> None:
         transcript = "agent stopped due to max turns reached"
-        msg = _build_prep_failure_error_message(transcript, ".pre/runs/b.log")
+        msg = _build_prep_failure_error_message(
+            transcript, ".hydraflow/prep/runs/20260224/b.log"
+        )
         assert "turn limit" in msg
 
 
