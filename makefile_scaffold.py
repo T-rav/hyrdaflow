@@ -13,6 +13,7 @@ from pathlib import Path
 
 from manifest import detect_language  # noqa: F401 - compatibility re-export
 from polyglot_prep import detect_prep_stack
+from prep_ignore import PREP_IGNORED_DIRS, load_git_submodule_roots
 
 _PYTHON_TARGETS: dict[str, str] = {
     "lint": "\truff check . --fix && ruff format .\n",
@@ -29,7 +30,7 @@ _JS_TARGETS: dict[str, str] = {
     "lint-fix": "\t$(MAKE) lint\n",
     "typecheck": "\tnpx tsc --noEmit\n",
     "security": "\tnpm audit --audit-level=moderate\n",
-    "test": "\tnpx vitest run\n",
+    "test": "\tnpx vitest run --exclude='hydraflow/**'\n",
 }
 
 _JAVA_TARGETS: dict[str, str] = {
@@ -260,28 +261,19 @@ _PROJECT_MARKERS: tuple[str, ...] = (
     "Gemfile",
     "CMakeLists.txt",
 )
-_IGNORED_DIRS: set[str] = {
-    ".git",
-    ".github",
-    ".venv",
-    "venv",
-    "node_modules",
-    "dist",
-    "build",
-    "target",
-    ".next",
-    ".turbo",
-    ".idea",
-    "__pycache__",
-    ".pytest_cache",
-}
 
 
 def discover_project_paths(repo_root: Path) -> list[Path]:
     """Discover project directories that should get Makefile scaffolding."""
     paths: set[Path] = set()
+    submodule_roots = load_git_submodule_roots(repo_root)
     for path in repo_root.rglob("*"):
-        if any(part in _IGNORED_DIRS for part in path.parts):
+        if any(part in PREP_IGNORED_DIRS for part in path.parts):
+            continue
+        resolved = path.resolve()
+        if any(
+            root == resolved or root in resolved.parents for root in submodule_roots
+        ):
             continue
         if not path.is_file():
             continue

@@ -90,7 +90,7 @@ class TestGenerateMakefile:
         content = generate_makefile("javascript")
         assert "npx eslint" in content
         assert "npx tsc --noEmit" in content
-        assert "npx vitest run" in content
+        assert "npx vitest run --exclude='hydraflow/**'" in content
 
     def test_quality_target_chains_dependencies(self) -> None:
         content = generate_makefile("python")
@@ -376,6 +376,33 @@ class TestScaffoldMakefiles:
         rels = {str(p.relative_to(tmp_path)) for p in paths}
         assert "backend" in rels
         assert "frontend" in rels
+
+    def test_ignores_git_submodule_paths(self, tmp_path: Path) -> None:
+        (tmp_path / "backend").mkdir()
+        (tmp_path / "backend" / "pyproject.toml").touch()
+        (tmp_path / "hydraflow").mkdir()
+        (tmp_path / "hydraflow" / "package.json").write_text("{}\n")
+        (tmp_path / ".gitmodules").write_text(
+            '[submodule "hydraflow"]\n\tpath = hydraflow\n\turl = https://example.com/hydraflow.git\n'
+        )
+
+        paths = discover_project_paths(tmp_path)
+        rels = {str(p.relative_to(tmp_path)) for p in paths}
+        assert "backend" in rels
+        assert "hydraflow" not in rels
+
+    def test_ignores_hydra_named_folder_without_gitmodules(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "backend").mkdir()
+        (tmp_path / "backend" / "pyproject.toml").touch()
+        (tmp_path / "hydra").mkdir()
+        (tmp_path / "hydra" / "package.json").write_text("{}\n")
+
+        paths = discover_project_paths(tmp_path)
+        rels = {str(p.relative_to(tmp_path)) for p in paths}
+        assert "backend" in rels
+        assert "hydra" not in rels
 
     def test_scaffolds_makefiles_for_multiple_projects(self, tmp_path: Path) -> None:
         (tmp_path / "backend").mkdir()

@@ -342,6 +342,8 @@ class TestScaffoldJsTests:
         assert "vitest.config.js" in result.created_files
         content = config_file.read_text()
         assert "defineConfig" in content
+        assert "exclude" in content
+        assert "hydraflow/**" in content
 
     def test_creates_js_smoke_test(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')

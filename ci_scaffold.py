@@ -11,6 +11,7 @@ from pathlib import Path
 
 from manifest import detect_language  # noqa: F401 - re-export for compatibility tests
 from polyglot_prep import detect_prep_stack
+from prep_ignore import PREP_IGNORED_DIRS
 
 
 @dataclasses.dataclass
@@ -50,7 +51,9 @@ def has_quality_workflow(repo_root: Path) -> tuple[bool, str]:
     return False, ""
 
 
-_UNIVERSAL_WORKFLOW = """\
+_IGNORED_DIRS_LITERAL = ", ".join(f'"{name}"' for name in sorted(PREP_IGNORED_DIRS))
+
+_UNIVERSAL_WORKFLOW_TEMPLATE = """\
 name: Quality
 # prep-managed: quality-workflow
 
@@ -77,9 +80,7 @@ jobs:
 
           root = Path(".")
           ignored = {
-              ".git", ".github", ".venv", "venv", "node_modules",
-              "dist", "build", "target", ".next", ".turbo", ".idea",
-              "__pycache__", ".pytest_cache"
+              __PREP_IGNORED_DIRS__
           }
           markers = {
               "Makefile", "makefile", "GNUmakefile",
@@ -90,8 +91,22 @@ jobs:
           }
 
           paths = set()
+          submodule_roots = set()
+          gitmodules = root / ".gitmodules"
+          if gitmodules.is_file():
+              for line in gitmodules.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if not line.startswith("path ="):
+                      continue
+                  rel = line.split("=", 1)[1].strip()
+                  if rel:
+                      submodule_roots.add((root / rel).resolve())
+
           for path in root.rglob("*"):
               if any(part in ignored for part in path.parts):
+                  continue
+              resolved = path.resolve()
+              if any(sm == resolved or sm in resolved.parents for sm in submodule_roots):
                   continue
               if not path.is_file():
                   continue
@@ -171,6 +186,10 @@ jobs:
           echo "Missing Makefile in ${{ matrix.project_dir }}. Run 'make prep' to scaffold make targets." >&2
           exit 1
 """
+
+_UNIVERSAL_WORKFLOW = _UNIVERSAL_WORKFLOW_TEMPLATE.replace(
+    "__PREP_IGNORED_DIRS__", _IGNORED_DIRS_LITERAL
+)
 
 _WORKFLOW_TEMPLATES: dict[str, str] = {
     "python": _UNIVERSAL_WORKFLOW,

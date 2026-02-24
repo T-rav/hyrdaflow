@@ -82,6 +82,10 @@ class TestGenerateWorkflow:
         assert "make quality-lite" in wf
         assert "make quality" in wf
 
+    def test_workflow_discovery_ignores_hydra_folders(self) -> None:
+        wf = generate_workflow("python")
+        assert '"hydra", "hydraflow"' in wf
+
 
 class TestScaffoldCI:
     def test_creates_workflow_for_python_repo(self, tmp_path: Path) -> None:
