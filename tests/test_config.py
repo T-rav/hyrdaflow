@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
-
-# conftest.py already inserts the hydraflow package directory into sys.path
 from typing import get_args
 
 import pytest
 
+# conftest.py already inserts the hydraflow package directory into sys.path
 from config import (
     _ENV_BOOL_OVERRIDES,
     _ENV_FLOAT_OVERRIDES,
@@ -2799,18 +2799,22 @@ class TestEnvVarOverrideTable:
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
         field: str,
         env_key: str,
     ) -> None:
         """Invalid Literal env var values should be rejected and field stays at default."""
         default = HydraFlowConfig.model_fields[field].default
         monkeypatch.setenv(env_key, "bogus")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
+        with caplog.at_level(logging.WARNING, logger="hydraflow.config"):
+            cfg = HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
         assert getattr(cfg, field) == default
+        assert env_key in caplog.text, "Expected warning to name the invalid env var"
+        assert "bogus" in caplog.text, "Expected warning to include the invalid value"
 
     def test_override_table_field_names_are_valid(self) -> None:
         """Every field in the override tables should be a real HydraFlowConfig attribute."""
@@ -2824,6 +2828,16 @@ class TestEnvVarOverrideTable:
         config_fields = set(HydraFlowConfig.model_fields.keys())
         invalid = all_fields - config_fields
         assert not invalid, f"Invalid field names in override tables: {invalid}"
+        # Every field in _ENV_LITERAL_OVERRIDES must actually have a Literal annotation
+        # so that get_args() returns allowed values instead of an empty tuple.
+        for field, _ in _ENV_LITERAL_OVERRIDES:
+            field_info = HydraFlowConfig.model_fields[field]
+            args = get_args(field_info.annotation)
+            assert args, (
+                f"Field '{field}' in _ENV_LITERAL_OVERRIDES has no Literal args "
+                f"(annotation={field_info.annotation!r}); "
+                "all env var overrides for this field would be silently rejected"
+            )
 
     def test_override_table_defaults_match_field_defaults(self) -> None:
         """Default values in the override tables must match HydraFlowConfig field defaults.
