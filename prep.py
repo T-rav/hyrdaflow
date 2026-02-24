@@ -135,11 +135,12 @@ _REQUIRED_MAKE_TARGETS = (
     "typecheck",
     "security",
     "test",
+    "coverage-check",
     "quality-lite",
     "quality",
 )
 
-_COVERAGE_MIN_THRESHOLD = 50.0
+_COVERAGE_MIN_THRESHOLD = 70.0
 _COVERAGE_TARGET_THRESHOLD = 70.0
 
 # Lock files mapped to package manager names
@@ -625,7 +626,7 @@ class RepoAuditor:
                 status=AuditCheckStatus.PARTIAL,
                 detail=(
                     "no enforced coverage threshold detected; "
-                    "set minimum 50% and target 70%+"
+                    "set minimum 70% and target 70%+"
                 ),
             )
 
@@ -635,8 +636,8 @@ class RepoAuditor:
                 name="Coverage",
                 status=AuditCheckStatus.PARTIAL,
                 detail=(
-                    f"{min_source}={min_threshold:g}% below minimum 50%; "
-                    "increase threshold to >=50%"
+                    f"{min_source}={min_threshold:g}% below minimum 70%; "
+                    "increase threshold to >=70%"
                 ),
             )
 

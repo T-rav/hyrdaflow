@@ -115,11 +115,85 @@ _CPP_TARGETS: dict[str, str] = {
     "test": '\tif [ -d build ]; then ctest --test-dir build --output-on-failure; else echo "Build dir missing; run make typecheck first" >&2; exit 1; fi\n',
 }
 
+_COVERAGE_CHECK_RECIPE = (
+    "\t@python - <<'PY'\n"
+    "\timport json\n"
+    "\timport os\n"
+    "\tfrom pathlib import Path\n"
+    "\timport xml.etree.ElementTree as ET\n"
+    "\troot = Path('.')\n"
+    "\ttarget = float(os.environ.get('COVERAGE_TARGET', '70'))\n"
+    "\tpct = None\n"
+    "\tsource = ''\n"
+    "\tfor p in [root/'coverage'/'coverage-summary.json', root/'coverage-summary.json']:\n"
+    "\t    if p.is_file():\n"
+    "\t        try:\n"
+    "\t            pct = float(json.loads(p.read_text()).get('total', {}).get('lines', {}).get('pct'))\n"
+    "\t            source = str(p)\n"
+    "\t            break\n"
+    "\t        except Exception:\n"
+    "\t            pass\n"
+    "\tif pct is None:\n"
+    "\t    for p in [root/'coverage.xml', root/'cobertura.xml', root/'jacoco.xml']:\n"
+    "\t        if p.is_file():\n"
+    "\t            try:\n"
+    "\t                r = ET.parse(p).getroot()\n"
+    "\t                lr = r.attrib.get('line-rate')\n"
+    "\t                if lr is not None:\n"
+    "\t                    pct = float(lr) * 100.0\n"
+    "\t                    source = str(p)\n"
+    "\t                    break\n"
+    "\t            except Exception:\n"
+    "\t                pass\n"
+    "\tif pct is None:\n"
+    "\t    for p in [root/'coverage'/'lcov.info', root/'lcov.info']:\n"
+    "\t        if p.is_file():\n"
+    "\t            try:\n"
+    "\t                lf = lh = 0\n"
+    "\t                for line in p.read_text().splitlines():\n"
+    "\t                    if line.startswith('LF:'):\n"
+    "\t                        lf += int(line[3:])\n"
+    "\t                    elif line.startswith('LH:'):\n"
+    "\t                        lh += int(line[3:])\n"
+    "\t                if lf > 0:\n"
+    "\t                    pct = (lh / lf) * 100.0\n"
+    "\t                    source = str(p)\n"
+    "\t                    break\n"
+    "\t            except Exception:\n"
+    "\t                pass\n"
+    "\tif pct is None and (root / 'coverage.out').is_file():\n"
+    "\t    p = root / 'coverage.out'\n"
+    "\t    try:\n"
+    "\t        total = covered = 0\n"
+    "\t        for line in p.read_text().splitlines():\n"
+    "\t            if line.startswith('mode:'):\n"
+    "\t                continue\n"
+    "\t            parts = line.split()\n"
+    "\t            if len(parts) != 3:\n"
+    "\t                continue\n"
+    "\t            stmts = int(parts[1])\n"
+    "\t            hits = int(parts[2])\n"
+    "\t            total += stmts\n"
+    "\t            if hits > 0:\n"
+    "\t                covered += stmts\n"
+    "\t        if total > 0:\n"
+    "\t            pct = (covered / total) * 100.0\n"
+    "\t            source = str(p)\n"
+    "\texcept Exception:\n"
+    "\t    pass\n"
+    "\tif pct is None:\n"
+    "\t    raise SystemExit('coverage-check: no coverage artifact found')\n"
+    "\tif pct < target:\n"
+    "\t    raise SystemExit(f'coverage-check: {pct:.1f}% from {source} is below {target:.0f}%')\n"
+    "\tprint(f'coverage-check: {pct:.1f}% from {source} (>= {target:.0f}%)')\n"
+    "\tPY\n"
+)
+
 # quality targets are prerequisite-only targets
 _QUALITY_LITE_LINE = "quality-lite: lint-check typecheck security\n"
-_QUALITY_LINE = "quality: quality-lite test\n"
+_QUALITY_LINE = "quality: quality-lite test coverage-check\n"
 _DEFAULT_GOAL_LINE = ".DEFAULT_GOAL := help"
-_COVERAGE_MIN_LINE = "COVERAGE_MIN ?= 50"
+_COVERAGE_MIN_LINE = "COVERAGE_MIN ?= 70"
 _COVERAGE_TARGET_LINE = "COVERAGE_TARGET ?= 70"
 _HELP_RECIPE = (
     '\t@echo "Available targets:"\n'
@@ -130,7 +204,8 @@ _HELP_RECIPE = (
     '\t@echo "  typecheck    Run type checks"\n'
     '\t@echo "  security     Run security checks"\n'
     '\t@echo "  test         Run tests"\n'
-    '\t@echo "  coverage vars COVERAGE_MIN=50 COVERAGE_TARGET=70"\n'
+    '\t@echo "  coverage-check Enforce coverage floor from reports"\n'
+    '\t@echo "  coverage vars COVERAGE_MIN=70 COVERAGE_TARGET=70"\n'
     '\t@echo "  quality-lite Run lint/type/security"\n'
     '\t@echo "  quality      Run quality-lite + tests"\n'
 )
@@ -143,6 +218,7 @@ _ALL_TARGET_NAMES = [
     "typecheck",
     "security",
     "test",
+    "coverage-check",
     "quality-lite",
     "quality",
 ]
@@ -271,7 +347,12 @@ def _targets_for_language(language: str) -> dict[str, str]:
         "rust": _RUST_TARGETS,
         "cpp": _CPP_TARGETS,
     }
-    return templates.get(language, {})
+    base = templates.get(language)
+    if not base:
+        return {}
+    targets = dict(base)
+    targets["coverage-check"] = _COVERAGE_CHECK_RECIPE
+    return targets
 
 
 def generate_makefile(language: str) -> str:
@@ -360,7 +441,7 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
         )
         if quality_match:
             existing_deps = quality_match.group(1).strip()
-            expected_deps = "quality-lite test"
+            expected_deps = "quality-lite test coverage-check"
             if existing_deps != expected_deps:
                 warnings.append(
                     f"Target 'quality' exists with different prerequisites: "

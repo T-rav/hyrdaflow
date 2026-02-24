@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,7 +12,13 @@ import pytest
 from cli import (
     _build_prep_agent_prompt,
     _build_prep_failure_error_message,
+    _coverage_validation_roots,
+    _evaluate_coverage_validation,
+    _evaluate_coverage_validation_projects,
+    _extract_coverage_percent,
     _parse_label_arg,
+    _parse_prep_result,
+    _project_has_test_signal,
     _run_main,
     build_config,
     parse_args,
@@ -60,6 +67,29 @@ class TestPrepFailureErrorMessage:
         assert "turn limit" in msg
 
 
+class TestPrepResultParsing:
+    """Tests for structured prep result parsing."""
+
+    def test_prefers_json_success(self) -> None:
+        success, mode = _parse_prep_result(
+            '... PREP_RESULT_JSON: {"prep_status":"SUCCESS","summary":"ok"}'
+        )
+        assert success is True
+        assert mode == "json"
+
+    def test_json_failed_returns_false(self) -> None:
+        success, mode = _parse_prep_result(
+            '... PREP_RESULT_JSON: {"prep_status":"FAILED","summary":"broken"}'
+        )
+        assert success is False
+        assert mode == "json"
+
+    def test_falls_back_to_legacy_status(self) -> None:
+        success, mode = _parse_prep_result("PREP_STATUS: SUCCESS")
+        assert success is True
+        assert mode == "legacy"
+
+
 class TestPrepAgentPrompt:
     """Tests for prep prompt safety constraints."""
 
@@ -71,6 +101,93 @@ class TestPrepAgentPrompt:
         )
         assert "Do not run parallel/batch edits" in prompt
         assert "Do not refactor unrelated application source" in prompt
+
+
+class TestCoverageValidation:
+    """Tests for coverage artifact extraction and validation."""
+
+    def test_extracts_lcov_percent(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text(
+            "TN:\nSF:file.js\nLF:100\nLH:65\nend_of_record\n"
+        )
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(65.0)
+        assert source == "lcov.info"
+
+    def test_extracts_coverage_summary_json_percent(self, tmp_path: Path) -> None:
+        cov_dir = tmp_path / "coverage"
+        cov_dir.mkdir()
+        (cov_dir / "coverage-summary.json").write_text(
+            '{"total":{"lines":{"pct":72.4}}}'
+        )
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(72.4)
+        assert source == "coverage/coverage-summary.json"
+
+    def test_extracts_coverage_xml_line_rate_percent(self, tmp_path: Path) -> None:
+        (tmp_path / "coverage.xml").write_text('<coverage line-rate="0.82"></coverage>')
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(82.0)
+        assert source == "coverage.xml"
+
+    def test_validation_fails_without_artifact(self, tmp_path: Path) -> None:
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is False
+        assert warn is False
+        assert "no coverage report artifact found" in detail
+
+    def test_validation_fails_below_minimum(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:60\n")
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is False
+        assert warn is False
+        assert "below minimum 70%" in detail
+
+    def test_validation_passes_at_minimum_floor(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:70\n")
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is True
+        assert warn is False
+        assert "passed" in detail
+
+    def test_validation_passes_at_target(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:85\n")
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is True
+        assert warn is False
+        assert "passed" in detail
+
+    def test_project_has_test_signal_from_makefile_target(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        assert _project_has_test_signal(tmp_path) is True
+
+    def test_coverage_roots_include_only_projects_with_tests(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        pkg_a = tmp_path / "packages" / "a"
+        pkg_a.mkdir(parents=True)
+        (pkg_a / "Makefile").write_text("test:\n\t@echo test\n")
+        pkg_b = tmp_path / "packages" / "b"
+        pkg_b.mkdir(parents=True)
+        roots = _coverage_validation_roots(tmp_path, [".", "packages/a", "packages/b"])
+        rels = ["." if p == tmp_path else str(p.relative_to(tmp_path)) for p in roots]
+        assert rels == [".", "packages/a"]
+
+    def test_coverage_projects_fails_when_any_project_below_min(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:80\n")
+        pkg_a = tmp_path / "packages" / "a"
+        pkg_a.mkdir(parents=True)
+        (pkg_a / "lcov.info").write_text("LF:100\nLH:40\n")
+        ok, warn, detail = _evaluate_coverage_validation_projects(
+            tmp_path, [tmp_path, pkg_a]
+        )
+        assert ok is False
+        assert warn is False
+        assert "packages/a:" in detail
+        assert "below minimum 70%" in detail
 
 
 # ---------------------------------------------------------------------------

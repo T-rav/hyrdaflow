@@ -483,6 +483,7 @@ class TestCheckMakefile:
             "typecheck:\n\t@echo typecheck\n\n"
             "security:\n\t@echo security\n\n"
             "test:\n\t@echo test\n\n"
+            "coverage-check:\n\t@echo coverage\n\n"
             "quality-lite:\n\t@echo quality-lite\n\n"
             "quality:\n\t@echo quality\n"
         )
@@ -525,8 +526,9 @@ class TestCheckMakefile:
             "typecheck:\n\t@echo typecheck\n\n"
             "security:\n\t@echo security\n\n"
             "test:\n\t@echo test\n\n"
+            "coverage-check:\n\t@echo coverage\n\n"
             "quality-lite: lint-check typecheck security\n\t@echo quality-lite\n\n"
-            "quality: quality-lite test\n\t@echo quality\n"
+            "quality: quality-lite test coverage-check\n\t@echo quality\n"
         )
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -916,7 +918,7 @@ class TestCheckCoveragePolicy:
         auditor = RepoAuditor(config)
         check = auditor._check_coverage_policy()
         assert check.status == AuditCheckStatus.PARTIAL
-        assert "below minimum 50%" in check.detail
+        assert "below minimum 70%" in check.detail
 
     def test_threshold_between_minimum_and_target_warns(self, tmp_path: Path) -> None:
         (tmp_path / "Makefile").write_text(
@@ -928,7 +930,7 @@ class TestCheckCoveragePolicy:
         auditor = RepoAuditor(config)
         check = auditor._check_coverage_policy()
         assert check.status == AuditCheckStatus.PARTIAL
-        assert "target 70%+" in check.detail
+        assert "below minimum 70%" in check.detail
 
     def test_threshold_at_target_reports_present(self, tmp_path: Path) -> None:
         (tmp_path / "Makefile").write_text(

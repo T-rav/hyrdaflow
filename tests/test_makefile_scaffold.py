@@ -95,7 +95,7 @@ class TestGenerateMakefile:
     def test_quality_target_chains_dependencies(self) -> None:
         content = generate_makefile("python")
         assert "quality-lite: lint-check typecheck security" in content
-        assert "quality: quality-lite test" in content
+        assert "quality: quality-lite test coverage-check" in content
 
     def test_includes_phony_declaration(self) -> None:
         content = generate_makefile("python")
@@ -113,11 +113,11 @@ class TestGenerateMakefile:
     def test_sets_help_as_default_goal(self) -> None:
         content = generate_makefile("python")
         assert ".DEFAULT_GOAL := help" in content
-        assert "COVERAGE_MIN ?= 50" in content
+        assert "COVERAGE_MIN ?= 70" in content
         assert "COVERAGE_TARGET ?= 70" in content
         assert "help:" in content
         assert "Available targets:" in content
-        assert "coverage vars COVERAGE_MIN=50 COVERAGE_TARGET=70" in content
+        assert "coverage vars COVERAGE_MIN=70 COVERAGE_TARGET=70" in content
 
     def test_unknown_language_returns_empty(self) -> None:
         content = generate_makefile("unknown")
@@ -212,7 +212,8 @@ class TestMergeMakefile:
     def test_no_warning_when_quality_deps_match(self) -> None:
         # quality: exists with correct chain — no warning
         existing = (
-            "quality-lite: lint-check typecheck security\nquality: quality-lite test\n"
+            "quality-lite: lint-check typecheck security\n"
+            "quality: quality-lite test coverage-check\n"
         )
         _, warnings = merge_makefile(existing, "python")
         assert not any("quality" in w for w in warnings)
