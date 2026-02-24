@@ -746,7 +746,6 @@ class TestPersistEventErrorHandling:
             await bus.publish(event)
             await bus.flush_persists()
 
-        assert "Failed to persist event to disk" in caplog.text
         records = [
             r
             for r in caplog.records
@@ -780,10 +779,10 @@ class TestPersistEventErrorHandling:
         assert records[0].exc_info is not None
 
     @pytest.mark.asyncio
-    async def test_publish_delivers_event_despite_persist_failure(
+    async def test_publish_delivers_event_to_subscriber_despite_persist_failure(
         self, tmp_path: Path
     ) -> None:
-        """Subscribers receive events and history is updated even when persistence fails."""
+        """Subscribers receive events even when persistence fails."""
         event_log = EventLog(tmp_path / "events.jsonl")
         bus = EventBus(event_log=event_log)
         queue = bus.subscribe()
@@ -794,6 +793,20 @@ class TestPersistEventErrorHandling:
             await bus.flush_persists()
 
         assert queue.get_nowait() is event
+
+    @pytest.mark.asyncio
+    async def test_publish_updates_history_despite_persist_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """In-memory history is updated even when persistence fails."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
         assert event in bus.get_history()
 
     @pytest.mark.asyncio
@@ -820,9 +833,21 @@ class TestPersistEventErrorHandling:
         with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
             _log_persist_failure(future)
 
-        assert "Event persist task failed" in caplog.text
         records = [
             r for r in caplog.records if "Event persist task failed" in r.getMessage()
         ]
         assert len(records) == 1
         assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_silent_on_success(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should not log when task completed successfully."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.set_result(None)
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        assert "Event persist task failed" not in caplog.text
