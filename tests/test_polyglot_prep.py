@@ -55,6 +55,44 @@ def test_scaffold_tests_polyglot_for_extra_stacks(
     assert (tmp_path / expected_file).exists()
 
 
+def test_scaffold_go_creates_placeholder_tests_per_source_file(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/app\n")
+    pkg_dir = tmp_path / "internal" / "calc"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "add.go").write_text(
+        "package calc\n\nfunc Add(a, b int) int { return a + b }\n"
+    )
+    (pkg_dir / "sub.go").write_text(
+        "package calc\n\nfunc Sub(a, b int) int { return a - b }\n"
+    )
+
+    result = scaffold_tests_polyglot(tmp_path)
+
+    assert result.skipped is False
+    assert (pkg_dir / "add_test.go").is_file()
+    assert (pkg_dir / "sub_test.go").is_file()
+    assert "internal/calc/add_test.go" in result.created_files
+    assert "internal/calc/sub_test.go" in result.created_files
+
+
+def test_scaffold_rust_creates_placeholder_tests_per_source_file(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "Cargo.toml").write_text("[package]\nname = 'app'\nversion = '0.1.0'\n")
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "lib.rs").write_text("pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
+    (src_dir / "math.rs").write_text("pub fn sub(a: i32, b: i32) -> i32 { a - b }\n")
+
+    result = scaffold_tests_polyglot(tmp_path)
+
+    assert result.skipped is False
+    assert (tmp_path / "tests" / "prep_src_lib_rs.rs").is_file()
+    assert (tmp_path / "tests" / "prep_src_math_rs.rs").is_file()
+    assert "tests/prep_src_lib_rs.rs" in result.created_files
+    assert "tests/prep_src_math_rs.rs" in result.created_files
+
+
 def test_node_ui_framework_repo_is_handled_generically(tmp_path: Path) -> None:
     pkg = {
         "name": "ui-app",

@@ -104,8 +104,8 @@ def record_harness_failure(
     category: FailureCategory,
     details: str,
     *,
+    stage: str,
     pr_number: int = 0,
-    stage: str = "plan",
 ) -> None:
     """Record a failure to the harness insight store (non-blocking).
 

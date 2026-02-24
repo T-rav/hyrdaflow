@@ -33,6 +33,8 @@ _SEEDED_DIGEST_PLACEHOLDER = (
     "*Seeded during prep; no learnings yet.*\n\n"
     "HydraFlow will update this digest after the first memory sync.\n"
 )
+_PREP_COVERAGE_STEP = 10.0
+_PREP_COVERAGE_STATE_PATH = ".hydraflow/prep/coverage-floor.json"
 
 
 def _supports_color_output() -> bool:
@@ -1139,6 +1141,40 @@ def _coverage_below_target_from_detail(detail: str, target: float) -> bool:
     return False
 
 
+def _prep_coverage_has_measurement(detail: str) -> bool:
+    """Return True when coverage detail includes at least one measured percentage."""
+    return bool(re.search(r"\d+(?:\.\d+)?% from ", detail))
+
+
+def _load_prep_coverage_floor(repo_root: Path) -> float:
+    """Load persisted prep coverage minimum floor for ratcheting."""
+    state_path = repo_root / _PREP_COVERAGE_STATE_PATH
+    if not state_path.is_file():
+        return _PREP_COVERAGE_MIN_REQUIRED
+    try:
+        payload = json.loads(state_path.read_text())
+        raw = payload.get("min_required")
+        if isinstance(raw, int | float):
+            return float(
+                max(_PREP_COVERAGE_MIN_REQUIRED, min(_PREP_COVERAGE_TARGET, raw))
+            )
+    except (OSError, json.JSONDecodeError):
+        return _PREP_COVERAGE_MIN_REQUIRED
+    return _PREP_COVERAGE_MIN_REQUIRED
+
+
+def _save_prep_coverage_floor(repo_root: Path, min_required: float) -> None:
+    """Persist prep coverage minimum floor for future runs."""
+    value = float(
+        max(_PREP_COVERAGE_MIN_REQUIRED, min(_PREP_COVERAGE_TARGET, min_required))
+    )
+    state_path = repo_root / _PREP_COVERAGE_STATE_PATH
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({"min_required": value}, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def _slugify_issue_name(step_name: str) -> str:
     """Convert a step name to a safe `.hydraflow/prep` issue slug."""
     slug = re.sub(r"[^a-z0-9]+", "-", step_name.lower()).strip("-")
@@ -1500,6 +1536,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     coverage_roots = _coverage_validation_roots(
         repo_root, list(makefile_results.results.keys())
     )
+    coverage_min_required = _load_prep_coverage_floor(repo_root)
     coverage_scope = (
         ", ".join(
             "." if p == repo_root else str(p.relative_to(repo_root))
@@ -1508,6 +1545,10 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
         or "none"
     )
     run_log_lines.append(f"- Coverage validation scope: {coverage_scope}")
+    run_log_lines.append(
+        f"- Coverage validation minimum floor: {coverage_min_required:.0f}% "
+        f"(ratchets +{_PREP_COVERAGE_STEP:.0f} to max {_PREP_COVERAGE_TARGET:.0f}%)"
+    )
 
     max_attempts = 3
     attempts_used = 0
@@ -1604,7 +1645,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
                 _evaluate_coverage_validation_projects(
                     repo_root,
                     coverage_roots,
-                    min_required=_PREP_COVERAGE_MIN_REQUIRED,
+                    min_required=coverage_min_required,
                     target=_PREP_COVERAGE_TARGET,
                     allow_missing_artifact=_PREP_COVERAGE_ALLOW_MISSING,
                 )
@@ -1644,6 +1685,33 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
                 )
                 print(stage_line)  # noqa: T201
                 _append_full_run_log_line(config.repo_root, stage_line)
+                if (
+                    _prep_coverage_has_measurement(coverage_detail)
+                    and coverage_min_required < _PREP_COVERAGE_TARGET
+                ):
+                    bumped_floor = min(
+                        _PREP_COVERAGE_TARGET,
+                        coverage_min_required + _PREP_COVERAGE_STEP,
+                    )
+                    if bumped_floor > coverage_min_required:
+                        _save_prep_coverage_floor(repo_root, bumped_floor)
+                        run_log_lines.append(
+                            f"- Coverage minimum floor ratcheted: "
+                            f"{coverage_min_required:.0f}% -> {bumped_floor:.0f}%"
+                        )
+                        stage_line = _prep_stage_line(
+                            "coverage",
+                            (
+                                "ratcheted prep coverage floor to "
+                                f"{bumped_floor:.0f}% "
+                                f"(max {_PREP_COVERAGE_TARGET:.0f}%)"
+                            ),
+                            "ok",
+                            use_color,
+                        )
+                        print(stage_line)  # noqa: T201
+                        _append_full_run_log_line(config.repo_root, stage_line)
+                        coverage_min_required = bumped_floor
                 break
 
             hardening_ok = False

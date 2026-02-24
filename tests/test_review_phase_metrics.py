@@ -355,7 +355,6 @@ class TestRetrospectiveIntegration:
         """retrospective.record() should be called when PR is merged."""
         mock_retro = AsyncMock()
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
 
         issue = TaskFactory.create()
@@ -386,7 +385,6 @@ class TestRetrospectiveIntegration:
         """retrospective.record() should NOT be called when merge fails."""
         mock_retro = AsyncMock()
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
 
         issue = TaskFactory.create()
@@ -418,7 +416,6 @@ class TestRetrospectiveIntegration:
         mock_retro = AsyncMock()
         mock_retro.record = AsyncMock(side_effect=RuntimeError("retro boom"))
         phase = make_review_phase(config)
-        phase._retrospective = mock_retro
         phase._post_merge._retrospective = mock_retro
 
         issue = TaskFactory.create()
@@ -445,7 +442,7 @@ class TestRetrospectiveIntegration:
     ) -> None:
         """When no retrospective is set, merge should work normally."""
         phase = make_review_phase(config)
-        # phase._retrospective is None by default
+        # phase._post_merge._retrospective is None by default
 
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()

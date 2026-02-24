@@ -451,16 +451,23 @@ class AuditResultFactory:
 def make_review_phase(
     config,
     *,
-    agents=None,
     event_bus=None,
+    agents=None,
     ac_generator=None,
 ):
     """Build a ReviewPhase with standard mock dependencies.
 
     Promoted from test_review_phase._make_phase() for reuse across test files.
+
+    Args:
+        agents: Optional AgentRunner mock; wired into a MergeConflictResolver.
+        ac_generator: Optional AcceptanceCriteriaGenerator mock; wired into a
+            PostMergeHandler.
     """
     from events import EventBus
     from issue_store import IssueStore
+    from merge_conflict_resolver import MergeConflictResolver
+    from post_merge_handler import PostMergeHandler
     from review_phase import ReviewPhase
     from state import StateTracker
 
@@ -478,6 +485,33 @@ def make_review_phase(
     mock_store.mark_complete = lambda _num: None
     mock_store.is_active = lambda _num: False
 
+    bus = event_bus or EventBus()
+
+    conflict_resolver = None
+    if agents is not None:
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            worktrees=mock_wt,
+            agents=agents,
+            prs=mock_prs,
+            event_bus=bus,
+            state=state,
+            summarizer=None,
+        )
+
+    post_merge = None
+    if ac_generator is not None:
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=bus,
+            ac_generator=ac_generator,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+
     return ReviewPhase(
         config=config,
         state=state,
@@ -486,7 +520,7 @@ def make_review_phase(
         prs=mock_prs,
         stop_event=stop_event,
         store=mock_store,
-        agents=agents,
-        event_bus=event_bus or EventBus(),
-        ac_generator=ac_generator,
+        event_bus=bus,
+        conflict_resolver=conflict_resolver,
+        post_merge=post_merge,
     )

@@ -37,7 +37,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean coverage cover test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
+.PHONY: help run dev dry-run clean coverage cover test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
 
 help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
@@ -153,6 +153,11 @@ coverage: deps
 	@echo "$(GREEN)All tests passed$(RESET)"
 
 cover: coverage
+
+test: deps
+	@echo "$(BLUE)Running HydraFlow unit tests...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x -q
+	@echo "$(GREEN)All tests passed$(RESET)"
 
 test-fast: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x --tb=short

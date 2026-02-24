@@ -270,81 +270,88 @@ class TestStoreLifecycle:
 class TestRecordHarnessFailure:
     """Tests for record_harness_failure."""
 
-    def test_records_to_store(self, tmp_path: Path) -> None:
-        """Should append a FailureRecord to the insight store."""
-        store = HarnessInsightStore(tmp_path)
+    def test_appends_failure_record_to_store(self, tmp_path: Path) -> None:
+        """Should append a FailureRecord with correct fields to the store."""
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        store = HarnessInsightStore(memory_dir)
+
         record_harness_failure(
             store,
-            issue_number=42,
-            category=FailureCategory.PLAN_VALIDATION,
-            details="validation error",
+            42,
+            FailureCategory.PLAN_VALIDATION,
+            "Missing required sections",
             stage="plan",
         )
-        records = store.load_recent(10)
+
+        records = store.load_recent()
         assert len(records) == 1
         assert records[0].issue_number == 42
         assert records[0].category == FailureCategory.PLAN_VALIDATION
         assert records[0].stage == "plan"
+        assert records[0].pr_number == 0
 
-    def test_none_guard(self) -> None:
-        """Should silently skip when harness_insights is None."""
-        # Should not raise
+    def test_noop_when_store_is_none(self) -> None:
+        """Should not raise when harness_insights is None."""
         record_harness_failure(
             None,
-            issue_number=1,
-            category=FailureCategory.CI_FAILURE,
-            details="ci failed",
+            42,
+            FailureCategory.PLAN_VALIDATION,
+            "Some error",
+            stage="plan",
         )
 
-    def test_exception_suppressed(self) -> None:
-        """Should suppress exceptions from the insight store."""
-        store = MagicMock(spec=HarnessInsightStore)
-        store.append_failure.side_effect = RuntimeError("disk full")
-        # Should not raise
+    def test_catches_exception_from_store(self) -> None:
+        """Should catch and log exceptions from the store without propagating."""
+        mock_store = MagicMock()
+        mock_store.append_failure.side_effect = RuntimeError("disk full")
+
+        with patch("phase_utils.logger") as mock_logger:
+            record_harness_failure(
+                mock_store,
+                42,
+                FailureCategory.PLAN_VALIDATION,
+                "Some error",
+                stage="plan",
+            )
+
+            mock_logger.warning.assert_called_once()
+            assert "42" in str(mock_logger.warning.call_args)
+
+    def test_passes_pr_number_to_record(self, tmp_path: Path) -> None:
+        """Should set pr_number on the FailureRecord when provided."""
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        store = HarnessInsightStore(memory_dir)
+
         record_harness_failure(
             store,
-            issue_number=7,
-            category=FailureCategory.REVIEW_REJECTION,
-            details="rejection details",
+            66,
+            FailureCategory.REVIEW_REJECTION,
+            "Review verdict: request_changes",
             stage="review",
+            pr_number=200,
         )
 
-    def test_pr_number_forwarded(self, tmp_path: Path) -> None:
-        """pr_number should be stored on the record."""
-        store = HarnessInsightStore(tmp_path)
-        record_harness_failure(
-            store,
-            issue_number=5,
-            category=FailureCategory.CI_FAILURE,
-            details="ci error",
-            pr_number=99,
-            stage="review",
-        )
-        records = store.load_recent(10)
-        assert records[0].pr_number == 99
-
-    def test_default_stage_is_plan(self, tmp_path: Path) -> None:
-        """Default stage should be 'plan'."""
-        store = HarnessInsightStore(tmp_path)
-        record_harness_failure(
-            store,
-            issue_number=3,
-            category=FailureCategory.PLAN_VALIDATION,
-            details="details",
-        )
-        records = store.load_recent(10)
-        assert records[0].stage == "plan"
+        records = store.load_recent()
+        assert len(records) == 1
+        assert records[0].pr_number == 200
+        assert records[0].stage == "review"
 
     def test_extracts_subcategories(self, tmp_path: Path) -> None:
         """Should extract subcategories from the details string."""
-        store = HarnessInsightStore(tmp_path)
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        store = HarnessInsightStore(memory_dir)
+
         record_harness_failure(
             store,
-            issue_number=42,
-            category=FailureCategory.QUALITY_GATE,
-            details="ruff lint error: missing import",
+            42,
+            FailureCategory.QUALITY_GATE,
+            "ruff lint error: missing import",
             stage="implement",
         )
+
         records = store.load_recent()
         assert len(records) == 1
         assert "lint_error" in records[0].subcategories

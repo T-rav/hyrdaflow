@@ -315,6 +315,22 @@ class TestScaffoldPythonTests:
 
         assert result.language == "python"
 
+    def test_creates_python_placeholder_tests_for_source_files(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "alpha.py").write_text("VALUE = 1\n")
+        (src_dir / "beta.py").write_text("VALUE = 2\n")
+
+        result = _scaffold_python_tests(tmp_path)
+
+        assert (tmp_path / "tests" / "test_prep_src_alpha_py.py").is_file()
+        assert (tmp_path / "tests" / "test_prep_src_beta_py.py").is_file()
+        assert "tests/test_prep_src_alpha_py.py" in result.created_files
+        assert "tests/test_prep_src_beta_py.py" in result.created_files
+
 
 # ---------------------------------------------------------------------------
 # _scaffold_js_tests
@@ -456,6 +472,22 @@ class TestScaffoldJsTests:
         result = _scaffold_js_tests(tmp_path)
 
         assert result.language == "javascript"
+
+    def test_creates_js_placeholder_tests_for_source_files(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "package.json").write_text('{"name": "foo"}\n')
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "alpha.ts").write_text("export const alpha = 1;\n")
+        (src_dir / "beta.js").write_text("export const beta = 2;\n")
+
+        result = _scaffold_js_tests(tmp_path)
+
+        assert (tmp_path / "__tests__" / "prep.src_alpha_ts.test.js").is_file()
+        assert (tmp_path / "__tests__" / "prep.src_beta_js.test.js").is_file()
+        assert "__tests__/prep.src_alpha_ts.test.js" in result.created_files
+        assert "__tests__/prep.src_beta_js.test.js" in result.created_files
 
 
 # ---------------------------------------------------------------------------

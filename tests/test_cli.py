@@ -17,10 +17,13 @@ from cli import (
     _evaluate_coverage_validation,
     _evaluate_coverage_validation_projects,
     _extract_coverage_percent,
+    _load_prep_coverage_floor,
     _parse_label_arg,
     _parse_prep_result,
+    _prep_coverage_has_measurement,
     _project_has_test_signal,
     _run_main,
+    _save_prep_coverage_floor,
     build_config,
     parse_args,
 )
@@ -114,6 +117,30 @@ class TestPrepModelSelection:
 
     def test_codex_default_model(self) -> None:
         assert _best_model_for_tool("codex") == "gpt-5-codex"
+
+
+class TestPrepCoverageRatcheting:
+    """Tests for persisted prep coverage floor ratcheting helpers."""
+
+    def test_defaults_to_starting_floor_when_missing(self, tmp_path: Path) -> None:
+        assert _load_prep_coverage_floor(tmp_path) == 20.0
+
+    def test_save_and_load_floor_round_trip(self, tmp_path: Path) -> None:
+        _save_prep_coverage_floor(tmp_path, 40.0)
+        assert _load_prep_coverage_floor(tmp_path) == 40.0
+
+    def test_load_clamps_floor_to_target_max(self, tmp_path: Path) -> None:
+        _save_prep_coverage_floor(tmp_path, 95.0)
+        assert _load_prep_coverage_floor(tmp_path) == 70.0
+
+    def test_measurement_detector_requires_percent_source_pattern(self) -> None:
+        assert _prep_coverage_has_measurement("Coverage validation skipped") is False
+        assert (
+            _prep_coverage_has_measurement(
+                "Coverage validation passed: 61.2% from coverage.xml"
+            )
+            is True
+        )
 
 
 class TestCoverageValidation:

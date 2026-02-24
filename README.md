@@ -78,6 +78,21 @@ make quality-lite # lint + typecheck + security
 make quality      # quality-lite + tests
 ```
 
+## CLI Installation
+
+HydraFlow now exposes an `hf` console script so you can run `hf prep`, `hf run`, etc.
+
+```bash
+# install locally (inside this repo)
+uv tool run pip install -e .
+
+# show available commands
+hf --help
+
+# run the standard prep flow without invoking make
+hf prep
+```
+
 ## Issue Flow Labels
 
 - `hydraflow-find`

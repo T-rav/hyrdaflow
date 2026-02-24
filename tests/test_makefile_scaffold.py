@@ -94,6 +94,11 @@ class TestGenerateMakefile:
         assert "pyright" in content
         assert "pytest" in content
 
+    def test_generates_standard_python_test_target(self) -> None:
+        content = generate_makefile("python")
+        assert "test:" in content
+        assert "\tpytest tests/ -x -q\n" in content
+
     def test_generates_javascript_makefile(self) -> None:
         content = generate_makefile("javascript")
         assert "npx eslint" in content

@@ -49,7 +49,8 @@ class TestResolveMergeConflicts:
     ) -> None:
         """If start_merge_main returns True (no conflicts), return True."""
         mock_agents = AsyncMock()
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -71,7 +72,8 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -93,7 +95,8 @@ class TestResolveMergeConflicts:
         """On agent exception on all attempts, should abort merge and return False."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -116,7 +119,8 @@ class TestResolveMergeConflicts:
         mock_agents._verify_result = AsyncMock(
             side_effect=[(False, "quality failed"), (True, "")]
         )
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -147,7 +151,8 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, "quality failed"))
-        phase = make_review_phase(cfg, agents=mock_agents)
+        phase = make_review_phase(cfg)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -171,7 +176,8 @@ class TestResolveMergeConflicts:
         mock_agents._verify_result = AsyncMock(
             side_effect=[(False, "ruff check failed"), (True, "")]
         )
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -196,7 +202,8 @@ class TestResolveMergeConflicts:
         mock_agents._verify_result = AsyncMock(
             side_effect=[(False, "failed"), (True, "")]
         )
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -218,7 +225,8 @@ class TestResolveMergeConflicts:
         mock_agents._verify_result = AsyncMock(
             side_effect=[(False, "failed"), (True, "")]
         )
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -248,7 +256,8 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, "quality failed"))
-        phase = make_review_phase(cfg, agents=mock_agents)
+        phase = make_review_phase(cfg)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -275,7 +284,8 @@ class TestResolveMergeConflicts:
             state_file=config.state_file,
         )
         mock_agents = AsyncMock()
-        phase = make_review_phase(cfg, agents=mock_agents)
+        phase = make_review_phase(cfg)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -299,7 +309,8 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript with suggestion")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
@@ -330,7 +341,8 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config)
+        phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
