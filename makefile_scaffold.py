@@ -1,8 +1,8 @@
 """Makefile scaffolding for target repos.
 
 Generates or merges Makefile targets (help, lint, lint-check, lint-fix,
-typecheck, security, test, quality-lite, quality) based on detected repo
-language (Python or JS/TS).
+typecheck, security, test, quality-lite, quality) based on detected prep
+stack (Python, Node, Java, Ruby/Rails, C#, Go, Rust, C++).
 """
 
 from __future__ import annotations
@@ -11,7 +11,8 @@ import dataclasses
 import re
 from pathlib import Path
 
-from manifest import detect_language
+from manifest import detect_language  # noqa: F401 - compatibility re-export
+from polyglot_prep import detect_prep_stack
 
 _PYTHON_TARGETS: dict[str, str] = {
     "lint": "\truff check . --fix && ruff format .\n",
@@ -29,6 +30,89 @@ _JS_TARGETS: dict[str, str] = {
     "typecheck": "\tnpx tsc --noEmit\n",
     "security": "\tnpm audit --audit-level=moderate\n",
     "test": "\tnpx vitest run\n",
+}
+
+_JAVA_TARGETS: dict[str, str] = {
+    "lint": (
+        "\tif [ -f pom.xml ]; then mvn -B -DskipTests checkstyle:check; "
+        "elif [ -f gradlew ]; then ./gradlew checkstyleMain checkstyleTest; "
+        'else echo "No Java lint command configured" >&2; exit 1; fi\n'
+    ),
+    "lint-check": "\t$(MAKE) lint\n",
+    "lint-fix": (
+        "\tif [ -f pom.xml ]; then mvn -B spotless:apply || true; "
+        "elif [ -f gradlew ]; then ./gradlew spotlessApply || true; "
+        'else echo "No Java lint-fix command configured" >&2; exit 1; fi\n'
+    ),
+    "typecheck": (
+        "\tif [ -f pom.xml ]; then mvn -B -DskipTests compile; "
+        "elif [ -f gradlew ]; then ./gradlew classes; "
+        'else echo "No Java typecheck command configured" >&2; exit 1; fi\n'
+    ),
+    "security": (
+        "\tif [ -f pom.xml ]; then mvn -B -DskipTests org.owasp:dependency-check-maven:check || true; "
+        "elif [ -f gradlew ]; then ./gradlew dependencyCheckAnalyze || true; "
+        'else echo "No Java security command configured" >&2; exit 1; fi\n'
+    ),
+    "test": (
+        "\tif [ -f pom.xml ]; then mvn -B test; "
+        "elif [ -f gradlew ]; then ./gradlew test; "
+        'else echo "No Java test command configured" >&2; exit 1; fi\n'
+    ),
+}
+
+_RUBY_TARGETS: dict[str, str] = {
+    "lint": "\tbundle exec rubocop -A\n",
+    "lint-check": "\tbundle exec rubocop\n",
+    "lint-fix": "\t$(MAKE) lint\n",
+    "typecheck": "\tbundle exec steep check || bundle exec sorbet tc || true\n",
+    "security": "\tbundle exec brakeman -q || true\n",
+    "test": "\tbundle exec rspec || bundle exec rake test\n",
+}
+
+_RAILS_TARGETS: dict[str, str] = {
+    "lint": "\tbundle exec rubocop -A\n",
+    "lint-check": "\tbundle exec rubocop\n",
+    "lint-fix": "\t$(MAKE) lint\n",
+    "typecheck": "\tbundle exec steep check || bundle exec sorbet tc || true\n",
+    "security": "\tbundle exec brakeman -q\n",
+    "test": "\tbundle exec rails test || bundle exec rspec\n",
+}
+
+_CSHARP_TARGETS: dict[str, str] = {
+    "lint": "\tdotnet format\n",
+    "lint-check": "\tdotnet format --verify-no-changes\n",
+    "lint-fix": "\t$(MAKE) lint\n",
+    "typecheck": "\tdotnet build --configuration Release --no-restore\n",
+    "security": "\tdotnet list package --vulnerable --include-transitive\n",
+    "test": "\tdotnet test --configuration Release --no-build\n",
+}
+
+_GO_TARGETS: dict[str, str] = {
+    "lint": "\tgofmt -w . && go vet ./...\n",
+    "lint-check": '\ttest -z "$$(gofmt -l .)" && go vet ./...\n',
+    "lint-fix": "\t$(MAKE) lint\n",
+    "typecheck": "\tgo test ./... -run TestDoesNotExist\n",
+    "security": "\tgovulncheck ./... || true\n",
+    "test": "\tgo test ./...\n",
+}
+
+_RUST_TARGETS: dict[str, str] = {
+    "lint": "\tcargo fmt && cargo clippy --all-targets -- -D warnings\n",
+    "lint-check": "\tcargo fmt --check && cargo clippy --all-targets -- -D warnings\n",
+    "lint-fix": "\t$(MAKE) lint\n",
+    "typecheck": "\tcargo check --all-targets\n",
+    "security": "\tcargo audit || true\n",
+    "test": "\tcargo test --all-targets\n",
+}
+
+_CPP_TARGETS: dict[str, str] = {
+    "lint": "\tclang-format -i $$(find . -name '*.cpp' -o -name '*.h' -o -name '*.hpp' 2>/dev/null) || true\n",
+    "lint-check": "\tclang-format --dry-run --Werror $$(find . -name '*.cpp' -o -name '*.h' -o -name '*.hpp' 2>/dev/null) || true\n",
+    "lint-fix": "\t$(MAKE) lint\n",
+    "typecheck": '\tif [ -f CMakeLists.txt ]; then cmake -S . -B build; cmake --build build; else echo "No CMakeLists.txt found" >&2; exit 1; fi\n',
+    "security": "\tcppcheck --enable=warning,style,performance --error-exitcode=1 . || true\n",
+    "test": '\tif [ -d build ]; then ctest --test-dir build --output-on-failure; else echo "Build dir missing; run make typecheck first" >&2; exit 1; fi\n',
 }
 
 # quality targets are prerequisite-only targets
@@ -72,6 +156,59 @@ class ScaffoldResult:
     warnings: list[str] = dataclasses.field(default_factory=list)
     skipped: list[str] = dataclasses.field(default_factory=list)
     language: str = "unknown"
+
+
+@dataclasses.dataclass
+class MultiScaffoldResult:
+    """Result of scaffolding Makefiles across discovered project paths."""
+
+    results: dict[str, ScaffoldResult] = dataclasses.field(default_factory=dict)
+
+
+_PROJECT_MARKERS: tuple[str, ...] = (
+    "Makefile",
+    "makefile",
+    "GNUmakefile",
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "package.json",
+    "go.mod",
+    "Cargo.toml",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "Gemfile",
+    "CMakeLists.txt",
+)
+_IGNORED_DIRS: set[str] = {
+    ".git",
+    ".github",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "target",
+    ".next",
+    ".turbo",
+    ".idea",
+    "__pycache__",
+    ".pytest_cache",
+}
+
+
+def discover_project_paths(repo_root: Path) -> list[Path]:
+    """Discover project directories that should get Makefile scaffolding."""
+    paths: set[Path] = set()
+    for path in repo_root.rglob("*"):
+        if any(part in _IGNORED_DIRS for part in path.parts):
+            continue
+        if not path.is_file():
+            continue
+        if path.name in _PROJECT_MARKERS or path.name.endswith((".sln", ".csproj")):
+            paths.add(path.parent)
+    return sorted(paths)
 
 
 def parse_makefile(content: str) -> dict[str, str]:
@@ -119,11 +256,19 @@ def parse_makefile(content: str) -> dict[str, str]:
 
 def _targets_for_language(language: str) -> dict[str, str]:
     """Return the target templates for a given language."""
-    if language in ("python", "mixed"):
-        return _PYTHON_TARGETS
-    if language == "javascript":
-        return _JS_TARGETS
-    return {}
+    templates: dict[str, dict[str, str]] = {
+        "python": _PYTHON_TARGETS,
+        "javascript": _JS_TARGETS,
+        "node": _JS_TARGETS,
+        "java": _JAVA_TARGETS,
+        "ruby": _RUBY_TARGETS,
+        "rails": _RAILS_TARGETS,
+        "csharp": _CSHARP_TARGETS,
+        "go": _GO_TARGETS,
+        "rust": _RUST_TARGETS,
+        "cpp": _CPP_TARGETS,
+    }
+    return templates.get(language, {})
 
 
 def generate_makefile(language: str) -> str:
@@ -289,7 +434,7 @@ def scaffold_makefile(repo_root: Path, dry_run: bool = False) -> ScaffoldResult:
     Detects language, checks for existing Makefile, generates or merges
     targets, and writes the result (unless dry_run is True).
     """
-    language = detect_language(repo_root)
+    language = detect_prep_stack(repo_root)
     result = ScaffoldResult(language=language)
 
     if language == "unknown":
@@ -330,3 +475,15 @@ def scaffold_makefile(repo_root: Path, dry_run: bool = False) -> ScaffoldResult:
             makefile_path.write_text(content)
 
     return result
+
+
+def scaffold_makefiles(repo_root: Path, dry_run: bool = False) -> MultiScaffoldResult:
+    """Scaffold Makefiles for each discovered project path in a repository."""
+    out = MultiScaffoldResult()
+    for project_path in discover_project_paths(repo_root):
+        result = scaffold_makefile(project_path, dry_run=dry_run)
+        if result.language == "unknown":
+            continue
+        rel = str(project_path.relative_to(repo_root)) or "."
+        out.results[rel] = result
+    return out

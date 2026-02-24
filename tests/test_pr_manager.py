@@ -1568,6 +1568,17 @@ def test_makefile_setup_bootstraps_env_from_sample() -> None:
     assert 'cp "$(PROJECT_ROOT)/.env.sample" "$(PROJECT_ROOT)/.env"' in content
 
 
+def test_makefile_setup_ignores_prep_scratch_dir() -> None:
+    """make setup should ensure .pre is ignored in the target repo."""
+    from pathlib import Path
+
+    makefile = Path(__file__).resolve().parent.parent / "Makefile"
+    content = makefile.read_text()
+
+    assert '.gitignore"' in content, "setup target must touch/update .gitignore"
+    assert "\\.pre" in content, "setup target must add .pre to .gitignore"
+
+
 # ---------------------------------------------------------------------------
 # _run_with_body_file
 # ---------------------------------------------------------------------------

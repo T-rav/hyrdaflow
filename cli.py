@@ -988,7 +988,7 @@ async def _run_prep_agent_workflow(
 async def _run_scaffold(config: HydraFlowConfig) -> bool:
     """Scan and scaffold core repo essentials (CI + test infrastructure)."""
     from ci_scaffold import scaffold_ci  # noqa: PLC0415
-    from makefile_scaffold import scaffold_makefile  # noqa: PLC0415
+    from makefile_scaffold import scaffold_makefiles  # noqa: PLC0415
     from polyglot_prep import (  # noqa: PLC0415
         detect_prep_stack,
         scaffold_tests_polyglot,
@@ -1031,7 +1031,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     print(audit.format_report(color=_supports_color_output()))  # noqa: T201
     run_log_lines.append("- Audit completed")
 
-    makefile_result = scaffold_makefile(config.repo_root, dry_run=config.dry_run)
+    makefile_results = scaffold_makefiles(config.repo_root, dry_run=config.dry_run)
     ci_result = scaffold_ci(config.repo_root, dry_run=config.dry_run)
     tests_result = scaffold_tests_polyglot(config.repo_root, dry_run=config.dry_run)
     stack = detect_prep_stack(config.repo_root)
@@ -1039,20 +1039,40 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 
     action = "Would create" if config.dry_run else "Created"
     makefile_action = "would add" if config.dry_run else "added"
-    if makefile_result.targets_added:
-        targets = ", ".join(makefile_result.targets_added)
-        print(f"Makefile scaffold: {makefile_action} targets [{targets}]")  # noqa: T201
+    if makefile_results.results:
+        total_added = 0
+        for rel_path, makefile_result in sorted(makefile_results.results.items()):
+            if makefile_result.targets_added:
+                targets = ", ".join(makefile_result.targets_added)
+                print(  # noqa: T201
+                    f"Makefile scaffold [{rel_path}]: {makefile_action} targets [{targets}]"
+                )
+                run_log_lines.append(
+                    f"- Makefile scaffold [{rel_path}] {makefile_action}: targets [{targets}]"
+                )
+                total_added += len(makefile_result.targets_added)
+            else:
+                print(  # noqa: T201
+                    f"Makefile scaffold [{rel_path}]: skipped (targets already present)"
+                )
+                run_log_lines.append(
+                    f"- Makefile scaffold [{rel_path}] skipped: targets already present"
+                )
+            if makefile_result.warnings:
+                for warning in makefile_result.warnings:
+                    print(  # noqa: T201
+                        f"Makefile scaffold warning [{rel_path}]: {warning}"
+                    )
+                    run_log_lines.append(
+                        f"- Makefile scaffold warning [{rel_path}]: {warning}"
+                    )
         run_log_lines.append(
-            f"- Makefile scaffold {makefile_action}: targets [{targets}]"
+            f"- Makefile scaffold project count: {len(makefile_results.results)}"
         )
+        run_log_lines.append(f"- Makefile scaffold total targets added: {total_added}")
     else:
-        print("Makefile scaffold: skipped (targets already present)")  # noqa: T201
-        run_log_lines.append("- Makefile scaffold skipped: targets already present")
-
-    if makefile_result.warnings:
-        for warning in makefile_result.warnings:
-            print(f"Makefile scaffold warning: {warning}")  # noqa: T201
-            run_log_lines.append(f"- Makefile scaffold warning: {warning}")
+        print("Makefile scaffold: no supported project paths discovered")  # noqa: T201
+        run_log_lines.append("- Makefile scaffold skipped: no supported project paths")
 
     if ci_result.skipped:
         print(f"CI scaffold: skipped ({ci_result.skip_reason})")  # noqa: T201
