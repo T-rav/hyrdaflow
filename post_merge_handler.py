@@ -141,8 +141,8 @@ class PostMergeHandler:
                 event_cause="merge_failed",
             )
 
+    @staticmethod
     async def _safe_hook(
-        self,
         name: str,
         coro: Coroutine[Any, Any, _T],
         issue_number: int,
@@ -209,6 +209,7 @@ class PostMergeHandler:
                 pr.issue_number,
             )
 
+        # Check if any parent epics can be closed
         if self._epic_checker:
             await self._safe_hook(
                 "epic completion check",

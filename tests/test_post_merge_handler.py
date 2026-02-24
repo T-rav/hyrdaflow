@@ -217,10 +217,13 @@ class TestPostMergeHandler:
         with caplog.at_level(logging.WARNING, logger="hydraflow.post_merge_handler"):
             await handler._safe_hook("AC generation", _fail(), issue_number=42)
 
-        assert any(
-            "AC generation failed for issue #42" in rec.message
+        matching = [
+            rec
             for rec in caplog.records
-        )
+            if "AC generation failed for issue #42" in rec.message
+        ]
+        assert matching, "Expected warning log for hook failure"
+        assert matching[0].exc_info is not None, "Expected exc_info to be attached"
 
     @pytest.mark.asyncio
     async def test_all_hooks_called_when_all_present(
