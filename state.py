@@ -91,7 +91,7 @@ class StateTracker:
     # --- PR tracking ---
 
     def mark_pr(self, pr_number: int, status: str) -> None:
-        """Record the review *status* for *pr_number* (e.g. a verdict value)."""
+        """Record the review *status* for *pr_number*."""
         self._data.reviewed_prs[str(pr_number)] = status
         self.save()
 
