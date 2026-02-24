@@ -355,9 +355,9 @@ class TestParseArgs:
 _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("ready_label", ["hydraflow-ready"]),
     ("batch_size", 15),
-    ("max_workers", 3),
+    ("max_workers", 2),
     ("max_planners", 1),
-    ("max_reviewers", 5),
+    ("max_reviewers", 2),
     ("max_hitl_workers", 1),
     ("system_tool", "inherit"),
     ("system_model", ""),

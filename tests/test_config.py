@@ -350,7 +350,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_workers == 3
+        assert cfg.max_workers == 2
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -382,7 +382,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_reviewers == 5
+        assert cfg.max_reviewers == 2
 
     def test_max_hitl_workers_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
