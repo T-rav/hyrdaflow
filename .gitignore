@@ -213,4 +213,7 @@ node_modules/
 .hydraflow/
 .DS_Store
 
+# Claude Code
+.claude/plans/
+
 .pre
