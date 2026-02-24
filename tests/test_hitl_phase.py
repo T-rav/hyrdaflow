@@ -244,6 +244,60 @@ class TestHITLPhaseProcessing:
         assert events[0].data["status"] == "pending"
 
     @pytest.mark.asyncio
+    async def test_stop_event_awaits_cancelled_tasks(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After stop_event, cancelled tasks must be awaited for clean shutdown."""
+        from models import HITLResult
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+
+        # Allow two concurrent workers so task 43 is genuinely mid-execution
+        # (blocked in runner.run) when it gets cancelled.  With max_hitl_workers=1
+        # task 43 never starts before the outer loop cancels it, making the test
+        # a false positive (it would pass even without the gather fix).
+        config.max_hitl_workers = 2
+
+        first_task_started = asyncio.Event()
+        task_43_running = asyncio.Event()
+
+        async def run_by_issue(issue, correction, cause, wt_path):  # noqa: ANN001, ANN202, ARG001
+            if issue.number == 42:
+                first_task_started.set()
+                # Wait for task 43 to be truly blocked inside runner.run, then stop
+                await task_43_running.wait()
+                phase._stop_event.set()
+                return HITLResult(issue_number=42, success=True)
+            else:
+                # Signal that task 43 is running, then block until cancelled
+                task_43_running.set()
+                await asyncio.sleep(3600)  # interrupted by CancelledError
+                return HITLResult(issue_number=43, success=True)
+
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect=lambda n: IssueFactory.create(number=n)
+        )
+        runner.run = AsyncMock(side_effect=run_by_issue)
+
+        # Submit two corrections — task 42 sets stop_event while task 43 is
+        # mid-execution (sleeping in runner.run), so the outer loop must cancel
+        # and properly await task 43 via gather.
+        phase.submit_correction(42, "Fix A")
+        phase.submit_correction(43, "Fix B")
+
+        await phase.process_corrections()
+
+        # Both tasks must have actually run (not completed trivially)
+        assert first_task_started.is_set(), "Task 42 should have run"
+        assert task_43_running.is_set(), "Task 43 should have been mid-execution"
+        # The key assertion: no pending tasks remain after process_corrections returns.
+        # Without `await asyncio.gather(...)`, the cancelled task 43 (blocked in
+        # asyncio.sleep) would still be pending here.
+        current = asyncio.current_task()
+        pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+        assert not pending, f"Leaked tasks after process_corrections: {pending}"
+
+    @pytest.mark.asyncio
     async def test_clears_active_issues(self, config: HydraFlowConfig) -> None:
         """Issue should be removed from active_hitl_issues after processing."""
         from models import HITLResult

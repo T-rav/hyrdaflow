@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -454,6 +455,24 @@ class TestFetchHistory:
         assert result[0].issues_completed == 7
 
     @pytest.mark.asyncio
+    async def test_skips_comment_with_valid_json_but_invalid_schema(
+        self, state, event_bus
+    ) -> None:
+        """Skips comments with valid JSON that fails Pydantic validation."""
+        mgr, state, _, _ = make_manager(state, event_bus)
+        state.set_metrics_issue_number(42)
+
+        # Valid JSON but missing required MetricsSnapshot fields
+        comments = ['```json\n{"unexpected_field": true}\n```']
+
+        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
+            mock_fetcher = MockFetcher.return_value
+            mock_fetcher.fetch_issue_comments = AsyncMock(return_value=comments)
+            result = await mgr.fetch_history_from_issue()
+
+        assert result == []
+
+    @pytest.mark.asyncio
     async def test_falls_back_to_local_cache_when_no_issue(
         self, state, event_bus, tmp_path
     ) -> None:
@@ -595,3 +614,45 @@ class TestLocalCache:
         assert cache_file.exists()
         lines = [ln for ln in cache_file.read_text().strip().split("\n") if ln.strip()]
         assert len(lines) == 1
+
+    def test_save_to_local_cache_handles_mkdir_oserror(
+        self, state, event_bus, tmp_path, caplog
+    ) -> None:
+        """When mkdir raises OSError, warning is logged and no exception raised."""
+        import logging
+
+        mgr, state, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        state.record_issue_completed()
+
+        snapshot = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=1)
+
+        with (
+            patch.object(Path, "mkdir", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.metrics_manager"),
+        ):
+            mgr._save_to_local_cache(snapshot)  # should not raise
+
+        assert "Failed to write metrics cache" in caplog.text
+
+    def test_save_to_local_cache_handles_open_oserror(
+        self, state, event_bus, tmp_path, caplog
+    ) -> None:
+        """When open() raises OSError (e.g. dir deleted between mkdir and open), warning is logged."""
+        import logging
+
+        mgr, state, _, _ = make_manager(
+            state, event_bus, state_file=tmp_path / "state.json"
+        )
+        state.record_issue_completed()
+
+        snapshot = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=1)
+
+        with (
+            patch("builtins.open", side_effect=OSError("no such file or directory")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.metrics_manager"),
+        ):
+            mgr._save_to_local_cache(snapshot)  # should not raise
+
+        assert "Failed to write metrics cache" in caplog.text

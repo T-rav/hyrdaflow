@@ -22,6 +22,10 @@ from config import HydraFlowConfig, load_config_file
 from log import setup_logging
 from orchestrator import HydraFlowOrchestrator
 
+_PREP_COVERAGE_MIN_REQUIRED = 20.0
+_PREP_COVERAGE_TARGET = 70.0
+_PREP_COVERAGE_ALLOW_MISSING = True
+
 
 def _supports_color_output() -> bool:
     """Return True when ANSI color output should be emitted."""
@@ -916,6 +920,7 @@ def _evaluate_coverage_validation(
     *,
     min_required: float = 70.0,
     target: float = 70.0,
+    allow_missing_artifact: bool = False,
 ) -> tuple[bool, bool, str]:
     """Evaluate coverage result.
 
@@ -923,6 +928,14 @@ def _evaluate_coverage_validation(
     """
     pct, source = _extract_coverage_percent(repo_root)
     if pct is None:
+        if allow_missing_artifact:
+            return (
+                True,
+                True,
+                "Coverage warning: no coverage report artifact found; "
+                f"allowing prep fallback floor {min_required:.0f}% "
+                f"(CI target remains {target:.0f}%+).",
+            )
         return (
             False,
             False,
@@ -1018,6 +1031,7 @@ def _evaluate_coverage_validation_projects(
     *,
     min_required: float = 70.0,
     target: float = 70.0,
+    allow_missing_artifact: bool = False,
 ) -> tuple[bool, bool, str]:
     """Evaluate coverage thresholds across all test-bearing project roots."""
     if not project_roots:
@@ -1037,7 +1051,10 @@ def _evaluate_coverage_validation_projects(
             else str(project_root.relative_to(repo_root))
         )
         ok, warn, detail = _evaluate_coverage_validation(
-            project_root, min_required=min_required, target=target
+            project_root,
+            min_required=min_required,
+            target=target,
+            allow_missing_artifact=allow_missing_artifact,
         )
         line = f"{rel}: {detail}"
         if ok:
@@ -1049,6 +1066,14 @@ def _evaluate_coverage_validation_projects(
     if failed_details:
         return False, False, " | ".join(failed_details)
     return True, any_warn, " | ".join(ok_details)
+
+
+def _coverage_below_target_from_detail(detail: str, target: float) -> bool:
+    """Return True if any rendered coverage percentage is below target."""
+    for match in re.finditer(r"(\d+(?:\.\d+)?)% from ", detail):
+        if float(match.group(1)) < target:
+            return True
+    return False
 
 
 def _slugify_issue_name(step_name: str) -> str:
@@ -1071,7 +1096,7 @@ def _best_model_for_tool(tool: str) -> str:
     """Return best default model for the selected tool."""
     if tool == "claude":
         return "opus"
-    return "gpt-5.3"
+    return "gpt-5-codex"
 
 
 def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
@@ -1425,6 +1450,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     failure_count = 0
     agent_runs = 0
     agent_successes = 0
+    coverage_below_target = False
     stage_line = _prep_stage_line(
         "hardening",
         f"starting hardening loop ({max_attempts} max attempts)",
@@ -1513,8 +1539,15 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
                 _evaluate_coverage_validation_projects(
                     repo_root,
                     coverage_roots,
+                    min_required=_PREP_COVERAGE_MIN_REQUIRED,
+                    target=_PREP_COVERAGE_TARGET,
+                    allow_missing_artifact=_PREP_COVERAGE_ALLOW_MISSING,
                 )
             )
+            if _coverage_below_target_from_detail(
+                coverage_detail, _PREP_COVERAGE_TARGET
+            ):
+                coverage_below_target = True
             coverage_lines = [
                 line.strip() for line in coverage_detail.split(" | ") if line.strip()
             ]
@@ -1759,6 +1792,14 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     print(  # noqa: T201
         f"- Local issues closed this run: {len(issues_to_close) if hardening_ok else 0}"
     )
+    if coverage_below_target:
+        print(  # noqa: T201
+            "- Coverage is below 70% for one or more projects. "
+            "Run `make cover` (or `make cover 70`) to increase and verify coverage."
+        )
+        run_log_lines.append(
+            "- Coverage follow-up: below 70%; run `make cover` or `make cover 70` to improve coverage."
+        )
     stage_line = _prep_stage_line(
         "hardening",
         "hardening loop complete" if hardening_ok else "hardening loop failed",

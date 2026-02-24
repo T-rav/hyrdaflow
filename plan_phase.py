@@ -8,11 +8,12 @@ import logging
 from analysis import PlanAnalyzer
 from config import HydraFlowConfig
 from events import EventBus
-from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
+from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
 from models import GitHubIssue, PlanResult
 from phase_utils import (
     escalate_to_hitl,
+    record_harness_failure,
     run_concurrent_batch,
     safe_file_memory_suggestion,
     store_lifecycle,
@@ -180,10 +181,12 @@ class PlanPhase:
                             origin_label=self._config.planner_label[0],
                             hitl_label=self._config.hitl_label[0],
                         )
-                        self._record_harness_failure(
+                        record_harness_failure(
+                            self._harness_insights,
                             issue.number,
                             FailureCategory.PLAN_VALIDATION,
                             "; ".join(result.validation_errors),
+                            stage="plan",
                         )
                         logger.warning(
                             "Planning failed validation for issue #%d after retry — "
@@ -234,30 +237,3 @@ class PlanPhase:
                     return result
 
         return await run_concurrent_batch(issues, _plan_one, self._stop_event)
-
-    def _record_harness_failure(
-        self,
-        issue_number: int,
-        category: FailureCategory,
-        details: str,
-    ) -> None:
-        """Record a failure to the harness insight store (non-blocking)."""
-        if self._harness_insights is None:
-            return
-        try:
-            from harness_insights import extract_subcategories
-
-            record = FailureRecord(
-                issue_number=issue_number,
-                category=category,
-                subcategories=extract_subcategories(details),
-                details=details,
-                stage="plan",
-            )
-            self._harness_insights.append_failure(record)
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to record harness failure for issue #%d",
-                issue_number,
-                exc_info=True,
-            )

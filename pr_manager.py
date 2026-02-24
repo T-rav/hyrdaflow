@@ -42,6 +42,8 @@ class PRManager:
         self._bus = event_bus
         self._repo = config.repo
         self._max_retries = config.gh_max_retries
+        self._label_counts_cache: dict[str, object] = {}
+        self._label_counts_ts: float = 0.0
 
     async def _run_gh(self, *cmd: str, cwd: Path | None = None) -> str:
         """Run a gh/git command with retry logic."""
@@ -991,9 +993,6 @@ class PRManager:
             return []
 
     # --- GitHub metrics helpers ---
-
-    _label_counts_cache: dict[str, object] = {}
-    _label_counts_ts: float = 0.0
 
     async def _count_open_issues_by_label(
         self, label_map: dict[str, list[str]]

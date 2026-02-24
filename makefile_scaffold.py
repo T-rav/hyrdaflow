@@ -290,8 +290,15 @@ def parse_makefile(content: str) -> dict[str, str]:
     targets: dict[str, str] = {}
     current_target: str | None = None
     recipe_lines: list[str] = []
+    heredoc_delimiter: str | None = None
 
     for line in content.split("\n"):
+        if heredoc_delimiter is not None and current_target is not None:
+            recipe_lines.append(line)
+            if line.strip() == heredoc_delimiter:
+                heredoc_delimiter = None
+            continue
+
         # Skip .PHONY declarations
         if line.startswith(".PHONY"):
             continue
@@ -309,7 +316,13 @@ def parse_makefile(content: str) -> dict[str, str]:
 
         # Recipe line (tab-indented)
         if line.startswith("\t") and current_target is not None:
-            recipe_lines.append(line.lstrip("\t"))
+            stripped = line.lstrip("\t")
+            recipe_lines.append(stripped)
+            heredoc_match = re.search(
+                r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?$", stripped
+            )
+            if heredoc_match:
+                heredoc_delimiter = heredoc_match.group(1)
             continue
 
         # Blank or non-recipe line ends current target
@@ -394,13 +407,19 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
     warnings: list[str] = []
     targets_to_add: list[str] = []
 
+    def _normalize_recipe(recipe: str) -> str:
+        lines = [line.strip() for line in recipe.strip().splitlines()]
+        return "\n".join(lines)
+
     for name, template_recipe in all_template.items():
         if name in existing_targets:
             # Compare recipes (only for targets with recipe bodies)
             if template_recipe is not None:
                 existing_recipe = existing_targets[name]
                 expected_recipe = template_recipe.strip("\n").lstrip("\t")
-                if existing_recipe.strip() != expected_recipe.strip():
+                if _normalize_recipe(existing_recipe) != _normalize_recipe(
+                    expected_recipe
+                ):
                     warnings.append(
                         f"Target '{name}' exists with different recipe: "
                         f"found '{existing_recipe.strip()}', "

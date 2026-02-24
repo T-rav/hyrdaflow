@@ -9,9 +9,9 @@ from typing import Any
 
 from agent import AgentRunner
 from config import HydraFlowConfig
-from events import EventBus, EventType, HydraFlowEvent
+from events import EventBus
 from models import GitHubIssue, PRInfo, WorkerStatus
-from phase_utils import safe_file_memory_suggestion
+from phase_utils import publish_review_status, safe_file_memory_suggestion
 from pr_manager import PRManager
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
@@ -158,10 +158,10 @@ class MergeConflictResolver:
                     cmd,
                     prompt,
                     wt_path,
-                    {"issue": issue.number, "source": "merge_conflict"},
+                    {"issue": issue.number, "source": source},
                 )
 
-                self._save_conflict_transcript(
+                self.save_conflict_transcript(
                     pr.number, issue.number, attempt, transcript, source=source
                 )
 
@@ -282,10 +282,10 @@ class MergeConflictResolver:
                 cmd,
                 prompt,
                 new_wt,
-                {"issue": issue.number, "source": "fresh_rebuild"},
+                {"issue": issue.number, "source": source},
             )
 
-            self._save_conflict_transcript(
+            self.save_conflict_transcript(
                 pr.number, issue.number, 0, transcript, source=source
             )
 
@@ -338,7 +338,7 @@ class MergeConflictResolver:
                 pr_number,
             )
 
-    def _save_conflict_transcript(
+    def save_conflict_transcript(
         self,
         pr_number: int,
         issue_number: int,
@@ -377,15 +377,4 @@ class MergeConflictResolver:
         """
         if worker_id is None:
             return
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": pr.issue_number,
-                    "worker": worker_id,
-                    "status": status,
-                    "role": "reviewer",
-                },
-            )
-        )
+        await publish_review_status(self._bus, pr, worker_id, status)

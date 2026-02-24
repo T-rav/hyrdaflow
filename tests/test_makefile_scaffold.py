@@ -65,6 +65,14 @@ class TestParseMakefile:
         assert "ruff check . --fix" in result["lint"]
         assert "ruff format ." in result["lint"]
 
+    def test_handles_heredoc_recipe_body(self) -> None:
+        content = "coverage-check:\n\t@python - <<'PY'\nimport json\nprint('ok')\nPY\n"
+        result = parse_makefile(content)
+        assert "coverage-check" in result
+        assert "@python - <<'PY'" in result["coverage-check"]
+        assert "import json" in result["coverage-check"]
+        assert "PY" in result["coverage-check"]
+
     def test_handles_phony_declaration(self) -> None:
         content = ".PHONY: lint test\n\nlint:\n\truff check .\n"
         result = parse_makefile(content)
@@ -163,6 +171,27 @@ class TestMergeMakefile:
         existing = "test:\n\tnpm test\n"
         _, warnings = merge_makefile(existing, "python")
         assert any("test" in w for w in warnings)
+
+    def test_no_warning_for_recipe_indent_only_differences(self) -> None:
+        existing = (
+            "help:\n"
+            '\t@echo "Available targets:"   \n'
+            '\t@echo "  help         Show this help"  \n'
+            '\t@echo "  lint         Run lint auto-fixes" \n'
+            '\t@echo "  lint-check   Run lint checks" \n'
+            '\t@echo "  lint-fix     Alias for lint" \n'
+            '\t@echo "  typecheck    Run type checks" \n'
+            '\t@echo "  security     Run security checks" \n'
+            '\t@echo "  test         Run tests" \n'
+            '\t@echo "  coverage-check Enforce coverage floor from reports" \n'
+            '\t@echo "  coverage vars COVERAGE_MIN=70 COVERAGE_TARGET=70" \n'
+            '\t@echo "  quality-lite Run lint/type/security" \n'
+            '\t@echo "  quality      Run quality-lite + tests" \n'
+        )
+        _, warnings = merge_makefile(existing, "python")
+        assert not any(
+            "Target 'help' exists with different recipe" in w for w in warnings
+        )
 
     def test_preserves_existing_content_order(self) -> None:
         existing = "clean:\n\trm -rf dist\n\nbuild:\n\tpython -m build\n"

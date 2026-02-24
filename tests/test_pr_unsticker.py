@@ -51,9 +51,9 @@ def _make_unsticker(
     hr = hitl_runner or AsyncMock()
     se = stop_event or asyncio.Event()
     rs = resolver or AsyncMock()
-    # _save_conflict_transcript is sync; override the auto-generated AsyncMock
+    # save_conflict_transcript is sync; override the auto-generated AsyncMock
     # attribute so callers don't produce "coroutine never awaited" warnings.
-    rs._save_conflict_transcript = MagicMock()
+    rs.save_conflict_transcript = MagicMock()
     return (
         PRUnsticker(
             cfg,

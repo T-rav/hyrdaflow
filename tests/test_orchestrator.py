@@ -1468,6 +1468,49 @@ class TestSupervisorLoops:
         assert implement_calls >= 2
         assert not orch.running
 
+    @pytest.mark.asyncio
+    async def test_supervise_loops_restarts_loop_that_completes_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """A loop that completes normally (no exception) is restarted with a warning."""
+        orch = HydraFlowOrchestrator(config)
+        orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        _mock_fetcher_noop(orch)
+
+        implement_calls = 0
+
+        async def completing_then_stopping() -> None:
+            nonlocal implement_calls
+            implement_calls += 1
+            if implement_calls == 1:
+                # Complete normally — triggers the else branch in _supervise_loops
+                return
+            # Second invocation: stop the orchestrator
+            orch._stop_event.set()
+
+        # Replace the actual loop method (not the inner work fn) so the
+        # supervised task completes normally from _supervise_loops' perspective.
+        orch._implement_loop = completing_then_stopping  # type: ignore[method-assign]
+
+        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
+        orch._store.start = AsyncMock()  # type: ignore[method-assign]
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+
+        with patch("orchestrator.logger") as mock_logger:
+            await orch.run()
+
+        # The implement loop was restarted after normal completion (ran at least twice)
+        assert implement_calls >= 2
+        mock_logger.warning.assert_any_call(
+            "Loop %r completed unexpectedly — restarting", "implement"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Phase-specific active issue sets

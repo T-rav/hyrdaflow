@@ -210,9 +210,16 @@ class RetrospectiveCollector:
 
     def _append_entry(self, entry: RetrospectiveEntry) -> None:
         """Append a JSON line to the retrospective log."""
-        self._retro_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._retro_path.open("a") as f:
-            f.write(entry.model_dump_json() + "\n")
+        try:
+            self._retro_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._retro_path.open("a") as f:
+                f.write(entry.model_dump_json() + "\n")
+        except OSError:
+            logger.warning(
+                "Could not append to retrospective log %s",
+                self._retro_path,
+                exc_info=True,
+            )
 
     def _load_recent(self, n: int) -> list[RetrospectiveEntry]:
         """Load the last *n* entries from the retrospective log."""

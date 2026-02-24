@@ -727,3 +727,46 @@ class TestImprovementSuggestion:
         )
         assert suggestion.subcategory == ""
         assert suggestion.evidence == []
+
+
+# ---------------------------------------------------------------------------
+# append_failure OSError handling (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestAppendFailureOSError:
+    """Verify HarnessInsightStore.append_failure catches OSError gracefully."""
+
+    def test_append_failure_logs_warning_on_oserror(self, tmp_path, caplog) -> None:
+        """When the failures file can't be written, log warning and don't raise."""
+        import logging
+        from pathlib import Path
+        from unittest.mock import patch
+
+        store = HarnessInsightStore(tmp_path / "memory")
+        record = _make_record()
+
+        with (
+            patch.object(Path, "open", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
+        ):
+            store.append_failure(record)  # should not raise
+
+        assert "Could not append failure" in caplog.text
+
+    def test_append_failure_handles_mkdir_failure(self, tmp_path, caplog) -> None:
+        """When mkdir fails with PermissionError, log warning and don't raise."""
+        import logging
+        from pathlib import Path
+        from unittest.mock import patch
+
+        store = HarnessInsightStore(tmp_path / "memory")
+        record = _make_record()
+
+        with (
+            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
+        ):
+            store.append_failure(record)  # should not raise
+
+        assert "Could not append failure" in caplog.text

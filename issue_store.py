@@ -269,7 +269,15 @@ class IssueStore:
         return set(self._hitl_numbers)
 
     def _take_from_queue(self, stage: str, max_count: int) -> list[GitHubIssue]:
-        """Pop up to *max_count* issues from *stage* queue, skipping active."""
+        """Pop up to *max_count* issues from *stage* queue, skipping active.
+
+        Safety note: This method is synchronous with no ``await`` points, so
+        the GIL guarantees it cannot be interleaved with ``_route_issues``
+        (which runs under ``self._lock`` inside ``refresh()``).  A concurrent
+        ``refresh()`` will block on the lock until its own ``_route_issues``
+        call completes atomically, and this synchronous method runs to
+        completion within a single event-loop tick.
+        """
         result: list[GitHubIssue] = []
         skipped: list[GitHubIssue] = []
         q = self._queues[stage]

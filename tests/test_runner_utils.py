@@ -186,6 +186,23 @@ class TestStreamClaudeProcessConfig:
         env = mock_exec.call_args[1]["env"]
         assert "CLAUDECODE" not in env
 
+    @pytest.mark.asyncio
+    async def test_codex_exec_passes_prompt_as_argument(self, event_bus) -> None:
+        """Codex exec should receive prompt as CLI arg, not stdin pipe."""
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+        cmd = ["codex", "exec", "--json", "--model", "gpt-5.3"]
+        prompt = "do the thing"
+
+        with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
+            await stream_claude_process(
+                **_default_kwargs(event_bus, cmd=cmd, prompt=prompt)
+            )
+
+        args = list(mock_exec.call_args[0])
+        kwargs = mock_exec.call_args[1]
+        assert args[-1] == prompt
+        assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
 
 # ---------------------------------------------------------------------------
 # stream_claude_process — non-zero exit handling
@@ -323,6 +340,110 @@ class TestStreamClaudeProcessLifecycle:
 
         mock_proc.kill.assert_called_once()
         assert mock_proc not in active_procs
+
+    @pytest.mark.asyncio
+    async def test_timeout_cancels_stderr_task(self, event_bus) -> None:
+        """On timeout, stderr_task must be cancelled and awaited — no pending task leak."""
+        stderr_read_started = asyncio.Event()
+
+        async def hanging_stderr_read() -> bytes:
+            stderr_read_started.set()
+            await asyncio.sleep(3600)
+            return b""
+
+        class HangingIter:
+            def __aiter__(self):  # noqa: ANN204
+                return self
+
+            async def __anext__(self) -> bytes:
+                await asyncio.sleep(3600)
+                return b""
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = None
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = HangingIter()
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = hanging_stderr_read
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        mock_create = AsyncMock(return_value=mock_proc)
+
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            pytest.raises(RuntimeError, match="timed out"),
+        ):
+            await stream_claude_process(**_default_kwargs(event_bus), timeout=0.01)
+
+        # The finally block in stream_claude_process already cancelled and awaited
+        # stderr_task before raising, so no sleep(0) is needed here.
+        assert stderr_read_started.is_set(), (
+            "stderr task should have started before timeout"
+        )
+
+        # The key assertion: no pending tasks should remain after the function returns
+        # If stderr_task was not cancelled+awaited in the finally block, it would
+        # still be pending here.
+        current = asyncio.current_task()
+        pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+        assert not pending, f"stderr_task was not cleaned up: {pending}"
+
+        mock_proc.kill.assert_called()
+        mock_proc.wait.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancellation_cancels_stderr_task(self, event_bus) -> None:
+        """On CancelledError, stderr_task must be cancelled — no pending task leak."""
+        stderr_read_started = asyncio.Event()
+
+        async def hanging_stderr_read() -> bytes:
+            stderr_read_started.set()
+            await asyncio.sleep(3600)
+            return b""
+
+        class CancellingIter:
+            def __aiter__(self):  # noqa: ANN204
+                return self
+
+            async def __anext__(self) -> bytes:
+                raise asyncio.CancelledError
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = CancellingIter()
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = hanging_stderr_read
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        mock_create = AsyncMock(return_value=mock_proc)
+
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await stream_claude_process(**_default_kwargs(event_bus))
+
+        # The finally block in stream_claude_process already cancelled and awaited
+        # stderr_task before raising, so stderr_read_started is set before we get here.
+        # Verify the stderr task actually started before the CancelledError fired
+        assert stderr_read_started.is_set(), (
+            "stderr task should have started before cancellation"
+        )
+
+        # The key assertion: no pending tasks should remain after the function raises
+        # If stderr_task was not cancelled+awaited, it would still be pending here
+        current = asyncio.current_task()
+        pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+        assert not pending, (
+            f"stderr_task was not cleaned up on CancelledError: {pending}"
+        )
+
+        mock_proc.kill.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_tracks_process_in_active_set(self, event_bus) -> None:

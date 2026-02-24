@@ -9,8 +9,11 @@ from contextlib import asynccontextmanager
 from typing import Any, TypeVar
 
 from config import HydraFlowConfig
+from events import EventBus, EventType, HydraFlowEvent
+from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
+from models import PRInfo
 from pr_manager import PRManager
 from state import StateTracker
 
@@ -95,6 +98,41 @@ async def safe_file_memory_suggestion(
         )
 
 
+def record_harness_failure(
+    harness_insights: HarnessInsightStore | None,
+    issue_number: int,
+    category: FailureCategory,
+    details: str,
+    *,
+    stage: str,
+    pr_number: int = 0,
+) -> None:
+    """Record a failure to the harness insight store (non-blocking).
+
+    Shared by plan, implement, and review phases to avoid duplication.
+    """
+    if harness_insights is None:
+        return
+    try:
+        from harness_insights import extract_subcategories
+
+        record = FailureRecord(
+            issue_number=issue_number,
+            pr_number=pr_number,
+            category=category,
+            subcategories=extract_subcategories(details),
+            details=details,
+            stage=stage,
+        )
+        harness_insights.append_failure(record)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to record harness failure for issue #%d",
+            issue_number,
+            exc_info=True,
+        )
+
+
 @asynccontextmanager
 async def store_lifecycle(
     store: IssueStore,
@@ -113,3 +151,21 @@ async def store_lifecycle(
         yield
     finally:
         store.mark_complete(issue_number)
+
+
+async def publish_review_status(
+    bus: EventBus, pr: PRInfo, worker_id: int, status: str
+) -> None:
+    """Emit a REVIEW_UPDATE event with the given status."""
+    await bus.publish(
+        HydraFlowEvent(
+            type=EventType.REVIEW_UPDATE,
+            data={
+                "pr": pr.number,
+                "issue": pr.issue_number,
+                "worker": worker_id,
+                "status": status,
+                "role": "reviewer",
+            },
+        )
+    )

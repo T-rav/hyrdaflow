@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -91,6 +91,22 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_ENABLE_FRESH_BRANCH_REBUILD",
         True,
     ),
+]
+
+# Literal-typed env-var overrides.
+# Each tuple: (field_name, env_var_key)
+# The default and allowed values are read dynamically from model_fields.
+_ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
+    ("execution_mode", "HYDRAFLOW_EXECUTION_MODE"),
+    ("docker_network_mode", "HYDRAFLOW_DOCKER_NETWORK_MODE"),
+    ("implementation_tool", "HYDRAFLOW_IMPLEMENTATION_TOOL"),
+    ("review_tool", "HYDRAFLOW_REVIEW_TOOL"),
+    ("planner_tool", "HYDRAFLOW_PLANNER_TOOL"),
+    ("triage_tool", "HYDRAFLOW_TRIAGE_TOOL"),
+    ("ac_tool", "HYDRAFLOW_AC_TOOL"),
+    ("verification_judge_tool", "HYDRAFLOW_VERIFICATION_JUDGE_TOOL"),
+    ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
+    ("debug_tool", "HYDRAFLOW_DEBUG_TOOL"),
 ]
 
 # Label env var overrides — maps env key → (field_name, default_value)
@@ -904,56 +920,22 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                     env_val.lower() not in ("0", "false", "no"),
                 )
 
-    # Literal-typed env var overrides (validated before setting)
-    if config.execution_mode == "host":
-        env_exec = os.environ.get("HYDRAFLOW_EXECUTION_MODE")
-        if env_exec in ("host", "docker"):
-            object.__setattr__(config, "execution_mode", env_exec)
-
-    if config.docker_network_mode == "bridge":
-        env_net = os.environ.get("HYDRAFLOW_DOCKER_NETWORK_MODE")
-        if env_net in ("bridge", "none", "host"):
-            object.__setattr__(config, "docker_network_mode", env_net)
-
-    if config.implementation_tool == "claude":
-        env_impl_tool = os.environ.get("HYDRAFLOW_IMPLEMENTATION_TOOL")
-        if env_impl_tool in ("claude", "codex"):
-            object.__setattr__(config, "implementation_tool", env_impl_tool)
-
-    if config.review_tool == "claude":
-        env_review_tool = os.environ.get("HYDRAFLOW_REVIEW_TOOL")
-        if env_review_tool in ("claude", "codex"):
-            object.__setattr__(config, "review_tool", env_review_tool)
-
-    if config.planner_tool == "claude":
-        env_planner_tool = os.environ.get("HYDRAFLOW_PLANNER_TOOL")
-        if env_planner_tool in ("claude", "codex"):
-            object.__setattr__(config, "planner_tool", env_planner_tool)
-
-    if config.triage_tool == "claude":
-        env_triage_tool = os.environ.get("HYDRAFLOW_TRIAGE_TOOL")
-        if env_triage_tool in ("claude", "codex"):
-            object.__setattr__(config, "triage_tool", env_triage_tool)
-
-    if config.ac_tool == "claude":
-        env_ac_tool = os.environ.get("HYDRAFLOW_AC_TOOL")
-        if env_ac_tool in ("claude", "codex"):
-            object.__setattr__(config, "ac_tool", env_ac_tool)
-
-    if config.verification_judge_tool == "claude":
-        env_judge_tool = os.environ.get("HYDRAFLOW_VERIFICATION_JUDGE_TOOL")
-        if env_judge_tool in ("claude", "codex"):
-            object.__setattr__(config, "verification_judge_tool", env_judge_tool)
-
-    if config.subskill_tool == "claude":
-        env_subskill_tool = os.environ.get("HYDRAFLOW_SUBSKILL_TOOL")
-        if env_subskill_tool in ("claude", "codex"):
-            object.__setattr__(config, "subskill_tool", env_subskill_tool)
-
-    if config.debug_tool == "claude":
-        env_debug_tool = os.environ.get("HYDRAFLOW_DEBUG_TOOL")
-        if env_debug_tool in ("claude", "codex"):
-            object.__setattr__(config, "debug_tool", env_debug_tool)
+    # Data-driven env var overrides (Literal-typed fields)
+    for field, env_key in _ENV_LITERAL_OVERRIDES:
+        field_info = HydraFlowConfig.model_fields[field]
+        if getattr(config, field) == field_info.default:
+            env_val = os.environ.get(env_key)
+            if env_val is not None:
+                allowed = get_args(field_info.annotation)
+                if env_val in allowed:
+                    object.__setattr__(config, field, env_val)
+                else:
+                    logger.warning(
+                        "Invalid %s=%r; expected one of %s",
+                        env_key,
+                        env_val,
+                        allowed,
+                    )
 
     # Lite plan labels (comma-separated list, special-case)
     env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")
@@ -1083,6 +1065,7 @@ def _detect_repo_slug(repo_root: Path) -> str:
             capture_output=True,
             text=True,
             check=False,
+            timeout=10,
         )
         url = result.stdout.strip()
         if not url:
@@ -1095,7 +1078,7 @@ def _detect_repo_slug(repo_root: Path) -> str:
         if "github.com:" in url:
             return url.split("github.com:")[-1]
         return ""
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return ""
 
 

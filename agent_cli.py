@@ -46,7 +46,6 @@ def _build_codex_command(*, model: str) -> list[str]:
         model,
         "--sandbox",
         "danger-full-access",
-        "--ask-for-approval",
-        "never",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
     ]

@@ -109,10 +109,17 @@ class EventLog:
 
     def _append_sync(self, line: str) -> None:
         """Synchronous append — called via ``asyncio.to_thread``."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "a") as f:
-            f.write(line + "\n")
-            f.flush()
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._path, "a") as f:
+                f.write(line + "\n")
+                f.flush()
+        except OSError:
+            logger.warning(
+                "Could not append to event log %s",
+                self._path,
+                exc_info=True,
+            )
 
     async def append(self, event: HydraFlowEvent) -> None:
         """Serialize *event* to JSON and append a line to the log file."""
@@ -129,31 +136,39 @@ class EventLog:
             return []
 
         events: list[HydraFlowEvent] = []
-        with open(self._path) as f:
-            for line_num, raw_line in enumerate(f, 1):
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    event = HydraFlowEvent.model_validate_json(stripped)
-                except ValidationError:
-                    logger.warning(
-                        "Skipping corrupt event log line %d in %s",
-                        line_num,
-                        self._path,
-                        exc_info=True,
-                    )
-                    continue
-
-                if since is not None:
+        try:
+            with open(self._path) as f:
+                for line_num, raw_line in enumerate(f, 1):
+                    stripped = raw_line.strip()
+                    if not stripped:
+                        continue
                     try:
-                        ts = datetime.fromisoformat(event.timestamp)
-                        if ts < since:
-                            continue
-                    except (ValueError, TypeError):
-                        pass  # Keep events with unparseable timestamps
+                        event = HydraFlowEvent.model_validate_json(stripped)
+                    except ValidationError:
+                        logger.warning(
+                            "Skipping corrupt event log line %d in %s",
+                            line_num,
+                            self._path,
+                            exc_info=True,
+                        )
+                        continue
 
-                events.append(event)
+                    if since is not None:
+                        try:
+                            ts = datetime.fromisoformat(event.timestamp)
+                            if ts < since:
+                                continue
+                        except (ValueError, TypeError):
+                            pass  # Keep events with unparseable timestamps
+
+                    events.append(event)
+        except OSError:
+            logger.warning(
+                "Could not read event log %s",
+                self._path,
+                exc_info=True,
+            )
+            return []
 
         # Return only the last max_events
         if len(events) > max_events:
@@ -243,7 +258,7 @@ class EventBus:
         self._history.append(event)
         if len(self._history) > self._max_history:
             self._history = self._history[-self._max_history :]
-        for queue in self._subscribers:
+        for queue in list(self._subscribers):
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:

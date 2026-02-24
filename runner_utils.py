@@ -42,7 +42,8 @@ async def stream_claude_process(
     cmd:
         Command to execute (e.g. ``["claude", "-p", ...]`` or ``["codex", "exec", ...]``).
     prompt:
-        Text to write to the process's stdin.
+        Prompt text for the agent. Passed via stdin for Claude-style commands;
+        passed as a positional argument for Codex `exec`.
     cwd:
         Working directory for the subprocess.
     active_procs:
@@ -68,11 +69,17 @@ async def stream_claude_process(
 
     if runner is None:
         runner = get_default_runner()
+    use_codex_exec = len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec"
+    cmd_to_run = [*cmd, prompt] if use_codex_exec else cmd
+    stdin_mode = (
+        asyncio.subprocess.DEVNULL if use_codex_exec else asyncio.subprocess.PIPE
+    )
+
     proc = await runner.create_streaming_process(
-        cmd,
+        cmd_to_run,
         cwd=str(cwd),
         env=env,
-        stdin=asyncio.subprocess.PIPE,
+        stdin=stdin_mode,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         limit=1024 * 1024,  # 1 MB — stream-json lines can exceed 64 KB default
@@ -80,16 +87,18 @@ async def stream_claude_process(
     )
     active_procs.add(proc)
 
+    stderr_task: asyncio.Task[bytes] | None = None
     try:
-        assert proc.stdin is not None
         assert proc.stdout is not None
         assert proc.stderr is not None
 
         stdout_stream = proc.stdout  # capture for nested function
 
-        proc.stdin.write(prompt.encode())
-        await proc.stdin.drain()
-        proc.stdin.close()
+        if not use_codex_exec:
+            assert proc.stdin is not None
+            proc.stdin.write(prompt.encode())
+            await proc.stdin.drain()
+            proc.stdin.close()
 
         # Drain stderr in background to prevent deadlock
         stderr_task = asyncio.create_task(proc.stderr.read())
@@ -165,6 +174,9 @@ async def stream_claude_process(
         proc.kill()
         raise
     finally:
+        if stderr_task is not None and not stderr_task.done():
+            stderr_task.cancel()
+            await asyncio.gather(stderr_task, return_exceptions=True)
         active_procs.discard(proc)
 
 

@@ -315,7 +315,7 @@ class TestSaveTranscriptOSError:
 
         with _pytest.MonkeyPatch.context() as mp:
             mp.setattr(Path, "write_text", _raise_oserror)
-            resolver._save_conflict_transcript(101, 42, 1, "transcript content")
+            resolver.save_conflict_transcript(101, 42, 1, "transcript content")
 
         assert "Could not save conflict transcript" in caplog.text
 
@@ -324,7 +324,7 @@ class TestSaveTranscriptOSError:
     ) -> None:
         """Verify the source parameter is used in the filename."""
         resolver = _make_resolver(config)
-        resolver._save_conflict_transcript(101, 42, 1, "content", source="my_source")
+        resolver.save_conflict_transcript(101, 42, 1, "content", source="my_source")
         log_dir = config.repo_root / ".hydraflow" / "logs"
         assert (log_dir / "my_source-pr-101-attempt-1.txt").exists()
 
