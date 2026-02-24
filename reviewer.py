@@ -244,7 +244,7 @@ End your response with EXACTLY one of these verdict lines:
 Then a brief summary on the next line starting with "SUMMARY: ".
 """
 
-    def _build_command(self, worktree_path: Path) -> list[str]:
+    def _build_command(self, worktree_path: Path | None = None) -> list[str]:
         """Construct the review CLI invocation.
 
         The working directory is set via ``cwd`` in the subprocess call,
