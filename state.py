@@ -68,25 +68,30 @@ class StateTracker:
         return {int(k): v for k, v in self._data.active_worktrees.items()}
 
     def set_worktree(self, issue_number: int, path: str) -> None:
+        """Record the worktree filesystem *path* for *issue_number*."""
         self._data.active_worktrees[str(issue_number)] = path
         self.save()
 
     def remove_worktree(self, issue_number: int) -> None:
+        """Remove the worktree mapping for *issue_number* (no-op if absent)."""
         self._data.active_worktrees.pop(str(issue_number), None)
         self.save()
 
     # --- branch tracking ---
 
     def set_branch(self, issue_number: int, branch: str) -> None:
+        """Record the active *branch* name for *issue_number*."""
         self._data.active_branches[str(issue_number)] = branch
         self.save()
 
     def get_branch(self, issue_number: int) -> str | None:
+        """Return the active branch for *issue_number*, or *None*."""
         return self._data.active_branches.get(str(issue_number))
 
     # --- PR tracking ---
 
     def mark_pr(self, pr_number: int, status: str) -> None:
+        """Record the review *status* for *pr_number*."""
         self._data.reviewed_prs[str(pr_number)] = status
         self.save()
 

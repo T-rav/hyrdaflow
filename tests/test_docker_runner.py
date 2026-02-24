@@ -18,7 +18,7 @@ from docker_runner import (
     _check_docker_available,
     get_docker_runner,
 )
-from execution import HostRunner
+from execution import HostRunner, SubprocessRunner
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -887,6 +887,14 @@ class TestCheckDockerAvailable:
 class TestGetDockerRunner:
     """Tests for get_docker_runner factory."""
 
+    def test_returns_subprocess_runner_protocol_when_disabled(self) -> None:
+        """get_docker_runner returns a SubprocessRunner when docker_enabled=False."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(docker_enabled=False)
+        runner = get_docker_runner(config)
+        assert isinstance(runner, SubprocessRunner)
+
     def test_returns_host_when_disabled(self) -> None:
         from tests.helpers import ConfigFactory
 
@@ -925,6 +933,7 @@ class TestGetDockerRunner:
         ):
             runner = get_docker_runner(config)
         assert isinstance(runner, DockerRunner)
+        assert isinstance(runner, SubprocessRunner)
 
     def test_logs_warning_when_no_image(self, caplog: pytest.LogCaptureFixture) -> None:
         from tests.helpers import ConfigFactory

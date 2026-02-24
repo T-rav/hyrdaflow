@@ -35,7 +35,7 @@ from models import (
     WorkerResult,
     WorkerStatus,
 )
-from tests.conftest import ReviewResultFactory
+from tests.conftest import AnalysisResultFactory, ReviewResultFactory
 
 # ---------------------------------------------------------------------------
 # GitHubIssue
@@ -744,14 +744,6 @@ class TestReviewResult:
         review = ReviewResult(pr_number=1, issue_number=1)
         assert review.ci_fix_attempts == 0
 
-    def test_duration_seconds_defaults_to_zero(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1)
-        assert review.duration_seconds == pytest.approx(0.0)
-
-    def test_duration_seconds_can_be_set(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=45.5)
-        assert review.duration_seconds == pytest.approx(45.5)
-
     def test_duration_seconds_in_serialization(self) -> None:
         review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=30.0)
         data = review.model_dump()
@@ -1380,6 +1372,272 @@ class TestStateDataVerificationIssues:
         data = StateData(verification_issues={"42": 500, "99": 501})
         assert data.verification_issues["42"] == 500
         assert data.verification_issues["99"] == 501
+
+
+# --- DeltaReport ---
+
+
+class TestDeltaReport:
+    """Tests for DeltaReport properties and methods."""
+
+    def test_has_drift_false_when_no_missing_or_unexpected(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(planned=["a.py"], actual=["a.py"])
+        assert report.has_drift is False
+
+    def test_has_drift_true_when_missing(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py", "b.py"], actual=["a.py"], missing=["b.py"]
+        )
+        assert report.has_drift is True
+
+    def test_has_drift_true_when_unexpected(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py"], actual=["a.py", "c.py"], unexpected=["c.py"]
+        )
+        assert report.has_drift is True
+
+    def test_has_drift_true_when_both(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py", "b.py"],
+            actual=["a.py", "c.py"],
+            missing=["b.py"],
+            unexpected=["c.py"],
+        )
+        assert report.has_drift is True
+
+    def test_format_summary_no_drift(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(planned=["a.py"], actual=["a.py"])
+        summary = report.format_summary()
+        assert "No drift detected" in summary
+        assert "**Planned:** 1 files" in summary
+        assert "**Actual:** 1 files" in summary
+
+    def test_format_summary_with_missing(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py", "b.py"], actual=["a.py"], missing=["b.py"]
+        )
+        summary = report.format_summary()
+        assert "**Missing**" in summary
+        assert "b.py" in summary
+        assert "No drift detected" not in summary
+
+    def test_format_summary_with_unexpected(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py"], actual=["a.py", "c.py"], unexpected=["c.py"]
+        )
+        summary = report.format_summary()
+        assert "**Unexpected**" in summary
+        assert "c.py" in summary
+
+
+# --- AnalysisResult ---
+
+
+class TestAnalysisResult:
+    """Tests for AnalysisResult properties and methods."""
+
+    def test_blocked_false_when_no_block_verdicts(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(name="A", verdict=AnalysisVerdict.PASS, details=[]),
+                AnalysisSection(name="B", verdict=AnalysisVerdict.WARN, details=[]),
+            ]
+        )
+        assert result.blocked is False
+
+    def test_blocked_true_when_any_block_verdict(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(name="A", verdict=AnalysisVerdict.PASS, details=[]),
+                AnalysisSection(
+                    name="B", verdict=AnalysisVerdict.BLOCK, details=["Bad"]
+                ),
+            ]
+        )
+        assert result.blocked is True
+
+    def test_blocked_false_when_empty_sections(self) -> None:
+        result = AnalysisResultFactory.create(sections=[])
+        assert result.blocked is False
+
+    def test_format_comment_contains_section_names(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(
+                    name="File Validation",
+                    verdict=AnalysisVerdict.PASS,
+                    details=["All files exist."],
+                ),
+            ]
+        )
+        comment = result.format_comment()
+        assert "File Validation" in comment
+
+    def test_format_comment_verdict_icons(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(name="A", verdict=AnalysisVerdict.PASS, details=[]),
+                AnalysisSection(name="B", verdict=AnalysisVerdict.WARN, details=[]),
+                AnalysisSection(name="C", verdict=AnalysisVerdict.BLOCK, details=[]),
+            ]
+        )
+        comment = result.format_comment()
+        assert "\u2705 PASS" in comment
+        assert "\u26a0\ufe0f WARN" in comment
+        assert "\U0001f6d1 BLOCK" in comment
+
+    def test_format_comment_footer(self) -> None:
+        result = AnalysisResultFactory.create()
+        comment = result.format_comment()
+        assert "Generated by HydraFlow Analyzer" in comment
+
+
+# --- AuditResult ---
+
+
+class TestAuditResult:
+    """Tests for AuditResult properties and methods."""
+
+    def test_missing_checks_returns_missing_and_partial(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+                AuditCheckFactory.create(name="Lint", status="missing"),
+                AuditCheckFactory.create(name="Tests", status="partial"),
+            ]
+        )
+        missing = result.missing_checks
+        names = [c.name for c in missing]
+        assert "Lint" in names
+        assert "Tests" in names
+        assert "CI" not in names
+
+    def test_missing_checks_empty_when_all_present(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+                AuditCheckFactory.create(name="Lint", status="present"),
+            ]
+        )
+        assert result.missing_checks == []
+
+    def test_has_critical_gaps_true_when_critical_missing(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="missing", critical=True),
+            ]
+        )
+        assert result.has_critical_gaps is True
+
+    def test_has_critical_gaps_false_when_critical_partial(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="partial", critical=True),
+            ]
+        )
+        assert result.has_critical_gaps is False
+
+    def test_has_critical_gaps_false_when_non_critical_missing(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="missing", critical=False),
+            ]
+        )
+        assert result.has_critical_gaps is False
+
+    def test_format_report_no_color(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+            ]
+        )
+        report = result.format_report(color=False)
+        assert "HydraFlow Repo Audit" in report
+        assert "\033[" not in report
+
+    def test_format_report_with_color(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+            ]
+        )
+        report = result.format_report(color=True)
+        assert "\033[" in report
+
+    def test_format_report_with_gaps(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="Lint", status="missing"),
+            ]
+        )
+        report = result.format_report()
+        assert "Missing (1)" in report
+        assert "hydraflow prep" in report
+
+
+# --- MemoryType ---
+
+
+class TestMemoryType:
+    """Tests for MemoryType.is_actionable classmethod."""
+
+    def test_is_actionable_knowledge_false(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.KNOWLEDGE) is False
+
+    def test_is_actionable_config_true(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.CONFIG) is True
+
+    def test_is_actionable_instruction_true(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.INSTRUCTION) is True
+
+    def test_is_actionable_code_true(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.CODE) is True
 
 
 # ---------------------------------------------------------------------------

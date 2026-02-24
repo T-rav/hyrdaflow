@@ -916,3 +916,73 @@ class TestLoadSyncOSError:
 
         assert result == []
         assert "Could not read event log" in caplog.text
+
+
+# --- _Counter.advance ---
+
+
+class TestCounterAdvance:
+    """Tests for _Counter.advance."""
+
+    def test_advance_sets_minimum(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        counter.advance(100)
+        assert next(counter) == 100
+
+    def test_advance_to_higher_value(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        # Consume a few values
+        next(counter)
+        next(counter)
+        counter.advance(50)
+        assert next(counter) == 50
+
+    def test_advance_replaces_iterator(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        counter.advance(10)
+        first = next(counter)
+        second = next(counter)
+        assert first == 10
+        assert second == 11
+
+
+# --- EventLog.append ---
+
+
+class TestEventLogAppend:
+    """Tests for EventLog.append."""
+
+    @pytest.mark.asyncio
+    async def test_append_writes_jsonl_line(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "events.jsonl")
+        event = EventFactory.create()
+        await event_log.append(event)
+
+        content = (tmp_path / "events.jsonl").read_text()
+        assert content.strip()  # Not empty
+        assert content.count("\n") == 1
+
+    @pytest.mark.asyncio
+    async def test_append_multiple_events(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "events.jsonl")
+        e1 = EventFactory.create(data={"n": 1})
+        e2 = EventFactory.create(data={"n": 2})
+        await event_log.append(e1)
+        await event_log.append(e2)
+
+        lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2
+
+    @pytest.mark.asyncio
+    async def test_append_creates_parent_dir(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "deep" / "nested" / "events.jsonl")
+        event = EventFactory.create()
+        await event_log.append(event)
+
+        assert (tmp_path / "deep" / "nested" / "events.jsonl").exists()

@@ -3679,3 +3679,124 @@ class TestGetPrComments:
 
         mock_create.assert_not_called()
         assert comments == []
+
+
+# --- swap_pipeline_labels ---
+
+
+class TestSwapPipelineLabels:
+    """Tests for PRManager.swap_pipeline_labels."""
+
+    @pytest.mark.asyncio
+    async def test_removes_all_other_pipeline_labels_from_issue(
+        self, config, event_bus
+    ) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, config.ready_label[0])
+
+        # All pipeline labels except the target should be removed
+        removed = [call.args[2] for call in mgr._remove_label.call_args_list]
+        assert config.ready_label[0] not in removed
+        # At least some labels should be removed
+        assert len(removed) > 0
+
+    @pytest.mark.asyncio
+    async def test_adds_new_label_to_issue(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review")
+
+        mgr._add_labels.assert_any_call("issue", 42, ["hydraflow-review"])
+
+    @pytest.mark.asyncio
+    async def test_also_removes_from_pr_when_pr_number_given(
+        self, config, event_bus
+    ) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review", pr_number=101)
+
+        # Should have remove calls for both issue and pr
+        targets = [call.args[0] for call in mgr._remove_label.call_args_list]
+        assert "issue" in targets
+        assert "pr" in targets
+        # Should add to both issue and pr
+        mgr._add_labels.assert_any_call("issue", 42, ["hydraflow-review"])
+        mgr._add_labels.assert_any_call("pr", 101, ["hydraflow-review"])
+
+    @pytest.mark.asyncio
+    async def test_no_pr_label_ops_when_pr_number_none(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review")
+
+        targets = [call.args[0] for call in mgr._remove_label.call_args_list]
+        assert "pr" not in targets
+        # Only one add_labels call (for issue)
+        assert mgr._add_labels.call_count == 1
+
+
+# --- update_issue_body ---
+
+
+class TestUpdateIssueBody:
+    """Tests for PRManager.update_issue_body."""
+
+    @pytest.mark.asyncio
+    async def test_calls_gh_issue_edit_with_body_file(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "New body content")
+
+        mock_create.assert_called_once()
+        cmd = mock_create.call_args[0]
+        assert "issue" in cmd
+        assert "edit" in cmd
+        assert "--body-file" in cmd
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_temp_file(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "body")
+
+        # The temp file should have been cleaned up
+        cmd = mock_create.call_args[0]
+        body_file_idx = list(cmd).index("--body-file") + 1
+        tmp_file = Path(cmd[body_file_idx])
+        assert not tmp_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips(self, dry_config, event_bus) -> None:
+        mgr = _make_manager(dry_config, event_bus)
+        mock_create = SubprocessMockBuilder().build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "body")
+
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_logs_warning_on_failure(self, config, event_bus, caplog) -> None:
+        mgr = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "body")
+
+        assert "Could not update body" in caplog.text

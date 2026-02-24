@@ -108,10 +108,10 @@ class BaseRunner:
         Used by runners that call the implementation tool (``agent.py`` and
         ``hitl_runner.py``).  Runners that use a different tool (planner,
         reviewer, triage) override this method.  The ``_worktree_path``
-        argument is accepted for API compatibility with overriding runners
-        (e.g. ``ReviewRunner``) that need the path to build their command;
-        runners that always use ``repo_root`` (e.g. ``PlannerRunner``,
-        ``TriageRunner``) may leave it optional.
+        parameter is optional — no current override uses the path to build
+        the command; runners that operate against ``repo_root`` (e.g.
+        ``PlannerRunner``, ``TriageRunner``, ``ReviewRunner``) call this
+        without a path.
         """
         return build_agent_command(
             tool=self._config.implementation_tool,

@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import GitHubIssue, HITLItem
+from models import ConflictResolutionResult, GitHubIssue, HITLItem
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
 from tests.conftest import make_state
 from tests.helpers import ConfigFactory
@@ -240,7 +240,9 @@ class TestCleanMerge:
         prs.push_branch = AsyncMock(return_value=True)
 
         # Resolver reports clean merge (no rebuild)
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -275,7 +277,9 @@ class TestSuccessfulResolution:
         prs.push_branch = AsyncMock(return_value=True)
 
         # Resolver succeeds without rebuild
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -312,7 +316,9 @@ class TestFailedResolution:
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
         # Resolver fails
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(False, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=False, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -498,7 +504,9 @@ class TestAutoMerge:
         prs.pull_main = AsyncMock(return_value=True)
 
         # Resolver reports clean merge
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -536,7 +544,9 @@ class TestAutoMergeDisabled:
         prs.push_branch = AsyncMock(return_value=True)
 
         # Resolver reports clean merge
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -685,7 +695,9 @@ class TestGoalDrivenLoop:
         prs.pull_main = AsyncMock(return_value=True)
 
         # Resolver reports clean merge for both
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         for i in [1, 2]:
             (tmp_path / "worktrees" / f"issue-{i}").mkdir(parents=True)
@@ -728,7 +740,9 @@ class TestMergeConflictDelegation:
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
         prs.push_branch = AsyncMock(return_value=True)
 
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -765,7 +779,9 @@ class TestMergeConflictDelegation:
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
         prs.push_branch = AsyncMock(return_value=True)
 
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
 
@@ -801,7 +817,9 @@ class TestFreshBranchRebuild:
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
         # Resolver used fresh rebuild
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(True, True))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=True)
+        )
         prs.force_push_branch = AsyncMock(return_value=True)
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
@@ -831,7 +849,9 @@ class TestFreshBranchRebuild:
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-        resolver.resolve_merge_conflicts = AsyncMock(return_value=(False, False))
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=False, used_rebuild=False)
+        )
 
         (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
 

@@ -355,3 +355,19 @@ class TestBuildCommand:
         runner = _TestRunner(config, event_bus)
         cmd = runner._build_command(tmp_path)
         assert "--cwd" not in cmd
+
+    def test_build_command_accepts_none_worktree_path(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """The worktree_path parameter is optional (None) for runners that don't need worktrees."""
+        runner = _TestRunner(config, event_bus)
+        cmd = runner._build_command(None)
+        assert cmd[0] == "claude"
+
+    def test_build_command_works_without_arguments(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """The worktree_path parameter defaults to None when omitted."""
+        runner = _TestRunner(config, event_bus)
+        cmd = runner._build_command()
+        assert cmd[0] == "claude"

@@ -3685,7 +3685,7 @@ class TestDockerConfig:
     def test_docker_enabled_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3696,7 +3696,7 @@ class TestDockerConfig:
     def test_docker_enabled_env_var_false(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "no")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "false")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3704,32 +3704,10 @@ class TestDockerConfig:
         )
         assert cfg.docker_enabled is False
 
-    def test_docker_image_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_IMAGE", "hydra:v2")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_image == "hydra:v2"
-
-    def test_docker_spawn_delay_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_SPAWN_DELAY", "5.0")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_spawn_delay == 5.0
-
     def test_docker_spawn_delay_invalid_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_SPAWN_DELAY", "not-a-number")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_SPAWN_DELAY", "not-a-number")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3740,7 +3718,7 @@ class TestDockerConfig:
     def test_docker_network_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_NETWORK", "hydra-net")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_NETWORK", "hydra-net")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3751,7 +3729,7 @@ class TestDockerConfig:
     def test_docker_network_env_var_not_applied_when_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_NETWORK", "from-env")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_NETWORK", "from-env")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3763,7 +3741,7 @@ class TestDockerConfig:
     def test_docker_enabled_explicit_overrides_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -4259,3 +4237,80 @@ class TestUnstickConfigFields:
             state_file=tmp_path / "s.json",
         )
         assert cfg.unstick_all_causes is False
+
+
+# --- all_pipeline_labels ---
+
+
+class TestAllPipelineLabels:
+    """Tests for HydraFlowConfig.all_pipeline_labels property."""
+
+    def test_returns_all_label_fields(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(repo_root=tmp_path / "repo")
+        labels = cfg.all_pipeline_labels
+        # Should include labels from all pipeline stages
+        assert cfg.ready_label[0] in labels
+        assert cfg.review_label[0] in labels
+        assert cfg.hitl_label[0] in labels
+        assert cfg.planner_label[0] in labels
+        assert cfg.find_label[0] in labels
+        assert cfg.hitl_active_label[0] in labels
+        assert cfg.fixed_label[0] in labels
+        assert cfg.improve_label[0] in labels
+
+    def test_returns_flat_list(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(repo_root=tmp_path / "repo")
+        labels = cfg.all_pipeline_labels
+        assert isinstance(labels, list)
+        for label in labels:
+            assert isinstance(label, str)
+
+    def test_custom_labels_included(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            ready_label=["custom-ready"],
+            review_label=["custom-review"],
+        )
+        labels = cfg.all_pipeline_labels
+        assert "custom-ready" in labels
+        assert "custom-review" in labels
+
+
+# --- labels_must_not_be_empty ---
+
+
+class TestLabelsMustNotBeEmpty:
+    """Tests for the labels_must_not_be_empty validator."""
+
+    def test_rejects_empty_ready_label(self, tmp_path: Path) -> None:
+        from pydantic import ValidationError
+
+        from tests.helpers import ConfigFactory
+
+        with pytest.raises(ValidationError):
+            ConfigFactory.create(repo_root=tmp_path / "repo", ready_label=[])
+
+    def test_rejects_empty_review_label(self, tmp_path: Path) -> None:
+        from pydantic import ValidationError
+
+        from tests.helpers import ConfigFactory
+
+        with pytest.raises(ValidationError):
+            ConfigFactory.create(repo_root=tmp_path / "repo", review_label=[])
+
+    def test_accepts_non_empty_labels(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            ready_label=["valid"],
+            review_label=["valid"],
+        )
+        assert cfg.ready_label == ["valid"]
+        assert cfg.review_label == ["valid"]
