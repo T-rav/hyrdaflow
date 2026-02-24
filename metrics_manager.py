@@ -128,15 +128,19 @@ class MetricsManager:
     def _save_to_local_cache(self, snapshot: MetricsSnapshot) -> None:
         """Append a snapshot to the local JSONL cache file."""
         cache_dir = self._cache_dir
-        cache_dir.mkdir(parents=True, exist_ok=True)
         snapshots_file = cache_dir / "snapshots.jsonl"
         try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
             with open(snapshots_file, "a") as f:
                 f.write(snapshot.model_dump_json() + "\n")
                 f.flush()
             logger.debug("Metrics snapshot cached locally at %s", snapshots_file)
         except OSError:
-            logger.warning("Failed to write metrics cache to %s", snapshots_file)
+            logger.warning(
+                "Failed to write metrics cache to %s",
+                snapshots_file,
+                exc_info=True,
+            )
 
     def load_local_history(self, limit: int = 100) -> list[MetricsSnapshot]:
         """Load metrics snapshots from local disk cache.

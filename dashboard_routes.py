@@ -92,19 +92,27 @@ def create_router(
         if not cache_file.exists():
             return []
         snapshots: list[MetricsSnapshot] = []
-        with open(cache_file) as f:
-            for raw_line in f:
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                except ValidationError:
-                    logger.debug(
-                        "Skipping corrupt metrics snapshot line",
-                        exc_info=True,
-                    )
-                    continue
+        try:
+            with open(cache_file) as f:
+                for raw_line in f:
+                    stripped = raw_line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        snapshots.append(MetricsSnapshot.model_validate_json(stripped))
+                    except ValidationError:
+                        logger.debug(
+                            "Skipping corrupt metrics snapshot line",
+                            exc_info=True,
+                        )
+                        continue
+        except OSError:
+            logger.warning(
+                "Could not read metrics cache %s",
+                cache_file,
+                exc_info=True,
+            )
+            return []
         return snapshots[-limit:]
 
     @router.get("/", response_class=HTMLResponse)

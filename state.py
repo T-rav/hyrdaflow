@@ -38,8 +38,13 @@ class StateTracker:
                     raise ValueError("State file must contain a JSON object")
                 self._data = StateData.model_validate(loaded)
                 logger.info("State loaded from %s", self._path)
-            except (json.JSONDecodeError, OSError, ValueError) as exc:
-                logger.warning("Corrupt state file, resetting: %s", exc)
+            except (
+                json.JSONDecodeError,
+                OSError,
+                ValueError,
+                UnicodeDecodeError,
+            ) as exc:
+                logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
         return self._data.model_dump()
 
@@ -449,22 +454,30 @@ class StateTracker:
         if not self._sessions_path.exists():
             return {}
         seen: dict[str, SessionLog] = {}
-        with open(self._sessions_path) as f:
-            for line_num, raw_line in enumerate(f, 1):
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    session = SessionLog.model_validate_json(stripped)
-                except ValidationError:
-                    logger.warning(
-                        "Skipping corrupt session line %d in %s",
-                        line_num,
-                        self._sessions_path,
-                        exc_info=True,
-                    )
-                    continue
-                seen[session.id] = session
+        try:
+            with open(self._sessions_path) as f:
+                for line_num, raw_line in enumerate(f, 1):
+                    stripped = raw_line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        session = SessionLog.model_validate_json(stripped)
+                    except ValidationError:
+                        logger.warning(
+                            "Skipping corrupt session line %d in %s",
+                            line_num,
+                            self._sessions_path,
+                            exc_info=True,
+                        )
+                        continue
+                    seen[session.id] = session
+        except (OSError, UnicodeDecodeError):
+            logger.warning(
+                "Could not open sessions file %s",
+                self._sessions_path,
+                exc_info=True,
+            )
+            return {}
         return seen
 
     def _write_sessions(self, sessions: list[SessionLog]) -> None:
@@ -480,10 +493,17 @@ class StateTracker:
 
     def save_session(self, session: SessionLog) -> None:
         """Append a session log entry to sessions.jsonl."""
-        self._sessions_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._sessions_path, "a") as f:
-            f.write(session.model_dump_json() + "\n")
-            f.flush()
+        try:
+            self._sessions_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._sessions_path, "a") as f:
+                f.write(session.model_dump_json() + "\n")
+                f.flush()
+        except OSError:
+            logger.warning(
+                "Could not save session to %s",
+                self._sessions_path,
+                exc_info=True,
+            )
 
     def load_sessions(
         self, repo: str | None = None, limit: int = 50

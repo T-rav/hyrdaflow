@@ -1838,3 +1838,114 @@ class TestPruneSessionsCorruptLines:
         # Valid session should survive pruning
         result = tracker.load_sessions()
         assert any(s.id == "sess-4" for s in result)
+
+
+# ---------------------------------------------------------------------------
+# UnicodeDecodeError handling in load() (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadUnicodeDecodeError:
+    """Verify load() catches UnicodeDecodeError from binary-corrupted state files."""
+
+    def test_load_recovers_from_binary_corrupted_state_file(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Binary data in state file should reset to defaults with a warning."""
+        import logging
+
+        state_file = tmp_path / "state.json"
+        state_file.write_bytes(b"\x80\x81\x82\xff\xfe")
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
+            tracker = make_tracker(tmp_path)
+
+        assert "Corrupt state file, resetting" in caplog.text
+        # Should have default state
+        assert tracker.get_active_worktrees() == {}
+        assert tracker.to_dict()["processed_issues"] == {}
+
+
+# ---------------------------------------------------------------------------
+# OSError handling in save_session / _load_sessions_deduped (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestSaveSessionOSError:
+    """Verify save_session catches OSError gracefully."""
+
+    def test_save_session_logs_warning_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the sessions file can't be written, log warning and don't raise."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        session = _make_session("sess-err")
+
+        with (
+            patch("builtins.open", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
+        ):
+            tracker.save_session(session)  # should not raise
+
+        assert "Could not save session to" in caplog.text
+
+    def test_save_session_handles_mkdir_failure(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When mkdir fails with PermissionError, log warning and don't raise."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        session = _make_session("sess-err")
+
+        with (
+            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
+        ):
+            tracker.save_session(session)  # should not raise
+
+        assert "Could not save session to" in caplog.text
+
+
+class TestLoadSessionsDedupedOSError:
+    """Verify _load_sessions_deduped catches OSError and UnicodeDecodeError gracefully."""
+
+    def test_load_sessions_deduped_returns_empty_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When sessions file can't be opened, return empty dict with warning."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        # Create the file so exists() check passes (_sessions_path is sibling to state.json)
+        sessions_path = tracker._sessions_path
+        sessions_path.parent.mkdir(parents=True, exist_ok=True)
+        sessions_path.write_text("")
+
+        with (
+            patch("builtins.open", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
+        ):
+            result = tracker._load_sessions_deduped()
+
+        assert result == {}
+        assert "Could not open sessions file" in caplog.text
+
+    def test_load_sessions_deduped_returns_empty_on_unicode_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When sessions file contains binary data, return empty dict with warning."""
+        import logging
+
+        tracker = make_tracker(tmp_path)
+        sessions_path = tracker._sessions_path
+        sessions_path.parent.mkdir(parents=True, exist_ok=True)
+        sessions_path.write_bytes(b"\x80\x81\x82\xff\xfe")
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
+            result = tracker._load_sessions_deduped()
+
+        assert result == {}
+        assert "Could not open sessions file" in caplog.text

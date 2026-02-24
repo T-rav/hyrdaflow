@@ -87,6 +87,7 @@ async def stream_claude_process(
     )
     active_procs.add(proc)
 
+    stderr_task: asyncio.Task[bytes] | None = None
     try:
         assert proc.stdout is not None
         assert proc.stderr is not None
@@ -173,6 +174,9 @@ async def stream_claude_process(
         proc.kill()
         raise
     finally:
+        if stderr_task is not None and not stderr_task.done():
+            stderr_task.cancel()
+            await asyncio.gather(stderr_task, return_exceptions=True)
         active_procs.discard(proc)
 
 

@@ -11,8 +11,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from events import EventType
 from phase_utils import (
     escalate_to_hitl,
+    publish_review_status,
     record_harness_failure,
     run_concurrent_batch,
     safe_file_memory_suggestion,
@@ -362,3 +364,64 @@ class TestRecordHarnessFailure:
         records = store.load_recent()
         assert len(records) == 1
         assert "lint_error" in records[0].subcategories
+
+
+# ---------------------------------------------------------------------------
+# publish_review_status
+# ---------------------------------------------------------------------------
+
+
+class TestPublishReviewStatus:
+    """Tests for publish_review_status."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_review_update_event(self) -> None:
+        """Should publish a REVIEW_UPDATE event via the bus."""
+        from tests.conftest import PRInfoFactory
+
+        bus = AsyncMock()
+        pr = PRInfoFactory.create(number=101, issue_number=42)
+
+        await publish_review_status(bus, pr, worker_id=3, status="start")
+
+        bus.publish.assert_awaited_once()
+        event = bus.publish.call_args[0][0]
+        assert event.type == EventType.REVIEW_UPDATE
+        assert event.data == {
+            "pr": 101,
+            "issue": 42,
+            "worker": 3,
+            "status": "start",
+            "role": "reviewer",
+        }
+
+    @pytest.mark.asyncio
+    async def test_includes_correct_data_fields(self) -> None:
+        """Should include all five data keys with correct values."""
+        from tests.conftest import PRInfoFactory
+
+        bus = AsyncMock()
+        pr = PRInfoFactory.create(number=200, issue_number=66)
+
+        await publish_review_status(bus, pr, worker_id=7, status="ci_fix")
+
+        event = bus.publish.call_args[0][0]
+        data = event.data
+        assert data["pr"] == 200
+        assert data["issue"] == 66
+        assert data["worker"] == 7
+        assert data["status"] == "ci_fix"
+        assert data["role"] == "reviewer"
+
+    @pytest.mark.asyncio
+    async def test_role_is_always_reviewer(self) -> None:
+        """Role should always be 'reviewer' regardless of status."""
+        from tests.conftest import PRInfoFactory
+
+        bus = AsyncMock()
+        pr = PRInfoFactory.create()
+
+        await publish_review_status(bus, pr, worker_id=0, status="done")
+
+        event = bus.publish.call_args[0][0]
+        assert event.data["role"] == "reviewer"

@@ -851,3 +851,68 @@ class TestPersistEventErrorHandling:
             _log_persist_failure(future)
 
         assert "Event persist task failed" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _append_sync OSError handling (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestAppendSyncOSError:
+    """Verify EventLog._append_sync catches OSError gracefully."""
+
+    def test_append_sync_logs_warning_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the event log file can't be written, log warning and don't raise."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        # Write once to ensure the file exists
+        event_log._append_sync("first line")
+
+        with (
+            patch("builtins.open", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._append_sync("should fail")  # should not raise
+
+        assert "Could not append to event log" in caplog.text
+
+    def test_append_sync_handles_mkdir_failure(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When mkdir fails with OSError, log warning and don't raise."""
+        event_log = EventLog(tmp_path / "subdir" / "events.jsonl")
+
+        with (
+            patch.object(Path, "mkdir", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._append_sync("should fail")  # should not raise
+
+        assert "Could not append to event log" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _load_sync OSError handling (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSyncOSError:
+    """Verify EventLog._load_sync catches OSError gracefully."""
+
+    def test_load_sync_returns_empty_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When event log file can't be opened, return empty list with warning."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        # Create the file so exists() passes but open() fails
+        event_log._append_sync('{"type": "test"}')
+
+        with (
+            patch("builtins.open", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            result = event_log._load_sync()  # should not raise
+
+        assert result == []
+        assert "Could not read event log" in caplog.text
