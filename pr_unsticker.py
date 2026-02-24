@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from memory import file_memory_suggestion
+from models import ConflictResolutionResult
 
 if TYPE_CHECKING:
     from agent import AgentRunner
@@ -251,7 +252,7 @@ class PRUnsticker:
             self._state.set_worktree(issue_number, str(wt_path))
 
             # Dispatch to cause-specific resolver
-            resolved, used_rebuild = await self._resolve_by_cause(
+            resolution = await self._resolve_by_cause(
                 cause,
                 issue_number,
                 issue,
@@ -261,9 +262,9 @@ class PRUnsticker:
                 pr_number=item.pr,
             )
 
-            if resolved:
+            if resolution.success:
                 # Push the fixed branch
-                if used_rebuild:
+                if resolution.used_rebuild:
                     new_wt = self._config.worktree_path_for_issue(issue_number)
                     await self._prs.force_push_branch(new_wt, branch)
                 else:
@@ -318,11 +319,11 @@ class PRUnsticker:
         branch: str,
         pr_url: str,
         pr_number: int = 0,
-    ) -> tuple[bool, bool]:
+    ) -> ConflictResolutionResult:
         """Dispatch to the appropriate resolver based on cause classification.
 
-        Returns ``(resolved, used_rebuild)`` — *used_rebuild* is True when
-        the fresh-branch rebuild path was taken (caller should force-push).
+        Returns a :class:`ConflictResolutionResult` — *used_rebuild* is True
+        when the fresh-branch rebuild path was taken (caller should force-push).
         """
         if cause == FailureCause.MERGE_CONFLICT:
             return await self._resolve_conflicts(
@@ -334,12 +335,12 @@ class PRUnsticker:
                 pr_number=pr_number,
             )
         if cause in (FailureCause.CI_FAILURE, FailureCause.REVIEW_FIX_CAP):
-            result = await self._resolve_ci_or_quality(
+            success = await self._resolve_ci_or_quality(
                 issue_number, issue, wt_path, branch, pr_url=pr_url
             )
-            return result, False
-        result = await self._resolve_generic(issue_number, issue, wt_path, branch)
-        return result, False
+            return ConflictResolutionResult(success=success, used_rebuild=False)
+        success = await self._resolve_generic(issue_number, issue, wt_path, branch)
+        return ConflictResolutionResult(success=success, used_rebuild=False)
 
     async def _resolve_ci_or_quality(
         self,
@@ -547,11 +548,11 @@ PR URL: {pr_url}
         branch: str,
         pr_url: str,
         pr_number: int = 0,
-    ) -> tuple[bool, bool]:
+    ) -> ConflictResolutionResult:
         """Run the conflict resolution loop, mirroring ReviewPhase logic.
 
-        Returns ``(resolved, used_rebuild)`` — *used_rebuild* is True when
-        the fresh-branch rebuild path was taken.
+        Returns a :class:`ConflictResolutionResult` — *used_rebuild* is True
+        when the fresh-branch rebuild path was taken.
         """
         from conflict_prompt import build_conflict_prompt
 
@@ -566,7 +567,7 @@ PR URL: {pr_url}
             # Start merge leaving conflict markers in place
             clean = await self._worktrees.start_merge_main(wt_path, branch)
             if clean:
-                return True, False
+                return ConflictResolutionResult(success=True, used_rebuild=False)
 
             logger.info(
                 "Unsticker conflict resolution attempt %d/%d for issue #%d",
@@ -606,7 +607,7 @@ PR URL: {pr_url}
 
                 success, error_msg = await self._agents._verify_result(wt_path, branch)
                 if success:
-                    return True, False
+                    return ConflictResolutionResult(success=True, used_rebuild=False)
 
                 last_error = error_msg
                 logger.warning(
@@ -633,9 +634,9 @@ PR URL: {pr_url}
             issue_number, issue, branch, pr_url, pr_number
         )
         if rebuilt:
-            return True, True
+            return ConflictResolutionResult(success=True, used_rebuild=True)
 
-        return False, False
+        return ConflictResolutionResult(success=False, used_rebuild=False)
 
     async def _fresh_branch_rebuild(
         self,

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, NotRequired
+from typing import Any, NamedTuple, NotRequired
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 from typing_extensions import TypedDict
@@ -640,6 +641,65 @@ class ThresholdProposal(TypedDict):
     threshold: float
     value: float
     action: str
+
+
+# --- Structured Return Types ---
+
+
+@dataclass
+class PrecheckResult:
+    """Result of parsing a precheck transcript."""
+
+    risk: str
+    confidence: float
+    escalate: bool
+    summary: str
+    parse_failed: bool
+
+
+@dataclass
+class ConflictResolutionResult:
+    """Result of a merge conflict resolution attempt."""
+
+    success: bool
+    used_rebuild: bool
+
+
+class PlanAccuracyResult(NamedTuple):
+    """Result of computing plan accuracy."""
+
+    accuracy: float
+    unplanned: list[str]
+    missed: list[str]
+
+
+class PRInfoExtract(NamedTuple):
+    """Extracted PR info from timeline events."""
+
+    pr_number: int | None
+    url: str
+    branch: str
+
+
+class ManifestRefreshResult(NamedTuple):
+    """Result of a manifest refresh."""
+
+    content: str
+    digest_hash: str
+
+
+class InstructionsQualityResult(NamedTuple):
+    """Parsed instructions quality verdict and feedback."""
+
+    quality: InstructionsQuality
+    feedback: str
+
+
+class ParsedCriteria(NamedTuple):
+    """Parsed acceptance criteria and instructions."""
+
+    criteria_list: list[str]
+    instructions_text: str
 
 
 # --- Background Worker Status ---

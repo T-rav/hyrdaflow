@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from agent_cli import build_agent_command
 from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from execution import get_default_runner
-from models import VerificationCriteria
+from models import PrecheckResult, VerificationCriteria
 from runner_utils import stream_claude_process
 
 if TYPE_CHECKING:
@@ -209,7 +209,7 @@ Diff summary:
     @staticmethod
     def _parse_precheck_transcript(
         transcript: str,
-    ) -> tuple[str, float, bool, str, bool]:
+    ) -> PrecheckResult:
         risk_match = re.search(
             r"PRECHECK_RISK:\s*(low|medium|high)",
             transcript,
@@ -237,7 +237,13 @@ Diff summary:
         confidence = float(confidence_match.group(1)) if confidence_match else 0.0
         escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
         summary = summary_match.group(1).strip() if summary_match else ""
-        return risk, confidence, escalate, summary, parse_failed
+        return PrecheckResult(
+            risk=risk,
+            confidence=confidence,
+            escalate=escalate,
+            summary=summary,
+            parse_failed=parse_failed,
+        )
 
     async def _run_precheck_context(
         self,
@@ -274,9 +280,11 @@ Diff summary:
                     timeout=self._config.agent_timeout,
                     runner=self._runner,
                 )
-                risk, confidence, _escalate, summary, parse_failed = (
-                    self._parse_precheck_transcript(transcript)
-                )
+                precheck = self._parse_precheck_transcript(transcript)
+                risk = precheck.risk
+                confidence = precheck.confidence
+                summary = precheck.summary
+                parse_failed = precheck.parse_failed
                 if not parse_failed:
                     break
         except Exception:  # noqa: BLE001
