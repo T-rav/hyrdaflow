@@ -149,7 +149,7 @@ endif
 
 coverage: deps
 	@echo "$(BLUE)Running HydraFlow unit tests...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ --cov=. --cov-fail-under=$(TEST_COVERAGE_EFFECTIVE) --cov-report=term-missing --cov-report=xml:coverage.xml -p no:xdist
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ --cov=. --cov-fail-under=$(TEST_COVERAGE_EFFECTIVE) --cov-report=term-missing --cov-report=xml:coverage.xml -n0
 	@echo "$(GREEN)All tests passed$(RESET)"
 
 cover: coverage
@@ -164,7 +164,7 @@ test-fast: deps
 
 test-cov: deps
 	@echo "$(BLUE)Running HydraFlow tests with coverage...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -v --cov=. --cov-fail-under=70 --cov-report=term-missing --cov-report=html:htmlcov -p no:xdist
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -v --cov=. --cov-fail-under=70 --cov-report=term-missing --cov-report=html:htmlcov -n0
 	@echo "$(GREEN)All tests passed with coverage$(RESET)"
 
 lint: deps
