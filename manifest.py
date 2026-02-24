@@ -25,6 +25,7 @@ from pathlib import Path
 
 from config import HydraFlowConfig
 from file_util import atomic_write
+from models import ManifestRefreshResult
 
 logger = logging.getLogger("hydraflow.manifest")
 
@@ -380,11 +381,11 @@ class ProjectManifestManager:
         on_disk_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         return on_disk_hash != current_hash
 
-    def refresh(self) -> tuple[str, str]:
-        """Scan, write, and return ``(content, hash)``."""
+    def refresh(self) -> ManifestRefreshResult:
+        """Scan, write, and return the content and hash."""
         content = self.scan()
         digest_hash = self.write(content)
-        return content, digest_hash
+        return ManifestRefreshResult(content=content, digest_hash=digest_hash)
 
 
 # ---------------------------------------------------------------------------

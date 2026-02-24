@@ -7,17 +7,25 @@ import pytest
 # conftest.py already inserts the hydraflow package directory into sys.path
 from models import (
     BatchResult,
+    ConflictResolutionResult,
     ControlStatusConfig,
     ControlStatusResponse,
     GitHubIssue,
     HITLItem,
+    InstructionsQuality,
+    InstructionsQualityResult,
     JudgeResult,
     LifetimeStats,
+    ManifestRefreshResult,
     NewIssueSpec,
+    ParsedCriteria,
     Phase,
+    PlanAccuracyResult,
     PlannerStatus,
     PlanResult,
+    PrecheckResult,
     PRInfo,
+    PRInfoExtract,
     PRListItem,
     ReviewerStatus,
     ReviewResult,
@@ -1372,3 +1380,149 @@ class TestStateDataVerificationIssues:
         data = StateData(verification_issues={"42": 500, "99": 501})
         assert data.verification_issues["42"] == 500
         assert data.verification_issues["99"] == 501
+
+
+# ---------------------------------------------------------------------------
+# Structured Return Types
+# ---------------------------------------------------------------------------
+
+
+class TestPrecheckResult:
+    """Tests for the PrecheckResult dataclass."""
+
+    def test_fields_accessible_by_name(self) -> None:
+        result = PrecheckResult(
+            risk="low",
+            confidence=0.95,
+            escalate=False,
+            summary="All good",
+            parse_failed=False,
+        )
+        assert result.risk == "low"
+        assert result.confidence == 0.95
+        assert result.escalate is False
+        assert result.summary == "All good"
+        assert result.parse_failed is False
+
+    def test_equality(self) -> None:
+        a = PrecheckResult(
+            risk="high",
+            confidence=0.3,
+            escalate=True,
+            summary="Bad",
+            parse_failed=False,
+        )
+        b = PrecheckResult(
+            risk="high",
+            confidence=0.3,
+            escalate=True,
+            summary="Bad",
+            parse_failed=False,
+        )
+        assert a == b
+
+    def test_not_iterable(self) -> None:
+        result = PrecheckResult(
+            risk="low", confidence=0.5, escalate=False, summary="", parse_failed=False
+        )
+        with pytest.raises(TypeError):
+            list(result)  # type: ignore[call-overload]
+
+    def test_is_immutable(self) -> None:
+        from dataclasses import FrozenInstanceError
+
+        result = PrecheckResult(
+            risk="low", confidence=0.5, escalate=False, summary="", parse_failed=False
+        )
+        with pytest.raises(FrozenInstanceError):
+            result.risk = "high"  # type: ignore[misc]
+
+
+class TestConflictResolutionResult:
+    """Tests for the ConflictResolutionResult dataclass."""
+
+    def test_fields_accessible_by_name(self) -> None:
+        result = ConflictResolutionResult(success=True, used_rebuild=False)
+        assert result.success is True
+        assert result.used_rebuild is False
+
+    def test_equality(self) -> None:
+        a = ConflictResolutionResult(success=True, used_rebuild=False)
+        b = ConflictResolutionResult(success=True, used_rebuild=False)
+        assert a == b
+
+    def test_inequality(self) -> None:
+        a = ConflictResolutionResult(success=True, used_rebuild=False)
+        b = ConflictResolutionResult(success=False, used_rebuild=False)
+        assert a != b
+
+    def test_not_iterable(self) -> None:
+        result = ConflictResolutionResult(success=True, used_rebuild=False)
+        with pytest.raises(TypeError):
+            list(result)  # type: ignore[call-overload]
+
+    def test_is_immutable(self) -> None:
+        from dataclasses import FrozenInstanceError
+
+        result = ConflictResolutionResult(success=True, used_rebuild=False)
+        with pytest.raises(FrozenInstanceError):
+            result.success = False  # type: ignore[misc]
+
+
+class TestPlanAccuracyResult:
+    """Tests for the PlanAccuracyResult NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        accuracy, unplanned, missed = PlanAccuracyResult(1.0, [], [])
+        assert accuracy == 1.0
+        assert unplanned == []
+        assert missed == []
+
+    def test_supports_named_access(self) -> None:
+        result = PlanAccuracyResult(accuracy=75.0, unplanned=["a.py"], missed=["b.py"])
+        assert result.accuracy == 75.0
+        assert result.unplanned == ["a.py"]
+        assert result.missed == ["b.py"]
+
+
+class TestPRInfoExtract:
+    """Tests for the PRInfoExtract NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        pr_number, url, branch = PRInfoExtract(42, "https://example.com", "fix/42")
+        assert pr_number == 42
+        assert url == "https://example.com"
+        assert branch == "fix/42"
+
+    def test_none_pr_number(self) -> None:
+        result = PRInfoExtract(pr_number=None, url="", branch="")
+        assert result.pr_number is None
+
+
+class TestManifestRefreshResult:
+    """Tests for the ManifestRefreshResult NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        content, digest_hash = ManifestRefreshResult("content", "abc123")
+        assert content == "content"
+        assert digest_hash == "abc123"
+
+
+class TestInstructionsQualityResult:
+    """Tests for the InstructionsQualityResult NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        quality, feedback = InstructionsQualityResult(
+            InstructionsQuality.READY, "Looks good"
+        )
+        assert quality == InstructionsQuality.READY
+        assert feedback == "Looks good"
+
+
+class TestParsedCriteria:
+    """Tests for the ParsedCriteria NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        criteria_list, instructions_text = ParsedCriteria(["AC-1"], "Step 1")
+        assert criteria_list == ["AC-1"]
+        assert instructions_text == "Step 1"

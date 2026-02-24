@@ -16,7 +16,10 @@ from models import (
     CriterionResult,
     CriterionVerdict,
     InstructionsQuality,
+    InstructionsQualityResult,
     JudgeVerdict,
+    ParsedCriteria,
+    PrecheckResult,
 )
 from runner_utils import stream_claude_process, terminate_processes
 from subprocess_util import CreditExhaustedError
@@ -204,11 +207,8 @@ class VerificationJudge:
             logger.warning("Could not read criteria file %s", path, exc_info=True)
             return None
 
-    def _parse_criteria(self, criteria_text: str) -> tuple[list[str], str]:
-        """Extract acceptance criteria items and instructions from the markdown.
-
-        Returns (list of criteria strings, instructions text).
-        """
+    def _parse_criteria(self, criteria_text: str) -> ParsedCriteria:
+        """Extract acceptance criteria items and instructions from the markdown."""
         criteria: list[str] = []
         instructions = ""
 
@@ -241,7 +241,7 @@ class VerificationJudge:
             else:
                 instructions = raw.strip()
 
-        return criteria, instructions
+        return ParsedCriteria(criteria_list=criteria, instructions_text=instructions)
 
     def _build_code_validation_prompt(
         self,
@@ -387,7 +387,7 @@ Diff excerpt:
     @staticmethod
     def _parse_precheck_transcript(
         transcript: str,
-    ) -> tuple[str, float, bool, str, bool]:
+    ) -> PrecheckResult:
         risk_match = re.search(
             r"PRECHECK_RISK:\s*(low|medium|high)",
             transcript,
@@ -415,7 +415,13 @@ Diff excerpt:
         confidence = float(confidence_match.group(1)) if confidence_match else 0.0
         escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
         summary = summary_match.group(1).strip() if summary_match else ""
-        return risk, confidence, escalate, summary, parse_failed
+        return PrecheckResult(
+            risk=risk,
+            confidence=confidence,
+            escalate=escalate,
+            summary=summary,
+            parse_failed=parse_failed,
+        )
 
     async def _run_precheck_context(
         self, issue_number: int, criteria_text: str, diff: str
@@ -435,9 +441,11 @@ Diff excerpt:
                     prompt,
                     issue_number,
                 )
-                risk, confidence, _escalate, summary, parse_failed = (
-                    self._parse_precheck_transcript(transcript)
-                )
+                precheck = self._parse_precheck_transcript(transcript)
+                risk = precheck.risk
+                confidence = precheck.confidence
+                summary = precheck.summary
+                parse_failed = precheck.parse_failed
                 if not parse_failed:
                     break
         except Exception:  # noqa: BLE001
@@ -508,9 +516,7 @@ Diff excerpt:
 
         return results
 
-    def _parse_instructions_quality(
-        self, transcript: str
-    ) -> tuple[InstructionsQuality, str]:
+    def _parse_instructions_quality(self, transcript: str) -> InstructionsQualityResult:
         """Parse instructions quality verdict and feedback from the transcript."""
         quality_match = re.search(
             r"INSTRUCTIONS_QUALITY:\s*(READY|NEEDS_REFINEMENT)",
@@ -534,7 +540,7 @@ Diff excerpt:
         )
         feedback = feedback_match.group(1).strip() if feedback_match else ""
 
-        return quality, feedback
+        return InstructionsQualityResult(quality=quality, feedback=feedback)
 
     def _extract_refined_instructions(self, transcript: str) -> str:
         """Extract refined instructions from between markers."""

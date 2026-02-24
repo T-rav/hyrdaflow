@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from models import ConflictResolutionResult
 from phase_utils import safe_file_memory_suggestion
 
 if TYPE_CHECKING:
@@ -254,7 +255,7 @@ class PRUnsticker:
             self._state.set_worktree(issue_number, str(wt_path))
 
             # Dispatch to cause-specific resolver
-            resolved, used_rebuild = await self._resolve_by_cause(
+            resolution = await self._resolve_by_cause(
                 cause,
                 issue_number,
                 issue,
@@ -264,9 +265,9 @@ class PRUnsticker:
                 pr_number=item.pr,
             )
 
-            if resolved:
+            if resolution.success:
                 # Push the fixed branch
-                if used_rebuild:
+                if resolution.used_rebuild:
                     new_wt = self._config.worktree_path_for_issue(issue_number)
                     await self._prs.force_push_branch(new_wt, branch)
                 else:
@@ -321,18 +322,18 @@ class PRUnsticker:
         branch: str,
         pr_url: str,
         pr_number: int = 0,
-    ) -> tuple[bool, bool]:
+    ) -> ConflictResolutionResult:
         """Dispatch to the appropriate resolver based on cause classification.
 
-        Returns ``(resolved, used_rebuild)`` — *used_rebuild* is True when
-        the fresh-branch rebuild path was taken (caller should force-push).
+        Returns a :class:`ConflictResolutionResult` — *used_rebuild* is True
+        when the fresh-branch rebuild path was taken (caller should force-push).
         """
         if cause == FailureCause.MERGE_CONFLICT:
             if self._resolver is None:
                 logger.error(
                     "#%d: no resolver configured, cannot resolve conflict", issue_number
                 )
-                return False, False
+                return ConflictResolutionResult(success=False, used_rebuild=False)
             from models import PRInfo
 
             pr = PRInfo(
@@ -345,12 +346,12 @@ class PRUnsticker:
                 pr, issue, wt_path, worker_id=None, source="pr_unsticker"
             )
         if cause in (FailureCause.CI_FAILURE, FailureCause.REVIEW_FIX_CAP):
-            result = await self._resolve_ci_or_quality(
+            success = await self._resolve_ci_or_quality(
                 issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
             )
-            return result, False
-        result = await self._resolve_generic(issue_number, issue, wt_path, branch)
-        return result, False
+            return ConflictResolutionResult(success=success, used_rebuild=False)
+        success = await self._resolve_generic(issue_number, issue, wt_path, branch)
+        return ConflictResolutionResult(success=success, used_rebuild=False)
 
     async def _resolve_ci_or_quality(
         self,

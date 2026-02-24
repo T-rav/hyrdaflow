@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from events import EventBus, EventType, HydraFlowEvent
-from models import IssueTimeline, TimelineStage
+from models import IssueTimeline, PRInfoExtract, TimelineStage
 
 STAGE_ORDER = ["triage", "plan", "implement", "review", "merge"]
 
@@ -242,17 +242,15 @@ class TimelineBuilder:
                 return title
         return ""
 
-    def _extract_pr_info(
-        self, events: list[HydraFlowEvent]
-    ) -> tuple[int | None, str, str]:
+    def _extract_pr_info(self, events: list[HydraFlowEvent]) -> PRInfoExtract:
         for event in events:
             if event.type == EventType.PR_CREATED:
                 pr_num = event.data.get("pr")
                 pr_url = event.data.get("url", "")
                 branch = event.data.get("branch", "")
-                return (
-                    pr_num if isinstance(pr_num, int) else None,
-                    str(pr_url),
-                    str(branch),
+                return PRInfoExtract(
+                    pr_number=pr_num if isinstance(pr_num, int) else None,
+                    url=str(pr_url),
+                    branch=str(branch),
                 )
-        return None, "", ""
+        return PRInfoExtract(pr_number=None, url="", branch="")

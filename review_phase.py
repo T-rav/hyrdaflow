@@ -19,6 +19,7 @@ from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
+    ConflictResolutionResult,
     GitHubIssue,
     JudgeResult,
     PRInfo,
@@ -782,7 +783,7 @@ class ReviewPhase:
     @property
     def _resolve_merge_conflicts(
         self,
-    ) -> Callable[..., Coroutine[Any, Any, tuple[bool, bool]]]:
+    ) -> Callable[..., Coroutine[Any, Any, ConflictResolutionResult]]:
         """Backward-compatible access to conflict resolver."""
         return self._conflict_resolver.resolve_merge_conflicts
 

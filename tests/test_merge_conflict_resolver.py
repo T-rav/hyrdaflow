@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from events import EventBus
 from merge_conflict_resolver import MergeConflictResolver
+from models import ConflictResolutionResult
 from state import StateTracker
 from tests.conftest import IssueFactory, PRInfoFactory
 from tests.helpers import ConfigFactory
@@ -101,7 +102,7 @@ class TestMergeConflictResolver:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (False, False)
+        assert result == ConflictResolutionResult(success=False, used_rebuild=False)
 
     @pytest.mark.asyncio
     async def test_resolve_returns_true_on_clean_merge(
@@ -119,7 +120,7 @@ class TestMergeConflictResolver:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         mock_agents._execute.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -140,7 +141,7 @@ class TestMergeConflictResolver:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         mock_agents._build_command.assert_called_once()
         mock_agents._execute.assert_awaited_once()
 
@@ -362,12 +363,12 @@ class TestFreshBranchRebuild:
         )
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff --git a/foo.py\n+bar")
 
-        success, used_rebuild = await resolver.resolve_merge_conflicts(
+        result = await resolver.resolve_merge_conflicts(
             pr, issue, tmp_path / "worktrees" / "issue-42", worker_id=0
         )
 
-        assert success is True
-        assert used_rebuild is True
+        assert result.success is True
+        assert result.used_rebuild is True
         resolver._worktrees.destroy.assert_awaited_once()
         resolver._worktrees.create.assert_awaited_once()
         resolver._prs.get_pr_diff.assert_awaited_once_with(pr.number)
