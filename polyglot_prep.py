@@ -216,6 +216,7 @@ def _scaffold_go_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
             f"func prepRead_{fn_name}(t *testing.T) []byte {{\n"
             "\tt.Helper()\n"
             f'\tdata, err := os.ReadFile("{source.name}")\n'
+            "\tif err != nil {\n"
             f'\t\tt.Fatalf("expected source file {rel} to exist: %v", err)\n'
             "\t}\n"
             "\treturn data\n"
@@ -249,7 +250,6 @@ def _scaffold_go_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:
             "\tif bytes.Contains(data, []byte{0}) {\n"
             f'\t\tt.Fatalf("expected source file {rel} to have no NUL bytes")\n'
             "\t}\n"
-            "}\n"
             f"\nfunc TestPrepPlaceholder_{fn_name}_HasAtLeastOneLine(t *testing.T) {{\n"
             f"\tdata := prepRead_{fn_name}(t)\n"
             "\tif len(bytes.Split(data, []byte{'\\n'})) < 1 {\n"
