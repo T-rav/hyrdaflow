@@ -3113,12 +3113,14 @@ class TestHITLCloseEndpoint:
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.close_issue = AsyncMock()  # type: ignore[method-assign]
+        state.set_hitl_origin(42, "hydraflow-review")
         endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert data["status"] == "ok"
         mock_orch.skip_hitl_issue.assert_called_once_with(42)
         pr_mgr.close_issue.assert_called_once_with(42)
+        assert state.get_hitl_origin(42) is None
 
 
 # ---------------------------------------------------------------------------
@@ -3172,12 +3174,19 @@ class TestHITLApproveMemoryEndpoint:
         endpoint = self._find_endpoint(
             router, "/api/hitl/{issue_number}/approve-memory"
         )
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "some cause")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert data["status"] == "ok"
-        # Should remove all pipeline labels and add memory label
-        pr_mgr.remove_label.assert_called()
-        pr_mgr.add_labels.assert_called()
+        # Should remove all pipeline labels
+        removed = {call.args[1] for call in pr_mgr.remove_label.call_args_list}
+        assert removed == set(config.all_pipeline_labels)
+        # Should add memory label
+        pr_mgr.add_labels.assert_called_once_with(42, config.memory_label)
+        # State should be cleaned up
+        assert state.get_hitl_origin(42) is None
+        assert state.get_hitl_cause(42) is None
 
     @pytest.mark.asyncio
     async def test_approve_memory_works_without_orchestrator(
