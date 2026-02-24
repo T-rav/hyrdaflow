@@ -227,7 +227,6 @@ class ConfigFactory:
         error_output_max_chars: int = 3000,
         unstick_auto_merge: bool = True,
         unstick_all_causes: bool = True,
-        unstick_max_workers: int = 3,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -361,7 +360,6 @@ class ConfigFactory:
             error_output_max_chars=error_output_max_chars,
             unstick_auto_merge=unstick_auto_merge,
             unstick_all_causes=unstick_all_causes,
-            unstick_max_workers=unstick_max_workers,
         )
 
 

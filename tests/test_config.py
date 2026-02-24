@@ -4110,56 +4110,6 @@ class TestUnstickConfigFields:
         )
         assert cfg.unstick_all_causes is True
 
-    def test_unstick_max_workers_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.unstick_max_workers == 3
-
-    def test_unstick_max_workers_custom(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            unstick_max_workers=5,
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.unstick_max_workers == 5
-
-    def test_unstick_max_workers_below_minimum_raises(self, tmp_path: Path) -> None:
-        import pydantic
-
-        with pytest.raises(pydantic.ValidationError):
-            HydraFlowConfig(
-                unstick_max_workers=0,
-                repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
-                state_file=tmp_path / "s.json",
-            )
-
-    def test_unstick_max_workers_above_maximum_raises(self, tmp_path: Path) -> None:
-        import pydantic
-
-        with pytest.raises(pydantic.ValidationError):
-            HydraFlowConfig(
-                unstick_max_workers=11,
-                repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
-                state_file=tmp_path / "s.json",
-            )
-
-    def test_unstick_max_workers_env_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_UNSTICK_MAX_WORKERS", "5")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.unstick_max_workers == 5
-
     def test_unstick_auto_merge_env_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

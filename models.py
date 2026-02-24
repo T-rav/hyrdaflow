@@ -537,7 +537,7 @@ class ControlStatusConfig(BaseModel):
     batch_size: int = 0
     model: str = ""
     memory_auto_approve: bool = False
-    unstick_max_workers: int = 3
+    pr_unstick_batch_size: int = 10
 
 
 class ControlStatusResponse(BaseModel):

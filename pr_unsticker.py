@@ -141,11 +141,12 @@ class PRUnsticker:
         )
 
         # Apply batch size limit
-        batch = candidates[: self._config.pr_unstick_batch_size]
+        batch_size = self._config.pr_unstick_batch_size
+        batch = candidates[:batch_size]
         stats["skipped"] = len(hitl_items) - len(batch)
 
         # --- PARALLEL FIX PHASE ---
-        semaphore = asyncio.Semaphore(self._config.unstick_max_workers)
+        semaphore = asyncio.Semaphore(batch_size)
         fixed: list[HITLItem] = []
         stuck: list[HITLItem] = []
 

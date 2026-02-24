@@ -599,14 +599,14 @@ class TestPriorityOrdering:
 
 
 class TestParallelWorkers:
-    """Verify semaphore limits concurrent fixes to unstick_max_workers."""
+    """Verify semaphore limits concurrent fixes to pr_unstick_batch_size."""
 
     @pytest.mark.asyncio
     async def test_semaphore_limits_concurrency(self, tmp_path: Path) -> None:
         max_workers = 2
         unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
             tmp_path,
-            unstick_max_workers=max_workers,
+            pr_unstick_batch_size=max_workers,
             unstick_all_causes=True,
             unstick_auto_merge=False,
         )

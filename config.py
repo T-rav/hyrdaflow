@@ -52,7 +52,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
     ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
     ("error_output_max_chars", "HYDRAFLOW_ERROR_OUTPUT_MAX_CHARS", 3000),
-    ("unstick_max_workers", "HYDRAFLOW_UNSTICK_MAX_WORKERS", 3),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -561,7 +560,7 @@ class HydraFlowConfig(BaseModel):
         default=10,
         ge=1,
         le=50,
-        description="Max HITL items to process per unsticker cycle",
+        description="Max PRs to unstick per cycle (fetch limit and parallel workers)",
     )
     unstick_auto_merge: bool = Field(
         default=True,
@@ -570,12 +569,6 @@ class HydraFlowConfig(BaseModel):
     unstick_all_causes: bool = Field(
         default=True,
         description="Process all HITL causes (not just merge conflicts)",
-    )
-    unstick_max_workers: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Max parallel fix workers for the PR unsticker",
     )
 
     # Session retention

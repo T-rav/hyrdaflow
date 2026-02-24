@@ -440,7 +440,7 @@ def create_router(
                 batch_size=config.batch_size,
                 model=config.model,
                 memory_auto_approve=config.memory_auto_approve,
-                unstick_max_workers=config.unstick_max_workers,
+                pr_unstick_batch_size=config.pr_unstick_batch_size,
             ),
         )
         data = response.model_dump()
@@ -468,7 +468,6 @@ def create_router(
         "pr_unstick_interval",
         "pr_unstick_batch_size",
         "memory_auto_approve",
-        "unstick_max_workers",
         "unstick_auto_merge",
         "unstick_all_causes",
     }

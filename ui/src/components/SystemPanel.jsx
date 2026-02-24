@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { theme } from '../theme'
-import { BACKGROUND_WORKERS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS, UNSTICK_WORKER_OPTIONS } from '../constants'
+import { BACKGROUND_WORKERS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS, UNSTICK_BATCH_OPTIONS } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { Livestream } from './Livestream'
 import { PipelineControlPanel } from './PipelineControlPanel'
@@ -283,7 +283,7 @@ function UnstickWorkersDropdown() {
   const { config } = useHydraFlow()
   const [localValue, setLocalValue] = useState(null)
 
-  const currentValue = localValue !== null ? localValue : (config?.unstick_max_workers ?? 3)
+  const currentValue = localValue !== null ? localValue : (config?.pr_unstick_batch_size ?? 3)
 
   const handleChange = useCallback(async (e) => {
     const newValue = parseInt(e.target.value, 10)
@@ -292,7 +292,7 @@ function UnstickWorkersDropdown() {
       const resp = await fetch('/api/control/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ unstick_max_workers: newValue, persist: true }),
+        body: JSON.stringify({ pr_unstick_batch_size: newValue, persist: true }),
       })
       if (!resp.ok) {
         setLocalValue(currentValue)
@@ -305,9 +305,9 @@ function UnstickWorkersDropdown() {
   return (
     <div style={styles.autoApproveRow}>
       <div style={styles.autoApproveLabel}>
-        <span style={styles.autoApproveText}>Parallel Workers</span>
+        <span style={styles.autoApproveText}>Max PRs</span>
         <span style={styles.autoApproveHint}>
-          Concurrent fix workers (1-10)
+          PRs to unstick per cycle
         </span>
       </div>
       <select
@@ -316,7 +316,7 @@ function UnstickWorkersDropdown() {
         style={styles.workersSelect}
         data-testid="unstick-workers-dropdown"
       >
-        {UNSTICK_WORKER_OPTIONS.map(n => (
+        {UNSTICK_BATCH_OPTIONS.map(n => (
           <option key={n} value={n}>{n}</option>
         ))}
       </select>
