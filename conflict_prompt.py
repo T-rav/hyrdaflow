@@ -76,9 +76,7 @@ def build_conflict_prompt(
         )
 
     # --- Optional memory suggestion ---
-    sections.append(
-        MEMORY_SUGGESTION_PROMPT.format(context="conflict resolution").rstrip()
-    )
+    sections.append(MEMORY_SUGGESTION_PROMPT.format(context="conflict resolution"))
 
     return "\n\n".join(sections)
 
@@ -161,6 +159,6 @@ def build_rebuild_prompt(
     )
 
     # --- Optional memory suggestion ---
-    sections.append(MEMORY_SUGGESTION_PROMPT.format(context="rebuild").rstrip())
+    sections.append(MEMORY_SUGGESTION_PROMPT.format(context="rebuild"))
 
     return "\n\n".join(sections)
