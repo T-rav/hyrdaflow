@@ -10,6 +10,15 @@
 
 Log an issue. Agents handle the rest - triaging, planning, implementing, reviewing, and merging every change to HydraFlow.
 
+HydraFlow is built for quality-first scaling: agents execute the work, but guardrails decide what ships.
+
+## What Makes It Different
+
+- Quality-gated pipeline, not "one-shot" agent code generation
+- Explicit stage controls (triage, plan, implement, review) before merge
+- CI checks and human-in-the-loop escalation when confidence drops
+- Repeatable standards that keep output consistent as workload grows
+
 ## Why Teams Use It
 
 - Label-driven workflow from issue to merged PR
