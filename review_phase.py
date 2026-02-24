@@ -25,7 +25,12 @@ from models import (
     ReviewResult,
     ReviewVerdict,
 )
-from phase_utils import record_harness_failure, run_concurrent_batch, store_lifecycle
+from phase_utils import (
+    publish_review_status,
+    record_harness_failure,
+    run_concurrent_batch,
+    store_lifecycle,
+)
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
 from retrospective import RetrospectiveCollector
@@ -585,18 +590,7 @@ class ReviewPhase:
         self, pr: PRInfo, worker_id: int, status: str
     ) -> None:
         """Emit a REVIEW_UPDATE event with the given status."""
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": pr.issue_number,
-                    "worker": worker_id,
-                    "status": status,
-                    "role": "reviewer",
-                },
-            )
-        )
+        await publish_review_status(self._bus, pr, worker_id, status)
 
     async def _escalate_to_hitl(
         self,

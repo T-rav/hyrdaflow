@@ -9,9 +9,10 @@ from typing import Any
 
 from agent import AgentRunner
 from config import HydraFlowConfig
-from events import EventBus, EventType, HydraFlowEvent
+from events import EventBus
 from memory import file_memory_suggestion
 from models import GitHubIssue, PRInfo, WorkerStatus
+from phase_utils import publish_review_status
 from pr_manager import PRManager
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
@@ -366,15 +367,4 @@ class MergeConflictResolver:
         self, pr: PRInfo, worker_id: int, status: str
     ) -> None:
         """Emit a REVIEW_UPDATE event with the given status."""
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": pr.issue_number,
-                    "worker": worker_id,
-                    "status": status,
-                    "role": "reviewer",
-                },
-            )
-        )
+        await publish_review_status(self._bus, pr, worker_id, status)
