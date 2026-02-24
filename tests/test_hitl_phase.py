@@ -670,3 +670,93 @@ class TestHITLMemorySuggestionFiling:
             prs.post_comment.assert_called_once()
             comment = prs.post_comment.call_args.args[1]
             assert "HITL correction applied successfully" in comment
+
+
+# ---------------------------------------------------------------------------
+# Critical exception propagation through process_correction
+# ---------------------------------------------------------------------------
+
+
+class TestHITLExceptionPropagation:
+    """Tests that critical exceptions propagate through _process_one_hitl."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_propagates_through_process_correction(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AuthenticationError should propagate, not be caught by except Exception."""
+        from subprocess_util import AuthenticationError
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=AuthenticationError("401 Unauthorized"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(AuthenticationError, match="401"):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+    @pytest.mark.asyncio
+    async def test_credit_error_propagates_through_process_correction(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CreditExhaustedError should propagate, not be caught by except Exception."""
+        from subprocess_util import CreditExhaustedError
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=CreditExhaustedError("limit reached"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(CreditExhaustedError, match="limit reached"):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_process_correction(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError should propagate, not be caught by except Exception."""
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=MemoryError("out of memory"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(MemoryError, match="out of memory"):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+    @pytest.mark.asyncio
+    async def test_active_issues_cleaned_on_critical_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Active HITL issues should be cleaned up even when critical errors propagate."""
+        from subprocess_util import AuthenticationError
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=AuthenticationError("401 Unauthorized"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(AuthenticationError):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+        # finally block should still clean up active issues
+        assert 42 not in phase._active_hitl_issues

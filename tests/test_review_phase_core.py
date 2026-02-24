@@ -2045,3 +2045,155 @@ class TestSkipGuardNoNewCommits:
         assert len(results) == 1
         # Review should proceed despite SHA fetch failure
         phase._reviewers.review.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Critical exception propagation through _review_one and _handle_self_fix_re_review
+# ---------------------------------------------------------------------------
+
+
+class TestCriticalExceptionPropagation:
+    """Tests that critical exceptions propagate through review handlers."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_propagates_through_review_one(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AuthenticationError should propagate, not be caught by except Exception."""
+        from subprocess_util import AuthenticationError
+
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(
+            side_effect=AuthenticationError("401 Unauthorized")
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(AuthenticationError, match="401"):
+            await phase.review_prs([pr], [issue])
+
+    @pytest.mark.asyncio
+    async def test_credit_error_propagates_through_review_one(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CreditExhaustedError should propagate, not be caught by except Exception."""
+        from subprocess_util import CreditExhaustedError
+
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(
+            side_effect=CreditExhaustedError("limit reached")
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(CreditExhaustedError, match="limit reached"):
+            await phase.review_prs([pr], [issue])
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_review_one(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError should propagate, not be caught by except Exception."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(side_effect=MemoryError("OOM"))
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(MemoryError, match="OOM"):
+            await phase.review_prs([pr], [issue])
+
+    @pytest.mark.asyncio
+    async def test_auth_error_propagates_through_self_fix_re_review(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AuthenticationError in _handle_self_fix_re_review should propagate."""
+        from subprocess_util import AuthenticationError
+
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._prs.get_pr_diff = AsyncMock(
+            side_effect=AuthenticationError("401 Unauthorized")
+        )
+
+        original_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+
+        with pytest.raises(AuthenticationError, match="401"):
+            await phase._handle_self_fix_re_review(
+                pr,
+                issue,
+                config.worktree_base / "issue-42",
+                original_result,
+                "diff",
+                worker_id=0,
+            )
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_self_fix_re_review(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError in _handle_self_fix_re_review should propagate."""
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._prs.get_pr_diff = AsyncMock(side_effect=MemoryError("OOM"))
+
+        original_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+
+        with pytest.raises(MemoryError, match="OOM"):
+            await phase._handle_self_fix_re_review(
+                pr,
+                issue,
+                config.worktree_base / "issue-42",
+                original_result,
+                "diff",
+                worker_id=0,
+            )
+
+    @pytest.mark.asyncio
+    async def test_review_one_cleans_active_issues_on_critical_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Active issues should be cleaned up even when critical errors propagate."""
+        from subprocess_util import AuthenticationError
+
+        phase = make_review_phase(config)
+        issue = IssueFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._reviewers.review = AsyncMock(
+            side_effect=AuthenticationError("401 Unauthorized")
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(AuthenticationError):
+            await phase.review_prs([pr], [issue])
+
+        # finally block should still clean up active issues
+        assert 42 not in phase._active_issues

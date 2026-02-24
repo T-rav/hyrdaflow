@@ -496,6 +496,7 @@ def _check_docker_available() -> bool:
         client.ping()
         return True
     except Exception:
+        logger.debug("Docker availability check failed", exc_info=True)
         return False
 
 

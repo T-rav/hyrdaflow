@@ -15,6 +15,7 @@ from phase_utils import escalate_to_hitl, run_concurrent_batch, store_lifecycle
 from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
+from subprocess_util import AuthenticationError, CreditExhaustedError
 from worktree import WorktreeManager
 
 logger = logging.getLogger("hydraflow.implement_phase")
@@ -110,6 +111,8 @@ class ImplementPhase:
 
                     try:
                         return await self._worker_inner(idx, issue, branch)
+                    except (AuthenticationError, CreditExhaustedError, MemoryError):
+                        raise
                     except Exception:
                         logger.exception("Worker failed for issue #%d", issue.number)
                         self._state.mark_issue(issue.number, "failed")

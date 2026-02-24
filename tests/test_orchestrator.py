@@ -2800,3 +2800,49 @@ class TestHandleLoopException:
         error_events = [e for e in bus.get_history() if e.type == EventType.ERROR]
         assert len(error_events) == 1
         assert "plan" in error_events[0].data["source"]
+
+
+# ---------------------------------------------------------------------------
+# MemoryError propagation through _polling_loop
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryErrorPropagation:
+    """Tests that MemoryError propagates through _polling_loop."""
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_polling_loop(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError should not be caught by _polling_loop's except Exception."""
+        orch = HydraFlowOrchestrator(config)
+
+        async def oom_work() -> None:
+            raise MemoryError("out of memory")
+
+        with pytest.raises(MemoryError, match="out of memory"):
+            await orch._polling_loop("test", oom_work, 10)
+
+    @pytest.mark.asyncio
+    async def test_generic_error_is_caught_by_polling_loop(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Non-critical exceptions should be caught and not propagate."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+
+        async def failing_then_stop() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("transient error")
+            orch._stop_event.set()
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+
+        # Should not raise — RuntimeError is caught
+        await orch._polling_loop("test", failing_then_stop, 10)
+        assert call_count == 2

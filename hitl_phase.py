@@ -14,6 +14,7 @@ from issue_store import IssueStore
 from phase_utils import safe_file_memory_suggestion
 from pr_manager import PRManager
 from state import StateTracker
+from subprocess_util import AuthenticationError, CreditExhaustedError
 from worktree import WorktreeManager
 
 logger = logging.getLogger("hydraflow.hitl_phase")
@@ -259,6 +260,8 @@ class HITLPhase:
                             issue_number,
                             exc,
                         )
+            except (AuthenticationError, CreditExhaustedError, MemoryError):
+                raise
             except Exception:
                 logger.exception("HITL processing failed for issue #%d", issue_number)
             finally:

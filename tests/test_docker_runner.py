@@ -865,6 +865,19 @@ class TestCheckDockerAvailable:
             # Force ImportError by reloading
             assert _check_docker_available() is False
 
+    def test_logs_exception_at_debug_level(self) -> None:
+        """Docker availability check should log the specific exception at debug level."""
+        with (
+            patch("docker.from_env", side_effect=ConnectionError("daemon down")),
+            patch("docker_runner.logger") as mock_logger,
+        ):
+            result = _check_docker_available()
+
+        assert result is False
+        mock_logger.debug.assert_called_once()
+        _args, kwargs = mock_logger.debug.call_args
+        assert kwargs.get("exc_info") is True
+
 
 # ---------------------------------------------------------------------------
 # Fallback factory tests
