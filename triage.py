@@ -228,6 +228,7 @@ or
             self._config.repo_root,
             {"issue": issue.number, "source": "triage"},
         )
+        self._save_transcript("triage-issue", issue.number, transcript)
 
         result = self._parse_verdict(transcript, issue.number)
         if result is not None:

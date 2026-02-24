@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unittest.mock
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -608,3 +609,34 @@ class TestTriageRunnerInheritance:
         assert hasattr(TriageRunner, "_execute")
         # _execute should come from BaseRunner, not be overridden
         assert TriageRunner._execute is BaseRunner._execute
+
+    def test_inherits_save_transcript_method(self) -> None:
+        """TriageRunner should inherit _save_transcript from BaseRunner."""
+        assert hasattr(TriageRunner, "_save_transcript")
+        assert TriageRunner._save_transcript is BaseRunner._save_transcript
+
+
+class TestTriageSaveTranscript:
+    """Tests that TriageRunner saves LLM transcripts to disk via _save_transcript."""
+
+    @pytest.mark.asyncio
+    async def test_save_transcript_called_after_llm_evaluation(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        """_save_transcript should be called with the LLM transcript after evaluation."""
+        issue = IssueFactory.create(
+            number=77,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+            labels=[],
+            url="",
+        )
+        stdout = _make_llm_verdict(ready=True)
+        mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
+
+        with unittest.mock.patch.object(runner, "_save_transcript") as mock_save:
+            await runner.evaluate(issue)
+            mock_save.assert_called_once()
+            call_args = mock_save.call_args[0]
+            assert call_args[0] == "triage-issue"
+            assert call_args[1] == 77
