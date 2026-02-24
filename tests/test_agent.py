@@ -117,6 +117,8 @@ class TestBuildCommand:
         assert cmd[:3] == ["codex", "exec", "--json"]
         assert "--model" in cmd
         assert cmd[cmd.index("--model") + 1] == "gpt-5-codex"
+        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+        assert "--ask-for-approval" not in cmd
 
 
 # ---------------------------------------------------------------------------
