@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from events import EventBus, EventLog, EventType, HydraFlowEvent
+from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -717,3 +718,136 @@ class TestLoadSyncCorruptLines:
         ]
         assert len(warning_records) >= 1
         assert warning_records[0].exc_info is not None
+
+
+# ---------------------------------------------------------------------------
+# Persist event error handling (issue #1030)
+# ---------------------------------------------------------------------------
+
+
+class TestPersistEventErrorHandling:
+    """Verify fire-and-forget persist tasks handle errors gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_persist_event_catches_runtime_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Non-OSError exceptions in _persist_event are caught and logged."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with (
+            patch.object(
+                event_log, "append", side_effect=RuntimeError("thread pool exhausted")
+            ),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        records = [
+            r
+            for r in caplog.records
+            if "Failed to persist event to disk" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_persist_event_catches_os_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """OSError exceptions are still caught and logged with exc_info (regression test)."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with (
+            patch.object(event_log, "append", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        records = [
+            r
+            for r in caplog.records
+            if "Failed to persist event to disk" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_publish_delivers_event_to_subscriber_despite_persist_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """Subscribers receive events even when persistence fails."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+        queue = bus.subscribe()
+
+        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        assert queue.get_nowait() is event
+
+    @pytest.mark.asyncio
+    async def test_publish_updates_history_despite_persist_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """In-memory history is updated even when persistence fails."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        assert event in bus.get_history()
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_skips_cancelled_task(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should not log for cancelled tasks."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.cancel()
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        assert "Event persist task failed" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_logs_exception(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should log warning when task has an exception."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.set_exception(ValueError("bad serialization"))
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        records = [
+            r for r in caplog.records if "Event persist task failed" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_silent_on_success(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should not log when task completed successfully."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.set_result(None)
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        assert "Event persist task failed" not in caplog.text

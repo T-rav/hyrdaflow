@@ -1019,7 +1019,11 @@ class PRManager:
                     )
                     count += int(raw.strip() or "0")
                 except (RuntimeError, ValueError):
-                    pass
+                    logger.debug(
+                        "Could not count open issues for label %r",
+                        label,
+                        exc_info=True,
+                    )
             open_by_label[display_key] = count
         return open_by_label
 
@@ -1043,7 +1047,11 @@ class PRManager:
                 )
                 total += int(raw.strip() or "0")
             except (RuntimeError, ValueError):
-                pass
+                logger.debug(
+                    "Could not count closed issues for label %r",
+                    label,
+                    exc_info=True,
+                )
         return total
 
     async def _count_merged_prs(self, label: str) -> int:
@@ -1064,6 +1072,11 @@ class PRManager:
             )
             return int(raw.strip() or "0")
         except (RuntimeError, ValueError):
+            logger.debug(
+                "Could not count merged PRs for label %r",
+                label,
+                exc_info=True,
+            )
             return 0
 
     async def get_label_counts(self, config: HydraFlowConfig) -> dict[str, object]:

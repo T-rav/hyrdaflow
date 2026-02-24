@@ -41,6 +41,15 @@ _event_counter = _Counter()
 logger = logging.getLogger("hydraflow.events")
 
 
+def _log_persist_failure(task: asyncio.Future[None]) -> None:
+    """Log unhandled exceptions from fire-and-forget persist tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("Event persist task failed: %s", exc, exc_info=exc)
+
+
 class EventType(StrEnum):
     """Categories of events published by the orchestrator."""
 
@@ -221,6 +230,7 @@ class EventBus:
         self._max_history = max_history
         self._event_log = event_log
         self._active_session_id: str | None = None
+        self._pending_persists: set[asyncio.Task[None]] = set()
 
     def set_session_id(self, session_id: str | None) -> None:
         """Set the active session ID to auto-inject into published events."""
@@ -243,15 +253,27 @@ class EventBus:
                 queue.put_nowait(event)
 
         if self._event_log is not None:
-            asyncio.ensure_future(self._persist_event(event))
+            task = asyncio.create_task(self._persist_event(event))
+            self._pending_persists.add(task)
+            task.add_done_callback(self._pending_persists.discard)
+            task.add_done_callback(_log_persist_failure)
 
     async def _persist_event(self, event: HydraFlowEvent) -> None:
         """Write event to disk, logging any errors without crashing."""
         try:
             assert self._event_log is not None  # noqa: S101
             await self._event_log.append(event)
-        except OSError:
+        except Exception:
             logger.warning("Failed to persist event to disk", exc_info=True)
+
+    async def flush_persists(self) -> None:
+        """Await all in-flight persist tasks, suppressing exceptions.
+
+        Use in tests instead of ``asyncio.sleep(0)`` to reliably drain
+        fire-and-forget persist tasks without timing assumptions.
+        """
+        if self._pending_persists:
+            await asyncio.gather(*self._pending_persists, return_exceptions=True)
 
     async def load_history_from_disk(self) -> None:
         """Populate in-memory history from the on-disk event log.
