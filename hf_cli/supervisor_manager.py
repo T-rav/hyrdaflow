@@ -23,10 +23,16 @@ def ensure_running() -> None:
         start_new_session=True,
     )
     start = time.time()
-    while time.time() - start < 3:
+    timeout = 5.0
+    while time.time() - start < timeout:
         if supervisor_client.ping():
             return
         if process.poll() is not None:
-            raise RuntimeError("Supervisor exited unexpectedly; see log")
+            code = process.returncode
+            raise RuntimeError(
+                f"Supervisor exited unexpectedly (code {code}); see {_SUPERVISOR_LOG}"
+            )
         time.sleep(0.1)
-    raise RuntimeError("Timed out waiting for supervisor to start")
+    raise RuntimeError(
+        f"Timed out waiting for supervisor to start; see {_SUPERVISOR_LOG}"
+    )

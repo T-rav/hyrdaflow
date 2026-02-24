@@ -48,7 +48,12 @@ def _handle_run(rest: Sequence[str]) -> None:
     repo_path, _ = _parse_repo_argument(rest, require_path=True, allow_slug=False)
     if repo_path is None:
         raise SystemExit("Repository path is required")
-    info = add_repo(repo_path)
+    try:
+        info = add_repo(repo_path)
+    except RuntimeError as exc:
+        print(f"Failed to register repo {repo_path}: {exc}")
+        print("Use `hf view` to inspect supervisor status or tail the log file above.")
+        raise SystemExit(1) from exc
     url = info.get("dashboard_url")
     print(f"Registered repo {repo_path} with hf supervisor")
     if not info.get("started", True):

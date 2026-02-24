@@ -47,7 +47,7 @@ def _slug_for_repo(path: Path) -> str:
     return slug or "repo"
 
 
-def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str]:
+def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str, str]:
     repo_path = Path(path)
     if not repo_path.exists():
         raise FileNotFoundError(f"Repo path not found: {path}")
@@ -60,10 +60,11 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str]:
     port = _find_free_port()
     log_dir = STATE_DIR / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{slug}-{port}.log"
+    log_file = (log_dir / f"{slug}-{port}.log").resolve()
     env = os.environ.copy()
     env.setdefault("HYDRAFLOW_HOME", str(state_root))
     env.setdefault("PYTHONPATH", os.getcwd())
+    env.setdefault("HF_SUPERVISOR_PORT_FILE", str(SUPERVISOR_PORT_FILE))
     proc = subprocess.Popen(  # noqa: S603
         [sys.executable, str(repo_path / "cli.py"), "--dashboard-port", str(port)],
         cwd=str(repo_path),
@@ -74,8 +75,18 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str]:
         text=True,
     )
     RUNNERS[slug] = RepoProcess(slug, proc, port, repo_path)
-    _wait_for_port(port)
-    return port, slug, str(repo_path.resolve())
+    try:
+        _wait_for_port(port, proc, log_file)
+    except Exception:
+        RUNNERS.pop(slug, None)
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        raise
+    return port, slug, str(repo_path.resolve()), str(log_file)
 
 
 def _stop_repo(path: str | None = None, *, slug: str | None = None) -> bool:
@@ -95,7 +106,9 @@ def _stop_repo(path: str | None = None, *, slug: str | None = None) -> bool:
     return True
 
 
-def _wait_for_port(port: int, timeout: float = 15.0) -> None:
+def _wait_for_port(
+    port: int, proc: subprocess.Popen[str], log_file: Path, timeout: float = 20.0
+) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -103,9 +116,16 @@ def _wait_for_port(port: int, timeout: float = 15.0) -> None:
             try:
                 s.connect(("127.0.0.1", port))
                 return
-            except OSError:
+            except OSError as exc:
                 time.sleep(0.2)
-    raise RuntimeError(f"Timed out waiting for repo dashboard on port {port}")
+                if proc.poll() is not None:
+                    code = proc.returncode
+                    raise RuntimeError(
+                        f"Repo process exited with code {code}; see {log_file}"
+                    ) from exc
+    raise RuntimeError(
+        f"Timed out waiting for repo dashboard on port {port}; see {log_file}"
+    )
 
 
 async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -121,20 +141,22 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
             response = {"status": "ok", "repos": _build_repo_status_payload()}
         elif action == "add_repo":
             path = request.get("path")
+            requested_slug = request.get("repo_slug")
             if not path:
                 response = {"status": "error", "error": "Missing path"}
             else:
-                existing = supervisor_state.get_repo(path=path)
-                slug_hint = existing.get("slug") if existing else None
+                existing = supervisor_state.get_repo(path=path, slug=requested_slug)
+                slug_hint = requested_slug or (
+                    existing.get("slug") if existing else None
+                )
                 started = True
                 try:
-                    port, slug, normalized_path = _start_repo(path, slug=slug_hint)
+                    port, slug, normalized_path, log_file = _start_repo(
+                        path, slug=slug_hint
+                    )
                 except FileNotFoundError as exc:
                     response = {"status": "error", "error": str(exc)}
                 else:
-                    log_file = str(
-                        (STATE_DIR / "logs" / f"{slug}-{port}.log").resolve()
-                    )
                     supervisor_state.upsert_repo(normalized_path, slug, port, log_file)
                     if (
                         existing
