@@ -93,13 +93,15 @@ class TestPrepResultParsing:
 class TestPrepAgentPrompt:
     """Tests for prep prompt safety constraints."""
 
-    def test_prompt_includes_scope_and_no_parallel_constraints(self) -> None:
+    def test_prompt_includes_scope_and_parallel_fanout_constraints(self) -> None:
         prompt = _build_prep_agent_prompt(
             stack="node",
             failures=[("prep-workflow-agent", ["claude", "opus"], "failed")],
             issue_filenames=["auto-fix-prep.md"],
         )
-        assert "Do not run parallel/batch edits" in prompt
+        assert "fan out work to sub-agents in parallel" in prompt
+        assert "max 4 concurrent tracks" in prompt
+        assert "one file at a time" in prompt
         assert "Do not refactor unrelated application source" in prompt
 
 

@@ -1126,8 +1126,10 @@ def _build_prep_agent_prompt(
         "(lint-fix, lint-check, typecheck, test, quality-lite, quality).\n"
         "6) Before each Edit, Read that file first. If a tool error says a file has not "
         "been read yet, immediately read it and retry the edit.\n"
-        "7) Do not run parallel/batch edits. Apply edits one file at a time.\n"
-        "8) Do not refactor unrelated application source to chase existing lint debt. "
+        "7) For independent failures, fan out work to sub-agents in parallel when available "
+        "(max 4 concurrent tracks).\n"
+        "8) Within each track, apply edits one file at a time and verify before the next edit.\n"
+        "9) Do not refactor unrelated application source to chase existing lint debt. "
         "If failures are outside prep-managed files, record/update `.hydraflow/prep` issues with "
         "concrete failing commands and file paths.\n\n"
         "Local prep issue files:\n"
@@ -1194,6 +1196,7 @@ async def _run_prep_agent_workflow(
     config: HydraFlowConfig,
     stack: str,
     local_issue_names: list[str],
+    project_paths: list[str],
     on_output: Callable[[str], bool] | None = None,
 ) -> tuple[bool, str]:
     """Run an end-to-end prep workflow via Claude/Codex."""
@@ -1206,6 +1209,7 @@ async def _run_prep_agent_workflow(
         "\n".join([f"- .hydraflow/prep/{name}" for name in local_issue_names])
         or "- none"
     )
+    fanout_paths = "\n".join([f"- {path}" for path in project_paths]) or "- ."
     prompt = (
         "You are the HydraFlow prep operator agent.\n"
         f"Driver: {tool}\n"
@@ -1230,12 +1234,17 @@ async def _run_prep_agent_workflow(
         "11) Keep edits scoped to prep-managed files only (Makefile, .github/workflows/*, "
         "package manager files, lint/type config, test scaffold, hooks). Avoid refactoring "
         "existing app source files for pre-existing lint debt.\n"
-        "12) Never batch or parallelize edits. Work one file at a time and verify each step.\n"
-        "13) Coverage policy for all stacks: enforce at least 70% meaningful coverage; "
+        "12) Fan out independent work to sub-agents in parallel whenever possible "
+        "(for example: one track per project path or quality gate; max 4 concurrent tracks).\n"
+        "13) Within each track, keep edits serialized (one file at a time) and verify before "
+        "moving to the next file.\n"
+        "14) Coverage policy for all stacks: enforce at least 70% meaningful coverage; "
         "coverage should prioritize critical paths, not filler "
         "tests (for example, property-only inflation).\n"
-        "14) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
+        "15) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
         "with command output + affected files, then end with PREP_RESULT_JSON prep_status FAILED.\n\n"
+        "Fan-out project paths (parallelize across these when possible):\n"
+        f"{fanout_paths}\n\n"
         "Current local prep issues:\n"
         f"{issue_list}\n"
     )
@@ -1395,6 +1404,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 
     hardening_ok = True
     repo_root = config.repo_root
+    workflow_project_paths = sorted(makefile_results.results.keys()) or ["."]
     coverage_roots = _coverage_validation_roots(
         repo_root, list(makefile_results.results.keys())
     )
@@ -1486,6 +1496,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
                 config=config,
                 stack=stack,
                 local_issue_names=issue_names,
+                project_paths=workflow_project_paths,
                 on_output=workflow_on_output,
             ),
             stage="hardening",
