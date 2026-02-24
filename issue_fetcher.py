@@ -133,27 +133,10 @@ class IssueFetcher:
 
     async def fetch_plan_issues(self) -> list[GitHubIssue]:
         """Fetch issues labeled with the planner label (e.g. ``hydraflow-plan``)."""
-        if not self._config.planner_label:
-            # No planner labels configured — fetch all open issues that are
-            # not already in a downstream pipeline stage.
-            exclude = list(
-                {
-                    *self._config.ready_label,
-                    *self._config.review_label,
-                    *self._config.hitl_label,
-                    *self._config.fixed_label,
-                }
-            )
-            issues = await self.fetch_issues_by_labels(
-                [],
-                self._config.batch_size,
-                exclude_labels=exclude,
-            )
-        else:
-            issues = await self.fetch_issues_by_labels(
-                self._config.planner_label,
-                self._config.batch_size,
-            )
+        issues = await self.fetch_issues_by_labels(
+            self._config.planner_label,
+            self._config.batch_size,
+        )
         logger.info("Fetched %d issues for planning", len(issues))
         return issues[: self._config.batch_size]
 

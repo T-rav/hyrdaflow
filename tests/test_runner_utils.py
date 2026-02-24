@@ -446,17 +446,15 @@ class TestStreamClaudeProcessTimeout:
     """Tests for stream_claude_process timeout behavior."""
 
     @pytest.mark.asyncio
-    async def test_no_timeout_by_default(self, event_bus) -> None:
-        """When timeout=None (default), no wait_for wrapping occurs."""
+    async def test_default_timeout_applied(self, event_bus) -> None:
+        """Default timeout of 3600s is always applied via wait_for."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
-        with (
-            patch("asyncio.create_subprocess_exec", mock_create),
-            patch("asyncio.wait_for") as mock_wait_for,
-        ):
-            await stream_claude_process(**_default_kwargs(event_bus))
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await stream_claude_process(**_default_kwargs(event_bus))
 
-        mock_wait_for.assert_not_called()
+        # The function completes normally with a 3600s default timeout
+        assert result == "ok"
 
     @pytest.mark.asyncio
     async def test_timeout_kills_process_and_raises(self, event_bus) -> None:

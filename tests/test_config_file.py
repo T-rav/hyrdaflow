@@ -60,7 +60,6 @@ class TestLoadConfigFile:
         data = {
             "max_workers": 4,
             "model": "opus",
-            "max_budget_usd": 5.0,
             "batch_size": 10,
             "max_planners": 2,
             "review_model": "sonnet",
@@ -197,7 +196,7 @@ class TestConfigFileMergePriority:
     def test_config_file_with_float_field(self, tmp_path: Path) -> None:
         """Float fields from config file should be preserved."""
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"max_budget_usd": 5.0}))
+        config_path.write_text(json.dumps({"docker_cpu_limit": 5.0}))
 
         file_values = load_config_file(config_path)
         cfg = HydraFlowConfig(
@@ -207,4 +206,4 @@ class TestConfigFileMergePriority:
             state_file=tmp_path / "s.json",
         )
 
-        assert cfg.max_budget_usd == pytest.approx(5.0)
+        assert cfg.docker_cpu_limit == pytest.approx(5.0)

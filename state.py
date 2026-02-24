@@ -211,6 +211,22 @@ class StateTracker:
         self._data.interrupted_issues = {}
         self.save()
 
+    # --- last reviewed SHA tracking ---
+
+    def set_last_reviewed_sha(self, issue_number: int, sha: str) -> None:
+        """Record the last-reviewed commit SHA for *issue_number*."""
+        self._data.last_reviewed_shas[str(issue_number)] = sha
+        self.save()
+
+    def get_last_reviewed_sha(self, issue_number: int) -> str | None:
+        """Return the last-reviewed commit SHA for *issue_number*, or *None*."""
+        return self._data.last_reviewed_shas.get(str(issue_number))
+
+    def clear_last_reviewed_sha(self, issue_number: int) -> None:
+        """Clear the last-reviewed commit SHA for *issue_number*."""
+        self._data.last_reviewed_shas.pop(str(issue_number), None)
+        self.save()
+
     # --- worker result metadata ---
 
     def set_worker_result_meta(self, issue_number: int, meta: dict[str, Any]) -> None:
@@ -424,25 +440,14 @@ class StateTracker:
     def _sessions_path(self) -> Path:
         return self._path.parent / "sessions.jsonl"
 
-    def save_session(self, session: SessionLog) -> None:
-        """Append a session log entry to sessions.jsonl."""
-        self._sessions_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._sessions_path, "a") as f:
-            f.write(session.model_dump_json() + "\n")
-            f.flush()
+    def _load_sessions_deduped(self) -> dict[str, SessionLog]:
+        """Read sessions.jsonl and return a deduped dict keyed by session ID.
 
-    def load_sessions(
-        self, repo: str | None = None, limit: int = 50
-    ) -> list[SessionLog]:
-        """Read sessions from JSONL, optionally filtered by repo.
-
-        Returns up to *limit* entries sorted newest-first.
-        Deduplicates by session ID, keeping the last-written (most complete) entry.
+        Uses last-write-wins: later entries for the same ID overwrite earlier ones.
+        Returns empty dict if the file does not exist.
         """
         if not self._sessions_path.exists():
-            return []
-
-        # last-write-wins deduplication: iterate in order so later saves overwrite earlier
+            return {}
         seen: dict[str, SessionLog] = {}
         with open(self._sessions_path) as f:
             for line_num, raw_line in enumerate(f, 1):
@@ -460,10 +465,38 @@ class StateTracker:
                     )
                     continue
                 seen[session.id] = session
+        return seen
 
+    def _write_sessions(self, sessions: list[SessionLog]) -> None:
+        """Atomically rewrite sessions.jsonl with the given sessions.
+
+        Sessions are written sorted by started_at (oldest first).
+        """
+        result = sorted(sessions, key=lambda s: s.started_at)
+        content = "\n".join(s.model_dump_json() for s in result)
+        if content:
+            content += "\n"
+        atomic_write(self._sessions_path, content)
+
+    def save_session(self, session: SessionLog) -> None:
+        """Append a session log entry to sessions.jsonl."""
+        self._sessions_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._sessions_path, "a") as f:
+            f.write(session.model_dump_json() + "\n")
+            f.flush()
+
+    def load_sessions(
+        self, repo: str | None = None, limit: int = 50
+    ) -> list[SessionLog]:
+        """Read sessions from JSONL, optionally filtered by repo.
+
+        Returns up to *limit* entries sorted newest-first.
+        Deduplicates by session ID, keeping the last-written (most complete) entry.
+        """
+        seen = self._load_sessions_deduped()
+        if not seen:
+            return []
         sessions = [s for s in seen.values() if repo is None or s.repo == repo]
-
-        # Sort newest first and apply limit
         sessions.sort(key=lambda s: s.started_at, reverse=True)
         return sessions[:limit]
 
@@ -474,27 +507,7 @@ class StateTracker:
         so that a session updated on close (status=completed) takes precedence
         over the initial entry written at session start (status=active).
         """
-        if not self._sessions_path.exists():
-            return None
-
-        found: SessionLog | None = None
-        with open(self._sessions_path) as f:
-            for raw_line in f:
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    session = SessionLog.model_validate_json(stripped)
-                except ValidationError:
-                    logger.debug(
-                        "Skipping corrupt line in %s",
-                        self._sessions_path,
-                        exc_info=True,
-                    )
-                    continue
-                if session.id == session_id:
-                    found = session  # keep scanning; later entry is more up-to-date
-        return found
+        return self._load_sessions_deduped().get(session_id)
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a single session by ID from sessions.jsonl.
@@ -502,26 +515,9 @@ class StateTracker:
         Returns True if the session was found and deleted, False otherwise.
         Raises ValueError if the session is currently active.
         """
-        if not self._sessions_path.exists():
+        seen = self._load_sessions_deduped()
+        if not seen:
             return False
-
-        # last-write-wins deduplication
-        seen: dict[str, SessionLog] = {}
-        with open(self._sessions_path) as f:
-            for raw_line in f:
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    s = SessionLog.model_validate_json(stripped)
-                    seen[s.id] = s
-                except ValidationError:
-                    logger.debug(
-                        "Skipping corrupt session line in %s",
-                        self._sessions_path,
-                        exc_info=True,
-                    )
-                    continue
 
         target = seen.get(session_id)
         if target is None:
@@ -531,13 +527,7 @@ class StateTracker:
             raise ValueError(msg)
 
         del seen[session_id]
-
-        # Rebuild file
-        result = sorted(seen.values(), key=lambda s: s.started_at)
-        content = "\n".join(s.model_dump_json() for s in result)
-        if content:
-            content += "\n"
-        atomic_write(self._sessions_path, content)
+        self._write_sessions(list(seen.values()))
         return True
 
     def prune_sessions(self, repo: str, max_keep: int) -> None:
@@ -545,44 +535,18 @@ class StateTracker:
 
         Sessions from other repos are preserved. Uses atomic rewrite.
         """
-        if not self._sessions_path.exists():
+        seen = self._load_sessions_deduped()
+        if not seen:
             return
 
-        # last-write-wins deduplication before partitioning
-        seen: dict[str, SessionLog] = {}
-        with open(self._sessions_path) as f:
-            for raw_line in f:
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    s = SessionLog.model_validate_json(stripped)
-                    seen[s.id] = s
-                except ValidationError:
-                    logger.debug(
-                        "Skipping corrupt session line in %s",
-                        self._sessions_path,
-                        exc_info=True,
-                    )
-                    continue
         all_sessions = list(seen.values())
-
-        # Partition by repo
         repo_sessions = [s for s in all_sessions if s.repo == repo]
         other_sessions = [s for s in all_sessions if s.repo != repo]
 
-        # Keep only newest max_keep for target repo
         repo_sessions.sort(key=lambda s: s.started_at, reverse=True)
         kept = repo_sessions[:max_keep]
 
-        # Rebuild file with other + kept (preserve order by started_at)
-        result = other_sessions + kept
-        result.sort(key=lambda s: s.started_at)
-
-        content = "\n".join(s.model_dump_json() for s in result)
-        if content:
-            content += "\n"
-        atomic_write(self._sessions_path, content)
+        self._write_sessions(other_sessions + kept)
 
     # --- threshold checking ---
 
@@ -603,56 +567,54 @@ class StateTracker:
         total_reviews = (
             stats.total_review_approvals + stats.total_review_request_changes
         )
+
+        # (name, metric_label, value, threshold, sample_count, exceeds_is_bad, action)
+        defs: list[tuple[str, str, float, float, int, bool, str]] = [
+            (
+                "quality_fix_rate",
+                "quality fix rate",
+                stats.total_quality_fix_rounds / total_issues if total_issues else 0.0,
+                quality_fix_rate_threshold,
+                total_issues,
+                True,
+                "Review implementation prompts — too many quality fixes needed",
+            ),
+            (
+                "approval_rate",
+                "first-pass approval rate",
+                stats.total_review_approvals / total_reviews if total_reviews else 1.0,
+                approval_rate_threshold,
+                total_reviews,
+                False,
+                "Review code quality — approval rate is below threshold",
+            ),
+            (
+                "hitl_rate",
+                "HITL escalation rate",
+                stats.total_hitl_escalations / total_issues if total_issues else 0.0,
+                hitl_rate_threshold,
+                total_issues,
+                True,
+                "Investigate HITL escalation causes — too many issues need human intervention",
+            ),
+        ]
+
+        _MIN_SAMPLES = 5
         proposals: list[ThresholdProposal] = []
-
-        # Quality fix rate
-        qf_rate = stats.total_quality_fix_rounds / total_issues if total_issues else 0.0
-        if qf_rate > quality_fix_rate_threshold and total_issues >= 5:
-            if "quality_fix_rate" not in stats.fired_thresholds:
-                proposals.append(
-                    {
-                        "name": "quality_fix_rate",
-                        "metric": "quality fix rate",
-                        "threshold": quality_fix_rate_threshold,
-                        "value": qf_rate,
-                        "action": "Review implementation prompts — too many quality fixes needed",
-                    }
-                )
-        elif "quality_fix_rate" in stats.fired_thresholds:
-            self.clear_threshold_fired("quality_fix_rate")
-
-        # First-pass approval rate
-        approval_rate = (
-            stats.total_review_approvals / total_reviews if total_reviews else 1.0
-        )
-        if approval_rate < approval_rate_threshold and total_reviews >= 5:
-            if "approval_rate" not in stats.fired_thresholds:
-                proposals.append(
-                    {
-                        "name": "approval_rate",
-                        "metric": "first-pass approval rate",
-                        "threshold": approval_rate_threshold,
-                        "value": approval_rate,
-                        "action": "Review code quality — approval rate is below threshold",
-                    }
-                )
-        elif "approval_rate" in stats.fired_thresholds:
-            self.clear_threshold_fired("approval_rate")
-
-        # HITL escalation rate
-        hitl_rate = stats.total_hitl_escalations / total_issues if total_issues else 0.0
-        if hitl_rate > hitl_rate_threshold and total_issues >= 5:
-            if "hitl_rate" not in stats.fired_thresholds:
-                proposals.append(
-                    {
-                        "name": "hitl_rate",
-                        "metric": "HITL escalation rate",
-                        "threshold": hitl_rate_threshold,
-                        "value": hitl_rate,
-                        "action": "Investigate HITL escalation causes — too many issues need human intervention",
-                    }
-                )
-        elif "hitl_rate" in stats.fired_thresholds:
-            self.clear_threshold_fired("hitl_rate")
+        for name, metric, value, threshold, samples, exceeds_is_bad, action in defs:
+            crossed = (value > threshold) if exceeds_is_bad else (value < threshold)
+            if crossed and samples >= _MIN_SAMPLES:
+                if name not in stats.fired_thresholds:
+                    proposals.append(
+                        {
+                            "name": name,
+                            "metric": metric,
+                            "threshold": threshold,
+                            "value": value,
+                            "action": action,
+                        }
+                    )
+            elif name in stats.fired_thresholds:
+                self.clear_threshold_fired(name)
 
         return proposals

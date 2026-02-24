@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from escalation_gate import should_escalate_debug
+from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from execution import get_default_runner
 from models import VerificationCriteria
 from runner_utils import stream_claude_process
@@ -68,7 +68,7 @@ class AcceptanceCriteriaGenerator:
         diff_summary = self._summarize_diff(diff)
         test_files = self._extract_test_files(diff)
         precheck_context = await self._run_precheck_context(
-            issue, issue_number, pr_number, diff_summary
+            issue, issue_number, pr_number, diff_summary, diff
         )
 
         prompt = self._build_prompt(
@@ -92,6 +92,7 @@ class AcceptanceCriteriaGenerator:
                 "source": "ac_generator",
             },
             logger=logger,
+            timeout=self._config.agent_timeout,
             runner=self._runner,
         )
 
@@ -112,7 +113,6 @@ class AcceptanceCriteriaGenerator:
         return build_agent_command(
             tool=self._config.ac_tool,
             model=self._config.ac_model,
-            budget_usd=self._config.ac_budget_usd,
             disallowed_tools="Write,Edit,NotebookEdit",
         )
 
@@ -240,7 +240,12 @@ Diff summary:
         return risk, confidence, escalate, summary, parse_failed
 
     async def _run_precheck_context(
-        self, issue: GitHubIssue, issue_number: int, pr_number: int, diff_summary: str
+        self,
+        issue: GitHubIssue,
+        issue_number: int,
+        pr_number: int,
+        diff_summary: str,
+        diff: str,
     ) -> str:
         if self._config.max_subskill_attempts <= 0:
             return "Low-tier precheck disabled."
@@ -266,6 +271,7 @@ Diff summary:
                         "source": "ac_precheck",
                     },
                     logger=logger,
+                    timeout=self._config.agent_timeout,
                     runner=self._runner,
                 )
                 risk, confidence, _escalate, summary, parse_failed = (
@@ -284,7 +290,7 @@ Diff summary:
             retry_count=self._config.max_subskill_attempts,
             max_subskill_attempts=self._config.max_subskill_attempts,
             risk=risk,
-            high_risk_files_touched=False,
+            high_risk_files_touched=high_risk_diff_touched(diff),
         )
 
         context = [
@@ -307,6 +313,7 @@ Diff summary:
                     "source": "ac_precheck_debug",
                 },
                 logger=logger,
+                timeout=self._config.agent_timeout,
                 runner=self._runner,
             )
             context.append("Debug precheck transcript:")
@@ -317,9 +324,7 @@ Diff summary:
 
     def _read_plan_file(self, issue_number: int) -> str:
         """Read the plan from ``.hydraflow/plans/issue-N.md``."""
-        plan_path = (
-            self._config.repo_root / ".hydraflow" / "plans" / f"issue-{issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{issue_number}.md"
         try:
             return plan_path.read_text()
         except OSError:

@@ -86,35 +86,6 @@ def _valid_transcript(*, word_pad: int = 200) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_build_command_uses_planner_model_and_budget(config):
-    runner = _make_runner(config, None)
-    cmd = runner._build_command()
-
-    assert "claude" in cmd
-    assert "-p" in cmd
-    assert "--model" in cmd
-    model_idx = cmd.index("--model")
-    assert cmd[model_idx + 1] == config.planner_model
-
-    assert "--max-budget-usd" in cmd
-    budget_idx = cmd.index("--max-budget-usd")
-    assert cmd[budget_idx + 1] == str(config.planner_budget_usd)
-
-
-def test_build_command_omits_budget_when_zero(tmp_path):
-    from tests.conftest import ConfigFactory
-
-    cfg = ConfigFactory.create(
-        planner_budget_usd=0,
-        repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "wt",
-        state_file=tmp_path / "s.json",
-    )
-    runner = _make_runner(cfg, None)
-    cmd = runner._build_command()
-    assert "--max-budget-usd" not in cmd
-
-
 def test_build_command_includes_output_format(config):
     runner = _make_runner(config, None)
     cmd = runner._build_command()

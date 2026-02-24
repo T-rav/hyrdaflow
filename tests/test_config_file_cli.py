@@ -88,7 +88,6 @@ class TestBuildConfigWithConfigFile:
                     "max_workers": 5,
                     "max_planners": 3,
                     "model": "haiku",
-                    "max_budget_usd": 10.0,
                     "batch_size": 20,
                 }
             )
@@ -100,7 +99,6 @@ class TestBuildConfigWithConfigFile:
         assert cfg.max_workers == 5
         assert cfg.max_planners == 3
         assert cfg.model == "haiku"
-        assert cfg.max_budget_usd == pytest.approx(10.0)
         assert cfg.batch_size == 20
 
     def test_config_file_stores_path_on_config(self, tmp_path: Path) -> None:

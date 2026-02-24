@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 
 class StreamParser:
@@ -60,7 +61,7 @@ class StreamParser:
 
         return (display, result)
 
-    def _parse_assistant(self, event: dict) -> str:  # type: ignore[type-arg]
+    def _parse_assistant(self, event: dict[str, Any]) -> str:
         """Extract new content from an assistant message event."""
         message = event.get("message", {})
         msg_id = message.get("id", "")
@@ -97,7 +98,7 @@ class StreamParser:
 
         return "\n".join(parts)
 
-    def _parse_user(self, event: dict) -> str:  # type: ignore[type-arg]
+    def _parse_user(self, event: dict[str, Any]) -> str:
         """Extract a brief summary from a user (tool result) event."""
         message = event.get("message", {})
         content = message.get("content", [])
@@ -110,7 +111,7 @@ class StreamParser:
                     return f"    ← {preview}{'…' if len(content_val) > 80 else ''}"
         return ""
 
-    def _parse_codex_item(self, event: dict) -> str:  # type: ignore[type-arg]
+    def _parse_codex_item(self, event: dict[str, Any]) -> str:
         """Extract display text from a Codex item completion event."""
         item = event.get("item", {})
         item_id = item.get("id", "")
@@ -134,7 +135,7 @@ class StreamParser:
         return ""
 
 
-def _summarize_input(name: str, tool_input: dict) -> str:  # type: ignore[type-arg]  # noqa: PLR0911
+def _summarize_input(name: str, tool_input: dict[str, Any]) -> str:  # noqa: PLR0911
     """One-line summary of a tool call's input."""
     if name in ("Read", "read"):
         return tool_input.get("file_path", str(tool_input))[:120]

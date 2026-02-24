@@ -228,6 +228,43 @@ class TestHostRunnerRunSimple:
             await runner.run_simple(["nonexistent-binary"])
 
     @pytest.mark.asyncio
+    async def test_input_opens_stdin_pipe_and_passes_data(self) -> None:
+        """When input is provided, stdin=PIPE and data is forwarded to communicate."""
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"response", b""))
+        mock_create = AsyncMock(return_value=mock_proc)
+
+        runner = HostRunner()
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await runner.run_simple(["cat"], input=b"hello world")
+
+        # Verify stdin pipe was opened
+        _, kwargs = mock_create.call_args
+        import asyncio
+
+        assert kwargs["stdin"] == asyncio.subprocess.PIPE
+
+        # Verify input was passed to communicate
+        mock_proc.communicate.assert_called_once_with(input=b"hello world")
+        assert result.stdout == "response"
+
+    @pytest.mark.asyncio
+    async def test_no_input_does_not_open_stdin_pipe(self) -> None:
+        """When input is None (default), stdin should be None."""
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"ok", b""))
+        mock_create = AsyncMock(return_value=mock_proc)
+
+        runner = HostRunner()
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await runner.run_simple(["echo", "hi"])
+
+        _, kwargs = mock_create.call_args
+        assert kwargs["stdin"] is None
+
+    @pytest.mark.asyncio
     async def test_non_utf8_bytes_are_replaced_not_raised(self) -> None:
         """Non-UTF-8 bytes must be replaced, not raise UnicodeDecodeError."""
         mock_proc = AsyncMock()

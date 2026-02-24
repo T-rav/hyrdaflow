@@ -1,0 +1,115 @@
+"""Shared utilities for phase modules — eliminates duplicated patterns."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Callable, Coroutine
+from contextlib import asynccontextmanager
+from typing import Any, TypeVar
+
+from config import HydraFlowConfig
+from issue_store import IssueStore
+from memory import file_memory_suggestion
+from pr_manager import PRManager
+from state import StateTracker
+
+logger = logging.getLogger("hydraflow.phase_utils")
+
+T = TypeVar("T")
+T_Result = TypeVar("T_Result")
+
+
+async def run_concurrent_batch(
+    items: list[T],
+    worker_fn: Callable[[int, T], Coroutine[Any, Any, T_Result]],
+    stop_event: asyncio.Event,
+) -> list[T_Result]:
+    """Run *worker_fn* on each item concurrently, cancelling on stop.
+
+    Creates one task per item, collects results via ``as_completed``,
+    and cancels remaining tasks if *stop_event* is set or if this
+    coroutine itself is cancelled externally.
+    """
+    results: list[T_Result] = []
+    all_tasks = [
+        asyncio.create_task(worker_fn(i, item)) for i, item in enumerate(items)
+    ]
+    try:
+        for task in asyncio.as_completed(all_tasks):
+            results.append(await task)
+            if stop_event.is_set():
+                for t in all_tasks:
+                    t.cancel()
+                break
+    finally:
+        for t in all_tasks:
+            if not t.done():
+                t.cancel()
+    return results
+
+
+async def escalate_to_hitl(
+    state: StateTracker,
+    prs: PRManager,
+    issue_number: int,
+    *,
+    cause: str,
+    origin_label: str,
+    hitl_label: str,
+) -> None:
+    """Record HITL escalation state and swap labels.
+
+    This is the simple escalation path used by plan, implement, and
+    triage phases.  The review phase has a richer variant with event
+    publishing and PR comment routing.
+    """
+    state.set_hitl_origin(issue_number, origin_label)
+    state.set_hitl_cause(issue_number, cause)
+    state.record_hitl_escalation()
+    await prs.swap_pipeline_labels(issue_number, hitl_label)
+
+
+async def safe_file_memory_suggestion(
+    transcript: str,
+    source: str,
+    reference: str,
+    config: HydraFlowConfig,
+    prs: PRManager,
+    state: StateTracker,
+) -> None:
+    """File a memory suggestion, swallowing and logging exceptions."""
+    try:
+        await file_memory_suggestion(
+            transcript,
+            source,
+            reference,
+            config,
+            prs,
+            state,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to file memory suggestion for %s",
+            reference,
+        )
+
+
+@asynccontextmanager
+async def store_lifecycle(
+    store: IssueStore,
+    issue_number: int,
+    stage: str,
+):
+    """Mark an issue active on enter and complete on exit.
+
+    Usage::
+
+        async with store_lifecycle(store, issue.number, "plan"):
+            ...  # do work
+    """
+    store.mark_active(issue_number, stage)
+    try:
+        yield
+    finally:
+        store.mark_complete(issue_number)

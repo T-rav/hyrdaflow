@@ -4,11 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cli import _parse_label_arg, _run_main, build_config, parse_args
+from cli import (
+    _build_prep_agent_prompt,
+    _build_prep_failure_error_message,
+    _coverage_validation_roots,
+    _evaluate_coverage_validation,
+    _evaluate_coverage_validation_projects,
+    _extract_coverage_percent,
+    _parse_label_arg,
+    _parse_prep_result,
+    _project_has_test_signal,
+    _run_main,
+    build_config,
+    parse_args,
+)
 
 # ---------------------------------------------------------------------------
 # _parse_label_arg
@@ -31,6 +45,151 @@ class TestParseLabelArg:
         assert _parse_label_arg("") == []
 
 
+class TestPrepFailureErrorMessage:
+    """Tests for prep failure message classification."""
+
+    def test_classifies_edit_before_read_tool_error(self) -> None:
+        transcript = (
+            "some output\n"
+            "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>"
+        )
+        msg = _build_prep_failure_error_message(
+            transcript, ".hydraflow/prep/runs/20260224/a.log"
+        )
+        assert "tool precondition failure" in msg
+        assert "Transcript path: .hydraflow/prep/runs/20260224/a.log" in msg
+
+    def test_classifies_turn_limit_error(self) -> None:
+        transcript = "agent stopped due to max turns reached"
+        msg = _build_prep_failure_error_message(
+            transcript, ".hydraflow/prep/runs/20260224/b.log"
+        )
+        assert "turn limit" in msg
+
+
+class TestPrepResultParsing:
+    """Tests for structured prep result parsing."""
+
+    def test_prefers_json_success(self) -> None:
+        success, mode = _parse_prep_result(
+            '... PREP_RESULT_JSON: {"prep_status":"SUCCESS","summary":"ok"}'
+        )
+        assert success is True
+        assert mode == "json"
+
+    def test_json_failed_returns_false(self) -> None:
+        success, mode = _parse_prep_result(
+            '... PREP_RESULT_JSON: {"prep_status":"FAILED","summary":"broken"}'
+        )
+        assert success is False
+        assert mode == "json"
+
+    def test_falls_back_to_legacy_status(self) -> None:
+        success, mode = _parse_prep_result("PREP_STATUS: SUCCESS")
+        assert success is True
+        assert mode == "legacy"
+
+
+class TestPrepAgentPrompt:
+    """Tests for prep prompt safety constraints."""
+
+    def test_prompt_includes_scope_and_no_parallel_constraints(self) -> None:
+        prompt = _build_prep_agent_prompt(
+            stack="node",
+            failures=[("prep-workflow-agent", ["claude", "opus"], "failed")],
+            issue_filenames=["auto-fix-prep.md"],
+        )
+        assert "Do not run parallel/batch edits" in prompt
+        assert "Do not refactor unrelated application source" in prompt
+
+
+class TestCoverageValidation:
+    """Tests for coverage artifact extraction and validation."""
+
+    def test_extracts_lcov_percent(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text(
+            "TN:\nSF:file.js\nLF:100\nLH:65\nend_of_record\n"
+        )
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(65.0)
+        assert source == "lcov.info"
+
+    def test_extracts_coverage_summary_json_percent(self, tmp_path: Path) -> None:
+        cov_dir = tmp_path / "coverage"
+        cov_dir.mkdir()
+        (cov_dir / "coverage-summary.json").write_text(
+            '{"total":{"lines":{"pct":72.4}}}'
+        )
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(72.4)
+        assert source == "coverage/coverage-summary.json"
+
+    def test_extracts_coverage_xml_line_rate_percent(self, tmp_path: Path) -> None:
+        (tmp_path / "coverage.xml").write_text('<coverage line-rate="0.82"></coverage>')
+        pct, source = _extract_coverage_percent(tmp_path)
+        assert pct == pytest.approx(82.0)
+        assert source == "coverage.xml"
+
+    def test_validation_fails_without_artifact(self, tmp_path: Path) -> None:
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is False
+        assert warn is False
+        assert "no coverage report artifact found" in detail
+
+    def test_validation_fails_below_minimum(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:60\n")
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is False
+        assert warn is False
+        assert "below minimum 70%" in detail
+
+    def test_validation_passes_at_minimum_floor(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:70\n")
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is True
+        assert warn is False
+        assert "passed" in detail
+
+    def test_validation_passes_at_target(self, tmp_path: Path) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:85\n")
+        ok, warn, detail = _evaluate_coverage_validation(tmp_path)
+        assert ok is True
+        assert warn is False
+        assert "passed" in detail
+
+    def test_project_has_test_signal_from_makefile_target(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        assert _project_has_test_signal(tmp_path) is True
+
+    def test_coverage_roots_include_only_projects_with_tests(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        pkg_a = tmp_path / "packages" / "a"
+        pkg_a.mkdir(parents=True)
+        (pkg_a / "Makefile").write_text("test:\n\t@echo test\n")
+        pkg_b = tmp_path / "packages" / "b"
+        pkg_b.mkdir(parents=True)
+        roots = _coverage_validation_roots(tmp_path, [".", "packages/a", "packages/b"])
+        rels = ["." if p == tmp_path else str(p.relative_to(tmp_path)) for p in roots]
+        assert rels == [".", "packages/a"]
+
+    def test_coverage_projects_fails_when_any_project_below_min(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:80\n")
+        pkg_a = tmp_path / "packages" / "a"
+        pkg_a.mkdir(parents=True)
+        (pkg_a / "lcov.info").write_text("LF:100\nLH:40\n")
+        ok, warn, detail = _evaluate_coverage_validation_projects(
+            tmp_path, [tmp_path, pkg_a]
+        )
+        assert ok is False
+        assert warn is False
+        assert "packages/a:" in detail
+        assert "below minimum 70%" in detail
+
+
 # ---------------------------------------------------------------------------
 # parse_args — defaults
 # ---------------------------------------------------------------------------
@@ -50,12 +209,10 @@ class TestParseArgs:
             "max_planners",
             "max_reviewers",
             "max_hitl_workers",
-            "max_budget_usd",
             "model",
             "implementation_tool",
             "review_model",
             "review_tool",
-            "review_budget_usd",
             "ci_check_timeout",
             "ci_poll_interval",
             "max_ci_fix_attempts",
@@ -70,7 +227,6 @@ class TestParseArgs:
             "triage_tool",
             "planner_model",
             "planner_tool",
-            "planner_budget_usd",
             "repo",
             "main_branch",
             "ac_tool",
@@ -104,8 +260,8 @@ class TestParseArgs:
         assert args.batch_size == 10
 
     def test_explicit_float_arg_preserved(self) -> None:
-        args = parse_args(["--max-budget-usd", "5.5"])
-        assert args.max_budget_usd == pytest.approx(5.5)
+        args = parse_args(["--docker-cpu-limit", "5.5"])
+        assert args.docker_cpu_limit == pytest.approx(5.5)
 
     def test_explicit_string_arg_preserved(self) -> None:
         args = parse_args(["--model", "haiku"])
@@ -129,12 +285,10 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("max_reviewers", 5),
     ("max_hitl_workers", 1),
     ("hitl_active_label", ["hydraflow-hitl-active"]),
-    ("max_budget_usd", pytest.approx(0)),
     ("implementation_tool", "claude"),
     ("model", "opus"),
     ("review_tool", "claude"),
     ("review_model", "sonnet"),
-    ("review_budget_usd", pytest.approx(0)),
     ("ci_check_timeout", 600),
     ("ci_poll_interval", 30),
     ("max_ci_fix_attempts", 2),
@@ -148,7 +302,6 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("triage_tool", "claude"),
     ("planner_tool", "claude"),
     ("planner_model", "opus"),
-    ("planner_budget_usd", pytest.approx(0)),
     ("ac_tool", "claude"),
     ("verification_judge_tool", "claude"),
     ("main_branch", "main"),
@@ -331,22 +484,6 @@ class TestBuildConfig:
         args = parse_args(["--dashboard-port", "8080"])
         cfg = build_config(args)
         assert cfg.dashboard_port == 8080
-
-    def test_budget_fields_passed_through(self) -> None:
-        args = parse_args(
-            [
-                "--max-budget-usd",
-                "10.5",
-                "--review-budget-usd",
-                "5.0",
-                "--planner-budget-usd",
-                "3.0",
-            ]
-        )
-        cfg = build_config(args)
-        assert cfg.max_budget_usd == pytest.approx(10.5)
-        assert cfg.review_budget_usd == pytest.approx(5.0)
-        assert cfg.planner_budget_usd == pytest.approx(3.0)
 
     def test_min_plan_words_passed_through(self) -> None:
         args = parse_args(["--min-plan-words", "300"])

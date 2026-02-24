@@ -205,15 +205,15 @@ class TestPatchConfigEndpoint:
         assert config.max_workers == original  # Unchanged
 
     @pytest.mark.asyncio
-    async def test_patch_config_rejects_negative_budget(
+    async def test_patch_config_rejects_invalid_value(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        """PATCH should reject negative budget values (ge=0 constraint)."""
+        """PATCH should reject values that violate Pydantic field constraints (ge=1)."""
         router = _make_router(config, event_bus, state, tmp_path)
         endpoint = _find_endpoint(router, "/api/control/config")
         assert endpoint is not None
 
-        response = await endpoint({"max_budget_usd": -5.0})
+        response = await endpoint({"max_workers": -1})
         data = json.loads(response.body)
 
         assert response.status_code == 422

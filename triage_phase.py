@@ -8,6 +8,7 @@ import logging
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
+from phase_utils import escalate_to_hitl, store_lifecycle
 from pr_manager import PRManager
 from state import StateTracker
 from triage import TriageRunner
@@ -44,9 +45,6 @@ class TriagePhase:
         comment explaining what is missing so the dashboard surfaces
         them as "needs attention".
         """
-        if not self._config.find_label:
-            return
-
         issues = self._store.get_triageable(self._config.batch_size)
         if not issues:
             return
@@ -57,8 +55,7 @@ class TriagePhase:
                 logger.info("Stop requested — aborting triage loop")
                 return
 
-            self._store.mark_active(issue.id, "find")
-            try:
+            async with store_lifecycle(self._store, issue.id, "find"):
                 result = await self._triage.evaluate(issue)
 
                 if self._config.dry_run:
@@ -74,14 +71,13 @@ class TriagePhase:
                         self._config.planner_label[0],
                     )
                 else:
-                    self._state.set_hitl_origin(issue.id, self._config.find_label[0])
-                    self._state.set_hitl_cause(
+                    await escalate_to_hitl(
+                        self._state,
+                        self._prs,
                         issue.id,
-                        "Insufficient issue detail for triage",
-                    )
-                    self._state.record_hitl_escalation()
-                    await self._prs.swap_pipeline_labels(
-                        issue.id, self._config.hitl_label[0]
+                        cause="Insufficient issue detail for triage",
+                        origin_label=self._config.find_label[0],
+                        hitl_label=self._config.hitl_label[0],
                     )
                     note = (
                         "## Needs More Information\n\n"
@@ -110,5 +106,3 @@ class TriagePhase:
                         self._config.hitl_label[0],
                         "; ".join(result.reasons),
                     )
-            finally:
-                self._store.mark_complete(issue.id)

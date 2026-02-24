@@ -56,6 +56,7 @@ class MergeConflictResolver:
         """
         await publish_fn(pr, worker_id, "merge_main")
         merged = await self._worktrees.merge_main(wt_path, pr.branch)
+        used_rebuild = False
         if not merged:
             logger.info(
                 "PR #%d has conflicts with %s — running agent to resolve",
@@ -63,11 +64,16 @@ class MergeConflictResolver:
                 self._config.main_branch,
             )
             await publish_fn(pr, worker_id, WorkerStatus.MERGE_FIX.value)
-            merged = await self.resolve_merge_conflicts(
+            merged, used_rebuild = await self.resolve_merge_conflicts(
                 pr, issue, wt_path, worker_id=worker_id
             )
         if merged:
-            await self._prs.push_branch(wt_path, pr.branch)
+            if used_rebuild:
+                # Branch history was rewritten — need force-push
+                new_wt = self._config.worktree_path_for_issue(pr.issue_number)
+                await self._prs.force_push_branch(new_wt, pr.branch)
+            else:
+                await self._prs.push_branch(wt_path, pr.branch)
             return True
 
         logger.warning(
@@ -96,13 +102,19 @@ class MergeConflictResolver:
         issue: Task,
         wt_path: Path,
         worker_id: int,
-    ) -> bool:
+    ) -> tuple[bool, bool]:
         """Use the implementation agent to resolve merge conflicts.
 
         Retries up to ``config.max_merge_conflict_fix_attempts`` times.
         Each attempt starts a merge (leaving conflict markers), runs the
         agent to resolve them, and verifies with ``make quality``.
-        Returns *True* if the conflicts were resolved successfully.
+
+        If all merge attempts fail, falls back to :meth:`fresh_branch_rebuild`
+        which destroys the worktree and re-applies the PR diff on a clean
+        branch from main.
+
+        Returns ``(success, used_rebuild)`` — *used_rebuild* is True when
+        the fresh rebuild path was taken (caller should force-push).
         """
         from conflict_prompt import build_conflict_prompt
 
@@ -111,7 +123,7 @@ class MergeConflictResolver:
                 "No agent runner available for conflict resolution on PR #%d",
                 pr.number,
             )
-            return False
+            return False, False
 
         max_attempts = self._config.max_merge_conflict_fix_attempts
         last_error: str | None = None
@@ -124,7 +136,7 @@ class MergeConflictResolver:
             # Start merge leaving conflict markers in place
             clean = await self._worktrees.start_merge_main(wt_path, pr.branch)
             if clean:
-                return True
+                return True, False
 
             logger.info(
                 "Conflict resolution attempt %d/%d for PR #%d",
@@ -172,7 +184,7 @@ class MergeConflictResolver:
                     await self._maybe_summarize_conflict(
                         transcript, issue.id, pr.number
                     )
-                    return True
+                    return True, False
 
                 last_error = error_msg
                 logger.warning(
@@ -197,9 +209,118 @@ class MergeConflictResolver:
                 )
                 last_error = str(exc)
 
-        # All attempts exhausted — abort and let caller escalate
+        # All merge attempts exhausted — abort merge and try fresh rebuild
         await self._worktrees.abort_merge(wt_path)
-        return False
+
+        logger.info(
+            "All %d merge attempts exhausted for PR #%d — trying fresh branch rebuild",
+            max_attempts,
+            pr.number,
+        )
+        rebuilt = await self.fresh_branch_rebuild(pr, issue, worker_id)
+        if rebuilt:
+            return True, True
+
+        return False, False
+
+    async def fresh_branch_rebuild(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        worker_id: int,
+    ) -> bool:
+        """Rebuild the PR branch from scratch on a fresh branch from main.
+
+        Fetches the PR diff, destroys the old conflicted worktree, creates a
+        fresh worktree from main, and runs an agent to re-apply the changes.
+        Returns *True* if the rebuild succeeded and verified.
+        """
+        from conflict_prompt import build_rebuild_prompt
+
+        if not self._config.enable_fresh_branch_rebuild:
+            logger.info(
+                "Fresh branch rebuild disabled — skipping for PR #%d", pr.number
+            )
+            return False
+
+        if self._agents is None:
+            logger.warning("No agent runner for fresh rebuild on PR #%d", pr.number)
+            return False
+
+        # Fetch the PR diff
+        pr_diff = await self._prs.get_pr_diff(pr.number)
+        if not pr_diff.strip():
+            logger.warning(
+                "Empty PR diff for PR #%d — skipping fresh rebuild", pr.number
+            )
+            return False
+
+        await self._publish_review_status(
+            pr, worker_id, WorkerStatus.FRESH_REBUILD.value
+        )
+
+        # Destroy old worktree and create fresh one from main
+        await self._worktrees.destroy(pr.issue_number)
+        new_wt = await self._worktrees.create(pr.issue_number, pr.branch)
+
+        logger.info(
+            "Fresh branch rebuild: created clean worktree at %s for PR #%d",
+            new_wt,
+            pr.number,
+        )
+
+        try:
+            prompt = build_rebuild_prompt(
+                issue.source_url,
+                pr.url,
+                issue.id,
+                pr_diff,
+                config=self._config,
+            )
+            cmd = self._agents._build_command(new_wt)
+            transcript = await self._agents._execute(
+                cmd,
+                prompt,
+                new_wt,
+                {"issue": issue.id, "source": "fresh_rebuild"},
+            )
+
+            self._save_conflict_transcript(pr.number, issue.id, 0, transcript)
+
+            try:
+                await file_memory_suggestion(
+                    transcript,
+                    "fresh_rebuild",
+                    f"PR #{pr.number}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to file memory suggestion for fresh rebuild on PR #%d",
+                    pr.number,
+                )
+
+            success, error_msg = await self._agents._verify_result(new_wt, pr.branch)
+            if success:
+                await self._maybe_summarize_conflict(transcript, issue.id, pr.number)
+                logger.info("Fresh branch rebuild succeeded for PR #%d", pr.number)
+                return True
+
+            logger.warning(
+                "Fresh branch rebuild verification failed for PR #%d: %s",
+                pr.number,
+                error_msg[:200] if error_msg else "",
+            )
+            return False
+        except Exception as exc:
+            logger.error(
+                "Fresh branch rebuild agent failed for PR #%d: %s",
+                pr.number,
+                exc,
+            )
+            return False
 
     async def _maybe_summarize_conflict(
         self, transcript: str, issue_number: int, pr_number: int
@@ -227,7 +348,7 @@ class MergeConflictResolver:
         transcript: str,
     ) -> None:
         """Save a conflict resolution transcript to ``.hydraflow/logs/``."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
+        log_dir = self._config.log_dir
         log_dir.mkdir(parents=True, exist_ok=True)
         path = log_dir / f"conflict-pr-{pr_number}-attempt-{attempt}.txt"
         path.write_text(transcript)

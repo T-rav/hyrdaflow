@@ -607,47 +607,6 @@ class TestFetchPlanIssues:
         assert issues == []
         mock_exec.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_empty_planner_label_fetches_all_excluding_downstream(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """When planner_label is empty, fetch all open issues excluding downstream labels."""
-        from config import HydraFlowConfig as HC
-
-        no_plan_config = HC(**{**config.model_dump(), "planner_label": []})
-        fetcher = IssueFetcher(no_plan_config)
-
-        raw = json.dumps(
-            [
-                {
-                    "number": 1,
-                    "title": "Unlabeled issue",
-                    "body": "Body",
-                    "labels": [],
-                    "comments": [],
-                    "url": "",
-                },
-                {
-                    "number": 2,
-                    "title": "Ready issue",
-                    "body": "Body",
-                    "labels": [{"name": "test-label"}],
-                    "comments": [],
-                    "url": "",
-                },
-            ]
-        )
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            issues = await fetcher.fetch_plan_issues()
-
-        # Issue #2 has ready_label ("test-label") so it should be filtered out
-        assert len(issues) == 1
-        assert issues[0].number == 1
-
 
 # ---------------------------------------------------------------------------
 # fetch_issue_by_number

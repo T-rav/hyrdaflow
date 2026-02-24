@@ -6,10 +6,12 @@ from pathlib import Path
 
 from makefile_scaffold import (
     ScaffoldResult,
+    discover_project_paths,
     generate_makefile,
     merge_makefile,
     parse_makefile,
     scaffold_makefile,
+    scaffold_makefiles,
 )
 
 
@@ -25,7 +27,7 @@ class TestParseMakefile:
         assert "pytest" in result["test"]
 
     def test_handles_targets_with_dependencies(self) -> None:
-        content = "quality: lint-check typecheck test\n\ntest:\n\tpytest\n"
+        content = "quality: quality-lite test\n\ntest:\n\tpytest\n"
         result = parse_makefile(content)
         assert "quality" in result
         assert "test" in result
@@ -92,16 +94,30 @@ class TestGenerateMakefile:
 
     def test_quality_target_chains_dependencies(self) -> None:
         content = generate_makefile("python")
-        assert "quality: lint-check typecheck test" in content
+        assert "quality-lite: lint-check typecheck security" in content
+        assert "quality: quality-lite test coverage-check" in content
 
     def test_includes_phony_declaration(self) -> None:
         content = generate_makefile("python")
         assert ".PHONY:" in content
+        assert "help" in content
         assert "lint" in content
         assert "lint-check" in content
+        assert "lint-fix" in content
         assert "typecheck" in content
+        assert "security" in content
         assert "test" in content
+        assert "quality-lite" in content
         assert "quality" in content
+
+    def test_sets_help_as_default_goal(self) -> None:
+        content = generate_makefile("python")
+        assert ".DEFAULT_GOAL := help" in content
+        assert "COVERAGE_MIN ?= 70" in content
+        assert "COVERAGE_TARGET ?= 70" in content
+        assert "help:" in content
+        assert "Available targets:" in content
+        assert "coverage vars COVERAGE_MIN=70 COVERAGE_TARGET=70" in content
 
     def test_unknown_language_returns_empty(self) -> None:
         content = generate_makefile("unknown")
@@ -112,15 +128,17 @@ class TestGenerateMakefile:
         recipe_lines = [
             line
             for line in content.split("\n")
-            if line and not line.startswith((".", "#")) and ":" not in line
+            if line
+            and not line.startswith((".", "#"))
+            and ":" not in line
+            and "=" not in line
         ]
         for line in recipe_lines:
             assert line.startswith("\t"), f"Recipe line should start with tab: {line!r}"
 
-    def test_mixed_defaults_to_python(self) -> None:
+    def test_mixed_no_longer_defaults_to_python(self) -> None:
         content = generate_makefile("mixed")
-        assert "ruff check" in content
-        assert "pyright" in content
+        assert content == ""
 
 
 class TestMergeMakefile:
@@ -158,6 +176,7 @@ class TestMergeMakefile:
         existing = ".PHONY: clean build\n\nclean:\n\trm -rf dist\n"
         new_content, _ = merge_makefile(existing, "python")
         # .PHONY should include new targets and preserve original entries
+        assert "help" in new_content
         assert "lint" in new_content
         assert "test" in new_content
         # build is in .PHONY but has no target definition — must be preserved
@@ -184,16 +203,37 @@ class TestMergeMakefile:
         _, warnings = merge_makefile(existing, "python")
         assert any("quality" in w for w in warnings)
 
+    def test_warns_on_different_quality_lite_prerequisites(self) -> None:
+        # quality-lite: exists but chains different targets — should warn
+        existing = "quality-lite: lint-check typecheck\n"
+        _, warnings = merge_makefile(existing, "python")
+        assert any("quality-lite" in w for w in warnings)
+
     def test_no_warning_when_quality_deps_match(self) -> None:
         # quality: exists with correct chain — no warning
-        existing = "quality: lint-check typecheck test\n"
+        existing = (
+            "quality-lite: lint-check typecheck security\n"
+            "quality: quality-lite test coverage-check\n"
+        )
         _, warnings = merge_makefile(existing, "python")
         assert not any("quality" in w for w in warnings)
+        assert not any("quality-lite" in w for w in warnings)
 
     def test_handles_makefile_without_phony(self) -> None:
         existing = "clean:\n\trm -rf dist\n"
         new_content, _ = merge_makefile(existing, "python")
         assert ".PHONY:" in new_content
+
+    def test_merge_adds_default_goal_when_missing(self) -> None:
+        existing = "clean:\n\trm -rf dist\n"
+        new_content, _ = merge_makefile(existing, "python")
+        assert ".DEFAULT_GOAL := help" in new_content
+
+    def test_merge_preserves_existing_default_goal(self) -> None:
+        existing = ".DEFAULT_GOAL := quality\n\nclean:\n\trm -rf dist\n"
+        new_content, _ = merge_makefile(existing, "python")
+        assert ".DEFAULT_GOAL := quality" in new_content
+        assert new_content.count(".DEFAULT_GOAL") == 1
 
 
 class TestScaffoldMakefile:
@@ -214,9 +254,25 @@ class TestScaffoldMakefile:
         (tmp_path / "package.json").touch()
         result = scaffold_makefile(tmp_path)
         assert result.created is True
-        assert result.language == "javascript"
+        assert result.language == "node"
         content = (tmp_path / "Makefile").read_text()
         assert "npx eslint" in content
+
+    def test_creates_new_makefile_for_go_repo(self, tmp_path: Path) -> None:
+        (tmp_path / "go.mod").touch()
+        result = scaffold_makefile(tmp_path)
+        assert result.created is True
+        assert result.language == "go"
+        content = (tmp_path / "Makefile").read_text()
+        assert "go test ./..." in content
+
+    def test_creates_new_makefile_for_rust_repo(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").touch()
+        result = scaffold_makefile(tmp_path)
+        assert result.created is True
+        assert result.language == "rust"
+        content = (tmp_path / "Makefile").read_text()
+        assert "cargo test --all-targets" in content
 
     def test_merges_into_existing_makefile(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").touch()
@@ -308,3 +364,26 @@ class TestScaffoldMakefile:
         assert isinstance(result.warnings, list)
         assert isinstance(result.skipped, list)
         assert isinstance(result.language, str)
+
+
+class TestScaffoldMakefiles:
+    def test_discovers_multiple_project_paths(self, tmp_path: Path) -> None:
+        (tmp_path / "backend").mkdir()
+        (tmp_path / "backend" / "pyproject.toml").touch()
+        (tmp_path / "frontend").mkdir()
+        (tmp_path / "frontend" / "package.json").write_text("{}\n")
+        paths = discover_project_paths(tmp_path)
+        rels = {str(p.relative_to(tmp_path)) for p in paths}
+        assert "backend" in rels
+        assert "frontend" in rels
+
+    def test_scaffolds_makefiles_for_multiple_projects(self, tmp_path: Path) -> None:
+        (tmp_path / "backend").mkdir()
+        (tmp_path / "backend" / "pyproject.toml").touch()
+        (tmp_path / "frontend").mkdir()
+        (tmp_path / "frontend" / "package.json").write_text("{}\n")
+        result = scaffold_makefiles(tmp_path)
+        assert "backend" in result.results
+        assert "frontend" in result.results
+        assert (tmp_path / "backend" / "Makefile").exists()
+        assert (tmp_path / "frontend" / "Makefile").exists()

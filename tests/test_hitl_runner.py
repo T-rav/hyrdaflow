@@ -16,6 +16,12 @@ from events import EventBus, EventType
 from hitl_runner import HITLRunner, _classify_cause
 from tests.conftest import HITLResultFactory, IssueFactory
 
+
+@pytest.fixture
+def hitl_runner(config, event_bus):
+    return HITLRunner(config, event_bus)
+
+
 # ---------------------------------------------------------------------------
 # Inheritance
 # ---------------------------------------------------------------------------
@@ -199,16 +205,8 @@ class TestBuildCommand:
         idx = cmd.index("--model")
         assert cmd[idx + 1] == config.model
 
-    def test_command_includes_budget_when_set(self, hitl_runner) -> None:
+    def test_command_excludes_budget_flag(self, hitl_runner) -> None:
         cmd = hitl_runner._build_command(Path("/tmp/wt"))
-        assert "--max-budget-usd" in cmd
-
-    def test_command_omits_budget_when_zero(self, event_bus) -> None:
-        from tests.helpers import ConfigFactory
-
-        cfg = ConfigFactory.create(max_budget_usd=0)
-        runner = HITLRunner(cfg, event_bus)
-        cmd = runner._build_command(Path("/tmp/wt"))
         assert "--max-budget-usd" not in cmd
 
     def test_command_supports_codex_backend(self, event_bus) -> None:

@@ -46,6 +46,7 @@ src = ["."]
 exclude = [
     ".venv", "venv", "build", "dist", "node_modules",
     "htmlcov", "__pycache__", ".pytest_cache", ".ruff_cache",
+    ".claude/worktrees", ".codex/worktrees",
 ]
 
 [tool.ruff.lint]
@@ -68,14 +69,26 @@ line-ending = "auto"
 [tool.pyright]
 pythonVersion = "3.11"
 include = ["."]
-exclude = ["tests", "**/__pycache__", "**/node_modules", "templates", ".venv", "venv", "**/venv"]
+exclude = [
+    "tests",
+    "**/__pycache__",
+    "**/node_modules",
+    "templates",
+    ".venv",
+    "venv",
+    "**/venv",
+    ".claude/worktrees",
+    ".claude/worktrees/**",
+    ".codex/worktrees",
+    ".codex/worktrees/**",
+]
 typeCheckingMode = "standard"
 reportMissingImports = false
 reportMissingTypeStubs = false
 
 # === Bandit ===
 [tool.bandit]
-exclude_dirs = ["tests", "venv", ".venv"]
+exclude_dirs = ["tests", "venv", ".venv", ".claude/worktrees", ".codex/worktrees"]
 skips = ["B101"]
 
 # === Pytest ===

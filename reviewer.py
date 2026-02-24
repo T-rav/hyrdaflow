@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
-from escalation_gate import should_escalate_debug
+from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from events import EventType, HydraFlowEvent
 from models import PRInfo, ReviewerStatus, ReviewResult, ReviewVerdict, Task
 from runner_constants import MEMORY_SUGGESTION_PROMPT
@@ -136,6 +136,7 @@ class ReviewRunner(BaseRunner):
         failure_summary: str,
         attempt: int = 1,
         worker_id: int = 0,
+        ci_logs: str = "",
     ) -> ReviewResult:
         """Run an agent to fix CI failures.
 
@@ -171,7 +172,9 @@ class ReviewRunner(BaseRunner):
 
         try:
             cmd = self._build_command(worktree_path)
-            prompt = self._build_ci_fix_prompt(pr, issue, failure_summary, attempt)
+            prompt = self._build_ci_fix_prompt(
+                pr, issue, failure_summary, attempt, ci_logs=ci_logs
+            )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
                 cmd, prompt, worktree_path, {"pr": pr.number, "source": "reviewer"}
@@ -211,14 +214,19 @@ class ReviewRunner(BaseRunner):
         issue: Task,
         failure_summary: str,
         attempt: int,
+        ci_logs: str = "",
     ) -> str:
         """Build a focused prompt for fixing CI failures."""
+        ci_logs_section = ""
+        if ci_logs:
+            ci_logs_section = f"\n\n## Full CI Failure Logs\n\n```\n{ci_logs}\n```"
+
         test_cmd = self._config.test_command
         return f"""You are fixing CI failures on PR #{pr.number} (issue #{issue.id}: {issue.title}).
 
 ## CI Failure Summary
 
-{failure_summary}
+{failure_summary}{ci_logs_section}
 
 ## Fix Attempt {attempt}
 
@@ -245,7 +253,6 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         return build_agent_command(
             tool=self._config.review_tool,
             model=self._config.review_model,
-            budget_usd=self._config.review_budget_usd,
         )
 
     def _build_review_prompt(
@@ -302,11 +309,20 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
+        # Runtime log injection (opt-in)
+        log_section = ""
+        if self._config.inject_runtime_logs:
+            from log_context import load_runtime_logs  # noqa: PLC0415
+
+            logs = load_runtime_logs(self._config)
+            if logs:
+                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+
         return f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue.body}{manifest_section}{memory_section}
+{issue.body}{manifest_section}{memory_section}{log_section}
 
 ## Precheck Context
 
@@ -447,12 +463,6 @@ Diff snippet:
         summary = summary_match.group(1).strip() if summary_match else ""
         return risk, confidence, escalate, summary, parse_failed
 
-    @staticmethod
-    def _high_risk_diff_touched(diff: str) -> bool:
-        patterns = ("/auth", "/security", "/payment", "migration", "infra/")
-        diff_lower = diff.lower()
-        return any(p in diff_lower for p in patterns)
-
     async def _run_precheck_context(
         self, pr: PRInfo, issue: Task, diff: str, worktree_path: Path
     ) -> str:
@@ -493,7 +503,7 @@ Diff snippet:
             retry_count=max_subskill,
             max_subskill_attempts=max_subskill,
             risk=risk,
-            high_risk_files_touched=self._high_risk_diff_touched(diff),
+            high_risk_files_touched=high_risk_diff_touched(diff),
         )
 
         context_lines = [
@@ -577,7 +587,7 @@ Diff snippet:
             result = await self._runner.run_simple(
                 ["git", "rev-parse", "HEAD"],
                 cwd=str(worktree_path),
-                timeout=30,
+                timeout=self._config.git_command_timeout,
             )
         except (TimeoutError, FileNotFoundError):
             return None
@@ -597,7 +607,7 @@ Diff snippet:
             result = await self._runner.run_simple(
                 ["git", "status", "--porcelain"],
                 cwd=str(worktree_path),
-                timeout=30,
+                timeout=self._config.git_command_timeout,
             )
             return result.returncode == 0 and bool(result.stdout)
         except (TimeoutError, FileNotFoundError):

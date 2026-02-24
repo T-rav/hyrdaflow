@@ -732,6 +732,18 @@ class TestDockerRunnerRunSimple:
 
         container.kill.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_run_simple_raises_not_implemented_when_input_provided(self) -> None:
+        """DockerRunner.run_simple raises NotImplementedError when input is provided.
+
+        Stdin piping is not supported in Docker mode — callers should use
+        the host runner for commands that require stdin input.
+        """
+        runner, _ = _make_runner()
+
+        with pytest.raises(NotImplementedError, match="stdin input not supported"):
+            await runner.run_simple(["claude", "-p"], input=b"hello")
+
 
 # ---------------------------------------------------------------------------
 # Staggered spawning tests

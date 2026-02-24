@@ -128,7 +128,20 @@ async def ensure_labels(config: HydraFlowConfig) -> PrepResult:
 # ---------------------------------------------------------------------------
 
 # Makefile targets HydraFlow requires
-_REQUIRED_MAKE_TARGETS = ("quality", "lint", "test")
+_REQUIRED_MAKE_TARGETS = (
+    "lint",
+    "lint-check",
+    "lint-fix",
+    "typecheck",
+    "security",
+    "test",
+    "coverage-check",
+    "quality-lite",
+    "quality",
+)
+
+_COVERAGE_MIN_THRESHOLD = 70.0
+_COVERAGE_TARGET_THRESHOLD = 70.0
 
 # Lock files mapped to package manager names
 _LOCK_FILES: tuple[tuple[str, str], ...] = (
@@ -173,6 +186,7 @@ class RepoAuditor:
             self._check_linting(),
             self._check_type_checking(),
             self._check_test_framework(),
+            self._check_coverage_policy(),
             self._check_package_manager(),
             await self._check_gh_cli(),
             await self._check_labels(),
@@ -340,6 +354,14 @@ class RepoAuditor:
                     detail=f"{hook_dir_name}/pre-commit",
                 )
 
+        git_hook = self._root / ".git" / "hooks" / "pre-commit"
+        if git_hook.is_file():
+            return AuditCheck(
+                name="Git hooks",
+                status=AuditCheckStatus.PRESENT,
+                detail=".git/hooks/pre-commit",
+            )
+
         return AuditCheck(
             name="Git hooks",
             status=AuditCheckStatus.MISSING,
@@ -349,6 +371,28 @@ class RepoAuditor:
     def _check_linting(self) -> AuditCheck:
         """Check for linting configuration."""
         tools: list[str] = []
+
+        # Capability-based checks first (language-agnostic entry points).
+        makefile = self._root / "Makefile"
+        if makefile.is_file():
+            try:
+                content = makefile.read_text()
+                if re.search(r"^lint(-check)?\s*:", content, re.MULTILINE):
+                    tools.append("make lint target")
+            except OSError:
+                pass
+
+        package_json = self._root / "package.json"
+        if package_json.is_file():
+            try:
+                data = json.loads(package_json.read_text())
+                scripts = data.get("scripts", {})
+                if isinstance(scripts, dict) and any(
+                    key in scripts for key in ("lint", "lint:check")
+                ):
+                    tools.append("npm lint script")
+            except (OSError, json.JSONDecodeError):
+                pass
 
         if (self._root / "ruff.toml").is_file():
             tools.append("ruff")
@@ -365,11 +409,17 @@ class RepoAuditor:
             if (self._root / name).is_file():
                 tools.append("eslint")
                 break
+        if "eslint" not in tools:
+            for name in ("eslint.config.js", "eslint.config.cjs", "eslint.config.mjs"):
+                if (self._root / name).is_file():
+                    tools.append("eslint")
+                    break
 
         if (self._root / "biome.json").is_file():
             tools.append("biome")
 
         if tools:
+            tools = list(dict.fromkeys(tools))
             return AuditCheck(
                 name="Linting",
                 status=AuditCheckStatus.PRESENT,
@@ -489,6 +539,133 @@ class RepoAuditor:
             name="Pkg manager",
             status=AuditCheckStatus.MISSING,
             detail="no lock file",
+        )
+
+    def _check_coverage_policy(self) -> AuditCheck:
+        """Check whether an enforceable coverage threshold policy is configured."""
+        thresholds: list[tuple[str, float]] = []
+        policy_targets: list[tuple[str, float]] = []
+
+        pyproject = self._root / "pyproject.toml"
+        if pyproject.is_file():
+            try:
+                data = tomllib.loads(pyproject.read_text())
+                fail_under = (
+                    data.get("tool", {})
+                    .get("coverage", {})
+                    .get("report", {})
+                    .get("fail_under")
+                )
+                if isinstance(fail_under, (int, float)):
+                    thresholds.append(
+                        ("pyproject:coverage.fail_under", float(fail_under))
+                    )
+            except (OSError, tomllib.TOMLDecodeError):
+                pass
+
+        coveragerc = self._root / ".coveragerc"
+        if coveragerc.is_file():
+            try:
+                content = coveragerc.read_text()
+                match = re.search(
+                    r"^\s*fail_under\s*=\s*(\d+(?:\.\d+)?)\s*$",
+                    content,
+                    re.MULTILINE,
+                )
+                if match:
+                    thresholds.append((".coveragerc:fail_under", float(match.group(1))))
+            except OSError:
+                pass
+
+        for filename in ("Makefile", "makefile", "GNUmakefile"):
+            path = self._root / filename
+            if not path.is_file():
+                continue
+            try:
+                content = path.read_text()
+                for val in re.findall(
+                    r"^\s*COVERAGE_MIN\s*\??=\s*(\d+(?:\.\d+)?)\s*$",
+                    content,
+                    re.MULTILINE,
+                ):
+                    thresholds.append((f"{filename}:COVERAGE_MIN", float(val)))
+                for val in re.findall(
+                    r"^\s*COVERAGE_TARGET\s*\??=\s*(\d+(?:\.\d+)?)\s*$",
+                    content,
+                    re.MULTILINE,
+                ):
+                    policy_targets.append((f"{filename}:COVERAGE_TARGET", float(val)))
+                for val in re.findall(
+                    r"--cov-fail-under(?:=|\s+)(\d+(?:\.\d+)?)",
+                    content,
+                ):
+                    thresholds.append((f"{filename}:--cov-fail-under", float(val)))
+            except OSError:
+                continue
+
+        package_json = self._root / "package.json"
+        if package_json.is_file():
+            try:
+                data = json.loads(package_json.read_text())
+                threshold = (
+                    data.get("jest", {})
+                    .get("coverageThreshold", {})
+                    .get("global", {})
+                    .get("lines")
+                )
+                if isinstance(threshold, (int, float)):
+                    thresholds.append(
+                        ("package.json:jest.global.lines", float(threshold))
+                    )
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        if not thresholds:
+            return AuditCheck(
+                name="Coverage",
+                status=AuditCheckStatus.PARTIAL,
+                detail=(
+                    "no enforced coverage threshold detected; "
+                    "set minimum 70% and target 70%+"
+                ),
+            )
+
+        min_source, min_threshold = min(thresholds, key=lambda item: item[1])
+        if min_threshold < _COVERAGE_MIN_THRESHOLD:
+            return AuditCheck(
+                name="Coverage",
+                status=AuditCheckStatus.PARTIAL,
+                detail=(
+                    f"{min_source}={min_threshold:g}% below minimum 70%; "
+                    "increase threshold to >=70%"
+                ),
+            )
+
+        target_suffix = ""
+        if policy_targets:
+            _target_source, target_threshold = min(
+                policy_targets, key=lambda item: item[1]
+            )
+            if target_threshold < _COVERAGE_TARGET_THRESHOLD:
+                target_suffix = f"; warning: target is {target_threshold:g}% (<70%)"
+
+        if min_threshold < _COVERAGE_TARGET_THRESHOLD:
+            return AuditCheck(
+                name="Coverage",
+                status=AuditCheckStatus.PARTIAL,
+                detail=(
+                    f"minimum enforced threshold is {min_threshold:g}% "
+                    f"({min_source}); acceptable minimum met, target 70%+{target_suffix}"
+                ),
+            )
+
+        return AuditCheck(
+            name="Coverage",
+            status=AuditCheckStatus.PRESENT,
+            detail=(
+                f"minimum enforced threshold {min_threshold:g}% ({min_source})"
+                f"{target_suffix}"
+            ),
         )
 
     # -- Async checks ---------------------------------------------------------

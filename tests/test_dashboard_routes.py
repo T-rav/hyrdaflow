@@ -91,6 +91,9 @@ class TestCreateRouter:
             "/api/sessions",
             "/api/sessions/{session_id}",
             "/api/request-changes",
+            "/api/runs",
+            "/api/runs/{issue_number}",
+            "/api/runs/{issue_number}/{timestamp}/{filename}",
             "/ws",
             "/{path:path}",
         }
@@ -1926,27 +1929,6 @@ class TestRequestChangesEndpoint:
         add_calls = [c.args for c in pr_mgr.add_labels.call_args_list]
         assert (7, config.hitl_label) in add_calls
 
-    @pytest.mark.asyncio
-    async def test_request_changes_empty_stage_labels_falls_back_to_stage_name(
-        self, event_bus, state, tmp_path
-    ) -> None:
-        """When a stage label list is empty, origin falls back to the stage key."""
-        import json
-
-        from tests.helpers import ConfigFactory
-
-        cfg = ConfigFactory.create(review_label=[])
-        router, _ = self._make_router(cfg, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
-        assert endpoint is not None
-
-        response = await endpoint(
-            {"issue_number": 99, "feedback": "Empty label config", "stage": "review"}
-        )
-        data = json.loads(response.body)
-        assert data["status"] == "ok"
-        assert state.get_hitl_origin(99) == "review"
-
 
 class TestDeleteSessionEndpoint:
     """Tests for DELETE /api/sessions/{session_id}."""
@@ -2103,3 +2085,196 @@ class TestLoadLocalMetricsCacheExceptionHandling:
             asyncio.run(history_endpoint())
 
         assert "Skipping corrupt metrics snapshot line" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# /api/runs endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestRunsEndpoints:
+    """Tests for the /api/runs route family."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=get_orch or (lambda: None),
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    # --- GET /api/runs (list_run_issues) ---
+
+    @pytest.mark.asyncio
+    async def test_list_run_issues_no_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Without orchestrator, returns empty list."""
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/runs")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data == []
+
+    @pytest.mark.asyncio
+    async def test_list_run_issues_with_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """With orchestrator, returns run_recorder.list_issues() result."""
+        import json
+
+        mock_orch = MagicMock()
+        mock_orch.run_recorder = MagicMock()
+        mock_orch.run_recorder.list_issues = MagicMock(return_value=[42, 99])
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = self._find_endpoint(router, "/api/runs")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data == [42, 99]
+
+    # --- GET /api/runs/{issue_number} (get_runs) ---
+
+    @pytest.mark.asyncio
+    async def test_get_runs_no_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Without orchestrator, returns empty list."""
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/runs/{issue_number}")
+        assert endpoint is not None
+
+        response = await endpoint(42)
+        data = json.loads(response.body)
+        assert data == []
+
+    @pytest.mark.asyncio
+    async def test_get_runs_with_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """With orchestrator, returns serialized RunManifest list."""
+        import json
+
+        from run_recorder import RunManifest
+
+        manifest = RunManifest(
+            issue_number=42,
+            timestamp="2025-01-01T00:00:00",
+            outcome="success",
+            duration_seconds=12.5,
+            files=["plan.md", "transcript.txt"],
+        )
+
+        mock_orch = MagicMock()
+        mock_orch.run_recorder = MagicMock()
+        mock_orch.run_recorder.list_runs = MagicMock(return_value=[manifest])
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = self._find_endpoint(router, "/api/runs/{issue_number}")
+        assert endpoint is not None
+
+        response = await endpoint(42)
+        data = json.loads(response.body)
+        assert len(data) == 1
+        assert data[0]["issue_number"] == 42
+        assert data[0]["outcome"] == "success"
+        assert data[0]["timestamp"] == "2025-01-01T00:00:00"
+
+    # --- GET /api/runs/{issue_number}/{timestamp}/{filename} (get_run_artifact) ---
+
+    @pytest.mark.asyncio
+    async def test_get_run_artifact_no_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Without orchestrator, returns 400."""
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(
+            router, "/api/runs/{issue_number}/{timestamp}/{filename}"
+        )
+        assert endpoint is not None
+
+        response = await endpoint(42, "2025-01-01T00:00:00", "plan.md")
+        assert response.status_code == 400
+        data = json.loads(response.body)
+        assert data["error"] == "no orchestrator"
+
+    @pytest.mark.asyncio
+    async def test_get_run_artifact_found(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """When artifact exists, returns 200 with plain text content."""
+        mock_orch = MagicMock()
+        mock_orch.run_recorder = MagicMock()
+        mock_orch.run_recorder.get_run_artifact = MagicMock(
+            return_value="# Plan\nDo the thing."
+        )
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = self._find_endpoint(
+            router, "/api/runs/{issue_number}/{timestamp}/{filename}"
+        )
+        assert endpoint is not None
+
+        response = await endpoint(42, "2025-01-01T00:00:00", "plan.md")
+        assert response.status_code == 200
+        assert response.body == b"# Plan\nDo the thing."
+        assert response.media_type == "text/plain"
+
+    @pytest.mark.asyncio
+    async def test_get_run_artifact_not_found(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """When artifact does not exist, returns 404."""
+        import json
+
+        mock_orch = MagicMock()
+        mock_orch.run_recorder = MagicMock()
+        mock_orch.run_recorder.get_run_artifact = MagicMock(return_value=None)
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = self._find_endpoint(
+            router, "/api/runs/{issue_number}/{timestamp}/{filename}"
+        )
+        assert endpoint is not None
+
+        response = await endpoint(42, "2025-01-01T00:00:00", "missing.txt")
+        assert response.status_code == 404
+        data = json.loads(response.body)
+        assert data["error"] == "artifact not found"

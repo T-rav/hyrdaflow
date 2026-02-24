@@ -11,11 +11,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from events import EventBus, EventType
+from events import EventType
 from manifest import ProjectManifestManager
 from manifest_refresh_loop import ManifestRefreshLoop
 from state import StateTracker
-from tests.helpers import ConfigFactory
+from tests.helpers import make_bg_loop_deps
 
 
 def _make_loop(
@@ -25,46 +25,28 @@ def _make_loop(
     interval: int = 60,
 ) -> tuple[ManifestRefreshLoop, asyncio.Event, ProjectManifestManager, StateTracker]:
     """Build a ManifestRefreshLoop with test-friendly defaults."""
-    config = ConfigFactory.create(
-        repo_root=tmp_path / "repo",
-        manifest_refresh_interval=interval,
+    deps = make_bg_loop_deps(
+        tmp_path, enabled=enabled, manifest_refresh_interval=interval
     )
-    # Create a minimal repo structure so scan produces content
-    repo_root = config.repo_root
+
+    repo_root = deps.config.repo_root
     repo_root.mkdir(parents=True, exist_ok=True)
     (repo_root / "pyproject.toml").write_text("[project]")
 
-    manager = ProjectManifestManager(config)
+    manager = ProjectManifestManager(deps.config)
     state = StateTracker(tmp_path / "state.json")
-    bus = EventBus()
-    stop_event = asyncio.Event()
 
     loop = ManifestRefreshLoop(
-        config=config,
+        config=deps.config,
         manifest_manager=manager,
         state=state,
-        event_bus=bus,
-        stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
-        sleep_fn=_instant_sleep_factory(stop_event),
+        event_bus=deps.bus,
+        stop_event=deps.stop_event,
+        status_cb=deps.status_cb,
+        enabled_cb=deps.enabled_cb,
+        sleep_fn=deps.sleep_fn,
     )
-    return loop, stop_event, manager, state
-
-
-def _instant_sleep_factory(stop_event: asyncio.Event):
-    """Return a sleep function that stops after a few iterations."""
-    call_count = 0
-
-    async def sleep(seconds: int | float) -> None:
-        nonlocal call_count
-        call_count += 1
-        # Stop after 2 sleep cycles to prevent infinite loops
-        if call_count >= 2:
-            stop_event.set()
-        await asyncio.sleep(0)
-
-    return sleep
+    return loop, deps.stop_event, manager, state
 
 
 class TestManifestRefreshLoopRun:

@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from memory import file_memory_suggestion
 from models import BackgroundWorkerState, GitHubIssue, Phase, SessionLog
+from phase_utils import safe_file_memory_suggestion
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from run_recorder import RunRecorder
 
 logger = logging.getLogger("hydraflow.orchestrator")
+
+# Delay after a merge to allow GitHub to propagate the merge state.
+_POST_MERGE_DELAY: int = 5
 
 
 class HydraFlowOrchestrator:
@@ -670,20 +673,14 @@ class HydraFlowOrchestrator:
         log_file: str,
     ) -> None:
         """Run memory-suggestion filing and transcript summarization for a completed run."""
-        try:
-            await file_memory_suggestion(
-                transcript,
-                source,
-                reference,
-                self._config,
-                self._prs,
-                self._state,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to file memory suggestion for %s",
-                reference,
-            )
+        await safe_file_memory_suggestion(
+            transcript,
+            source,
+            reference,
+            self._config,
+            self._prs,
+            self._state,
+        )
         if issue_number > 0:
             try:
                 await self._summarizer.summarize_and_comment(
@@ -762,7 +759,7 @@ class HydraFlowOrchestrator:
                     log_file=f".hydraflow/logs/review-pr-{result.pr_number}.txt",
                 )
         if any(r.merged for r in review_results):
-            await asyncio.sleep(5)
+            await asyncio.sleep(_POST_MERGE_DELAY)
             await self._prs.pull_main()
 
     async def _sleep_or_stop(self, seconds: int | float) -> None:

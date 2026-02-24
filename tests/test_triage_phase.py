@@ -150,17 +150,6 @@ class TestTriagePhase:
         assert state.get_hitl_cause(2) == "Insufficient issue detail for triage"
 
     @pytest.mark.asyncio
-    async def test_triage_skips_when_no_find_label_configured(self) -> None:
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(find_label=[])
-        phase, _state, _triage, prs, _store, _stop = _make_phase(config)
-
-        await phase.triage_issues()
-
-        prs.remove_label.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_triage_stops_when_stop_event_set(
         self, config: HydraFlowConfig
     ) -> None:

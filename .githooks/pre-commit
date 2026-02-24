@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit hook: fast lint check on staged Python files.
-# Catches formatting and style issues before they reach CI.
+# Pre-commit hook: centralized lint gate via Makefile.
 
 set -euo pipefail
 
@@ -10,21 +9,20 @@ if [ -z "$STAGED_PY" ]; then
     exit 0
 fi
 
-HYDRAFLOW_DIR="$(git rev-parse --show-toplevel)"
-UV="VIRTUAL_ENV=${HYDRAFLOW_DIR}/venv uv run --active"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
-echo "pre-commit: running ruff check..."
-cd "$HYDRAFLOW_DIR" && eval "$UV ruff check ." || {
+echo "pre-commit: running make lint-check..."
+if ! make lint-check; then
     echo ""
-    echo "Lint failed. Run 'make lint' to auto-fix, then re-stage."
-    exit 1
-}
-
-echo "pre-commit: running ruff format check..."
-cd "$HYDRAFLOW_DIR" && eval "$UV ruff format . --check" || {
-    echo ""
-    echo "Format check failed. Run 'make lint' to auto-fix, then re-stage."
-    exit 1
-}
+    echo "pre-commit: lint-check failed; attempting self-repair with 'make lint-fix'..."
+    if make lint-fix && make lint-check; then
+        printf '%s\n' "$STAGED_PY" | xargs -I {} git add "{}"
+        echo "pre-commit: self-repair succeeded and staged files were refreshed."
+    else
+        echo "Auto-repair failed. Run 'make lint-fix' and re-stage files."
+        exit 1
+    fi
+fi
 
 echo "pre-commit: lint OK"

@@ -477,7 +477,15 @@ class TestCheckMakefile:
     def test_makefile_with_all_targets(self, tmp_path: Path) -> None:
         """Should report PRESENT when all required targets exist."""
         (tmp_path / "Makefile").write_text(
-            "quality:\n\t@echo quality\n\nlint:\n\t@echo lint\n\ntest:\n\t@echo test\n"
+            "lint:\n\t@echo lint\n\n"
+            "lint-check:\n\t@echo lint-check\n\n"
+            "lint-fix:\n\t@echo lint-fix\n\n"
+            "typecheck:\n\t@echo typecheck\n\n"
+            "security:\n\t@echo security\n\n"
+            "test:\n\t@echo test\n\n"
+            "coverage-check:\n\t@echo coverage\n\n"
+            "quality-lite:\n\t@echo quality-lite\n\n"
+            "quality:\n\t@echo quality\n"
         )
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -512,7 +520,15 @@ class TestCheckMakefile:
     def test_makefile_with_dependencies_on_targets(self, tmp_path: Path) -> None:
         """Should detect targets that have dependencies."""
         (tmp_path / "Makefile").write_text(
-            "quality: lint test\n\t@echo quality\n\nlint:\n\t@echo lint\n\ntest:\n\t@echo test\n"
+            "lint:\n\t@echo lint\n\n"
+            "lint-check:\n\t@echo lint-check\n\n"
+            "lint-fix: lint\n\t@echo lint-fix\n\n"
+            "typecheck:\n\t@echo typecheck\n\n"
+            "security:\n\t@echo security\n\n"
+            "test:\n\t@echo test\n\n"
+            "coverage-check:\n\t@echo coverage\n\n"
+            "quality-lite: lint-check typecheck security\n\t@echo quality-lite\n\n"
+            "quality: quality-lite test coverage-check\n\t@echo quality\n"
         )
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -645,6 +661,19 @@ class TestCheckGitHooks:
         check = auditor._check_git_hooks()
         assert check.status == AuditCheckStatus.MISSING
 
+    def test_git_hooks_precommit_file(self, tmp_path: Path) -> None:
+        """Should report PRESENT when .git/hooks/pre-commit exists."""
+        hooks_dir = tmp_path / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "pre-commit").write_text("#!/bin/sh\n")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_git_hooks()
+        assert check.status == AuditCheckStatus.PRESENT
+        assert ".git/hooks/pre-commit" in check.detail
+
 
 # ---------------------------------------------------------------------------
 # Linting detection
@@ -687,6 +716,17 @@ class TestCheckLinting:
         assert check.status == AuditCheckStatus.PRESENT
         assert "eslint" in check.detail
 
+    def test_check_linting_detects_flat_eslint_config(self, tmp_path: Path) -> None:
+        """Should detect eslint.config.js."""
+        (tmp_path / "eslint.config.js").write_text("export default [];\n")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_linting()
+        assert check.status == AuditCheckStatus.PRESENT
+        assert "eslint" in check.detail
+
     def test_biome_json(self, tmp_path: Path) -> None:
         """Should detect biome.json."""
         (tmp_path / "biome.json").write_text("{}\n")
@@ -697,6 +737,32 @@ class TestCheckLinting:
         check = auditor._check_linting()
         assert check.status == AuditCheckStatus.PRESENT
         assert "biome" in check.detail
+
+    def test_check_linting_detects_make_lint_target(self, tmp_path: Path) -> None:
+        """Should detect Makefile lint target as linting capability."""
+        (tmp_path / "Makefile").write_text("lint-check:\n\t@echo ok\n")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_linting()
+        assert check.status == AuditCheckStatus.PRESENT
+        assert "make lint target" in check.detail
+
+    def test_check_linting_detects_package_json_lint_script(
+        self, tmp_path: Path
+    ) -> None:
+        """Should detect package.json lint script as linting capability."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"scripts": {"lint": "eslint ."}})
+        )
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_linting()
+        assert check.status == AuditCheckStatus.PRESENT
+        assert "npm lint script" in check.detail
 
     def test_no_linting_config(self, tmp_path: Path) -> None:
         """Should report MISSING when no linting config found."""
@@ -825,6 +891,58 @@ class TestCheckTestFramework:
         auditor = RepoAuditor(config)
         check = auditor._check_test_framework()
         assert check.status == AuditCheckStatus.MISSING
+
+
+# ---------------------------------------------------------------------------
+# Coverage policy detection
+# ---------------------------------------------------------------------------
+
+
+class TestCheckCoveragePolicy:
+    """Tests for RepoAuditor._check_coverage_policy."""
+
+    def test_missing_threshold_reports_partial(self, tmp_path: Path) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_coverage_policy()
+        assert check.status == AuditCheckStatus.PARTIAL
+        assert "no enforced coverage threshold" in check.detail
+
+    def test_threshold_below_minimum_reports_partial(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("COVERAGE_MIN ?= 35\n")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_coverage_policy()
+        assert check.status == AuditCheckStatus.PARTIAL
+        assert "below minimum 70%" in check.detail
+
+    def test_threshold_between_minimum_and_target_warns(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text(
+            "COVERAGE_MIN ?= 60\nCOVERAGE_TARGET ?= 70\n"
+        )
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_coverage_policy()
+        assert check.status == AuditCheckStatus.PARTIAL
+        assert "below minimum 70%" in check.detail
+
+    def test_threshold_at_target_reports_present(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text(
+            "COVERAGE_MIN ?= 70\nCOVERAGE_TARGET ?= 70\n"
+        )
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_coverage_policy()
+        assert check.status == AuditCheckStatus.PRESENT
+        assert "70%" in check.detail
 
 
 # ---------------------------------------------------------------------------
@@ -1075,6 +1193,7 @@ class TestRunAudit:
         assert "Linting" in check_names
         assert "Type check" in check_names
         assert "Tests" in check_names
+        assert "Coverage" in check_names
         assert "Pkg manager" in check_names
         assert "gh CLI" in check_names
         assert "Labels" in check_names
@@ -1146,3 +1265,75 @@ class TestCliAudit:
 
         args = parse_args([])
         assert args.audit is False
+
+
+class TestCliScaffold:
+    """Tests for the --scaffold CLI flag."""
+
+    def test_scaffold_flag_parsed(self) -> None:
+        """Should parse --scaffold flag."""
+        from cli import parse_args
+
+        args = parse_args(["--scaffold"])
+        assert args.scaffold is True
+
+    def test_scaffold_flag_default_false(self) -> None:
+        """Should default to False."""
+        from cli import parse_args
+
+        args = parse_args([])
+        assert args.scaffold is False
+
+    def test_main_scaffold_exits_zero_on_success(self) -> None:
+        """main() should exit 0 when scaffold run succeeds."""
+        from cli import main
+
+        with (
+            patch(
+                "cli._run_scaffold", new_callable=AsyncMock, return_value=True
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main(["--scaffold"])
+
+        mock_run.assert_called_once()
+        assert exc_info.value.code == 0
+
+    def test_main_scaffold_exits_one_on_failure(self) -> None:
+        """main() should exit 1 when scaffold run fails."""
+        from cli import main
+
+        with (
+            patch("cli._run_scaffold", new_callable=AsyncMock, return_value=False),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main(["--scaffold"])
+
+        assert exc_info.value.code == 1
+
+
+def test_run_scaffold_uses_makefile_scaffold() -> None:
+    """_run_scaffold should call scaffold_makefile for root Makefile support."""
+    from pathlib import Path
+
+    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    content = cli_file.read_text()
+    assert "scaffold_makefile" in content
+
+
+def test_run_scaffold_prints_summary_block() -> None:
+    """_run_scaffold should print a final prep summary section."""
+    from pathlib import Path
+
+    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    content = cli_file.read_text()
+    assert "Prep summary:" in content
+
+
+def test_run_scaffold_uses_prep_agent_correction() -> None:
+    """_run_scaffold should invoke prep agent correction between retries."""
+    from pathlib import Path
+
+    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    content = cli_file.read_text()
+    assert "_run_prep_agent_correction(" in content

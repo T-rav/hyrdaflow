@@ -345,6 +345,35 @@ class TestHITLGetStatus:
         assert phase.get_status(42) != "approval"
 
 
+class TestHITLPhaseCorrections:
+    """Direct unit tests for submit_correction() and skip_issue()."""
+
+    def test_submit_correction_stores_value(self, config: HydraFlowConfig) -> None:
+        phase, *_ = _make_phase(config)
+        phase.submit_correction(42, "Fix the test")
+        assert phase.hitl_corrections == {42: "Fix the test"}
+
+    def test_submit_correction_overwrites_existing(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, *_ = _make_phase(config)
+        phase.submit_correction(42, "First attempt")
+        phase.submit_correction(42, "Second attempt")
+        assert phase.hitl_corrections == {42: "Second attempt"}
+
+    def test_skip_issue_removes_correction(self, config: HydraFlowConfig) -> None:
+        phase, *_ = _make_phase(config)
+        phase.submit_correction(42, "Fix")
+        phase.skip_issue(42)
+        assert 42 not in phase.hitl_corrections
+
+    def test_skip_issue_noop_for_unknown_issue(self, config: HydraFlowConfig) -> None:
+        """Skipping an issue that was never submitted should not raise."""
+        phase, *_ = _make_phase(config)
+        phase.skip_issue(99)  # should not raise
+        assert phase.hitl_corrections == {}
+
+
 class TestHITLResetsAttempts:
     """Tests that HITL correction resets issue_attempts."""
 
@@ -536,7 +565,7 @@ class TestHITLMemorySuggestionFiling:
         )
 
         with patch(
-            "hitl_phase.file_memory_suggestion", new_callable=AsyncMock
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
         ) as mock_mem:
             semaphore = asyncio.Semaphore(1)
             await phase._process_one_hitl(42, "Fix the tests", semaphore)
@@ -571,7 +600,7 @@ class TestHITLMemorySuggestionFiling:
         )
 
         with patch(
-            "hitl_phase.file_memory_suggestion", new_callable=AsyncMock
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
         ) as mock_mem:
             semaphore = asyncio.Semaphore(1)
             await phase._process_one_hitl(42, "Fix the tests", semaphore)
@@ -600,7 +629,7 @@ class TestHITLMemorySuggestionFiling:
         )
 
         with patch(
-            "hitl_phase.file_memory_suggestion", new_callable=AsyncMock
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
         ) as mock_mem:
             semaphore = asyncio.Semaphore(1)
             await phase._process_one_hitl(42, "Fix it", semaphore)
@@ -628,7 +657,7 @@ class TestHITLMemorySuggestionFiling:
         )
 
         with patch(
-            "hitl_phase.file_memory_suggestion",
+            "phase_utils.file_memory_suggestion",
             new_callable=AsyncMock,
             side_effect=RuntimeError("GitHub API error"),
         ) as mock_mem:

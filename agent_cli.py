@@ -11,7 +11,6 @@ def build_agent_command(
     *,
     tool: AgentTool,
     model: str,
-    budget_usd: float = 0,
     disallowed_tools: str | None = None,
     max_turns: int | None = None,
 ) -> list[str]:
@@ -34,8 +33,6 @@ def build_agent_command(
         cmd.extend(["--disallowedTools", disallowed_tools])
     if max_turns is not None:
         cmd.extend(["--max-turns", str(max_turns)])
-    if budget_usd > 0:
-        cmd.extend(["--max-budget-usd", str(budget_usd)])
     return cmd
 
 

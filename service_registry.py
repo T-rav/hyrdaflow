@@ -12,7 +12,7 @@ from agent import AgentRunner
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus
-from execution import get_default_runner
+from execution import SubprocessRunner, get_default_runner
 from harness_insights import HarnessInsightStore
 from hitl_phase import HITLPhase
 from hitl_runner import HITLRunner
@@ -50,7 +50,7 @@ class ServiceRegistry:
 
     # Core infrastructure
     worktrees: WorktreeManager
-    subprocess_runner: Any
+    subprocess_runner: SubprocessRunner
     agents: AgentRunner
     planners: PlannerRunner
     prs: PRManager
@@ -118,7 +118,9 @@ def build_services(
     reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner)
     hitl_runner = HITLRunner(config, event_bus, runner=subprocess_runner)
     triage = TriageRunner(config, event_bus)
-    summarizer = TranscriptSummarizer(config, prs, event_bus, state)
+    summarizer = TranscriptSummarizer(
+        config, prs, event_bus, state, runner=subprocess_runner
+    )
 
     # Data layer
     fetcher = IssueFetcher(config)
@@ -169,9 +171,17 @@ def build_services(
 
     metrics_manager = MetricsManager(config, state, prs, event_bus)
     pr_unsticker = PRUnsticker(
-        config, state, event_bus, prs, agents, worktrees, fetcher
+        config,
+        state,
+        event_bus,
+        prs,
+        agents,
+        worktrees,
+        fetcher,
+        hitl_runner=hitl_runner,
+        stop_event=stop_event,
     )
-    memory_sync = MemorySyncWorker(config, state, event_bus)
+    memory_sync = MemorySyncWorker(config, state, event_bus, runner=subprocess_runner)
     retrospective = RetrospectiveCollector(config, state, prs)
     ac_generator = AcceptanceCriteriaGenerator(
         config, prs, event_bus, runner=subprocess_runner

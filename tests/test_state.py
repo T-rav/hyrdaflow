@@ -1357,6 +1357,21 @@ class TestThresholdTracking:
         proposals = tracker.check_thresholds(0.5, 0.5, 0.2)
         assert proposals == []
 
+    def test_check_thresholds_all_three_crossed(self, tmp_path: Path) -> None:
+        """All three thresholds can fire simultaneously."""
+        tracker = make_tracker(tmp_path)
+        for _ in range(5):
+            tracker.record_issue_completed()
+        tracker.record_quality_fix_rounds(4)  # qf rate 0.8 > 0.5
+        for _ in range(4):
+            tracker.record_review_verdict("request-changes", fixes_made=False)
+        tracker.record_review_verdict("approve", fixes_made=False)  # approval 0.2 < 0.5
+        for _ in range(2):
+            tracker.record_hitl_escalation()  # hitl 0.4 > 0.2
+        proposals = tracker.check_thresholds(0.5, 0.5, 0.2)
+        names = {p["name"] for p in proposals}
+        assert names == {"quality_fix_rate", "approval_rate", "hitl_rate"}
+
     def test_check_thresholds_returns_correct_values(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         for _ in range(10):
@@ -1639,6 +1654,57 @@ class TestRetriesPerStage:
 
 
 # ---------------------------------------------------------------------------
+# Last reviewed SHA tracking (issue #853)
+# ---------------------------------------------------------------------------
+
+
+class TestLastReviewedSha:
+    """Tests for set/get/clear_last_reviewed_sha."""
+
+    def test_set_and_get(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "abc123def456")
+        assert tracker.get_last_reviewed_sha(42) == "abc123def456"
+
+    def test_get_returns_none_when_unset(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_last_reviewed_sha(999) is None
+
+    def test_clear_removes_entry(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "abc123")
+        tracker.clear_last_reviewed_sha(42)
+        assert tracker.get_last_reviewed_sha(42) is None
+
+    def test_clear_nonexistent_is_noop(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        # Should not raise
+        tracker.clear_last_reviewed_sha(999)
+        assert tracker.get_last_reviewed_sha(999) is None
+
+    def test_persists_across_reload(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        tracker.set_last_reviewed_sha(42, "deadbeef1234")
+
+        tracker2 = StateTracker(state_file)
+        assert tracker2.get_last_reviewed_sha(42) == "deadbeef1234"
+
+    def test_overwrite_updates(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(42, "sha-v1")
+        tracker.set_last_reviewed_sha(42, "sha-v2")
+        assert tracker.get_last_reviewed_sha(42) == "sha-v2"
+
+    def test_multiple_issues_independent(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_last_reviewed_sha(1, "sha-issue-1")
+        tracker.set_last_reviewed_sha(2, "sha-issue-2")
+        assert tracker.get_last_reviewed_sha(1) == "sha-issue-1"
+        assert tracker.get_last_reviewed_sha(2) == "sha-issue-2"
+
+
+# ---------------------------------------------------------------------------
 # Narrowed exception handling (issue #879)
 # ---------------------------------------------------------------------------
 
@@ -1714,7 +1780,7 @@ class TestGetSessionCorruptLines:
 
         assert result is not None
         assert result.id == "sess-2"
-        assert "Skipping corrupt line" in caplog.text
+        assert "Skipping corrupt session line" in caplog.text
 
     def test_corrupt_only_returns_none(self, tmp_path: Path) -> None:
         """A sessions file with only corrupt lines returns None."""

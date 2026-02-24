@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from agent import AgentRunner
@@ -17,11 +19,13 @@ from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
+    JudgeResult,
     PRInfo,
     ReviewResult,
     ReviewVerdict,
     Task,
 )
+from phase_utils import run_concurrent_batch, store_lifecycle
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
 from retrospective import RetrospectiveCollector
@@ -78,7 +82,7 @@ class ReviewPhase:
         self._summarizer = transcript_summarizer
         self._epic_checker = epic_checker
         self._harness_insights = harness_insights
-        self._insights = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
+        self._insights = ReviewInsightStore(config.memory_dir)
         self._active_issues: set[int] = set()
         self._conflict_resolver = MergeConflictResolver(
             config=config,
@@ -111,7 +115,6 @@ class ReviewPhase:
 
         issue_map = {i.id: i for i in issues}
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
-        results: list[ReviewResult] = []
 
         async def _review_one(idx: int, pr: PRInfo) -> ReviewResult:
             if self._stop_event.is_set():
@@ -129,42 +132,26 @@ class ReviewPhase:
                     )
                 self._active_issues.add(pr.issue_number)
                 self._state.set_active_issue_numbers(list(self._active_issues))
-                self._store.mark_active(pr.issue_number, "review")
-                try:
-                    return await self._review_one_inner(idx, pr, issue_map)
-                except Exception:
-                    logger.exception(
-                        "Review failed for PR #%d (issue #%d)",
-                        pr.number,
-                        pr.issue_number,
-                    )
-                    return ReviewResult(
-                        pr_number=pr.number,
-                        issue_number=pr.issue_number,
-                        summary="Review failed due to unexpected error",
-                    )
-                finally:
-                    await self._publish_review_status(pr, idx, "done")
-                    self._active_issues.discard(pr.issue_number)
-                    self._state.set_active_issue_numbers(list(self._active_issues))
-                    self._store.mark_complete(pr.issue_number)
+                async with store_lifecycle(self._store, pr.issue_number, "review"):
+                    try:
+                        return await self._review_one_inner(idx, pr, issue_map)
+                    except Exception:
+                        logger.exception(
+                            "Review failed for PR #%d (issue #%d)",
+                            pr.number,
+                            pr.issue_number,
+                        )
+                        return ReviewResult(
+                            pr_number=pr.number,
+                            issue_number=pr.issue_number,
+                            summary="Review failed due to unexpected error",
+                        )
+                    finally:
+                        await self._publish_review_status(pr, idx, "done")
+                        self._active_issues.discard(pr.issue_number)
+                        self._state.set_active_issue_numbers(list(self._active_issues))
 
-        tasks = [asyncio.create_task(_review_one(i, pr)) for i, pr in enumerate(prs)]
-        try:
-            for task in asyncio.as_completed(tasks):
-                results.append(await task)
-                # Cancel remaining tasks if stop requested
-                if self._stop_event.is_set():
-                    for t in tasks:
-                        t.cancel()
-                    break
-        finally:
-            # Cancel any remaining tasks if this coroutine is cancelled externally
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
-
-        return results
+        return await run_concurrent_batch(prs, _review_one, self._stop_event)
 
     async def _review_one_inner(
         self,
@@ -182,6 +169,25 @@ class ReviewPhase:
                 issue_number=pr.issue_number,
                 summary="Issue not found",
             )
+
+        # Skip guard: avoid re-reviewing when no new commits since last review
+        current_sha = await self._prs.get_pr_head_sha(pr.number)
+        if current_sha:
+            stored_sha = self._state.get_last_reviewed_sha(pr.issue_number)
+            if stored_sha and stored_sha == current_sha:
+                logger.info(
+                    "PR #%d (issue #%d): skipping review — no new commits since "
+                    "last review (SHA %s)",
+                    pr.number,
+                    pr.issue_number,
+                    current_sha[:12],
+                )
+                return ReviewResult(
+                    pr_number=pr.number,
+                    issue_number=pr.issue_number,
+                    summary="Skipped — no new commits since last review",
+                )
+
         wt_path = self._config.worktree_base / f"issue-{pr.issue_number}"
         if not wt_path.exists():
             wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
@@ -214,6 +220,12 @@ class ReviewPhase:
         self._state.mark_pr(pr.number, result.verdict.value)
         self._state.mark_issue(pr.issue_number, "reviewed")
         self._state.record_review_verdict(result.verdict.value, result.fixes_made)
+
+        # Record the current remote HEAD SHA so the skip guard works next cycle
+        post_review_sha = await self._prs.get_pr_head_sha(pr.number)
+        if post_review_sha:
+            self._state.set_last_reviewed_sha(pr.issue_number, post_review_sha)
+
         if result.duration_seconds > 0:
             self._state.record_review_duration(result.duration_seconds)
         await self._record_review_insight(result)
@@ -365,9 +377,7 @@ class ReviewPhase:
         """
         from delta_verifier import parse_file_delta, verify_delta
 
-        plan_path = (
-            self._config.repo_root / ".hydra" / "plans" / f"issue-{pr.issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{pr.issue_number}.md"
         if not plan_path.exists():
             return ""
 
@@ -448,6 +458,22 @@ class ReviewPhase:
             if attempt >= max_attempts:
                 break
 
+            # Fetch full CI logs when observability injection is enabled
+            ci_logs = ""
+            if self._config.inject_runtime_logs:
+                try:
+                    raw = await self._prs.fetch_ci_failure_logs(pr.number)
+                    if raw:
+                        from log_context import truncate_log  # noqa: PLC0415
+
+                        ci_logs = truncate_log(raw, self._config.max_ci_log_chars)
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "Could not fetch CI failure logs for PR #%d",
+                        pr.number,
+                        exc_info=True,
+                    )
+
             # Run the CI fix agent
             await self._publish_review_status(pr, worker_id, "ci_fix")
             fix_result = await self._reviewers.fix_ci(
@@ -457,6 +483,7 @@ class ReviewPhase:
                 summary,
                 attempt=attempt + 1,
                 worker_id=worker_id,
+                ci_logs=ci_logs,
             )
             result.ci_fix_attempts += 1
 
@@ -772,31 +799,33 @@ class ReviewPhase:
 
     # Delegate properties for backward compatibility in tests
     @property
-    def _resolve_merge_conflicts(self):  # noqa: ANN202
+    def _resolve_merge_conflicts(
+        self,
+    ) -> Callable[..., Coroutine[Any, Any, tuple[bool, bool]]]:
         """Backward-compatible access to conflict resolver."""
         return self._conflict_resolver.resolve_merge_conflicts
 
     @property
-    def _get_judge_result(self):  # noqa: ANN202
+    def _get_judge_result(self) -> Callable[..., JudgeResult | None]:
         """Backward-compatible access to judge result helper."""
         return self._post_merge._get_judge_result
 
     @property
-    def _create_verification_issue(self):  # noqa: ANN202
+    def _create_verification_issue(self) -> Callable[..., Coroutine[Any, Any, int]]:
         """Backward-compatible access to verification issue creation."""
         return self._post_merge._create_verification_issue
 
     @property
-    def _run_post_merge_hooks(self):  # noqa: ANN202
+    def _run_post_merge_hooks(self) -> Callable[..., Coroutine[Any, Any, None]]:
         """Backward-compatible access to post-merge hooks."""
         return self._post_merge._run_post_merge_hooks
 
     @property
-    def _save_conflict_transcript(self):  # noqa: ANN202
+    def _save_conflict_transcript(self) -> Callable[..., None]:
         """Backward-compatible access to conflict transcript saving."""
         return self._conflict_resolver._save_conflict_transcript
 
     @property
-    def _maybe_summarize_conflict(self):  # noqa: ANN202
+    def _maybe_summarize_conflict(self) -> Callable[..., Coroutine[Any, Any, None]]:
         """Backward-compatible access to conflict summary."""
         return self._conflict_resolver._maybe_summarize_conflict

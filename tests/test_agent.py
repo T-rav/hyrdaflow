@@ -16,7 +16,8 @@ from agent import AgentRunner
 from base_runner import BaseRunner
 from events import EventBus, EventType
 from models import Task, WorkerStatus
-from tests.helpers import ConfigFactory, make_streaming_proc
+from tests.conftest import TaskFactory
+from tests.helpers import ConfigFactory, make_proc, make_streaming_proc
 
 # ---------------------------------------------------------------------------
 # Inheritance
@@ -38,18 +39,6 @@ class TestAgentRunnerInheritance:
 # ---------------------------------------------------------------------------
 # Helpers (agent-specific)
 # ---------------------------------------------------------------------------
-
-
-def _make_proc(
-    returncode: int = 0,
-    stdout: bytes = b"",
-    stderr: bytes = b"",
-) -> AsyncMock:
-    """Build a minimal mock subprocess object (communicate style)."""
-    proc = AsyncMock()
-    proc.returncode = returncode
-    proc.communicate = AsyncMock(return_value=(stdout, stderr))
-    return proc
 
 
 # ---------------------------------------------------------------------------
@@ -110,32 +99,6 @@ class TestBuildCommand:
         assert "--model" in cmd
         model_index = cmd.index("--model")
         assert cmd[model_index + 1] == config.model
-
-    def test_build_command_includes_max_budget(
-        self, config, event_bus: EventBus, tmp_path: Path
-    ) -> None:
-        """Command should include --max-budget-usd matching config.max_budget_usd."""
-        runner = AgentRunner(config, event_bus)
-        cmd = runner._build_command(tmp_path)
-        assert "--max-budget-usd" in cmd
-        budget_index = cmd.index("--max-budget-usd")
-        assert cmd[budget_index + 1] == str(config.max_budget_usd)
-
-    def test_build_command_omits_budget_when_zero(
-        self, event_bus: EventBus, tmp_path: Path
-    ) -> None:
-        """Command should omit --max-budget-usd when budget is 0 (unlimited)."""
-        from tests.conftest import ConfigFactory
-
-        cfg = ConfigFactory.create(
-            max_budget_usd=0,
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        runner = AgentRunner(cfg, event_bus)
-        cmd = runner._build_command(tmp_path)
-        assert "--max-budget-usd" not in cmd
 
     def test_build_command_includes_output_format_text(
         self, config, event_bus: EventBus, tmp_path: Path
@@ -771,7 +734,7 @@ class TestVerifyResult:
         """_verify_result should run make quality and return OK on success."""
         runner = AgentRunner(config, event_bus)
 
-        quality_proc = _make_proc(returncode=0, stdout=b"All checks passed")
+        quality_proc = make_proc(returncode=0, stdout=b"All checks passed")
 
         with (
             patch.object(
@@ -799,7 +762,7 @@ class TestVerifyResult:
         """_verify_result should return (False, ...) when make quality exits non-zero."""
         runner = AgentRunner(config, event_bus)
 
-        fail_proc = _make_proc(
+        fail_proc = make_proc(
             returncode=1, stdout=b"FAILED test_foo.py::test_bar", stderr=b""
         )
 
@@ -821,7 +784,7 @@ class TestVerifyResult:
         """_verify_result should include the last 3000 chars of output on failure."""
         runner = AgentRunner(config, event_bus)
 
-        fail_proc = _make_proc(
+        fail_proc = make_proc(
             returncode=1,
             stdout=b"error: type mismatch on line 42",
             stderr=b"pyright found 1 error",
@@ -872,7 +835,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should return the integer from git rev-list output."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=0, stdout=b"3\n")
+        mock_proc = make_proc(returncode=0, stdout=b"3\n")
 
         with patch(
             "asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)
@@ -886,6 +849,7 @@ class TestCountCommits:
             "--count",
             "origin/main..agent/issue-42",
             cwd=str(tmp_path),
+            stdin=None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=None,
@@ -897,7 +861,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should correctly parse multi-digit counts."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=0, stdout=b"15\n")
+        mock_proc = make_proc(returncode=0, stdout=b"15\n")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             result = await runner._count_commits(tmp_path, "agent/issue-42")
@@ -910,7 +874,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should return 0 when stdout is empty (ValueError)."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=0, stdout=b"")
+        mock_proc = make_proc(returncode=0, stdout=b"")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             result = await runner._count_commits(tmp_path, "agent/issue-42")
@@ -923,7 +887,7 @@ class TestCountCommits:
     ) -> None:
         """_count_commits should return 0 when git exits with non-zero code."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = _make_proc(returncode=1, stdout=b"")
+        mock_proc = make_proc(returncode=1, stdout=b"")
 
         with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
             result = await runner._count_commits(tmp_path, "agent/issue-42")
@@ -2037,3 +2001,71 @@ class TestCountCommitsTimeout:
             result = await runner._count_commits(tmp_path, "agent/issue-42")
 
         assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# AgentRunner._build_prompt — runtime log injection
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPromptRuntimeLogs:
+    """Tests for runtime log injection in _build_prompt."""
+
+    def test_prompt_includes_runtime_logs_when_enabled(
+        self, tmp_path: Path, event_bus: EventBus
+    ) -> None:
+        """When inject_runtime_logs is True and logs exist, prompt includes them."""
+        config = ConfigFactory.create(
+            inject_runtime_logs=True,
+            repo_root=tmp_path,
+        )
+        # Create a log file
+        log_dir = tmp_path / ".hydraflow" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "hydraflow.log").write_text("INFO: server started\nERROR: timeout\n")
+
+        runner = AgentRunner(config, event_bus)
+        issue = TaskFactory.create()
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
+        ):
+            prompt = runner._build_prompt(issue)
+
+        assert "## Recent Application Logs" in prompt
+        assert "ERROR: timeout" in prompt
+
+    def test_prompt_excludes_runtime_logs_when_disabled(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """Default config does not include runtime logs."""
+        runner = AgentRunner(config, event_bus)
+        issue = TaskFactory.create()
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
+        ):
+            prompt = runner._build_prompt(issue)
+
+        assert "## Recent Application Logs" not in prompt
+
+    def test_prompt_excludes_runtime_logs_when_empty(
+        self, tmp_path: Path, event_bus: EventBus
+    ) -> None:
+        """Enabled but no log file — no log section in prompt."""
+        config = ConfigFactory.create(
+            inject_runtime_logs=True,
+            repo_root=tmp_path,
+        )
+        runner = AgentRunner(config, event_bus)
+        issue = TaskFactory.create()
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
+        ):
+            prompt = runner._build_prompt(issue)
+
+        assert "## Recent Application Logs" not in prompt

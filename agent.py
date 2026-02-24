@@ -39,7 +39,7 @@ class AgentRunner(BaseRunner):
         runner: SubprocessRunner | None = None,
     ) -> None:
         super().__init__(config, event_bus, runner)
-        self._insights = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
+        self._insights = ReviewInsightStore(config.memory_dir)
 
     async def run(
         self,
@@ -203,9 +203,7 @@ class AgentRunner(BaseRunner):
 
         Returns the plan text or empty string if not found.
         """
-        plan_path = (
-            self._config.repo_root / ".hydraflow" / "plans" / f"issue-{issue_number}.md"
-        )
+        plan_path = self._config.plans_dir / f"issue-{issue_number}.md"
         if not plan_path.is_file():
             return ""
 
@@ -275,6 +273,15 @@ class AgentRunner(BaseRunner):
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
+        # Runtime log injection (opt-in)
+        log_section = ""
+        if self._config.inject_runtime_logs:
+            from log_context import load_runtime_logs  # noqa: PLC0415
+
+            logs = load_runtime_logs(self._config)
+            if logs:
+                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+
         # Truncate issue body if too long
         body = issue.body
         max_body = self._config.max_issue_body_chars
@@ -290,7 +297,7 @@ class AgentRunner(BaseRunner):
 
 ## Issue: {issue.title}
 
-{body}{plan_section}{review_feedback_section}{comments_section}{manifest_section}{memory_section}
+{body}{plan_section}{review_feedback_section}{comments_section}{manifest_section}{memory_section}{log_section}
 
 ## Instructions
 
@@ -355,7 +362,7 @@ class AgentRunner(BaseRunner):
 ## Quality Gate Failure Output
 
 ```
-{error_output[-3000:]}
+{error_output[-self._config.error_output_max_chars :]}
 ```
 
 ## Fix Attempt {attempt}
@@ -421,7 +428,6 @@ SUMMARY: <one-line summary>
         return build_agent_command(
             tool=self._config.review_tool,
             model=self._config.review_model,
-            budget_usd=self._config.review_budget_usd,
         )
 
     @staticmethod
@@ -539,7 +545,7 @@ SUMMARY: <one-line summary>
                     f"origin/{self._config.main_branch}..{branch}",
                 ],
                 cwd=str(worktree_path),
-                timeout=30,
+                timeout=self._config.git_command_timeout,
             )
             return int(result.stdout)
         except (TimeoutError, ValueError, FileNotFoundError):

@@ -40,9 +40,6 @@ class EpicCompletionChecker:
 
     async def check_and_close_epics(self, completed_issue_number: int) -> None:
         """Check all open epics and close any whose sub-issues are all completed."""
-        if not self._config.epic_label:
-            return
-
         try:
             epics = await self._fetcher.fetch_issues_by_labels(
                 self._config.epic_label, limit=50

@@ -132,7 +132,7 @@ def create_router(
         return JSONResponse(QueueStats().model_dump())
 
     @router.post("/api/request-changes")
-    async def request_changes(body: dict) -> JSONResponse:  # type: ignore[type-arg]
+    async def request_changes(body: dict[str, Any]) -> JSONResponse:
         """Escalate an issue to HITL with user feedback."""
         issue_number: int | None = body.get("issue_number")
         feedback = (body.get("feedback") or "").strip()
@@ -152,7 +152,7 @@ def create_router(
             )
 
         stage_labels: list[str] = getattr(config, label_field, [])
-        origin_label: str = stage_labels[0] if stage_labels else stage
+        origin_label: str = stage_labels[0]
 
         for lbl in stage_labels:
             await pr_manager.remove_label(issue_number, lbl)
@@ -256,7 +256,7 @@ def create_router(
         return JSONResponse(enriched)
 
     @router.post("/api/hitl/{issue_number}/correct")
-    async def hitl_correct(issue_number: int, body: dict) -> JSONResponse:  # type: ignore[type-arg]
+    async def hitl_correct(issue_number: int, body: dict[str, Any]) -> JSONResponse:
         """Submit a correction for a HITL issue to guide retry."""
         orch = get_orchestrator()
         if not orch:
@@ -371,7 +371,9 @@ def create_router(
         return JSONResponse({})
 
     @router.post("/api/human-input/{issue_number}")
-    async def provide_human_input(issue_number: int, body: dict) -> JSONResponse:  # type: ignore[type-arg]
+    async def provide_human_input(
+        issue_number: int, body: dict[str, Any]
+    ) -> JSONResponse:
         orch = get_orchestrator()
         if orch:
             answer = body.get("answer", "")
@@ -438,6 +440,7 @@ def create_router(
                 batch_size=config.batch_size,
                 model=config.model,
                 memory_auto_approve=config.memory_auto_approve,
+                pr_unstick_batch_size=config.pr_unstick_batch_size,
             ),
         )
         data = response.model_dump()
@@ -450,12 +453,9 @@ def create_router(
         "max_planners",
         "max_reviewers",
         "max_hitl_workers",
-        "max_budget_usd",
         "model",
         "review_model",
-        "review_budget_usd",
         "planner_model",
-        "planner_budget_usd",
         "batch_size",
         "max_ci_fix_attempts",
         "max_quality_fix_attempts",
@@ -468,10 +468,12 @@ def create_router(
         "pr_unstick_interval",
         "pr_unstick_batch_size",
         "memory_auto_approve",
+        "unstick_auto_merge",
+        "unstick_all_causes",
     }
 
     @router.patch("/api/control/config")
-    async def patch_config(body: dict) -> JSONResponse:  # type: ignore[type-arg]
+    async def patch_config(body: dict[str, Any]) -> JSONResponse:
         """Update runtime config fields. Pass ``persist: true`` to save to disk."""
         persist = body.pop("persist", False)
         updates: dict[str, Any] = {}
@@ -601,7 +603,7 @@ def create_router(
         return JSONResponse(BackgroundWorkersResponse(workers=workers).model_dump())
 
     @router.post("/api/control/bg-worker")
-    async def toggle_bg_worker(body: dict) -> JSONResponse:  # type: ignore[type-arg]
+    async def toggle_bg_worker(body: dict[str, Any]) -> JSONResponse:
         """Enable or disable a background worker."""
         name = body.get("name")
         enabled = body.get("enabled")
@@ -626,7 +628,7 @@ def create_router(
     }
 
     @router.post("/api/control/bg-worker/interval")
-    async def set_bg_worker_interval(body: dict) -> JSONResponse:  # type: ignore[type-arg]
+    async def set_bg_worker_interval(body: dict[str, Any]) -> JSONResponse:
         """Update the polling interval for a background worker."""
         name = body.get("name")
         interval = body.get("interval_seconds")

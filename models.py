@@ -237,6 +237,7 @@ class WorkerStatus(StrEnum):
     COMMITTING = "committing"
     QUALITY_FIX = "quality_fix"
     MERGE_FIX = "merge_fix"
+    FRESH_REBUILD = "fresh_rebuild"
     DONE = "done"
     FAILED = "failed"
 
@@ -500,6 +501,7 @@ class StateData(BaseModel):
     metrics_last_synced: str | None = None
     worker_intervals: dict[str, int] = Field(default_factory=dict)
     interrupted_issues: dict[str, str] = Field(default_factory=dict)
+    last_reviewed_shas: dict[str, str] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -581,6 +583,7 @@ class ControlStatusConfig(BaseModel):
     batch_size: int = 0
     model: str = ""
     memory_auto_approve: bool = False
+    pr_unstick_batch_size: int = 10
 
 
 class ControlStatusResponse(BaseModel):
@@ -648,6 +651,16 @@ class MemorySyncResult(TypedDict):
     item_count: int
     compacted: bool
     digest_chars: int
+
+
+class UnstickResult(TypedDict):
+    """Return shape of ``PRUnsticker.unstick``."""
+
+    processed: int
+    resolved: int
+    failed: int
+    skipped: int
+    merged: int
 
 
 class MetricsSyncResult(TypedDict, total=False):
@@ -813,17 +826,23 @@ class AuditResult(BaseModel):
             c.critical and c.status == AuditCheckStatus.MISSING for c in self.checks
         )
 
-    def format_report(self) -> str:
+    def format_report(self, color: bool = False) -> str:
         """Format the audit result as a human-readable report."""
+        green = "\033[32m" if color else ""
+        yellow = "\033[33m" if color else ""
+        red = "\033[31m" if color else ""
+        cyan = "\033[36m" if color else ""
+        reset = "\033[0m" if color else ""
+
         lines = [
-            f"HydraFlow Repo Audit: {self.repo}",
+            f"{cyan}HydraFlow Repo Audit: {self.repo}{reset}",
             "=" * 40,
         ]
 
         status_icons = {
-            AuditCheckStatus.PRESENT: "\u2713",
-            AuditCheckStatus.MISSING: "\u2717",
-            AuditCheckStatus.PARTIAL: "~",
+            AuditCheckStatus.PRESENT: f"{green}\u2713{reset}",
+            AuditCheckStatus.MISSING: f"{red}\u2717{reset}",
+            AuditCheckStatus.PARTIAL: f"{yellow}~{reset}",
         }
 
         for check in self.checks:
@@ -835,10 +854,14 @@ class AuditResult(BaseModel):
         if missing:
             names = ", ".join(c.name for c in missing)
             lines.append("")
-            lines.append(f"Missing ({len(missing)}): {names}")
-            lines.append("Run `hydraflow prep` to scaffold missing pieces.")
+            lines.append(f"{yellow}Missing ({len(missing)}): {names}{reset}")
+            lines.append(
+                f"{yellow}Run `hydraflow prep` to scaffold missing pieces.{reset}"
+            )
         else:
             lines.append("")
-            lines.append("No gaps found. Repository is ready for HydraFlow.")
+            lines.append(
+                f"{green}No gaps found. Repository is ready for HydraFlow.{reset}"
+            )
 
         return "\n".join(lines)

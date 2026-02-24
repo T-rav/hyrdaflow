@@ -468,9 +468,9 @@ class TestWorkerStatus:
         # Assert
         assert isinstance(WorkerStatus.DONE, str)
 
-    def test_all_nine_members_present(self) -> None:
+    def test_all_ten_members_present(self) -> None:
         # Assert
-        assert len(WorkerStatus) == 9
+        assert len(WorkerStatus) == 10
 
     def test_lookup_by_value(self) -> None:
         # Act

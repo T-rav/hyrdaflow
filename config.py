@@ -43,6 +43,15 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
     ("harness_insight_window", "HYDRAFLOW_HARNESS_INSIGHT_WINDOW", 20),
     ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
+    ("max_runtime_log_chars", "HYDRAFLOW_MAX_RUNTIME_LOG_CHARS", 8_000),
+    ("max_ci_log_chars", "HYDRAFLOW_MAX_CI_LOG_CHARS", 12_000),
+    ("agent_timeout", "HYDRAFLOW_AGENT_TIMEOUT", 3600),
+    ("transcript_summary_timeout", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", 120),
+    ("memory_compaction_timeout", "HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", 60),
+    ("quality_timeout", "HYDRAFLOW_QUALITY_TIMEOUT", 3600),
+    ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
+    ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
+    ("error_output_max_chars", "HYDRAFLOW_ERROR_OUTPUT_MAX_CHARS", 3000),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -74,6 +83,14 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
     ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
+    ("inject_runtime_logs", "HYDRAFLOW_INJECT_RUNTIME_LOGS", False),
+    ("unstick_auto_merge", "HYDRAFLOW_UNSTICK_AUTO_MERGE", True),
+    ("unstick_all_causes", "HYDRAFLOW_UNSTICK_ALL_CAUSES", True),
+    (
+        "enable_fresh_branch_rebuild",
+        "HYDRAFLOW_ENABLE_FRESH_BRANCH_REBUILD",
+        True,
+    ),
 ]
 
 # Label env var overrides — maps env key → (field_name, default_value)
@@ -118,9 +135,6 @@ class HydraFlowConfig(BaseModel):
     max_hitl_workers: int = Field(
         default=1, ge=1, le=5, description="Concurrent HITL correction agents"
     )
-    max_budget_usd: float = Field(
-        default=0, ge=0, description="USD cap per implementation agent (0 = unlimited)"
-    )
     implementation_tool: Literal["claude", "codex"] = Field(
         default="claude",
         description="CLI backend for implementation agents",
@@ -133,9 +147,6 @@ class HydraFlowConfig(BaseModel):
         description="CLI backend for review agents",
     )
     review_model: str = Field(default="sonnet", description="Model for review agents")
-    review_budget_usd: float = Field(
-        default=0, ge=0, description="USD cap per review agent (0 = unlimited)"
-    )
 
     # CI check configuration
     ci_check_timeout: int = Field(
@@ -258,9 +269,6 @@ class HydraFlowConfig(BaseModel):
     triage_model: str = Field(
         default="haiku", description="Model for triage evaluation (fast/cheap)"
     )
-    planner_budget_usd: float = Field(
-        default=0, ge=0, description="USD cap per planning agent (0 = unlimited)"
-    )
     min_plan_words: int = Field(
         default=200,
         ge=50,
@@ -364,6 +372,32 @@ class HydraFlowConfig(BaseModel):
         le=1.0,
         description="Minimum low-tier confidence before skipping debug escalation",
     )
+    # Timeouts
+    quality_timeout: int = Field(
+        default=3600,
+        ge=60,
+        le=7200,
+        description="Timeout in seconds for 'make quality' verification",
+    )
+    git_command_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="Timeout in seconds for simple git commands (rev-list, rev-parse, status)",
+    )
+    summarizer_timeout: int = Field(
+        default=120,
+        ge=30,
+        le=600,
+        description="Timeout in seconds for transcript summarizer subprocess",
+    )
+    error_output_max_chars: int = Field(
+        default=3000,
+        ge=500,
+        le=20_000,
+        description="Max characters of error output to include in prompts and messages",
+    )
+
     test_command: str = Field(
         default="make test",
         description="Quick test command for agent prompts",
@@ -401,6 +435,24 @@ class HydraFlowConfig(BaseModel):
     memory_auto_approve: bool = Field(
         default=False,
         description="When True, memory suggestions skip HITL and go directly to the sync queue",
+    )
+
+    # Observability context injection
+    inject_runtime_logs: bool = Field(
+        default=False,
+        description="Inject runtime application logs into agent context (opt-in)",
+    )
+    max_runtime_log_chars: int = Field(
+        default=8_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for runtime log injection",
+    )
+    max_ci_log_chars: int = Field(
+        default=12_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for CI failure log injection",
     )
 
     # Manifest detection
@@ -519,7 +571,20 @@ class HydraFlowConfig(BaseModel):
         default=10,
         ge=1,
         le=50,
-        description="Max HITL items to process per unsticker cycle",
+        description="Max PRs to unstick per cycle (fetch limit and parallel workers)",
+    )
+    unstick_auto_merge: bool = Field(
+        default=True,
+        description="Auto-merge PRs after fixing and CI passes",
+    )
+    unstick_all_causes: bool = Field(
+        default=True,
+        description="Process all HITL causes (not just merge conflicts)",
+    )
+    enable_fresh_branch_rebuild: bool = Field(
+        default=True,
+        description="After merge conflict resolution exhausts all attempts, "
+        "try rebuilding on a fresh branch from main before escalating to HITL",
     )
 
     # Session retention
@@ -538,9 +603,6 @@ class HydraFlowConfig(BaseModel):
     ac_tool: Literal["claude", "codex"] = Field(
         default="claude",
         description="CLI backend for acceptance criteria generation",
-    )
-    ac_budget_usd: float = Field(
-        default=0, ge=0, description="USD cap for AC generation agent (0 = unlimited)"
     )
     verification_judge_tool: Literal["claude", "codex"] = Field(
         default="claude",
@@ -567,6 +629,26 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=30,
         description="Extra minutes to wait after reported credit reset time",
+    )
+
+    # Process timeouts
+    agent_timeout: int = Field(
+        default=3600,
+        ge=60,
+        le=14400,
+        description="Default timeout in seconds for agent process runs",
+    )
+    transcript_summary_timeout: int = Field(
+        default=120,
+        ge=30,
+        le=600,
+        description="Timeout in seconds for transcript summarization model calls",
+    )
+    memory_compaction_timeout: int = Field(
+        default=60,
+        ge=30,
+        le=600,
+        description="Timeout in seconds for memory compaction model calls",
     )
 
     # Execution mode
@@ -642,6 +724,27 @@ class HydraFlowConfig(BaseModel):
         description="GitHub token for gh CLI auth (overrides shell GH_TOKEN)",
     )
 
+    @field_validator(
+        "ready_label",
+        "review_label",
+        "hitl_label",
+        "hitl_active_label",
+        "fixed_label",
+        "improve_label",
+        "memory_label",
+        "metrics_label",
+        "dup_label",
+        "epic_label",
+        "find_label",
+        "planner_label",
+    )
+    @classmethod
+    def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:
+        """Reject empty label lists — downstream code indexes with [0]."""
+        if not v:
+            raise ValueError("Label list must contain at least one label")
+        return v
+
     @field_validator("docker_memory_limit", "docker_tmp_size")
     @classmethod
     def validate_docker_size_notation(cls, v: str) -> str:
@@ -669,6 +772,21 @@ class HydraFlowConfig(BaseModel):
         ):
             result.extend(labels)
         return result
+
+    @property
+    def log_dir(self) -> Path:
+        """Return the directory for transcript / log files."""
+        return self.repo_root / ".hydraflow" / "logs"
+
+    @property
+    def plans_dir(self) -> Path:
+        """Return the directory for saved plan files."""
+        return self.repo_root / ".hydraflow" / "plans"
+
+    @property
+    def memory_dir(self) -> Path:
+        """Return the directory for memory / review-insight files."""
+        return self.repo_root / ".hydraflow" / "memory"
 
     def branch_for_issue(self, issue_number: int) -> str:
         """Return the canonical branch name for a given issue number."""
@@ -891,13 +1009,14 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
         current = getattr(config, field_name)
         env_val = os.environ.get(env_key)
         if env_val is not None and current == default_val:
-            # Empty string → empty list (scan-all mode); otherwise split on comma
+            # Split on comma, ignoring empty parts; skip override if result is empty
             labels = (
                 [part.strip() for part in env_val.split(",") if part.strip()]
                 if env_val
                 else []
             )
-            object.__setattr__(config, field_name, labels)
+            if labels:
+                object.__setattr__(config, field_name, labels)
 
     # Docker execution overrides (PR #545)
     env_docker_enabled = os.environ.get("HYDRA_DOCKER_ENABLED")
@@ -940,12 +1059,19 @@ def _validate_docker(config: HydraFlowConfig) -> None:
 
 
 def _find_repo_root() -> Path:
-    """Walk up from cwd to find the git repo root."""
+    """Walk up from cwd and return the outermost git repo root.
+
+    This intentionally favors the top-level repository when invoked from
+    nested repos/worktrees under a parent repo.
+    """
     current = Path.cwd().resolve()
+    found: list[Path] = []
     while current != current.parent:
         if (current / ".git").exists():
-            return current
+            found.append(current)
         current = current.parent
+    if found:
+        return found[-1]
     return Path.cwd().resolve()
 
 

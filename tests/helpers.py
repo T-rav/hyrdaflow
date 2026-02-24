@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock
 
 if TYPE_CHECKING:
@@ -27,6 +28,30 @@ class AsyncLineIter:
             raise StopAsyncIteration from None
 
 
+def make_proc(
+    returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
+) -> AsyncMock:
+    """Build a minimal mock subprocess object (communicate style).
+
+    Unlike ``make_streaming_proc`` (which returns a callable factory mock that
+    can be passed directly to ``patch("asyncio.create_subprocess_exec", ...)``),
+    this helper returns the **raw process mock**.  Callers must wrap it when
+    patching::
+
+        proc = make_proc(returncode=0, stdout=b"output")
+        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+            ...
+
+    The process mock's ``communicate()`` resolves to ``(stdout, stderr)`` bytes,
+    suitable for code paths that call ``await proc.communicate()`` rather than
+    iterating ``proc.stdout`` line by line.
+    """
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    return proc
+
+
 def make_streaming_proc(
     returncode: int = 0, stdout: str = "", stderr: str = ""
 ) -> AsyncMock:
@@ -44,6 +69,71 @@ def make_streaming_proc(
     return AsyncMock(return_value=mock_proc)
 
 
+def instant_sleep_factory(
+    stop_event: asyncio.Event,
+) -> Callable[[int | float], Coroutine[Any, Any, None]]:
+    """Return a sleep function that stops the loop after 2 sleep cycles.
+
+    Used by background worker loop tests to prevent infinite loops.
+    """
+    call_count = 0
+
+    async def sleep(_seconds: int | float) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            stop_event.set()
+        await asyncio.sleep(0)
+
+    return sleep
+
+
+class BgLoopDeps(NamedTuple):
+    """Common dependencies for background worker loop tests."""
+
+    config: Any  # HydraFlowConfig
+    bus: Any  # EventBus
+    stop_event: asyncio.Event
+    status_cb: MagicMock
+    enabled_cb: Callable[[str], bool]
+    sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+
+
+def make_bg_loop_deps(
+    tmp_path: Path,
+    *,
+    enabled: bool = True,
+    **config_overrides: Any,
+) -> BgLoopDeps:
+    """Create common dependencies for background worker loop tests.
+
+    Returns a BgLoopDeps NamedTuple with config, bus, stop_event,
+    status_cb, enabled_cb, and sleep_fn — the 6 constructor args
+    shared by all background loop classes.
+
+    Pass interval overrides via config_overrides, e.g.:
+        make_bg_loop_deps(tmp_path, memory_sync_interval=30)
+    """
+    from events import EventBus
+
+    config = ConfigFactory.create(
+        repo_root=tmp_path / "repo",
+        **config_overrides,
+    )
+    bus = EventBus()
+    stop_event = asyncio.Event()
+    sleep_fn = instant_sleep_factory(stop_event)
+
+    return BgLoopDeps(
+        config=config,
+        bus=bus,
+        stop_event=stop_event,
+        status_cb=MagicMock(),
+        enabled_cb=lambda _name: enabled,
+        sleep_fn=sleep_fn,
+    )
+
+
 class ConfigFactory:
     """Factory for HydraFlowConfig instances."""
 
@@ -55,12 +145,10 @@ class ConfigFactory:
         max_workers: int = 2,
         max_planners: int = 1,
         max_reviewers: int = 1,
-        max_budget_usd: float = 1.0,
         implementation_tool: Literal["claude", "codex"] = "claude",
         model: str = "sonnet",
         review_tool: Literal["claude", "codex"] = "claude",
         review_model: str = "sonnet",
-        review_budget_usd: float = 1.0,
         ci_check_timeout: int = 600,
         ci_poll_interval: int = 30,
         max_ci_fix_attempts: int = 0,
@@ -72,9 +160,11 @@ class ConfigFactory:
         max_issue_attempts: int = 3,
         review_label: list[str] | None = None,
         hitl_label: list[str] | None = None,
+        hitl_active_label: list[str] | None = None,
         fixed_label: list[str] | None = None,
         improve_label: list[str] | None = None,
         memory_label: list[str] | None = None,
+        metrics_label: list[str] | None = None,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
         find_label: list[str] | None = None,
@@ -83,7 +173,6 @@ class ConfigFactory:
         planner_model: str = "opus",
         triage_tool: Literal["claude", "codex"] = "claude",
         triage_model: str = "haiku",
-        planner_budget_usd: float = 1.0,
         min_plan_words: int = 200,
         max_new_files_warning: int = 5,
         lite_plan_labels: list[str] | None = None,
@@ -110,7 +199,6 @@ class ConfigFactory:
         ac_model: str = "sonnet",
         ac_tool: Literal["claude", "codex"] = "claude",
         verification_judge_tool: Literal["claude", "codex"] = "claude",
-        ac_budget_usd: float = 0,
         test_command: str = "make test",
         max_issue_body_chars: int = 10_000,
         max_review_diff_chars: int = 15_000,
@@ -151,6 +239,19 @@ class ConfigFactory:
         transcript_summary_as_issue: bool = False,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
+        inject_runtime_logs: bool = False,
+        max_runtime_log_chars: int = 8_000,
+        max_ci_log_chars: int = 12_000,
+        agent_timeout: int = 3600,
+        transcript_summary_timeout: int = 120,
+        memory_compaction_timeout: int = 60,
+        quality_timeout: int = 3600,
+        git_command_timeout: int = 30,
+        summarizer_timeout: int = 120,
+        error_output_max_chars: int = 3000,
+        unstick_auto_merge: bool = True,
+        unstick_all_causes: bool = True,
+        enable_fresh_branch_rebuild: bool = True,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -163,12 +264,10 @@ class ConfigFactory:
             max_workers=max_workers,
             max_planners=max_planners,
             max_reviewers=max_reviewers,
-            max_budget_usd=max_budget_usd,
             implementation_tool=implementation_tool,
             model=model,
             review_tool=review_tool,
             review_model=review_model,
-            review_budget_usd=review_budget_usd,
             ci_check_timeout=ci_check_timeout,
             ci_poll_interval=ci_poll_interval,
             max_ci_fix_attempts=max_ci_fix_attempts,
@@ -182,6 +281,9 @@ class ConfigFactory:
             if review_label is not None
             else ["hydraflow-review"],
             hitl_label=hitl_label if hitl_label is not None else ["hydraflow-hitl"],
+            hitl_active_label=hitl_active_label
+            if hitl_active_label is not None
+            else ["hydraflow-hitl-active"],
             fixed_label=fixed_label if fixed_label is not None else ["hydraflow-fixed"],
             improve_label=improve_label
             if improve_label is not None
@@ -189,6 +291,9 @@ class ConfigFactory:
             memory_label=memory_label
             if memory_label is not None
             else ["hydraflow-memory"],
+            metrics_label=metrics_label
+            if metrics_label is not None
+            else ["hydraflow-metrics"],
             dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
             epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
             find_label=find_label if find_label is not None else ["hydraflow-find"],
@@ -199,7 +304,6 @@ class ConfigFactory:
             planner_model=planner_model,
             triage_tool=triage_tool,
             triage_model=triage_model,
-            planner_budget_usd=planner_budget_usd,
             min_plan_words=min_plan_words,
             max_new_files_warning=max_new_files_warning,
             lite_plan_labels=lite_plan_labels
@@ -215,7 +319,6 @@ class ConfigFactory:
             ac_model=ac_model,
             ac_tool=ac_tool,
             verification_judge_tool=verification_judge_tool,
-            ac_budget_usd=ac_budget_usd,
             review_insight_window=review_insight_window,
             review_pattern_threshold=review_pattern_threshold,
             subskill_tool=subskill_tool,
@@ -270,6 +373,19 @@ class ConfigFactory:
             transcript_summary_as_issue=transcript_summary_as_issue,
             harness_insight_window=harness_insight_window,
             harness_pattern_threshold=harness_pattern_threshold,
+            inject_runtime_logs=inject_runtime_logs,
+            max_runtime_log_chars=max_runtime_log_chars,
+            max_ci_log_chars=max_ci_log_chars,
+            agent_timeout=agent_timeout,
+            transcript_summary_timeout=transcript_summary_timeout,
+            memory_compaction_timeout=memory_compaction_timeout,
+            quality_timeout=quality_timeout,
+            git_command_timeout=git_command_timeout,
+            summarizer_timeout=summarizer_timeout,
+            error_output_max_chars=error_output_max_chars,
+            unstick_auto_merge=unstick_auto_merge,
+            unstick_all_causes=unstick_all_causes,
+            enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
         )
 
 

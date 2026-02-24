@@ -32,7 +32,7 @@ async def stream_claude_process(
     event_data: dict[str, Any],
     logger: logging.Logger,
     on_output: Callable[[str], bool] | None = None,
-    timeout: float | None = None,
+    timeout: float = 3600.0,
     runner: SubprocessRunner | None = None,
 ) -> str:
     """Run an agent subprocess and stream its output.
@@ -156,9 +156,7 @@ async def stream_claude_process(
 
             return result_text or accumulated_text.rstrip("\n") or "\n".join(raw_lines)
 
-        if timeout is not None:
-            return await asyncio.wait_for(_stream_body(), timeout=timeout)
-        return await _stream_body()
+        return await asyncio.wait_for(_stream_body(), timeout=timeout)
     except TimeoutError:
         proc.kill()
         await proc.wait()

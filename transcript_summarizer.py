@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from execution import SubprocessRunner, get_default_runner
 from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import make_clean_env
@@ -108,11 +108,13 @@ class TranscriptSummarizer:
         pr_manager: PRManager,
         event_bus: EventBus,
         state: StateTracker,
+        runner: SubprocessRunner | None = None,
     ) -> None:
         self._config = config
         self._prs = pr_manager
         self._bus = event_bus
         self._state = state
+        self._runner = runner or get_default_runner()
 
     # --- Shared summary generation ---
 
@@ -305,28 +307,23 @@ class TranscriptSummarizer:
         env = make_clean_env(self._config.gh_token)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            result = await self._runner.run_simple(
+                cmd,
                 env=env,
+                input=prompt.encode(),
+                timeout=self._config.transcript_summary_timeout,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=prompt.encode()), timeout=120
-            )
-            if proc.returncode != 0:
+            if result.returncode != 0:
                 logger.warning(
                     "Transcript summary model failed (rc=%d): %s",
-                    proc.returncode,
-                    stderr.decode().strip()[:200],
+                    result.returncode,
+                    result.stderr[:200],
                 )
                 return None
-            result = stdout.decode().strip()
-            return result if result else None
+            return result.stdout if result.stdout else None
         except TimeoutError:
             logger.warning("Transcript summary model timed out")
             return None
-        except (OSError, FileNotFoundError) as exc:
+        except (OSError, FileNotFoundError, NotImplementedError) as exc:
             logger.warning("Transcript summary model unavailable: %s", exc)
             return None

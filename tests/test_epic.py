@@ -255,37 +255,6 @@ class TestEpicCompletionChecker:
         prs.close_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_skips_when_epic_label_not_configured(self) -> None:
-        config = ConfigFactory.create(epic_label=[])
-        prs = AsyncMock()
-        fetcher = AsyncMock()
-        checker = EpicCompletionChecker(config, prs, fetcher)
-
-        await checker.check_and_close_epics(1)
-
-        fetcher.fetch_issues_by_labels.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_does_not_close_when_fixed_label_not_configured(self) -> None:
-        """With fixed_label=[], no sub-issue can be confirmed complete — epic stays open."""
-        epic = _make_epic(100, [1])
-        sub_issues = {
-            1: IssueFactory.create(
-                number=1, labels=["hydraflow-fixed"], title="Issue #1"
-            )
-        }
-        config = ConfigFactory.create(epic_label=["hydraflow-epic"], fixed_label=[])
-        prs = AsyncMock()
-        fetcher = AsyncMock()
-        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic])
-        fetcher.fetch_issue_by_number = AsyncMock(side_effect=sub_issues.get)
-        checker = EpicCompletionChecker(config, prs, fetcher)
-
-        await checker.check_and_close_epics(1)
-
-        prs.close_issue.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_handles_multiple_epics(self) -> None:
         epic_a = _make_epic(100, [1, 2])
         epic_b = _make_epic(200, [1, 3])

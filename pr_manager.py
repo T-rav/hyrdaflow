@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -19,6 +20,9 @@ from subprocess_util import run_subprocess, run_subprocess_with_retry
 
 logger = logging.getLogger("hydraflow.pr_manager")
 
+# Cache TTL for label-count queries (seconds).
+_LABEL_CACHE_TTL: int = 30
+
 
 class SelfReviewError(RuntimeError):
     """Raised when a formal review fails due to the 'own pull request' restriction."""
@@ -27,7 +31,7 @@ class SelfReviewError(RuntimeError):
 class PRManager:
     """Pushes branches, creates PRs, merges, and manages labels."""
 
-    _GITHUB_COMMENT_LIMIT = 65_536
+    _GITHUB_COMMENT_LIMIT = 65_536  # GitHub maximum comment body size
     _HEADER_RESERVE = 50  # room for "*Part X/Y*\n\n" prefix
 
     # Re-export from prep module for backward compatibility
@@ -82,6 +86,34 @@ class PRManager:
             return True
         except RuntimeError as exc:
             logger.error("Push failed for %s: %s", branch, exc)
+            return False
+
+    async def force_push_branch(self, worktree_path: Path, branch: str) -> bool:
+        """Force-push *branch* to origin using ``--force-with-lease``.
+
+        Safer than ``--force`` — prevents clobbering concurrent pushes.
+        Used after fresh-branch rebuilds where branch history is rewritten.
+        Returns *True* on success.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would force-push branch %s", branch)
+            return True
+
+        try:
+            await run_subprocess(
+                "git",
+                "push",
+                "--no-verify",
+                "--force-with-lease",
+                "-u",
+                "origin",
+                branch,
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            return True
+        except RuntimeError as exc:
+            logger.error("Force-push failed for %s: %s", branch, exc)
             return False
 
     async def create_pr(
@@ -147,6 +179,12 @@ class PRManager:
             )
             # gh pr create --json would be better, but the URL is in stdout
             pr_url = output.strip()
+
+            # Validate output looks like a PR URL before parsing
+            if "/pull/" not in pr_url:
+                raise RuntimeError(
+                    f"Unexpected gh pr create output (expected PR URL): {pr_url[:200]}"
+                )
 
             # Get PR number from URL (e.g., https://github.com/org/repo/pull/123)
             pr_number = int(pr_url.rstrip("/").split("/")[-1])
@@ -482,8 +520,13 @@ class PRManager:
             output = await self._run_with_body_file(
                 *cmd, body=body, cwd=self._config.repo_root
             )
-            # gh issue create prints the issue URL
-            issue_number = int(output.strip().rstrip("/").split("/")[-1])
+            # gh issue create prints the issue URL — validate before parsing
+            url = output.strip()
+            if "/issues/" not in url:
+                raise RuntimeError(
+                    f"Unexpected gh issue create output (expected issue URL): {url[:200]}"
+                )
+            issue_number = int(url.rstrip("/").split("/")[-1])
 
             await self._bus.publish(
                 HydraFlowEvent(
@@ -577,6 +620,75 @@ class PRManager:
             logger.warning("Could not fetch CI checks for PR #%d: %s", pr_number, exc)
             return []
 
+    _RUN_ID_PATTERN = re.compile(r"/actions/runs/(\d+)")
+
+    async def fetch_ci_failure_logs(self, pr_number: int) -> str:
+        """Fetch full CI failure logs for *pr_number*.
+
+        Queries check runs, extracts run IDs from failed checks, and
+        fetches their ``--log-failed`` output.  Returns the concatenated
+        log text (one section per failed check) or an empty string on
+        error or in dry-run mode.
+        """
+        if self._config.dry_run:
+            return ""
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "checks",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "name,state,detailsUrl",
+            )
+            checks = json.loads(raw)
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch CI checks for PR #%d: %s", pr_number, exc)
+            return ""
+
+        # Collect run IDs from failed checks
+        seen_run_ids: set[str] = set()
+        failed_names: list[tuple[str, str]] = []  # (name, run_id)
+        for check in checks:
+            state = check.get("state", "").upper()
+            if state in self._PASSING_STATES or state in self._PENDING_STATES:
+                continue
+            details_url = check.get("detailsUrl", "")
+            if not details_url:
+                continue
+            match = self._RUN_ID_PATTERN.search(details_url)
+            if not match:
+                continue
+            run_id = match.group(1)
+            if run_id not in seen_run_ids:
+                seen_run_ids.add(run_id)
+                failed_names.append((check.get("name", "unknown"), run_id))
+
+        if not failed_names:
+            return ""
+
+        sections: list[str] = []
+        for name, run_id in failed_names:
+            try:
+                log_output = await self._run_gh(
+                    "gh",
+                    "run",
+                    "view",
+                    run_id,
+                    "--repo",
+                    self._repo,
+                    "--log-failed",
+                )
+                if log_output.strip():
+                    sections.append(f"### {name} (run {run_id})\n\n{log_output}")
+            except RuntimeError as exc:
+                logger.debug("Could not fetch log for run %s: %s", run_id, exc)
+
+        return "\n\n".join(sections)
+
     _PASSING_STATES = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
     _PENDING_STATES = frozenset(
         {"PENDING", "QUEUED", "IN_PROGRESS", "REQUESTED", "WAITING"}
@@ -652,6 +764,80 @@ class PRManager:
 
         return False, f"Timeout after {timeout}s"
 
+    # --- PR activity query helpers ---
+
+    async def get_pr_head_sha(self, pr_number: int) -> str:
+        """Fetch the HEAD commit SHA for *pr_number*.
+
+        Returns the SHA string, or empty string on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch HEAD SHA for PR #%d", pr_number)
+            return ""
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "headRefOid",
+            )
+            data = json.loads(raw)
+            return data.get("headRefOid", "")
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch HEAD SHA for PR #%d: %s", pr_number, exc)
+            return ""
+
+    async def get_pr_reviews(self, pr_number: int) -> list[dict[str, str]]:
+        """Fetch reviews for *pr_number* with author info.
+
+        Returns a list of dicts with ``author``, ``state``, ``submitted_at``,
+        and ``commit_id`` keys.  Returns ``[]`` on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch reviews for PR #%d", pr_number)
+            return []
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/pulls/{pr_number}/reviews",
+                "--jq",
+                "[.[] | {author: .user.login, state: .state, submitted_at: .submitted_at, commit_id: .commit_id}]",
+            )
+            return json.loads(raw)  # type: ignore[no-any-return]
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch reviews for PR #%d: %s", pr_number, exc)
+            return []
+
+    async def get_pr_comments(self, pr_number: int) -> list[dict[str, str]]:
+        """Fetch issue-level comments for *pr_number* with author info.
+
+        Returns a list of dicts with ``author`` and ``created_at`` keys.
+        Returns ``[]`` on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch comments for PR #%d", pr_number)
+            return []
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/issues/{pr_number}/comments",
+                "--jq",
+                "[.[] | {author: .user.login, created_at: .created_at}]",
+            )
+            return json.loads(raw)  # type: ignore[no-any-return]
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch comments for PR #%d: %s", pr_number, exc)
+            return []
+
     # --- dashboard query helpers ---
 
     async def list_open_prs(self, labels: list[str]) -> list[PRListItem]:
@@ -684,7 +870,12 @@ class PRManager:
                     "50",
                 )
                 for p in json.loads(raw):
-                    pr_num = p["number"]
+                    pr_num = p.get("number")
+                    if pr_num is None:
+                        logger.debug(
+                            "Skipping PR in list_open_prs: missing 'number' key"
+                        )
+                        continue
                     if pr_num in seen:
                         continue
                     seen.add(pr_num)
@@ -884,7 +1075,7 @@ class PRManager:
         import time
 
         now = time.monotonic()
-        if self._label_counts_cache and now - self._label_counts_ts < 30:
+        if self._label_counts_cache and now - self._label_counts_ts < _LABEL_CACHE_TTL:
             return self._label_counts_cache
 
         label_map = {
@@ -914,8 +1105,10 @@ class PRManager:
     _TRUNCATION_MARKER = "\n\n*...truncated to fit GitHub comment limit*"
 
     @staticmethod
-    def _chunk_body(body: str, limit: int = 65_536) -> list[str]:
+    def _chunk_body(body: str, limit: int | None = None) -> list[str]:
         """Split *body* into chunks that fit within GitHub's comment limit."""
+        if limit is None:
+            limit = PRManager._GITHUB_COMMENT_LIMIT
         if len(body) <= limit:
             return [body]
         chunks: list[str] = []
@@ -931,12 +1124,14 @@ class PRManager:
         return chunks
 
     @classmethod
-    def _cap_body(cls, body: str, limit: int = 65_536) -> str:
+    def _cap_body(cls, body: str, limit: int | None = None) -> str:
         """Hard-truncate *body* to *limit* characters.
 
         Acts as a safety net after chunking / header prepending to guarantee
         no single payload exceeds GitHub's comment size limit.
         """
+        if limit is None:
+            limit = cls._GITHUB_COMMENT_LIMIT
         if len(body) <= limit:
             return body
         marker = cls._TRUNCATION_MARKER

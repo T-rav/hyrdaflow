@@ -65,12 +65,13 @@ class BaseRunner:
             event_data=event_data,
             logger=self._log,
             on_output=on_output,
+            timeout=self._config.agent_timeout,
             runner=self._runner,
         )
 
     def _save_transcript(self, prefix: str, identifier: int, transcript: str) -> None:
         """Write a transcript to ``.hydraflow/logs/<prefix>-<identifier>.txt``."""
-        log_dir = self._config.repo_root / ".hydraflow" / "logs"
+        log_dir = self._config.log_dir
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
             path = log_dir / f"{prefix}-{identifier}.txt"
@@ -113,7 +114,6 @@ class BaseRunner:
         return build_agent_command(
             tool=self._config.implementation_tool,
             model=self._config.model,
-            budget_usd=self._config.max_budget_usd,
         )
 
     async def _verify_quality(self, worktree_path: Path) -> tuple[bool, str]:
@@ -122,13 +122,19 @@ class BaseRunner:
             result = await self._runner.run_simple(
                 ["make", "quality"],
                 cwd=str(worktree_path),
-                timeout=3600,
+                timeout=self._config.quality_timeout,
             )
         except FileNotFoundError:
             return False, "make not found — cannot run quality checks"
         except TimeoutError:
-            return False, "make quality timed out after 3600s"
+            return (
+                False,
+                f"make quality timed out after {self._config.quality_timeout}s",
+            )
         if result.returncode != 0:
             output = "\n".join(filter(None, [result.stdout, result.stderr]))
-            return False, f"`make quality` failed:\n{output[-3000:]}"
+            return (
+                False,
+                f"`make quality` failed:\n{output[-self._config.error_output_max_chars :]}",
+            )
         return True, "OK"

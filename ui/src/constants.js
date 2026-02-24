@@ -67,6 +67,11 @@ export const SYSTEM_WORKER_INTERVALS = {
 }
 
 /**
+ * Options for the PR Unsticker batch size dropdown.
+ */
+export const UNSTICK_BATCH_OPTIONS = [1, 2, 3, 5, 10, 15, 20, 30, 50]
+
+/**
  * Valid session statuses for the session sidebar.
  */
 export const SESSION_STATUSES = ['active', 'completed']
