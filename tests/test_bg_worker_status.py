@@ -11,7 +11,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType
-from models import BackgroundWorkersResponse, BackgroundWorkerStatus, MetricsResponse
+from models import (
+    BackgroundWorkersResponse,
+    BackgroundWorkerStatus,
+    BGWorkerHealth,
+    MetricsResponse,
+)
 from state import StateTracker
 from tests.conftest import make_state
 
@@ -48,7 +53,7 @@ class TestBackgroundWorkerStatusModel:
         status = BackgroundWorkerStatus(
             name="memory_sync",
             label="Memory Manager",
-            status="ok",
+            status=BGWorkerHealth.OK,
             last_run="2026-02-20T10:30:00Z",
             details={"item_count": 12, "digest_chars": 2400},
         )
@@ -62,7 +67,7 @@ class TestBackgroundWorkerStatusModel:
     def test_workers_response_model(self) -> None:
         resp = BackgroundWorkersResponse(
             workers=[
-                BackgroundWorkerStatus(name="a", label="A", status="ok"),
+                BackgroundWorkerStatus(name="a", label="A", status=BGWorkerHealth.OK),
                 BackgroundWorkerStatus(name="b", label="B"),
             ]
         )
@@ -392,7 +397,7 @@ class TestBackgroundWorkerStatusIntervalFields:
         status = BackgroundWorkerStatus(
             name="memory_sync",
             label="Memory Manager",
-            status="ok",
+            status=BGWorkerHealth.OK,
             interval_seconds=3600,
             next_run="2026-02-20T11:30:00+00:00",
         )

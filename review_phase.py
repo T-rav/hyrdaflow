@@ -19,6 +19,7 @@ from models import (
     ConflictResolutionResult,
     GitHubIssue,
     JudgeResult,
+    PipelineStage,
     PRInfo,
     ReviewResult,
     ReviewVerdict,
@@ -254,7 +255,7 @@ class ReviewPhase:
                 pr.issue_number,
                 FailureCategory.REVIEW_REJECTION,
                 f"Review verdict: {result.verdict.value}. {result.summary[:200]}",
-                stage="review",
+                stage=PipelineStage.REVIEW,
                 pr_number=pr.number,
             )
 
@@ -520,7 +521,7 @@ class ReviewPhase:
             issue.number,
             FailureCategory.CI_FAILURE,
             f"CI failed after {result.ci_fix_attempts} fix attempt(s): {summary[:200]}",
-            stage="review",
+            stage=PipelineStage.REVIEW,
             pr_number=pr.number,
         )
         await self._publish_review_status(pr, worker_id, "escalating")
@@ -550,7 +551,7 @@ class ReviewPhase:
                 pr_number=result.pr_number,
                 issue_number=result.issue_number,
                 timestamp=datetime.now(UTC).isoformat(),
-                verdict=result.verdict.value,
+                verdict=result.verdict,
                 summary=result.summary,
                 fixes_made=result.fixes_made,
                 categories=extract_categories(result.summary),
@@ -757,7 +758,7 @@ class ReviewPhase:
                 pr.issue_number,
                 FailureCategory.HITL_ESCALATION,
                 f"Review fix cap exceeded after {max_attempts} attempt(s)",
-                stage="review",
+                stage=PipelineStage.REVIEW,
                 pr_number=pr.number,
             )
             await self._publish_review_status(pr, worker_id, "escalating")

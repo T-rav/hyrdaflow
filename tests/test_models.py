@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 # conftest.py already inserts the hydraflow package directory into sys.path
 from pydantic import ValidationError
@@ -10,6 +11,7 @@ from pydantic import ValidationError
 from models import (
     BackgroundWorkerStatus,
     BatchResult,
+    BGWorkerHealth,
     ConflictResolutionResult,
     ControlStatusConfig,
     ControlStatusResponse,
@@ -27,6 +29,8 @@ from models import (
     ParsedCriteria,
     Phase,
     PipelineIssue,
+    PipelineIssueStatus,
+    PipelineStage,
     PlanAccuracyResult,
     PlannerStatus,
     PlanResult,
@@ -37,7 +41,11 @@ from models import (
     ReviewerStatus,
     ReviewResult,
     ReviewVerdict,
+    SessionLog,
+    SessionStatus,
+    StageStatus,
     StateData,
+    TimelineStage,
     VerificationCriteria,
     VerificationCriterion,
     WorkerResult,
@@ -2018,3 +2026,182 @@ class TestFrozenModelConfig:
         bws = BackgroundWorkerStatus(name="test", label="Test Worker")
         with pytest.raises(ValidationError):
             bws.status = "ok"
+
+
+# ---------------------------------------------------------------------------
+# StrEnum parametrized tests
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineStageEnum:
+    """Tests for the PipelineStage StrEnum."""
+
+    @pytest.mark.parametrize(
+        "member, expected",
+        [
+            (PipelineStage.TRIAGE, "triage"),
+            (PipelineStage.PLAN, "plan"),
+            (PipelineStage.IMPLEMENT, "implement"),
+            (PipelineStage.REVIEW, "review"),
+            (PipelineStage.MERGE, "merge"),
+        ],
+        ids=[m.name for m in PipelineStage],
+    )
+    def test_member_values(self, member: PipelineStage, expected: str) -> None:
+        assert member == expected
+
+    def test_member_count(self) -> None:
+        assert len(PipelineStage) == 5
+
+
+class TestStageStatusEnum:
+    """Tests for the StageStatus StrEnum."""
+
+    @pytest.mark.parametrize(
+        "member, expected",
+        [
+            (StageStatus.PENDING, "pending"),
+            (StageStatus.IN_PROGRESS, "in_progress"),
+            (StageStatus.DONE, "done"),
+            (StageStatus.FAILED, "failed"),
+        ],
+        ids=[m.name for m in StageStatus],
+    )
+    def test_member_values(self, member: StageStatus, expected: str) -> None:
+        assert member == expected
+
+    def test_member_count(self) -> None:
+        assert len(StageStatus) == 4
+
+
+class TestSessionStatusEnum:
+    """Tests for the SessionStatus StrEnum."""
+
+    @pytest.mark.parametrize(
+        "member, expected",
+        [
+            (SessionStatus.ACTIVE, "active"),
+            (SessionStatus.COMPLETED, "completed"),
+        ],
+        ids=[m.name for m in SessionStatus],
+    )
+    def test_member_values(self, member: SessionStatus, expected: str) -> None:
+        assert member == expected
+
+    def test_member_count(self) -> None:
+        assert len(SessionStatus) == 2
+
+
+class TestPipelineIssueStatusEnum:
+    """Tests for the PipelineIssueStatus StrEnum."""
+
+    @pytest.mark.parametrize(
+        "member, expected",
+        [
+            (PipelineIssueStatus.QUEUED, "queued"),
+            (PipelineIssueStatus.ACTIVE, "active"),
+            (PipelineIssueStatus.HITL, "hitl"),
+        ],
+        ids=[m.name for m in PipelineIssueStatus],
+    )
+    def test_member_values(self, member: PipelineIssueStatus, expected: str) -> None:
+        assert member == expected
+
+    def test_member_count(self) -> None:
+        assert len(PipelineIssueStatus) == 3
+
+
+class TestBGWorkerHealthEnum:
+    """Tests for the BGWorkerHealth StrEnum."""
+
+    @pytest.mark.parametrize(
+        "member, expected",
+        [
+            (BGWorkerHealth.OK, "ok"),
+            (BGWorkerHealth.ERROR, "error"),
+            (BGWorkerHealth.DISABLED, "disabled"),
+        ],
+        ids=[m.name for m in BGWorkerHealth],
+    )
+    def test_member_values(self, member: BGWorkerHealth, expected: str) -> None:
+        assert member == expected
+
+    def test_member_count(self) -> None:
+        assert len(BGWorkerHealth) == 3
+
+
+# ---------------------------------------------------------------------------
+# Validation rejection tests
+# ---------------------------------------------------------------------------
+
+
+class TestValidationRejection:
+    """Tests that invalid values are rejected by Pydantic validation."""
+
+    def test_session_log_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValidationError):
+            SessionLog(id="x", repo="r", started_at="t", status="bogus")
+
+    def test_pipeline_issue_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValidationError):
+            PipelineIssue(issue_number=1, status="bogus")
+
+    def test_bg_worker_status_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValidationError):
+            BackgroundWorkerStatus(name="x", label="X", status="bogus")
+
+    def test_timeline_stage_rejects_invalid_stage(self) -> None:
+        with pytest.raises(ValidationError):
+            TimelineStage(stage="bogus", status="pending")
+
+    def test_timeline_stage_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValidationError):
+            TimelineStage(stage="triage", status="bogus")
+
+    def test_review_record_rejects_invalid_verdict(self) -> None:
+        from review_insights import ReviewRecord
+
+        with pytest.raises(ValidationError):
+            ReviewRecord(
+                pr_number=1,
+                issue_number=1,
+                timestamp="t",
+                verdict="bogus",
+                summary="s",
+                fixes_made=False,
+                categories=[],
+            )
+
+    def test_failure_record_rejects_invalid_category(self) -> None:
+        from harness_insights import FailureRecord
+
+        with pytest.raises(ValidationError):
+            FailureRecord(issue_number=1, category="bogus")
+
+
+# ---------------------------------------------------------------------------
+# JSONL deserialization compatibility tests
+# ---------------------------------------------------------------------------
+
+
+class TestJSONLDeserialization:
+    """Tests that models correctly deserialize from JSON strings (JSONL files)."""
+
+    def test_failure_record_deserializes_from_json_string(self) -> None:
+        from harness_insights import FailureCategory, FailureRecord
+
+        record = FailureRecord.model_validate_json(
+            '{"issue_number":1,"category":"quality_gate","stage":"plan"}'
+        )
+        assert record.category == FailureCategory.QUALITY_GATE
+        assert record.stage == PipelineStage.PLAN
+
+    def test_review_record_deserializes_from_json_string(self) -> None:
+        from review_insights import ReviewRecord
+
+        record = ReviewRecord.model_validate_json(
+            '{"pr_number":1,"issue_number":1,"timestamp":"t",'
+            '"verdict":"approve","summary":"s","fixes_made":false,'
+            '"categories":[]}'
+        )
+        assert record.verdict == ReviewVerdict.APPROVE

@@ -13,7 +13,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
-from models import PRInfo
+from models import PipelineStage, PRInfo
 from pr_manager import PRManager
 from state import StateTracker
 
@@ -104,7 +104,7 @@ def record_harness_failure(
     category: FailureCategory,
     details: str,
     *,
-    stage: str,
+    stage: PipelineStage,
     pr_number: int = 0,
 ) -> None:
     """Record a failure to the harness insight store (non-blocking).

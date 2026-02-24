@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from models import IsoTimestamp
 
+from models import ReviewVerdict
+
 logger = logging.getLogger("hydraflow.review_insights")
 
 # ---------------------------------------------------------------------------
@@ -49,12 +51,10 @@ class ReviewRecord(BaseModel):
     pr_number: int
     issue_number: int
     timestamp: IsoTimestamp
-    verdict: str = Field(
-        description="Review verdict (approve, request-changes, comment)"
-    )
-    summary: str = Field(description="Brief summary of the review feedback")
-    fixes_made: bool = Field(description="Whether the reviewer made direct code fixes")
-    categories: list[str] = Field(description="Extracted feedback categories")
+    verdict: ReviewVerdict
+    summary: str
+    fixes_made: bool
+    categories: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ def analyze_patterns(
     ``(category, count, matching_records)`` tuples sorted by frequency
     (descending).
     """
-    non_approve = [r for r in records if r.verdict != "approve"]
+    non_approve = [r for r in records if r.verdict != ReviewVerdict.APPROVE]
     if not non_approve:
         return []
 
@@ -227,7 +227,7 @@ def get_common_feedback_section(
     listing the most frequent feedback categories. Returns an empty string
     if no patterns are found.
     """
-    non_approve = [r for r in records if r.verdict != "approve"]
+    non_approve = [r for r in records if r.verdict != ReviewVerdict.APPROVE]
     if not non_approve:
         return ""
 

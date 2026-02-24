@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
+from models import ReviewVerdict
 from retrospective import RetrospectiveCollector, RetrospectiveEntry
 from state import StateTracker
 from tests.conftest import ReviewResultFactory
@@ -676,7 +677,7 @@ class TestRetrospectiveEntry:
             unplanned_files=["src/bar.py"],
             missed_files=[],
             quality_fix_rounds=1,
-            review_verdict="approve",
+            review_verdict=ReviewVerdict.APPROVE,
             reviewer_fixes_made=False,
             ci_fix_rounds=0,
             duration_seconds=340.5,

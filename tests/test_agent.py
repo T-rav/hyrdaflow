@@ -15,7 +15,7 @@ import pytest
 from agent import AgentRunner
 from base_runner import BaseRunner
 from events import EventBus, EventType
-from models import WorkerStatus
+from models import ReviewVerdict, WorkerStatus
 from tests.conftest import IssueFactory
 from tests.helpers import ConfigFactory, make_proc, make_streaming_proc
 
@@ -295,7 +295,7 @@ class TestBuildPrompt:
                     pr_number=90 + i,
                     issue_number=30 + i,
                     timestamp="2026-02-20T10:00:00Z",
-                    verdict="request-changes",
+                    verdict=ReviewVerdict.REQUEST_CHANGES,
                     summary="Missing test coverage",
                     fixes_made=False,
                     categories=["missing_tests"],

@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
-from models import HITLItem
+from models import HITLItem, SessionStatus
 
 
 class TestCreateRouter:
@@ -1977,7 +1977,7 @@ class TestDeleteSessionEndpoint:
                 id="s1",
                 repo="org/repo",
                 started_at="2024-01-01T00:00:00",
-                status="completed",
+                status=SessionStatus.COMPLETED,
             )
         )
         router = self._make_router(config, event_bus, state, tmp_path)
@@ -2014,7 +2014,7 @@ class TestDeleteSessionEndpoint:
                 id="active-s",
                 repo="org/repo",
                 started_at="2024-01-01T00:00:00",
-                status="active",
+                status=SessionStatus.ACTIVE,
             )
         )
         router = self._make_router(config, event_bus, state, tmp_path)

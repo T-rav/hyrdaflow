@@ -16,10 +16,12 @@ from pydantic import ValidationError
 
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
+from issue_store import IssueStoreStage
 from metrics_manager import get_metrics_cache_dir
 from models import (
     BackgroundWorkersResponse,
     BackgroundWorkerStatus,
+    BGWorkerHealth,
     ControlStatusConfig,
     ControlStatusResponse,
     IntentRequest,
@@ -41,12 +43,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger("hydraflow.dashboard")
 
 # Backend stage keys → frontend stage names
-_STAGE_NAME_MAP = {
-    "find": "triage",
-    "plan": "plan",
-    "ready": "implement",
-    "review": "review",
-    "hitl": "hitl",
+_STAGE_NAME_MAP: dict[str, str] = {
+    IssueStoreStage.FIND: "triage",
+    IssueStoreStage.PLAN: "plan",
+    IssueStoreStage.READY: "implement",
+    IssueStoreStage.REVIEW: "review",
+    IssueStoreStage.HITL: "hitl",
 }
 
 # Frontend stage key → config label field name (for request-changes)
@@ -591,7 +593,7 @@ def create_router(
                     BackgroundWorkerStatus(
                         name=name,
                         label=label,
-                        status=entry["status"],
+                        status=BGWorkerHealth(entry["status"]),
                         enabled=enabled,
                         last_run=last_run,
                         interval_seconds=interval,

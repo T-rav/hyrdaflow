@@ -7,11 +7,11 @@ import logging
 import re
 from collections import Counter
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
-from models import IsoTimestamp, PlanAccuracyResult
+from models import IsoTimestamp, PlanAccuracyResult, ReviewVerdict
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -34,7 +34,7 @@ class RetrospectiveEntry(BaseModel):
     unplanned_files: list[str] = Field(default_factory=list)
     missed_files: list[str] = Field(default_factory=list)
     quality_fix_rounds: int = 0
-    review_verdict: str = ""
+    review_verdict: ReviewVerdict | Literal[""] = ""
     reviewer_fixes_made: bool = False
     ci_fix_rounds: int = 0
     duration_seconds: float = 0.0
@@ -110,7 +110,7 @@ class RetrospectiveCollector:
             unplanned_files=unplanned,
             missed_files=missed,
             quality_fix_rounds=quality_fix_rounds,
-            review_verdict=review_result.verdict.value,
+            review_verdict=review_result.verdict,
             reviewer_fixes_made=review_result.fixes_made,
             ci_fix_rounds=review_result.ci_fix_attempts,
             duration_seconds=impl_duration,

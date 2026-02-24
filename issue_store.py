@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections import deque
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
@@ -15,22 +16,33 @@ from subprocess_util import AuthenticationError
 
 logger = logging.getLogger("hydraflow.issue_store")
 
-# Pipeline stage names used as queue keys
-STAGE_FIND = "find"
-STAGE_PLAN = "plan"
-STAGE_READY = "ready"
-STAGE_REVIEW = "review"
-STAGE_HITL = "hitl"
+
+class IssueStoreStage(StrEnum):
+    """Internal routing stage names for the issue store queues."""
+
+    FIND = "find"
+    PLAN = "plan"
+    READY = "ready"
+    REVIEW = "review"
+    HITL = "hitl"
+
+
+# Backward-compatible module-level aliases
+STAGE_FIND = IssueStoreStage.FIND
+STAGE_PLAN = IssueStoreStage.PLAN
+STAGE_READY = IssueStoreStage.READY
+STAGE_REVIEW = IssueStoreStage.REVIEW
+STAGE_HITL = IssueStoreStage.HITL
 
 # Priority order — higher index = further along in the pipeline.
 # When an issue has multiple HydraFlow labels, it is routed to the
 # most advanced stage (highest priority).
 _STAGE_PRIORITY = {
-    STAGE_FIND: 0,
-    STAGE_PLAN: 1,
-    STAGE_READY: 2,
-    STAGE_REVIEW: 3,
-    STAGE_HITL: 4,
+    IssueStoreStage.FIND: 0,
+    IssueStoreStage.PLAN: 1,
+    IssueStoreStage.READY: 2,
+    IssueStoreStage.REVIEW: 3,
+    IssueStoreStage.HITL: 4,
 }
 
 
@@ -147,13 +159,13 @@ class IssueStore:
         """
         # Build a mapping of issue_number → (best_stage, issue)
         label_to_stage = self._build_label_map()
-        incoming: dict[int, tuple[str, GitHubIssue]] = {}
+        incoming: dict[int, tuple[IssueStoreStage, GitHubIssue]] = {}
 
         for issue in issues:
             # Cache every issue for pipeline snapshot lookups
             self._issue_cache[issue.number] = issue
 
-            best_stage: str | None = None
+            best_stage: IssueStoreStage | None = None
             best_priority = -1
             for label in issue.labels:
                 stage = label_to_stage.get(label)
@@ -207,9 +219,9 @@ class IssueStore:
             self._queues[stage].append(issue)
             self._queue_members[stage].add(issue_num)
 
-    def _build_label_map(self) -> dict[str, str]:
+    def _build_label_map(self) -> dict[str, IssueStoreStage]:
         """Build a mapping from label name → pipeline stage."""
-        m: dict[str, str] = {}
+        m: dict[str, IssueStoreStage] = {}
         for lbl in self._config.find_label:
             m[lbl] = STAGE_FIND
         for lbl in self._config.planner_label:

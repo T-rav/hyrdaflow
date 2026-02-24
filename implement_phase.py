@@ -10,7 +10,7 @@ from agent import AgentRunner
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
-from models import GitHubIssue, WorkerResult
+from models import GitHubIssue, PipelineStage, WorkerResult
 from phase_utils import (
     escalate_to_hitl,
     record_harness_failure,
@@ -126,7 +126,7 @@ class ImplementPhase:
                             issue.number,
                             FailureCategory.IMPLEMENTATION_ERROR,
                             f"Worker exception for issue #{issue.number}",
-                            stage="implement",
+                            stage=PipelineStage.IMPLEMENT,
                         )
                         return WorkerResult(
                             issue_number=issue.number,
@@ -223,7 +223,7 @@ class ImplementPhase:
             issue.number,
             FailureCategory.HITL_ESCALATION,
             f"Implementation attempt cap exceeded after {attempts - 1} attempt(s): {last_error}",
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )
         self._state.mark_issue(issue.number, "failed")
         return WorkerResult(
@@ -278,7 +278,7 @@ class ImplementPhase:
                 FailureCategory.QUALITY_GATE,
                 f"Quality fix needed: {result.quality_fix_attempts} round(s). "
                 f"Error: {result.error or 'none'}",
-                stage="implement",
+                stage=PipelineStage.IMPLEMENT,
             )
 
         self._state.set_worker_result_meta(

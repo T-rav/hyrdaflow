@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
+from models import PipelineStage
 from phase_utils import (
     escalate_to_hitl,
     publish_review_status,
@@ -282,7 +283,7 @@ class TestRecordHarnessFailure:
             42,
             FailureCategory.PLAN_VALIDATION,
             "Missing required sections",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
         records = store.load_recent()
@@ -301,7 +302,7 @@ class TestRecordHarnessFailure:
             42,
             FailureCategory.PLAN_VALIDATION,
             "Some error",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
     def test_catches_exception_from_store(self) -> None:
@@ -317,7 +318,7 @@ class TestRecordHarnessFailure:
                 42,
                 FailureCategory.PLAN_VALIDATION,
                 "Some error",
-                stage="plan",
+                stage=PipelineStage.PLAN,
             )
 
             mock_logger.warning.assert_called_once()
@@ -336,7 +337,7 @@ class TestRecordHarnessFailure:
             66,
             FailureCategory.REVIEW_REJECTION,
             "Review verdict: request_changes",
-            stage="review",
+            stage=PipelineStage.REVIEW,
             pr_number=200,
         )
 
@@ -358,7 +359,7 @@ class TestRecordHarnessFailure:
             42,
             FailureCategory.QUALITY_GATE,
             "ruff lint error: missing import",
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )
 
         records = store.load_recent()

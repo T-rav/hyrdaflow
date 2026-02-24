@@ -11,7 +11,13 @@ from typing import Any
 from pydantic import ValidationError
 
 from file_util import atomic_write
-from models import LifetimeStats, SessionLog, StateData, ThresholdProposal
+from models import (
+    LifetimeStats,
+    SessionLog,
+    SessionStatus,
+    StateData,
+    ThresholdProposal,
+)
 
 logger = logging.getLogger("hydraflow.state")
 
@@ -547,7 +553,7 @@ class StateTracker:
         target = seen.get(session_id)
         if target is None:
             return False
-        if target.status == "active":
+        if target.status == SessionStatus.ACTIVE:
             msg = f"Cannot delete active session {session_id}"
             raise ValueError(msg)
 

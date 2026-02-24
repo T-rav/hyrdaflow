@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from models import ReviewVerdict
 from review_insights import (
     CATEGORY_DESCRIPTIONS,
     CATEGORY_KEYWORDS,
@@ -27,7 +28,7 @@ def _make_record(
     *,
     pr_number: int = 101,
     issue_number: int = 42,
-    verdict: str = "request-changes",
+    verdict: ReviewVerdict = ReviewVerdict.REQUEST_CHANGES,
     summary: str = "Missing edge case tests",
     fixes_made: bool = False,
     categories: list[str] | None = None,
@@ -219,7 +220,7 @@ class TestAnalyzePatterns:
         records = [
             _make_record(
                 pr_number=i,
-                verdict="approve",
+                verdict=ReviewVerdict.APPROVE,
                 categories=["missing_tests"],
             )
             for i in range(5)
@@ -318,7 +319,9 @@ class TestGetCommonFeedbackSection:
 
     def test_returns_empty_for_all_approves(self) -> None:
         records = [
-            _make_record(pr_number=i, verdict="approve", categories=["missing_tests"])
+            _make_record(
+                pr_number=i, verdict=ReviewVerdict.APPROVE, categories=["missing_tests"]
+            )
             for i in range(3)
         ]
         assert get_common_feedback_section(records) == ""

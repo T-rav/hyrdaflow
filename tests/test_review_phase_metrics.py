@@ -389,7 +389,7 @@ class TestReviewInsightIntegration:
                     pr_number=90 + i,
                     issue_number=30 + i,
                     timestamp="2026-02-20T10:00:00Z",
-                    verdict="request-changes",
+                    verdict=ReviewVerdict.REQUEST_CHANGES,
                     summary="Missing test coverage",
                     fixes_made=False,
                     categories=["missing_tests"],
@@ -444,7 +444,7 @@ class TestReviewInsightIntegration:
                     pr_number=90 + i,
                     issue_number=30 + i,
                     timestamp="2026-02-20T10:00:00Z",
-                    verdict="request-changes",
+                    verdict=ReviewVerdict.REQUEST_CHANGES,
                     summary="Missing test coverage",
                     fixes_made=False,
                     categories=["missing_tests"],
@@ -1489,7 +1489,7 @@ class TestRecordReviewInsight:
 
         from review_insights import ReviewRecord
 
-        evidence = [
+        mock_evidence = [
             ReviewRecord(
                 pr_number=101,
                 issue_number=42,
@@ -1511,7 +1511,7 @@ class TestRecordReviewInsight:
         ]
         with patch(
             "review_phase.analyze_patterns",
-            return_value=[("test_coverage", 4, evidence)],
+            return_value=[("test_coverage", 4, mock_evidence)],
         ):
             await phase._record_review_insight(result)
 
@@ -1532,13 +1532,13 @@ class TestRecordReviewInsight:
         mock_insights.get_proposed_categories.return_value = {"test_coverage"}
         phase._insights = mock_insights
 
-        evidence = [
-            MagicMock(pr_number=1, issue_number=10, summary="pr1"),
-            MagicMock(pr_number=2, issue_number=20, summary="pr2"),
+        mock_evidence = [
+            MagicMock(pr_number=1, issue_number=10, summary="needs tests"),
+            MagicMock(pr_number=2, issue_number=20, summary="missing coverage"),
         ]
         with patch(
             "review_phase.analyze_patterns",
-            return_value=[("test_coverage", 4, evidence)],
+            return_value=[("test_coverage", 4, mock_evidence)],
         ):
             await phase._record_review_insight(result)
 
@@ -1562,7 +1562,7 @@ class TestRecordReviewInsight:
 
         from review_insights import ReviewRecord
 
-        evidence = [
+        mock_evidence = [
             ReviewRecord(
                 pr_number=10,
                 issue_number=42,
@@ -1575,7 +1575,7 @@ class TestRecordReviewInsight:
         ]
         with patch(
             "review_phase.analyze_patterns",
-            return_value=[("type_errors", 3, evidence)],
+            return_value=[("type_errors", 3, mock_evidence)],
         ):
             await phase._record_review_insight(result)
 

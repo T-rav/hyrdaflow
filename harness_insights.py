@@ -12,11 +12,11 @@ from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
-from models import IsoTimestamp
+from models import IsoTimestamp, PipelineStage
 
 if TYPE_CHECKING:
     from pr_manager import PRManager
@@ -77,14 +77,10 @@ class FailureRecord(BaseModel):
     timestamp: IsoTimestamp = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
     )
-    category: str = Field(
-        description="Pipeline failure category (e.g. quality_gate, ci_failure)"
-    )
+    category: FailureCategory
     subcategories: list[str] = Field(default_factory=list)
-    details: str = Field(default="", description="Human-readable failure description")
-    stage: str = Field(
-        default="", description="Pipeline stage where the failure occurred"
-    )
+    details: str = ""
+    stage: PipelineStage | Literal[""] = ""
 
 
 class ImprovementSuggestion(BaseModel):

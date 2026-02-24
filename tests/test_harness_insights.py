@@ -23,6 +23,7 @@ from harness_insights import (
     file_harness_suggestions,
     generate_suggestions,
 )
+from models import PipelineStage
 from state import StateTracker
 from tests.conftest import ConfigFactory
 
@@ -38,7 +39,7 @@ def _make_record(
     category: str = FailureCategory.QUALITY_GATE,
     subcategories: list[str] | None = None,
     details: str = "ruff lint error: missing import",
-    stage: str = "implement",
+    stage: PipelineStage = PipelineStage.IMPLEMENT,
 ) -> FailureRecord:
     return FailureRecord(
         issue_number=issue_number,

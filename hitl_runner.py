@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import Literal
 
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
@@ -14,8 +15,10 @@ from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.hitl_runner")
 
+HITLCauseKey = Literal["ci", "merge_conflict", "needs_info", "default"]
+
 # Prompt instructions keyed by escalation cause category.
-_CAUSE_INSTRUCTIONS: dict[str, str] = {
+_CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
     "ci": (
         "The CI pipeline failed on this branch.\n"
         "1. Run `make quality` to see current failures.\n"
@@ -52,7 +55,7 @@ _CAUSE_INSTRUCTIONS: dict[str, str] = {
 }
 
 
-def _classify_cause(cause: str) -> str:
+def _classify_cause(cause: str) -> HITLCauseKey:
     """Map a free-text escalation cause to a prompt template key."""
     lower = cause.lower()
     # Check needs_info BEFORE ci — "insufficient" contains the substring "ci".

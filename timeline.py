@@ -5,29 +5,35 @@ from __future__ import annotations
 from datetime import datetime
 
 from events import EventBus, EventType, HydraFlowEvent
-from models import IssueTimeline, PRInfoExtract, TimelineStage
+from models import IssueTimeline, PipelineStage, PRInfoExtract, StageStatus, TimelineStage
 
-STAGE_ORDER = ["triage", "plan", "implement", "review", "merge"]
+STAGE_ORDER: list[PipelineStage] = [
+    PipelineStage.TRIAGE,
+    PipelineStage.PLAN,
+    PipelineStage.IMPLEMENT,
+    PipelineStage.REVIEW,
+    PipelineStage.MERGE,
+]
 
 # Map EventType to pipeline stage
-EVENT_TYPE_TO_STAGE: dict[EventType, str] = {
-    EventType.TRIAGE_UPDATE: "triage",
-    EventType.PLANNER_UPDATE: "plan",
-    EventType.WORKER_UPDATE: "implement",
-    EventType.PR_CREATED: "implement",
-    EventType.HITL_UPDATE: "implement",
-    EventType.REVIEW_UPDATE: "review",
-    EventType.CI_CHECK: "review",
-    EventType.HITL_ESCALATION: "review",
-    EventType.MERGE_UPDATE: "merge",
+EVENT_TYPE_TO_STAGE: dict[EventType, PipelineStage] = {
+    EventType.TRIAGE_UPDATE: PipelineStage.TRIAGE,
+    EventType.PLANNER_UPDATE: PipelineStage.PLAN,
+    EventType.WORKER_UPDATE: PipelineStage.IMPLEMENT,
+    EventType.PR_CREATED: PipelineStage.IMPLEMENT,
+    EventType.HITL_UPDATE: PipelineStage.IMPLEMENT,
+    EventType.REVIEW_UPDATE: PipelineStage.REVIEW,
+    EventType.CI_CHECK: PipelineStage.REVIEW,
+    EventType.HITL_ESCALATION: PipelineStage.REVIEW,
+    EventType.MERGE_UPDATE: PipelineStage.MERGE,
 }
 
 # Map TRANSCRIPT_LINE source field to stage
-SOURCE_TO_STAGE: dict[str, str] = {
-    "triage": "triage",
-    "planner": "plan",
-    "reviewer": "review",
-    "hitl": "implement",
+SOURCE_TO_STAGE: dict[str, PipelineStage] = {
+    "triage": PipelineStage.TRIAGE,
+    "planner": PipelineStage.PLAN,
+    "reviewer": PipelineStage.REVIEW,
+    "hitl": PipelineStage.IMPLEMENT,
 }
 
 # Statuses that indicate a stage is terminal
@@ -103,7 +109,9 @@ class TimelineBuilder:
         self, issue_number: int, events: list[HydraFlowEvent]
     ) -> IssueTimeline:
         # Partition events by stage
-        stage_events: dict[str, list[HydraFlowEvent]] = {s: [] for s in STAGE_ORDER}
+        stage_events: dict[PipelineStage, list[HydraFlowEvent]] = {
+            s: [] for s in STAGE_ORDER
+        }
 
         for event in events:
             stage = self._event_to_stage(event)
@@ -121,7 +129,7 @@ class TimelineBuilder:
         pr_number, pr_url, branch = self._extract_pr_info(events)
 
         # Determine current stage (last non-empty stage)
-        current_stage = ""
+        current_stage: PipelineStage | str = ""
         if stages:
             current_stage = stages[-1].stage
 
@@ -150,21 +158,21 @@ class TimelineBuilder:
             branch=branch,
         )
 
-    def _event_to_stage(self, event: HydraFlowEvent) -> str | None:
+    def _event_to_stage(self, event: HydraFlowEvent) -> PipelineStage | None:
         if event.type == EventType.TRANSCRIPT_LINE:
             source = event.data.get("source", "")
-            return SOURCE_TO_STAGE.get(source, "implement")
+            return SOURCE_TO_STAGE.get(source, PipelineStage.IMPLEMENT)
         return EVENT_TYPE_TO_STAGE.get(event.type)
 
     def _build_stage(
-        self, stage_name: str, events: list[HydraFlowEvent]
+        self, stage_name: PipelineStage, events: list[HydraFlowEvent]
     ) -> TimelineStage:
         if not events:
-            return TimelineStage(stage=stage_name, status="pending")
+            return TimelineStage(stage=stage_name, status=StageStatus.PENDING)
 
         started_at = events[0].timestamp
         completed_at: str | None = None
-        status = "in_progress"
+        status = StageStatus.IN_PROGRESS
         metadata: dict[str, object] = {}
 
         # Find terminal status and extract metadata
@@ -173,9 +181,9 @@ class TimelineBuilder:
             if isinstance(event_status, str) and event_status in TERMINAL_STATUSES:
                 completed_at = event.timestamp
                 if event_status in DONE_STATUSES:
-                    status = "done"
+                    status = StageStatus.DONE
                 elif event_status == "failed":
-                    status = "failed"
+                    status = StageStatus.FAILED
 
             # Extract useful metadata
             verdict = event.data.get("verdict")

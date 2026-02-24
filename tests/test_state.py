@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from models import LifetimeStats, SessionLog, StateData
+from models import LifetimeStats, SessionLog, SessionStatus, StateData
 from state import StateTracker
 
 # ---------------------------------------------------------------------------
@@ -1714,7 +1714,7 @@ def _make_session(session_id: str, repo: str = "org/repo") -> SessionLog:
         id=session_id,
         repo=repo,
         started_at="2024-01-01T00:00:00",
-        status="completed",
+        status=SessionStatus.COMPLETED,
     )
 
 

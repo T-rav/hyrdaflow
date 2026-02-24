@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import BackgroundWorkerState, Phase, SessionLog
+from models import BackgroundWorkerState, Phase, SessionLog, SessionStatus
 from phase_utils import safe_file_memory_suggestion
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
@@ -432,7 +432,7 @@ class HydraFlowOrchestrator:
         self._current_session.issues_failed = sum(
             1 for s in self._session_issue_results.values() if not s
         )
-        self._current_session.status = "completed"
+        self._current_session.status = SessionStatus.COMPLETED
         self._state.save_session(self._current_session)
         self._state.prune_sessions(
             self._config.repo, self._config.max_sessions_per_repo

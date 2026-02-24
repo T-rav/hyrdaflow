@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from harness_insights import FailureCategory, HarnessInsightStore
+from models import PipelineStage
 from phase_utils import record_harness_failure
 
 # ---------------------------------------------------------------------------
@@ -32,7 +33,7 @@ class TestPlanStageHarnessRecording:
             42,
             FailureCategory.PLAN_VALIDATION,
             "Missing required sections: ## Files to Modify",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
         records = store.load_recent()
@@ -48,7 +49,7 @@ class TestPlanStageHarnessRecording:
             42,
             FailureCategory.PLAN_VALIDATION,
             "Some error",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
     def test_extracts_subcategories(self, config: HydraFlowConfig) -> None:
@@ -60,7 +61,7 @@ class TestPlanStageHarnessRecording:
             42,
             FailureCategory.PLAN_VALIDATION,
             "Missing test coverage section; lint format issues",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
         records = store.load_recent()
@@ -87,7 +88,7 @@ class TestImplementStageHarnessRecording:
             55,
             FailureCategory.QUALITY_GATE,
             "ruff lint error: missing import",
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )
 
         records = store.load_recent()
@@ -103,7 +104,7 @@ class TestImplementStageHarnessRecording:
             55,
             FailureCategory.QUALITY_GATE,
             "Some error",
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )
 
 
@@ -126,7 +127,7 @@ class TestReviewStageHarnessRecording:
             66,
             FailureCategory.REVIEW_REJECTION,
             "Missing error handling and test coverage",
-            stage="review",
+            stage=PipelineStage.REVIEW,
             pr_number=200,
         )
 
@@ -143,7 +144,7 @@ class TestReviewStageHarnessRecording:
             66,
             FailureCategory.CI_FAILURE,
             "CI failed",
-            stage="review",
+            stage=PipelineStage.REVIEW,
             pr_number=200,
         )
 
@@ -156,7 +157,7 @@ class TestReviewStageHarnessRecording:
             77,
             FailureCategory.CI_FAILURE,
             "CI failed after 2 fix attempts: pytest test failures",
-            stage="review",
+            stage=PipelineStage.REVIEW,
             pr_number=300,
         )
 
