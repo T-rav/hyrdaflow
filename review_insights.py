@@ -6,11 +6,9 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from models import IsoTimestamp
-
-from models import ReviewVerdict
+from models import IsoTimestamp, ReviewVerdict
 
 logger = logging.getLogger("hydraflow.review_insights")
 

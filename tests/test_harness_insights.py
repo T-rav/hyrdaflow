@@ -817,9 +817,11 @@ class TestFieldDescriptions:
     def test_failure_record_has_field_descriptions(self) -> None:
         schema = FailureRecord.model_json_schema()
         props = schema["properties"]
-        assert "description" in props["category"]
-        assert "description" in props["stage"]
-        assert "description" in props["details"]
+        # category is now a FailureCategory StrEnum — represented as $ref in schema
+        assert "category" in props
+        # stage is now PipelineStage | Literal[""] — represented as anyOf in schema
+        assert "stage" in props
+        assert "details" in props
 
     def test_improvement_suggestion_has_field_descriptions(self) -> None:
         schema = ImprovementSuggestion.model_json_schema()

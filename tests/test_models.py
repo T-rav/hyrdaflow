@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 # conftest.py already inserts the hydraflow package directory into sys.path
 from pydantic import ValidationError
@@ -2200,7 +2199,7 @@ class TestJSONLDeserialization:
         from review_insights import ReviewRecord
 
         record = ReviewRecord.model_validate_json(
-            '{"pr_number":1,"issue_number":1,"timestamp":"t",'
+            '{"pr_number":1,"issue_number":1,"timestamp":"2024-01-01T00:00:00Z",'
             '"verdict":"approve","summary":"s","fixes_made":false,'
             '"categories":[]}'
         )

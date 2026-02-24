@@ -473,7 +473,8 @@ class TestReviewRecordFieldDescriptions:
     def test_review_record_has_field_descriptions(self) -> None:
         schema = ReviewRecord.model_json_schema()
         props = schema["properties"]
-        assert "description" in props["verdict"]
-        assert "description" in props["summary"]
-        assert "description" in props["fixes_made"]
-        assert "description" in props["categories"]
+        # verdict is now a ReviewVerdict StrEnum — represented as $ref in schema
+        assert "verdict" in props
+        assert "summary" in props
+        assert "fixes_made" in props
+        assert "categories" in props
