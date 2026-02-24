@@ -110,59 +110,85 @@ class WorktreeManager:
         # fetch conflicts and worktree checkout errors
         await self._delete_local_branch(branch)
 
-        # Fetch latest main so we branch from the latest state
-        await run_subprocess(
-            "git",
-            "fetch",
-            "origin",
-            self._config.main_branch,
-            cwd=self._repo_root,
-            gh_token=self._config.gh_token,
-        )
+        branch_created = False
+        worktree_created = False
 
-        # Check if the branch already exists on the remote (resumable work)
-        if await self._remote_branch_exists(branch):
-            logger.info(
-                "Remote branch %s exists — resuming from remote",
-                branch,
-                extra={"issue": issue_number},
-            )
+        try:
+            # Fetch latest main so we branch from the latest state
             await run_subprocess(
                 "git",
                 "fetch",
                 "origin",
-                f"+refs/heads/{branch}:refs/heads/{branch}",
+                self._config.main_branch,
                 cwd=self._repo_root,
                 gh_token=self._config.gh_token,
             )
-        else:
-            # Create a fresh branch from main
+
+            # Check if the branch already exists on the remote (resumable work)
+            if await self._remote_branch_exists(branch):
+                logger.info(
+                    "Remote branch %s exists — resuming from remote",
+                    branch,
+                    extra={"issue": issue_number},
+                )
+                await run_subprocess(
+                    "git",
+                    "fetch",
+                    "origin",
+                    f"+refs/heads/{branch}:refs/heads/{branch}",
+                    cwd=self._repo_root,
+                    gh_token=self._config.gh_token,
+                )
+            else:
+                # Create a fresh branch from main
+                await run_subprocess(
+                    "git",
+                    "branch",
+                    "-f",
+                    branch,
+                    f"origin/{self._config.main_branch}",
+                    cwd=self._repo_root,
+                    gh_token=self._config.gh_token,
+                )
+            branch_created = True
+
+            # Create the worktree
             await run_subprocess(
                 "git",
-                "branch",
-                "-f",
+                "worktree",
+                "add",
+                str(wt_path),
                 branch,
-                f"origin/{self._config.main_branch}",
                 cwd=self._repo_root,
                 gh_token=self._config.gh_token,
             )
+            worktree_created = True
 
-        # Create the worktree
-        await run_subprocess(
-            "git",
-            "worktree",
-            "add",
-            str(wt_path),
-            branch,
-            cwd=self._repo_root,
-            gh_token=self._config.gh_token,
-        )
-
-        # Set up the environment inside the worktree
-        self._setup_env(wt_path)
-        await self._configure_git_identity(wt_path)
-        await self._create_venv(wt_path)
-        await self._install_hooks(wt_path)
+            # Set up the environment inside the worktree
+            self._setup_env(wt_path)
+            await self._configure_git_identity(wt_path)
+            await self._create_venv(wt_path)
+            await self._install_hooks(wt_path)
+        except BaseException:
+            logger.warning(
+                "Worktree creation failed for issue %d; cleaning up partial state",
+                issue_number,
+            )
+            if worktree_created:
+                with contextlib.suppress(Exception):
+                    await run_subprocess(
+                        "git",
+                        "worktree",
+                        "remove",
+                        "--force",
+                        str(wt_path),
+                        cwd=self._repo_root,
+                        gh_token=self._config.gh_token,
+                    )
+            if branch_created:
+                with contextlib.suppress(Exception):
+                    await self._delete_local_branch(branch)
+            raise
 
         logger.info(
             "Worktree ready at %s",
@@ -504,24 +530,27 @@ class WorktreeManager:
 
     async def _configure_git_identity(self, wt_path: Path) -> None:
         """Set git user.name and user.email in the worktree (local scope)."""
-        if self._config.git_user_name:
-            await run_subprocess(
-                "git",
-                "config",
-                "user.name",
-                self._config.git_user_name,
-                cwd=wt_path,
-                gh_token=self._config.gh_token,
-            )
-        if self._config.git_user_email:
-            await run_subprocess(
-                "git",
-                "config",
-                "user.email",
-                self._config.git_user_email,
-                cwd=wt_path,
-                gh_token=self._config.gh_token,
-            )
+        try:
+            if self._config.git_user_name:
+                await run_subprocess(
+                    "git",
+                    "config",
+                    "user.name",
+                    self._config.git_user_name,
+                    cwd=wt_path,
+                    gh_token=self._config.gh_token,
+                )
+            if self._config.git_user_email:
+                await run_subprocess(
+                    "git",
+                    "config",
+                    "user.email",
+                    self._config.git_user_email,
+                    cwd=wt_path,
+                    gh_token=self._config.gh_token,
+                )
+        except RuntimeError as exc:
+            logger.warning("git identity config failed in %s: %s", wt_path, exc)
 
     async def _create_venv(self, wt_path: Path) -> None:
         """Create an independent venv in the worktree via ``uv sync``."""

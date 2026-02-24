@@ -540,3 +540,66 @@ class TestNarrowedExceptionHandling:
             tracker.prune_sessions("test-org/test-repo", max_keep=10)
 
         assert "Skipping corrupt session line" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Session I/O error handling (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionIOErrors:
+    """Verify session file I/O handles OSError gracefully."""
+
+    def test_load_sessions_deduped_returns_empty_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the sessions file can't be opened, return empty list."""
+        import logging
+        from unittest.mock import patch
+
+        tracker = make_state(tmp_path)
+        # Create a valid sessions file first
+        tracker.save_session(make_session(id="s1"))
+
+        with (
+            patch("builtins.open", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
+        ):
+            result = tracker.load_sessions()
+
+        assert result == []
+        assert "Could not open sessions file" in caplog.text
+
+    def test_save_session_logs_warning_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the sessions file can't be written, log warning and don't raise."""
+        import logging
+        from unittest.mock import patch
+
+        tracker = make_state(tmp_path)
+
+        with (
+            patch("builtins.open", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
+        ):
+            tracker.save_session(make_session(id="s1"))  # should not raise
+
+        assert "Could not save session" in caplog.text
+
+    def test_save_session_handles_mkdir_permission_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When mkdir fails with PermissionError, log warning and don't raise."""
+        import logging
+        from unittest.mock import patch
+
+        tracker = make_state(tmp_path)
+
+        with (
+            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
+        ):
+            tracker.save_session(make_session(id="s1"))  # should not raise
+
+        assert "Could not save session" in caplog.text

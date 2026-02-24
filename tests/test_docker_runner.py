@@ -18,7 +18,7 @@ from docker_runner import (
     _check_docker_available,
     get_docker_runner,
 )
-from execution import HostRunner
+from execution import HostRunner, SubprocessRunner
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -865,6 +865,19 @@ class TestCheckDockerAvailable:
             # Force ImportError by reloading
             assert _check_docker_available() is False
 
+    def test_logs_exception_at_debug_level(self) -> None:
+        """Docker availability check should log the specific exception at debug level."""
+        with (
+            patch("docker.from_env", side_effect=ConnectionError("daemon down")),
+            patch("docker_runner.logger") as mock_logger,
+        ):
+            result = _check_docker_available()
+
+        assert result is False
+        mock_logger.debug.assert_called_once()
+        _args, kwargs = mock_logger.debug.call_args
+        assert kwargs.get("exc_info") is True
+
 
 # ---------------------------------------------------------------------------
 # Fallback factory tests
@@ -873,6 +886,14 @@ class TestCheckDockerAvailable:
 
 class TestGetDockerRunner:
     """Tests for get_docker_runner factory."""
+
+    def test_returns_subprocess_runner_protocol_when_disabled(self) -> None:
+        """get_docker_runner returns a SubprocessRunner when docker_enabled=False."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(docker_enabled=False)
+        runner = get_docker_runner(config)
+        assert isinstance(runner, SubprocessRunner)
 
     def test_returns_host_when_disabled(self) -> None:
         from tests.helpers import ConfigFactory
@@ -912,6 +933,7 @@ class TestGetDockerRunner:
         ):
             runner = get_docker_runner(config)
         assert isinstance(runner, DockerRunner)
+        assert isinstance(runner, SubprocessRunner)
 
     def test_logs_warning_when_no_image(self, caplog: pytest.LogCaptureFixture) -> None:
         from tests.helpers import ConfigFactory
@@ -933,6 +955,86 @@ class TestGetDockerRunner:
         ):
             get_docker_runner(config)
         assert "Docker daemon not available" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# DockerRunner async context manager tests
+# ---------------------------------------------------------------------------
+
+
+class TestDockerRunnerAsyncContext:
+    """Tests for DockerRunner __aenter__/__aexit__ context manager."""
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager_calls_cleanup(self, tmp_path: Path) -> None:
+        """async with DockerRunner() calls cleanup() on normal exit."""
+        runner, client = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        await runner.create_streaming_process(["echo", "1"])
+        assert len(runner._containers) == 1
+
+        async with runner:
+            pass  # normal exit
+
+        assert len(runner._containers) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_context_manager_calls_cleanup_on_error(
+        self, tmp_path: Path
+    ) -> None:
+        """async with DockerRunner() calls cleanup() even when body raises."""
+        runner, client = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        await runner.create_streaming_process(["echo", "1"])
+        assert len(runner._containers) == 1
+
+        with pytest.raises(ValueError, match="boom"):
+            async with runner:
+                raise ValueError("boom")
+
+        assert len(runner._containers) == 0
+
+
+# ---------------------------------------------------------------------------
+# DockerProcess.kill() narrowed suppression tests
+# ---------------------------------------------------------------------------
+
+
+class TestDockerProcessKillSuppression:
+    """Tests for DockerProcess.kill() narrowed exception suppression."""
+
+    def test_kill_suppresses_os_error(self) -> None:
+        """kill() should suppress OSError (e.g. network errors)."""
+        container = _make_mock_container()
+        container.kill.side_effect = OSError("connection reset")
+        sock = _make_mock_socket()
+        loop = MagicMock()
+        proc = DockerProcess(container, sock, loop)
+
+        proc.kill()  # Should not raise
+
+    def test_kill_suppresses_runtime_error(self) -> None:
+        """kill() should suppress RuntimeError (e.g. Docker SDK wrapper errors)."""
+        container = _make_mock_container()
+        container.kill.side_effect = RuntimeError("container already stopped")
+        sock = _make_mock_socket()
+        loop = MagicMock()
+        proc = DockerProcess(container, sock, loop)
+
+        proc.kill()  # Should not raise
+
+    def test_kill_propagates_unexpected_exceptions(self) -> None:
+        """kill() should NOT suppress unexpected exception types."""
+        container = _make_mock_container()
+        container.kill.side_effect = TypeError("unexpected")
+        sock = _make_mock_socket()
+        loop = MagicMock()
+        proc = DockerProcess(container, sock, loop)
+
+        with pytest.raises(TypeError, match="unexpected"):
+            proc.kill()
 
 
 # ---------------------------------------------------------------------------

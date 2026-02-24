@@ -20,6 +20,7 @@ from phase_utils import (
 from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
+from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
 from worktree import WorktreeManager
 
@@ -52,6 +53,7 @@ class ImplementPhase:
         self._run_recorder = run_recorder
         self._harness_insights = harness_insights
         self._active_issues: set[int] = set()
+        self._active_issues_lock = asyncio.Lock()
 
     async def _close_as_already_satisfied(self, task: Task) -> None:
         """Close a task as already satisfied (no changes needed)."""
@@ -107,14 +109,17 @@ class ImplementPhase:
                     )
 
                 branch = f"agent/issue-{issue.id}"
-                self._active_issues.add(issue.id)
-                self._state.set_active_issue_numbers(list(self._active_issues))
+                async with self._active_issues_lock:
+                    self._active_issues.add(issue.id)
+                    self._state.set_active_issue_numbers(list(self._active_issues))
                 async with store_lifecycle(self._store, issue.id, "implement"):
                     self._state.mark_issue(issue.id, "in_progress")
                     self._state.set_branch(issue.id, branch)
 
                     try:
                         return await self._worker_inner(idx, issue, branch)
+                    except (AuthenticationError, CreditExhaustedError, MemoryError):
+                        raise
                     except Exception:
                         logger.exception("Worker failed for issue #%d", issue.id)
                         self._state.mark_issue(issue.id, "failed")
@@ -131,8 +136,11 @@ class ImplementPhase:
                             error=f"Worker exception for issue #{issue.id}",
                         )
                     finally:
-                        self._active_issues.discard(issue.id)
-                        self._state.set_active_issue_numbers(list(self._active_issues))
+                        async with self._active_issues_lock:
+                            self._active_issues.discard(issue.id)
+                            self._state.set_active_issue_numbers(
+                                list(self._active_issues)
+                            )
 
         all_results = await run_concurrent_batch(issues, _worker, self._stop_event)
         return all_results, issues
@@ -298,6 +306,7 @@ class ImplementPhase:
         )
 
         await self._record_impl_metrics(issue, result, review_feedback)
+
         return result
 
     async def _handle_implementation_result(

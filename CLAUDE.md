@@ -8,37 +8,77 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-HydraFlow runs three concurrent async loops:
+HydraFlow runs five concurrent async loops from `orchestrator.py`:
 
-1. **Plan loop**: Fetches issues labeled `hydraflow-plan`, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts the plan as a comment, then swaps the label to `hydraflow-ready`.
-2. **Implement loop**: Fetches issues labeled `hydraflow-ready`, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, then swaps to `hydraflow-review`.
-3. **Review loop**: Fetches issues labeled `hydraflow-review`, runs a review agent to check quality and optionally fix issues, submits a formal PR review, waits for CI, and auto-merges approved PRs. CI failures escalate to `hydraflow-hitl` for human intervention.
+1. **Triage loop**: Fetches new issues, scores complexity, classifies type, and applies the `hydraflow-plan` label.
+2. **Plan loop**: Fetches issues labeled `hydraflow-plan`, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts the plan as a comment, then swaps the label to `hydraflow-ready`.
+3. **Implement loop**: Fetches issues labeled `hydraflow-ready`, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, then swaps to `hydraflow-review`.
+4. **Review loop**: Fetches issues labeled `hydraflow-review`, runs a review agent to check quality and optionally fix issues, submits a formal PR review, waits for CI, and auto-merges approved PRs. CI failures escalate to `hydraflow-hitl` for human intervention.
+5. **HITL loop**: Processes issues labeled `hydraflow-hitl` that need human-in-the-loop correction.
 
 ### Key Files
 
-- `cli.py` — CLI entry point
-- `orchestrator.py` — Main coordinator (three async polling loops)
-- `config.py` — `HydraFlowConfig` Pydantic model
+**Core infrastructure:**
+- `cli.py` — CLI entry point (run, dry-run, clean, prep, scaffold)
+- `orchestrator.py` — Main coordinator (five async polling loops)
+- `config.py` — `HydraFlowConfig` Pydantic model (50+ env-var overrides)
+- `models.py` — Pydantic data models (Phase, SessionLog, ReviewResult, etc.)
+- `service_registry.py` — Dependency injection factory (`build_services()`)
+- `state.py` — `StateTracker` (JSON-backed crash recovery)
+- `events.py` — `EventBus` async pub/sub
+
+**Phase implementations:**
+- `plan_phase.py` / `implement_phase.py` / `review_phase.py` / `triage_phase.py` / `hitl_phase.py`
+- `phase_utils.py` — Shared phase utilities
+
+**Agents/runners:**
 - `agent.py` — `AgentRunner` (implementation agent)
 - `planner.py` — `PlannerRunner` (read-only planning agent)
 - `reviewer.py` — `ReviewRunner` (review + CI fix agent)
+- `hitl_runner.py` — HITL correction agent
+- `base_runner.py` — Base runner class
+
+**Git & PR management:**
 - `worktree.py` — `WorktreeManager` (git worktree lifecycle)
 - `pr_manager.py` — `PRManager` (all `gh` CLI operations)
-- `dashboard.py` — FastAPI + WebSocket live dashboard
-- `events.py` — `EventBus` async pub/sub
-- `state.py` — `StateTracker` (JSON-backed crash recovery)
-- `models.py` — Pydantic data models
-- `stream_parser.py` — Claude CLI stream-json parser
-- `ui/` — React dashboard frontend
+- `merge_conflict_resolver.py` — Merge conflict resolution
+- `pr_unsticker.py` / `pr_unsticker_loop.py` — Stale PR recovery
+- `post_merge_handler.py` — Post-merge cleanup
+
+**Background loops:**
+- `base_background_loop.py` — Base async loop pattern
+- `manifest_refresh_loop.py` / `memory_sync_loop.py` / `metrics_sync_loop.py` / `pr_unsticker_loop.py`
+
+**Dashboard:**
+- `dashboard.py` + `dashboard_routes.py` — FastAPI + WebSocket backend
+- `ui/` — React + Vite frontend
+
+**Repo scaffolding (prep system):**
+- `prep.py` — Repository preparation orchestrator
+- `ci_scaffold.py` / `lint_scaffold.py` / `test_scaffold.py` / `makefile_scaffold.py`
+- `polyglot_prep.py` — Language detection
+
+## Worktree Management
+
+HydraFlow creates isolated git worktrees for each issue. **Always clean up worktrees when their PRs are merged or issues are closed.**
+
+- **Default location:** `../hydraflow-worktrees/` (sibling to repo root)
+- **Naming:** `issue-{issue_number}/`
+- **Config:** `worktree_base` field in `HydraFlowConfig`
+- **Cleanup:** `make clean` removes all worktrees and state
+- Worktrees get independent venvs (`uv sync`), symlinked `.env`, and pre-commit hooks
+- Stale worktrees from merged PRs should be periodically pruned with `git worktree prune`
 
 ## Testing is Mandatory
 
 **ALWAYS write unit tests for code changes before committing.** Every new function, class, or feature modification MUST include comprehensive tests.
 
+- Tests live in `tests/` following the pattern `tests/test_<module>.py`
 - New features: Write tests BEFORE committing
 - Bug fixes: Add regression tests that reproduce the bug
 - Refactoring: Ensure existing tests pass, add tests for new paths
 - Never commit untested code
+- Coverage threshold: 70%
 
 ## Never Skip Commit Hooks
 
@@ -52,16 +92,21 @@ make dry-run        # Dry run (log actions without executing)
 make clean          # Remove all worktrees and state
 make status         # Show current HydraFlow state
 make test           # Run unit tests (parallel)
-make test-cov       # Run tests with coverage report
+make test-fast      # Quick test run (-x --tb=short)
+make test-cov       # Run tests with coverage report (70% threshold)
 make lint           # Auto-fix linting
 make lint-check     # Check linting (no fix)
 make typecheck      # Run Pyright type checks
 make security       # Run Bandit security scan
-make quality        # Lint + typecheck + test (parallel, fast)
-make quality-full   # quality + security scan
-make setup          # Install git hooks (pre-commit, pre-push)
+make quality        # Lint + typecheck + security + test (parallel)
+make quality-lite   # Lint + typecheck + security (no tests)
+make setup          # Install hooks, CLI, config, labels
+make prep           # Scan + scaffold CI/tests for target repo
+make ensure-labels  # Create HydraFlow lifecycle labels
+make hot            # Send config update to running instance
 make ui             # Build React dashboard
 make ui-dev         # Start React dashboard dev server
+make deps           # Sync dependencies via uv
 ```
 
 ### Quick Validation
@@ -82,7 +127,8 @@ make quality
 - **Ruff** for linting/formatting
 - **Pyright** for type checking
 - **Bandit** for security scanning
-- **pytest + pytest-asyncio** for testing
+- **pytest + pytest-asyncio + pytest-xdist** for testing
+- **uv** for dependency management
 
 ## UI Development Standards
 

@@ -28,7 +28,7 @@ from tests.conftest import (
     ReviewResultFactory,
     TaskFactory,
 )
-from tests.helpers import make_review_phase
+from tests.helpers import ConfigFactory, make_review_phase
 
 
 class TestHITLEscalationEvents:
@@ -112,8 +112,6 @@ class TestHITLEscalationEvents:
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """CI failure escalation should emit HITL_ESCALATION with cause ci_failed."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
@@ -544,6 +542,128 @@ class TestAdversarialReview:
 
         # Should call review twice (initial + re-review)
         assert phase._reviewers.review.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_disabled_when_min_findings_zero(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """min_review_findings=0 should disable adversarial re-review entirely."""
+        cfg = ConfigFactory.create(
+            min_review_findings=0,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Approve with zero findings and no justification — should NOT trigger re-review
+        result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.APPROVE,
+            summary="All good",
+            fixes_made=False,
+            transcript="VERDICT: APPROVE",
+        )
+        phase._reviewers.review = AsyncMock(return_value=result)
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase.review_prs([pr], [issue])
+
+        # Should only call review once (no re-review)
+        assert phase._reviewers.review.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_re_review_under_threshold_accepted_anyway(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Re-review still under threshold with no justification should accept (no infinite loop)."""
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        # Both reviews: under threshold, no justification
+        first_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.APPROVE,
+            summary="LGTM",
+            fixes_made=False,
+            transcript="VERDICT: APPROVE",
+        )
+        second_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.APPROVE,
+            summary="Still LGTM",
+            fixes_made=False,
+            transcript="VERDICT: APPROVE",
+        )
+        phase._reviewers.review = AsyncMock(side_effect=[first_result, second_result])
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase.review_prs([pr], [issue])
+
+        # Should call review exactly twice (initial + one re-review), then accept
+        assert phase._reviewers.review.await_count == 2
+        # PR should still be merged exactly once (accepted anyway)
+        assert phase._prs.merge_pr.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_re_review_pushes_fixes(self, config: HydraFlowConfig) -> None:
+        """Re-review with fixes_made=True should push the branch."""
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        # First review: under threshold, no justification
+        first_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.APPROVE,
+            summary="Looks fine",
+            fixes_made=False,
+            transcript="VERDICT: APPROVE",
+        )
+        # Re-review: makes fixes
+        second_result = ReviewResult(
+            pr_number=101,
+            issue_number=42,
+            verdict=ReviewVerdict.APPROVE,
+            summary="- Fixed formatting\n- Fixed imports\n- Fixed types",
+            fixes_made=True,
+            transcript="VERDICT: APPROVE",
+        )
+        phase._reviewers.review = AsyncMock(side_effect=[first_result, second_result])
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+
+        wt = config.worktree_base / "issue-42"
+        wt.mkdir(parents=True, exist_ok=True)
+
+        await phase.review_prs([pr], [issue])
+
+        # push_branch should be called for the re-review fixes
+        assert phase._prs.push_branch.await_count >= 1
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from events import EventBus
 from merge_conflict_resolver import MergeConflictResolver
+from models import ConflictResolutionResult
 from state import StateTracker
 from tests.conftest import PRInfoFactory, TaskFactory
 from tests.helpers import ConfigFactory
@@ -101,7 +102,7 @@ class TestMergeConflictResolver:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (False, False)
+        assert result == ConflictResolutionResult(success=False, used_rebuild=False)
 
     @pytest.mark.asyncio
     async def test_resolve_returns_true_on_clean_merge(
@@ -119,7 +120,7 @@ class TestMergeConflictResolver:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         mock_agents._execute.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -140,7 +141,7 @@ class TestMergeConflictResolver:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         mock_agents._build_command.assert_called_once()
         mock_agents._execute.assert_awaited_once()
 
@@ -161,7 +162,172 @@ class TestMergeConflictResolver:
         )
 
         log_dir = config.repo_root / ".hydraflow" / "logs"
-        assert (log_dir / "conflict-pr-101-attempt-1.txt").exists()
+        assert (log_dir / "merge_conflict-pr-101-attempt-1.txt").exists()
+
+
+class TestSourceParameter:
+    """Tests for the source parameter in resolve_merge_conflicts and fresh_branch_rebuild."""
+
+    @pytest.mark.asyncio
+    async def test_save_transcript_uses_source_prefix(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify that transcripts use the source parameter for filename prefix."""
+        mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="transcript content")
+        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        resolver = _make_resolver(config, agents=mock_agents)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+
+        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+
+        await resolver.resolve_merge_conflicts(
+            pr,
+            issue,
+            config.worktree_base / "issue-42",
+            worker_id=0,
+            source="pr_unsticker",
+        )
+
+        log_dir = config.repo_root / ".hydraflow" / "logs"
+        assert (log_dir / "pr_unsticker-pr-101-attempt-1.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_source_passed_to_memory_suggestion(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify safe_file_memory_suggestion gets the correct source string."""
+        from unittest.mock import patch
+
+        mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="transcript")
+        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        resolver = _make_resolver(config, agents=mock_agents)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+
+        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+
+        with patch(
+            "merge_conflict_resolver.safe_file_memory_suggestion",
+            new_callable=AsyncMock,
+        ) as mock_fms:
+            await resolver.resolve_merge_conflicts(
+                pr,
+                issue,
+                config.worktree_base / "issue-42",
+                worker_id=0,
+                source="test_source",
+            )
+
+            mock_fms.assert_awaited_once()
+            assert mock_fms.call_args.args[1] == "test_source"
+
+
+class TestWorkerIdNone:
+    """Tests for worker_id=None behavior (PRUnsticker delegation)."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_with_worker_id_none_skips_status_publish(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify no REVIEW_UPDATE events when worker_id is None."""
+        mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="transcript")
+        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        resolver = _make_resolver(config, agents=mock_agents)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+
+        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+
+        # Spy on the event bus
+        publish_calls = []
+        original_publish = resolver._bus.publish
+
+        async def track_publish(event):
+            publish_calls.append(event)
+            return await original_publish(event)
+
+        resolver._bus.publish = track_publish
+
+        await resolver.resolve_merge_conflicts(
+            pr, issue, config.worktree_base / "issue-42", worker_id=None
+        )
+
+        # No REVIEW_UPDATE events should have been published
+        review_events = [
+            e
+            for e in publish_calls
+            if hasattr(e, "type") and e.type.value == "review_update"
+        ]
+        assert review_events == []
+
+    @pytest.mark.asyncio
+    async def test_resolve_with_worker_id_publishes_status(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify REVIEW_UPDATE events are published when worker_id is provided."""
+        mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="transcript")
+        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        resolver = _make_resolver(config, agents=mock_agents)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+
+        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+
+        publish_calls = []
+        original_publish = resolver._bus.publish
+
+        async def track_publish(event):
+            publish_calls.append(event)
+            return await original_publish(event)
+
+        resolver._bus.publish = track_publish
+
+        await resolver.resolve_merge_conflicts(
+            pr, issue, config.worktree_base / "issue-42", worker_id=1
+        )
+
+        # Should have published at least one REVIEW_UPDATE event
+        review_events = [
+            e
+            for e in publish_calls
+            if hasattr(e, "type") and e.type.value == "review_update"
+        ]
+        assert len(review_events) >= 1
+
+
+class TestSaveTranscriptOSError:
+    """Tests for OSError handling in _save_conflict_transcript."""
+
+    def test_save_transcript_handles_oserror(
+        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verify OSError is caught and logged."""
+        resolver = _make_resolver(config)
+
+        def _raise_oserror(*args, **kwargs):
+            raise OSError("No space left on device")
+
+        import pytest as _pytest
+
+        with _pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "write_text", _raise_oserror)
+            resolver.save_conflict_transcript(101, 42, 1, "transcript content")
+
+        assert "Could not save conflict transcript" in caplog.text
+
+    def test_save_transcript_uses_source_in_filename(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify the source parameter is used in the filename."""
+        resolver = _make_resolver(config)
+        resolver.save_conflict_transcript(101, 42, 1, "content", source="my_source")
+        log_dir = config.repo_root / ".hydraflow" / "logs"
+        assert (log_dir / "my_source-pr-101-attempt-1.txt").exists()
 
 
 class TestFreshBranchRebuild:
@@ -197,12 +363,12 @@ class TestFreshBranchRebuild:
         )
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff --git a/foo.py\n+bar")
 
-        success, used_rebuild = await resolver.resolve_merge_conflicts(
+        result = await resolver.resolve_merge_conflicts(
             pr, issue, tmp_path / "worktrees" / "issue-42", worker_id=0
         )
 
-        assert success is True
-        assert used_rebuild is True
+        assert result.success is True
+        assert result.used_rebuild is True
         resolver._worktrees.destroy.assert_awaited_once()
         resolver._worktrees.create.assert_awaited_once()
         resolver._prs.get_pr_diff.assert_awaited_once_with(pr.number)

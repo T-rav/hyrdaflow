@@ -13,6 +13,7 @@ from pathlib import Path
 
 from manifest import detect_language  # noqa: F401 - compatibility re-export
 from polyglot_prep import detect_prep_stack
+from prep_ignore import PREP_IGNORED_DIRS, load_git_submodule_roots
 
 _PYTHON_TARGETS: dict[str, str] = {
     "lint": "\truff check . --fix && ruff format .\n",
@@ -29,7 +30,7 @@ _JS_TARGETS: dict[str, str] = {
     "lint-fix": "\t$(MAKE) lint\n",
     "typecheck": "\tnpx tsc --noEmit\n",
     "security": "\tnpm audit --audit-level=moderate\n",
-    "test": "\tnpx vitest run\n",
+    "test": "\tnpx vitest run --exclude='hydraflow/**'\n",
 }
 
 _JAVA_TARGETS: dict[str, str] = {
@@ -260,28 +261,19 @@ _PROJECT_MARKERS: tuple[str, ...] = (
     "Gemfile",
     "CMakeLists.txt",
 )
-_IGNORED_DIRS: set[str] = {
-    ".git",
-    ".github",
-    ".venv",
-    "venv",
-    "node_modules",
-    "dist",
-    "build",
-    "target",
-    ".next",
-    ".turbo",
-    ".idea",
-    "__pycache__",
-    ".pytest_cache",
-}
 
 
 def discover_project_paths(repo_root: Path) -> list[Path]:
     """Discover project directories that should get Makefile scaffolding."""
     paths: set[Path] = set()
+    submodule_roots = load_git_submodule_roots(repo_root)
     for path in repo_root.rglob("*"):
-        if any(part in _IGNORED_DIRS for part in path.parts):
+        if any(part in PREP_IGNORED_DIRS for part in path.parts):
+            continue
+        resolved = path.resolve()
+        if any(
+            root == resolved or root in resolved.parents for root in submodule_roots
+        ):
             continue
         if not path.is_file():
             continue
@@ -298,8 +290,15 @@ def parse_makefile(content: str) -> dict[str, str]:
     targets: dict[str, str] = {}
     current_target: str | None = None
     recipe_lines: list[str] = []
+    heredoc_delimiter: str | None = None
 
     for line in content.split("\n"):
+        if heredoc_delimiter is not None and current_target is not None:
+            recipe_lines.append(line)
+            if line.strip() == heredoc_delimiter:
+                heredoc_delimiter = None
+            continue
+
         # Skip .PHONY declarations
         if line.startswith(".PHONY"):
             continue
@@ -317,7 +316,13 @@ def parse_makefile(content: str) -> dict[str, str]:
 
         # Recipe line (tab-indented)
         if line.startswith("\t") and current_target is not None:
-            recipe_lines.append(line.lstrip("\t"))
+            stripped = line.lstrip("\t")
+            recipe_lines.append(stripped)
+            heredoc_match = re.search(
+                r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?$", stripped
+            )
+            if heredoc_match:
+                heredoc_delimiter = heredoc_match.group(1)
             continue
 
         # Blank or non-recipe line ends current target
@@ -402,13 +407,19 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
     warnings: list[str] = []
     targets_to_add: list[str] = []
 
+    def _normalize_recipe(recipe: str) -> str:
+        lines = [line.strip() for line in recipe.strip().splitlines()]
+        return "\n".join(lines)
+
     for name, template_recipe in all_template.items():
         if name in existing_targets:
             # Compare recipes (only for targets with recipe bodies)
             if template_recipe is not None:
                 existing_recipe = existing_targets[name]
                 expected_recipe = template_recipe.strip("\n").lstrip("\t")
-                if existing_recipe.strip() != expected_recipe.strip():
+                if _normalize_recipe(existing_recipe) != _normalize_recipe(
+                    expected_recipe
+                ):
                     warnings.append(
                         f"Target '{name}' exists with different recipe: "
                         f"found '{existing_recipe.strip()}', "

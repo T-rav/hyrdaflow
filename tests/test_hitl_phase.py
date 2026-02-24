@@ -244,6 +244,60 @@ class TestHITLPhaseProcessing:
         assert events[0].data["status"] == "pending"
 
     @pytest.mark.asyncio
+    async def test_stop_event_awaits_cancelled_tasks(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After stop_event, cancelled tasks must be awaited for clean shutdown."""
+        from models import HITLResult
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+
+        # Allow two concurrent workers so task 43 is genuinely mid-execution
+        # (blocked in runner.run) when it gets cancelled.  With max_hitl_workers=1
+        # task 43 never starts before the outer loop cancels it, making the test
+        # a false positive (it would pass even without the gather fix).
+        config.max_hitl_workers = 2
+
+        first_task_started = asyncio.Event()
+        task_43_running = asyncio.Event()
+
+        async def run_by_issue(issue, correction, cause, wt_path):  # noqa: ANN001, ANN202, ARG001
+            if issue.number == 42:
+                first_task_started.set()
+                # Wait for task 43 to be truly blocked inside runner.run, then stop
+                await task_43_running.wait()
+                phase._stop_event.set()
+                return HITLResult(issue_number=42, success=True)
+            else:
+                # Signal that task 43 is running, then block until cancelled
+                task_43_running.set()
+                await asyncio.sleep(3600)  # interrupted by CancelledError
+                return HITLResult(issue_number=43, success=True)
+
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect=lambda n: IssueFactory.create(number=n)
+        )
+        runner.run = AsyncMock(side_effect=run_by_issue)
+
+        # Submit two corrections — task 42 sets stop_event while task 43 is
+        # mid-execution (sleeping in runner.run), so the outer loop must cancel
+        # and properly await task 43 via gather.
+        phase.submit_correction(42, "Fix A")
+        phase.submit_correction(43, "Fix B")
+
+        await phase.process_corrections()
+
+        # Both tasks must have actually run (not completed trivially)
+        assert first_task_started.is_set(), "Task 42 should have run"
+        assert task_43_running.is_set(), "Task 43 should have been mid-execution"
+        # The key assertion: no pending tasks remain after process_corrections returns.
+        # Without `await asyncio.gather(...)`, the cancelled task 43 (blocked in
+        # asyncio.sleep) would still be pending here.
+        current = asyncio.current_task()
+        pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+        assert not pending, f"Leaked tasks after process_corrections: {pending}"
+
+    @pytest.mark.asyncio
     async def test_clears_active_issues(self, config: HydraFlowConfig) -> None:
         """Issue should be removed from active_hitl_issues after processing."""
         from models import HITLResult
@@ -670,3 +724,93 @@ class TestHITLMemorySuggestionFiling:
             prs.post_comment.assert_called_once()
             comment = prs.post_comment.call_args.args[1]
             assert "HITL correction applied successfully" in comment
+
+
+# ---------------------------------------------------------------------------
+# Critical exception propagation through process_correction
+# ---------------------------------------------------------------------------
+
+
+class TestHITLExceptionPropagation:
+    """Tests that critical exceptions propagate through _process_one_hitl."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_propagates_through_process_correction(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AuthenticationError should propagate, not be caught by except Exception."""
+        from subprocess_util import AuthenticationError
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=AuthenticationError("401 Unauthorized"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(AuthenticationError, match="401"):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+    @pytest.mark.asyncio
+    async def test_credit_error_propagates_through_process_correction(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CreditExhaustedError should propagate, not be caught by except Exception."""
+        from subprocess_util import CreditExhaustedError
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=CreditExhaustedError("limit reached"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(CreditExhaustedError, match="limit reached"):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_process_correction(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError should propagate, not be caught by except Exception."""
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=MemoryError("out of memory"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(MemoryError, match="out of memory"):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+    @pytest.mark.asyncio
+    async def test_active_issues_cleaned_on_critical_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Active HITL issues should be cleaned up even when critical errors propagate."""
+        from subprocess_util import AuthenticationError
+
+        phase, state, fetcher, prs, wt, runner, _bus = _make_phase(config)
+        issue = IssueFactory.create(number=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(side_effect=AuthenticationError("401 Unauthorized"))
+
+        semaphore = asyncio.Semaphore(1)
+        with pytest.raises(AuthenticationError):
+            await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+        # finally block should still clean up active issues
+        assert 42 not in phase._active_hitl_issues

@@ -280,6 +280,79 @@ class TestCreate:
         # _create_venv catches RuntimeError internally, so create completes
         assert result == config.worktree_base / "issue-7"
 
+    @pytest.mark.asyncio
+    async def test_create_cleans_up_branch_when_worktree_add_fails(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Cleanup should delete dangling branch when worktree add fails mid-chain."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = make_proc(returncode=0)
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: worktree add failed")
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Calls 1-2: fetch + branch -f succeed; call 3: worktree add fails
+            if call_count <= 2:
+                return success_proc
+            return fail_proc
+
+        delete_branch = AsyncMock()
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch.object(manager, "_delete_local_branch", delete_branch),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            pytest.raises(RuntimeError, match="worktree add failed"),
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+        # Called once pre-cleanup (stale branch removal) and once during cleanup
+        assert delete_branch.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_create_cleans_up_worktree_when_setup_env_fails(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Cleanup should remove worktree and branch when post-creation setup fails."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = make_proc(returncode=0)
+        exec_calls: list[tuple[object, ...]] = []
+
+        async def fake_exec(*args, **kwargs):
+            exec_calls.append(args)
+            return success_proc
+
+        delete_branch = AsyncMock()
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch.object(manager, "_delete_local_branch", delete_branch),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(
+                manager, "_setup_env", side_effect=OSError("Permission denied")
+            ),
+            pytest.raises(OSError, match="Permission denied"),
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+        # Cleanup should call git worktree remove --force
+        worktree_remove_calls = [
+            c
+            for c in exec_calls
+            if len(c) >= 2 and c[:2] == ("git", "worktree") and "--force" in c
+        ]
+        assert len(worktree_remove_calls) == 1
+
+        # Cleanup should also delete the branch
+        assert delete_branch.await_count == 2
+
 
 # ---------------------------------------------------------------------------
 # WorktreeManager.destroy
@@ -1184,6 +1257,25 @@ class TestConfigureGitIdentity:
         calls = mock_exec.call_args_list
         assert len(calls) == 1
         assert calls[0].args == ("git", "config", "user.email", "bot@example.com")
+
+    @pytest.mark.asyncio
+    async def test_runtime_error_does_not_raise(self, tmp_path: Path) -> None:
+        """_configure_git_identity should log warning and continue on RuntimeError."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            git_user_name="Bot",
+            git_user_email="bot@example.com",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        manager = WorktreeManager(cfg)
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: config error")
+
+        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+            # Should not raise — logs warning and continues
+            await manager._configure_git_identity(tmp_path)
 
     @pytest.mark.asyncio
     async def test_called_during_create(self, tmp_path: Path) -> None:

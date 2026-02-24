@@ -212,7 +212,7 @@ class PlannerRunner(BaseRunner):
                 )
         return result
 
-    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:  # type: ignore[override]
+    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the CLI invocation for planning.
 
         The *_worktree_path* parameter is accepted for API compatibility with

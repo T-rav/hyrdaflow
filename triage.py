@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from agent_cli import build_agent_command
-from config import HydraFlowConfig
-from events import EventBus, EventType, HydraFlowEvent
-from execution import get_default_runner
+from base_runner import BaseRunner
+from events import EventType, HydraFlowEvent
 from models import Task, TriageResult, TriageStatus
-from runner_utils import stream_claude_process, terminate_processes
 from subprocess_util import CreditExhaustedError
-
-if TYPE_CHECKING:
-    from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.triage")
 
@@ -56,7 +50,7 @@ def _coerce_ready(raw: object) -> bool:
     return bool(raw)
 
 
-class TriageRunner:
+class TriageRunner(BaseRunner):
     """Evaluates whether a GitHub issue has enough context for planning.
 
     Uses an LLM to assess issue clarity, specificity, actionability, and scope.
@@ -66,16 +60,7 @@ class TriageRunner:
     active worker in the FIND column.
     """
 
-    def __init__(
-        self,
-        config: HydraFlowConfig,
-        event_bus: EventBus,
-        runner: SubprocessRunner | None = None,
-    ) -> None:
-        self._config = config
-        self._bus = event_bus
-        self._active_procs: set[asyncio.subprocess.Process] = set()
-        self._runner = runner or get_default_runner()
+    _log = logger
 
     async def evaluate(
         self,
@@ -175,8 +160,13 @@ class TriageRunner:
         )
         return result
 
-    def _build_command(self) -> list[str]:
-        """Construct the CLI invocation for triage evaluation."""
+    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
+        """Construct the CLI invocation for triage evaluation.
+
+        The *_worktree_path* parameter is accepted for API compatibility with
+        ``BaseRunner._build_command`` but is unused — triage always runs
+        against ``self._config.repo_root``.
+        """
         return build_agent_command(
             tool=self._config.triage_tool,
             model=self._config.triage_model,
@@ -230,17 +220,13 @@ or
         cmd = self._build_command()
         prompt = self._build_prompt(issue)
 
-        transcript = await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=self._config.repo_root,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data={"issue": issue.id, "source": "triage"},
-            logger=logger,
-            timeout=self._config.agent_timeout,
-            runner=self._runner,
+        transcript = await self._execute(
+            cmd,
+            prompt,
+            self._config.repo_root,
+            {"issue": issue.id, "source": "triage"},
         )
+        self._save_transcript("triage-issue", issue.id, transcript)
 
         result = self._parse_verdict(transcript, issue.id)
         if result is not None:
@@ -306,10 +292,6 @@ or
                 pass
 
         return None
-
-    def terminate(self) -> None:
-        """Kill all active triage subprocesses."""
-        terminate_processes(self._active_procs)
 
     async def _emit_transcript(self, issue_number: int, line: str) -> None:
         """Publish a transcript line for the triage worker."""

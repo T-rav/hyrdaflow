@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -57,6 +57,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
+    ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
     ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
     ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
@@ -91,7 +92,38 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_ENABLE_FRESH_BRANCH_REBUILD",
         True,
     ),
+    ("docker_enabled", "HYDRAFLOW_DOCKER_ENABLED", False),
 ]
+
+# Literal-typed env-var overrides.
+# Each tuple: (field_name, env_var_key)
+# The default and allowed values are read dynamically from model_fields.
+_ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
+    ("execution_mode", "HYDRAFLOW_EXECUTION_MODE"),
+    ("docker_network_mode", "HYDRAFLOW_DOCKER_NETWORK_MODE"),
+    ("implementation_tool", "HYDRAFLOW_IMPLEMENTATION_TOOL"),
+    ("review_tool", "HYDRAFLOW_REVIEW_TOOL"),
+    ("planner_tool", "HYDRAFLOW_PLANNER_TOOL"),
+    ("triage_tool", "HYDRAFLOW_TRIAGE_TOOL"),
+    ("ac_tool", "HYDRAFLOW_AC_TOOL"),
+    ("verification_judge_tool", "HYDRAFLOW_VERIFICATION_JUDGE_TOOL"),
+    ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
+    ("debug_tool", "HYDRAFLOW_DEBUG_TOOL"),
+]
+
+# Deprecated env var aliases (HYDRA_ → HYDRAFLOW_).
+# During the deprecation period, old names are promoted to canonical names
+# with a warning at startup.
+_DEPRECATED_ENV_ALIASES: dict[str, str] = {
+    "HYDRA_DOCKER_ENABLED": "HYDRAFLOW_DOCKER_ENABLED",
+    "HYDRA_DOCKER_IMAGE": "HYDRAFLOW_DOCKER_IMAGE",
+    "HYDRA_DOCKER_NETWORK": "HYDRAFLOW_DOCKER_NETWORK",
+    "HYDRA_DOCKER_SPAWN_DELAY": "HYDRAFLOW_DOCKER_SPAWN_DELAY",
+}
+# Reverse lookup: canonical key → deprecated key (built once at import time).
+_DEPRECATED_ENV_REVERSE: dict[str, str] = {
+    v: k for k, v in _DEPRECATED_ENV_ALIASES.items()
+}
 
 # Label env var overrides — maps env key → (field_name, default_value)
 _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
@@ -862,12 +894,27 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
             object.__setattr__(config, "git_user_email", env_email)
 
 
+def _get_env(key: str) -> str | None:
+    """Return the env var value for *key*, falling back to any deprecated alias."""
+    val = os.environ.get(key)
+    if val is not None:
+        return val
+    old_key = _DEPRECATED_ENV_REVERSE.get(key)
+    if old_key is not None:
+        val = os.environ.get(old_key)
+        if val is not None:
+            logger.warning("Deprecated env var %s; use %s instead", old_key, key)
+            return val
+    return None
+
+
 def _apply_env_overrides(config: HydraFlowConfig) -> None:
     """Apply all data-driven and special-case env var overrides."""
+
     # Data-driven env var overrides (int fields)
     for field, env_key, default in _ENV_INT_OVERRIDES:
         if getattr(config, field) == default:
-            env_val = os.environ.get(env_key)
+            env_val = _get_env(env_key)
             if env_val is not None:
                 with contextlib.suppress(ValueError):
                     object.__setattr__(config, field, int(env_val))
@@ -875,14 +922,14 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
     # Data-driven env var overrides (str fields)
     for field, env_key, default in _ENV_STR_OVERRIDES:
         if getattr(config, field) == default:
-            env_val = os.environ.get(env_key)
+            env_val = _get_env(env_key)
             if env_val is not None:
                 object.__setattr__(config, field, env_val)
 
     # Data-driven env var overrides (float fields)
     for field, env_key, default in _ENV_FLOAT_OVERRIDES:
         if getattr(config, field) == default:
-            env_val = os.environ.get(env_key)
+            env_val = _get_env(env_key)
             if env_val is not None:
                 with contextlib.suppress(ValueError):
                     new_val = float(env_val)
@@ -902,7 +949,7 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
     # Data-driven env var overrides (bool fields)
     for field, env_key, default in _ENV_BOOL_OVERRIDES:
         if getattr(config, field) == default:
-            env_val = os.environ.get(env_key)
+            env_val = _get_env(env_key)
             if env_val is not None:
                 object.__setattr__(
                     config,
@@ -910,56 +957,22 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                     env_val.lower() not in ("0", "false", "no"),
                 )
 
-    # Literal-typed env var overrides (validated before setting)
-    if config.execution_mode == "host":
-        env_exec = os.environ.get("HYDRAFLOW_EXECUTION_MODE")
-        if env_exec in ("host", "docker"):
-            object.__setattr__(config, "execution_mode", env_exec)
-
-    if config.docker_network_mode == "bridge":
-        env_net = os.environ.get("HYDRAFLOW_DOCKER_NETWORK_MODE")
-        if env_net in ("bridge", "none", "host"):
-            object.__setattr__(config, "docker_network_mode", env_net)
-
-    if config.implementation_tool == "claude":
-        env_impl_tool = os.environ.get("HYDRAFLOW_IMPLEMENTATION_TOOL")
-        if env_impl_tool in ("claude", "codex"):
-            object.__setattr__(config, "implementation_tool", env_impl_tool)
-
-    if config.review_tool == "claude":
-        env_review_tool = os.environ.get("HYDRAFLOW_REVIEW_TOOL")
-        if env_review_tool in ("claude", "codex"):
-            object.__setattr__(config, "review_tool", env_review_tool)
-
-    if config.planner_tool == "claude":
-        env_planner_tool = os.environ.get("HYDRAFLOW_PLANNER_TOOL")
-        if env_planner_tool in ("claude", "codex"):
-            object.__setattr__(config, "planner_tool", env_planner_tool)
-
-    if config.triage_tool == "claude":
-        env_triage_tool = os.environ.get("HYDRAFLOW_TRIAGE_TOOL")
-        if env_triage_tool in ("claude", "codex"):
-            object.__setattr__(config, "triage_tool", env_triage_tool)
-
-    if config.ac_tool == "claude":
-        env_ac_tool = os.environ.get("HYDRAFLOW_AC_TOOL")
-        if env_ac_tool in ("claude", "codex"):
-            object.__setattr__(config, "ac_tool", env_ac_tool)
-
-    if config.verification_judge_tool == "claude":
-        env_judge_tool = os.environ.get("HYDRAFLOW_VERIFICATION_JUDGE_TOOL")
-        if env_judge_tool in ("claude", "codex"):
-            object.__setattr__(config, "verification_judge_tool", env_judge_tool)
-
-    if config.subskill_tool == "claude":
-        env_subskill_tool = os.environ.get("HYDRAFLOW_SUBSKILL_TOOL")
-        if env_subskill_tool in ("claude", "codex"):
-            object.__setattr__(config, "subskill_tool", env_subskill_tool)
-
-    if config.debug_tool == "claude":
-        env_debug_tool = os.environ.get("HYDRAFLOW_DEBUG_TOOL")
-        if env_debug_tool in ("claude", "codex"):
-            object.__setattr__(config, "debug_tool", env_debug_tool)
+    # Data-driven env var overrides (Literal-typed fields)
+    for field, env_key in _ENV_LITERAL_OVERRIDES:
+        field_info = HydraFlowConfig.model_fields[field]
+        if getattr(config, field) == field_info.default:
+            env_val = _get_env(env_key)
+            if env_val is not None:
+                allowed = get_args(field_info.annotation)
+                if env_val in allowed:
+                    object.__setattr__(config, field, env_val)
+                else:
+                    logger.warning(
+                        "Invalid %s=%r; expected one of %s",
+                        env_key,
+                        env_val,
+                        allowed,
+                    )
 
     # Lite plan labels (comma-separated list, special-case)
     env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")
@@ -1018,32 +1031,6 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
             if labels:
                 object.__setattr__(config, field_name, labels)
 
-    # Docker execution overrides (PR #545)
-    env_docker_enabled = os.environ.get("HYDRA_DOCKER_ENABLED")
-    if env_docker_enabled is not None and config.docker_enabled is False:
-        object.__setattr__(
-            config,
-            "docker_enabled",
-            env_docker_enabled.lower() in ("1", "true", "yes"),
-        )
-
-    env_docker_image = os.environ.get("HYDRA_DOCKER_IMAGE")
-    if (
-        env_docker_image is not None
-        and config.docker_image == "ghcr.io/t-rav/hydraflow-agent:latest"
-    ):
-        object.__setattr__(config, "docker_image", env_docker_image)
-
-    env_docker_network = os.environ.get("HYDRA_DOCKER_NETWORK")
-    if env_docker_network is not None and not config.docker_network:
-        object.__setattr__(config, "docker_network", env_docker_network)
-
-    if config.docker_spawn_delay == 2.0:  # still at default
-        env_spawn_delay = os.environ.get("HYDRA_DOCKER_SPAWN_DELAY")
-        if env_spawn_delay is not None:
-            with contextlib.suppress(ValueError):
-                object.__setattr__(config, "docker_spawn_delay", float(env_spawn_delay))
-
 
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
@@ -1089,6 +1076,7 @@ def _detect_repo_slug(repo_root: Path) -> str:
             capture_output=True,
             text=True,
             check=False,
+            timeout=10,
         )
         url = result.stdout.strip()
         if not url:
@@ -1101,7 +1089,7 @@ def _detect_repo_slug(repo_root: Path) -> str:
         if "github.com:" in url:
             return url.split("github.com:")[-1]
         return ""
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return ""
 
 

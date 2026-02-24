@@ -9,9 +9,11 @@ from contextlib import asynccontextmanager
 from typing import Any, TypeVar
 
 from config import HydraFlowConfig
+from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
+from models import PRInfo
 from pr_manager import PRManager
 from state import StateTracker
 
@@ -151,3 +153,21 @@ async def store_lifecycle(
         yield
     finally:
         store.mark_complete(issue_number)
+
+
+async def publish_review_status(
+    bus: EventBus, pr: PRInfo, worker_id: int, status: str
+) -> None:
+    """Emit a REVIEW_UPDATE event with the given status."""
+    await bus.publish(
+        HydraFlowEvent(
+            type=EventType.REVIEW_UPDATE,
+            data={
+                "pr": pr.number,
+                "issue": pr.issue_number,
+                "worker": worker_id,
+                "status": status,
+                "role": "reviewer",
+            },
+        )
+    )

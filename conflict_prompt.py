@@ -12,6 +12,7 @@ from __future__ import annotations
 from config import HydraFlowConfig
 from manifest import load_project_manifest
 from memory import load_memory_digest
+from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 # Max characters of error output to include in conflict resolution prompts.
 _ERROR_OUTPUT_MAX_CHARS: int = 3000
@@ -76,20 +77,7 @@ def build_conflict_prompt(
 
     # --- Optional memory suggestion ---
     sections.append(
-        "## Optional: Memory Suggestion\n\n"
-        "If you discover a reusable pattern or insight during this "
-        "conflict resolution that would help future agent runs, "
-        "you may output ONE suggestion:\n\n"
-        "MEMORY_SUGGESTION_START\n"
-        "title: Short descriptive title\n"
-        "type: knowledge | config | instruction | code\n"
-        "learning: What was learned and why it matters\n"
-        "context: How it was discovered (reference issue/PR numbers)\n"
-        "MEMORY_SUGGESTION_END\n\n"
-        "Types: knowledge (passive insight), config (suggests config change), "
-        "instruction (new agent instruction), code (suggests code change).\n"
-        "Actionable types (config, instruction, code) will be routed for human approval.\n"
-        "Only suggest genuinely valuable learnings — not trivial observations."
+        MEMORY_SUGGESTION_PROMPT.format(context="conflict resolution").rstrip()
     )
 
     return "\n\n".join(sections)
@@ -173,21 +161,6 @@ def build_rebuild_prompt(
     )
 
     # --- Optional memory suggestion ---
-    sections.append(
-        "## Optional: Memory Suggestion\n\n"
-        "If you discover a reusable pattern or insight during this "
-        "rebuild that would help future agent runs, "
-        "you may output ONE suggestion:\n\n"
-        "MEMORY_SUGGESTION_START\n"
-        "title: Short descriptive title\n"
-        "type: knowledge | config | instruction | code\n"
-        "learning: What was learned and why it matters\n"
-        "context: How it was discovered (reference issue/PR numbers)\n"
-        "MEMORY_SUGGESTION_END\n\n"
-        "Types: knowledge (passive insight), config (suggests config change), "
-        "instruction (new agent instruction), code (suggests code change).\n"
-        "Actionable types (config, instruction, code) will be routed for human approval.\n"
-        "Only suggest genuinely valuable learnings — not trivial observations."
-    )
+    sections.append(MEMORY_SUGGESTION_PROMPT.format(context="rebuild").rstrip())
 
     return "\n\n".join(sections)

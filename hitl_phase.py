@@ -14,6 +14,7 @@ from issue_store import IssueStore
 from phase_utils import safe_file_memory_suggestion
 from pr_manager import PRManager
 from state import StateTracker
+from subprocess_util import AuthenticationError, CreditExhaustedError
 from worktree import WorktreeManager
 
 logger = logging.getLogger("hydraflow.hitl_phase")
@@ -119,6 +120,7 @@ class HITLPhase:
             if self._stop_event.is_set():
                 for t in tasks:
                     t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
                 break
 
     async def _process_one_hitl(
@@ -259,6 +261,8 @@ class HITLPhase:
                             issue_number,
                             exc,
                         )
+            except (AuthenticationError, CreditExhaustedError, MemoryError):
+                raise
             except Exception:
                 logger.exception("HITL processing failed for issue #%d", issue_number)
             finally:

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from events import EventType
 from models import (
+    ConflictResolutionResult,
     CriterionResult,
     CriterionVerdict,
     JudgeResult,
@@ -1260,7 +1261,7 @@ class TestResolveMergeConflicts:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (False, False)
+        assert result == ConflictResolutionResult(success=False, used_rebuild=False)
 
     @pytest.mark.asyncio
     async def test_returns_true_when_start_merge_is_clean(
@@ -1278,7 +1279,7 @@ class TestResolveMergeConflicts:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         # Agent should NOT have been invoked
         mock_agents._execute.assert_not_awaited()
 
@@ -1300,7 +1301,7 @@ class TestResolveMergeConflicts:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         mock_agents._build_command.assert_called_once()
         mock_agents._execute.assert_awaited_once()
         mock_agents._verify_result.assert_awaited_once()
@@ -1323,7 +1324,7 @@ class TestResolveMergeConflicts:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result[0] is False
+        assert result.success is False
         # abort_merge called between retries + final abort
         assert phase._worktrees.abort_merge.await_count >= 1
 
@@ -1346,7 +1347,7 @@ class TestResolveMergeConflicts:
             pr, issue, config.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (True, False)
+        assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         assert mock_agents._execute.await_count == 2
         assert mock_agents._verify_result.await_count == 2
 
@@ -1377,7 +1378,7 @@ class TestResolveMergeConflicts:
             pr, issue, cfg.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (False, False)
+        assert result == ConflictResolutionResult(success=False, used_rebuild=False)
         # Default is 3 attempts
         assert mock_agents._execute.await_count == 3
         assert mock_agents._verify_result.await_count == 3
@@ -1449,8 +1450,8 @@ class TestResolveMergeConflicts:
         )
 
         log_dir = config.repo_root / ".hydraflow" / "logs"
-        assert (log_dir / "conflict-pr-101-attempt-1.txt").exists()
-        assert (log_dir / "conflict-pr-101-attempt-2.txt").exists()
+        assert (log_dir / "merge_conflict-pr-101-attempt-1.txt").exists()
+        assert (log_dir / "merge_conflict-pr-101-attempt-2.txt").exists()
 
     @pytest.mark.asyncio
     async def test_respects_config_max_attempts(self, config: HydraFlowConfig) -> None:
@@ -1478,7 +1479,7 @@ class TestResolveMergeConflicts:
             pr, issue, cfg.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (False, False)
+        assert result == ConflictResolutionResult(success=False, used_rebuild=False)
         assert mock_agents._execute.await_count == 1
 
     @pytest.mark.asyncio
@@ -1505,7 +1506,7 @@ class TestResolveMergeConflicts:
             pr, issue, cfg.worktree_base / "issue-42", worker_id=0
         )
 
-        assert result == (False, False)
+        assert result == ConflictResolutionResult(success=False, used_rebuild=False)
         mock_agents._execute.assert_not_awaited()
         # Final abort_merge should still be called
         phase._worktrees.abort_merge.assert_awaited_once()
@@ -1525,7 +1526,8 @@ class TestResolveMergeConflicts:
         phase._worktrees.start_merge_main = AsyncMock(return_value=False)
 
         with patch(
-            "merge_conflict_resolver.file_memory_suggestion", new_callable=AsyncMock
+            "merge_conflict_resolver.safe_file_memory_suggestion",
+            new_callable=AsyncMock,
         ) as mock_fms:
             await phase._resolve_merge_conflicts(
                 pr, issue, config.worktree_base / "issue-42", worker_id=0
@@ -1533,7 +1535,7 @@ class TestResolveMergeConflicts:
 
             mock_fms.assert_awaited_once_with(
                 "transcript with suggestion",
-                "conflict_resolver",
+                "merge_conflict",
                 f"PR #{pr.number}",
                 phase._config,
                 phase._prs,
@@ -1555,7 +1557,7 @@ class TestResolveMergeConflicts:
         phase._worktrees.start_merge_main = AsyncMock(return_value=False)
 
         with patch(
-            "merge_conflict_resolver.file_memory_suggestion",
+            "phase_utils.file_memory_suggestion",
             new_callable=AsyncMock,
             side_effect=RuntimeError("network error"),
         ):
@@ -1563,7 +1565,7 @@ class TestResolveMergeConflicts:
                 pr, issue, config.worktree_base / "issue-42", worker_id=0
             )
 
-            assert result == (True, False)
+            assert result == ConflictResolutionResult(success=True, used_rebuild=False)
 
 
 # ---------------------------------------------------------------------------

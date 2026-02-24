@@ -11,7 +11,14 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from escalation_gate import high_risk_diff_touched, should_escalate_debug
 from events import EventType, HydraFlowEvent
-from models import PRInfo, ReviewerStatus, ReviewResult, ReviewVerdict, Task
+from models import (
+    PrecheckResult,
+    PRInfo,
+    ReviewerStatus,
+    ReviewResult,
+    ReviewVerdict,
+    Task,
+)
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
 
@@ -244,7 +251,7 @@ End your response with EXACTLY one of these verdict lines:
 Then a brief summary on the next line starting with "SUMMARY: ".
 """
 
-    def _build_command(self, worktree_path: Path) -> list[str]:
+    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the review CLI invocation.
 
         The working directory is set via ``cwd`` in the subprocess call,
@@ -433,7 +440,7 @@ Diff snippet:
     @staticmethod
     def _parse_precheck_transcript(
         transcript: str,
-    ) -> tuple[str, float, bool, str, bool]:
+    ) -> PrecheckResult:
         risk_match = re.search(
             r"PRECHECK_RISK:\s*(low|medium|high)",
             transcript,
@@ -461,7 +468,13 @@ Diff snippet:
         confidence = float(confidence_match.group(1)) if confidence_match else 0.0
         escalate = bool(escalate_match and escalate_match.group(1).lower() == "yes")
         summary = summary_match.group(1).strip() if summary_match else ""
-        return risk, confidence, escalate, summary, parse_failed
+        return PrecheckResult(
+            risk=risk,
+            confidence=confidence,
+            escalate=escalate,
+            summary=summary,
+            parse_failed=parse_failed,
+        )
 
     async def _run_precheck_context(
         self, pr: PRInfo, issue: Task, diff: str, worktree_path: Path
@@ -483,13 +496,11 @@ Diff snippet:
                     worktree_path,
                     {"pr": pr.number, "source": "reviewer"},
                 )
-                (
-                    risk,
-                    confidence,
-                    _escalate_signal,
-                    summary,
-                    parse_failed,
-                ) = self._parse_precheck_transcript(transcript)
+                precheck = self._parse_precheck_transcript(transcript)
+                risk = precheck.risk
+                confidence = precheck.confidence
+                summary = precheck.summary
+                parse_failed = precheck.parse_failed
                 if not parse_failed:
                     break
         except Exception:  # noqa: BLE001

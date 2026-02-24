@@ -101,6 +101,18 @@ class TestHasTypescriptFiles:
         (nm / "index.ts").write_text("export {};")
         assert has_typescript_files(tmp_path) is False
 
+    def test_ignores_hydra_folder(self, tmp_path: Path) -> None:
+        hydra = tmp_path / "hydra" / "src"
+        hydra.mkdir(parents=True)
+        (hydra / "index.ts").write_text("export {};")
+        assert has_typescript_files(tmp_path) is False
+
+    def test_ignores_hydraflow_folder(self, tmp_path: Path) -> None:
+        hydraflow = tmp_path / "hydraflow" / "src"
+        hydraflow.mkdir(parents=True)
+        (hydraflow / "index.ts").write_text("export {};")
+        assert has_typescript_files(tmp_path) is False
+
     def test_no_ts_files(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()

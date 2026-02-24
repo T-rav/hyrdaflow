@@ -444,7 +444,7 @@ class MemorySyncWorker:
         except TimeoutError:
             logger.warning("Memory compaction model timed out")
             return None
-        except (OSError, FileNotFoundError, NotImplementedError) as exc:
+        except (OSError, FileNotFoundError, NotImplementedError, RuntimeError) as exc:
             logger.warning("Memory compaction model unavailable: %s", exc)
             return None
 

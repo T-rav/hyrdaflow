@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1589,3 +1589,216 @@ class TestRunDeltaVerification:
             await phase._run_delta_verification(pr, "some diff")
 
             mock_parse.assert_called_once_with(plan_content)
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_parse_returns_empty_list(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Plan file exists but has no File Delta section → returns empty string."""
+        plans_dir = config.repo_root / ".hydraflow" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        (plans_dir / "issue-42.md").write_text("## Implementation\nSome plan text.")
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(issue_number=42)
+
+        with patch("delta_verifier.parse_file_delta", return_value=[]):
+            result = await phase._run_delta_verification(pr, "diff")
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_summary_on_drift(self, config: HydraFlowConfig) -> None:
+        """When verify_delta reports drift, should return non-empty summary."""
+        from models import DeltaReport
+
+        plans_dir = config.repo_root / ".hydraflow" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        (plans_dir / "issue-42.md").write_text(
+            "## File Delta\n\n```\nMODIFIED: foo.py\n```\n"
+        )
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(issue_number=42)
+        phase._prs.get_pr_diff_names = AsyncMock(return_value=["bar.py"])
+
+        drift_report = DeltaReport(
+            planned=["foo.py"],
+            actual=["bar.py"],
+            missing=["foo.py"],
+            unexpected=["bar.py"],
+        )
+
+        with (
+            patch("delta_verifier.parse_file_delta", return_value=["foo.py"]),
+            patch("delta_verifier.verify_delta", return_value=drift_report),
+        ):
+            result = await phase._run_delta_verification(pr, "diff")
+
+        assert result != ""
+        assert "foo.py" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_plan_read_oserror(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Plan file exists but reading raises OSError → returns empty string."""
+        plans_dir = config.repo_root / ".hydraflow" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        plan_file = plans_dir / "issue-42.md"
+        plan_file.write_text("some content")
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(issue_number=42)
+
+        with patch.object(
+            type(plan_file), "read_text", side_effect=OSError("disk error")
+        ):
+            result = await phase._run_delta_verification(pr, "diff")
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_calls_get_pr_diff_names(self, config: HydraFlowConfig) -> None:
+        """Should call get_pr_diff_names with the PR number."""
+        plans_dir = config.repo_root / ".hydraflow" / "plans"
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        (plans_dir / "issue-42.md").write_text(
+            "## File Delta\n\n```\nMODIFIED: foo.py\n```\n"
+        )
+
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
+        phase._prs.get_pr_diff_names = AsyncMock(return_value=["foo.py"])
+
+        with (
+            patch("delta_verifier.parse_file_delta", return_value=["foo.py"]),
+            patch("delta_verifier.verify_delta") as mock_verify,
+        ):
+            mock_verify.return_value.has_drift = False
+            await phase._run_delta_verification(pr, "diff")
+
+        phase._prs.get_pr_diff_names.assert_awaited_once_with(101)
+
+
+# ---------------------------------------------------------------------------
+# _record_review_insight
+# ---------------------------------------------------------------------------
+
+
+class TestRecordReviewInsight:
+    """Tests for ReviewPhase._record_review_insight."""
+
+    @pytest.mark.asyncio
+    async def test_appends_review_record_on_approve(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Should append a ReviewRecord to the insight store for every result."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE,
+            fixes_made=False,
+        )
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = []
+        mock_insights.get_proposed_categories.return_value = set()
+        phase._insights = mock_insights
+
+        with patch("review_phase.analyze_patterns", return_value=[]):
+            await phase._record_review_insight(result)
+
+        mock_insights.append_review.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_creates_issue_when_pattern_detected(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When a recurring pattern is detected, a GitHub improvement issue is created."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
+        phase._prs.create_task = AsyncMock(return_value=123)
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = [MagicMock()] * 5
+        mock_insights.get_proposed_categories.return_value = set()
+        phase._insights = mock_insights
+
+        evidence = [
+            MagicMock(pr_number=1, issue_number=10, summary="pr1"),
+            MagicMock(pr_number=2, issue_number=20, summary="pr2"),
+        ]
+        with patch(
+            "review_phase.analyze_patterns",
+            return_value=[("test_coverage", 4, evidence)],
+        ):
+            await phase._record_review_insight(result)
+
+        phase._prs.create_task.assert_awaited_once()
+        mock_insights.mark_category_proposed.assert_called_once_with("test_coverage")
+
+    @pytest.mark.asyncio
+    async def test_skips_already_proposed_category(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Should not create a duplicate issue for an already-proposed category."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
+        phase._prs.create_task = AsyncMock(return_value=None)
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = [MagicMock()] * 5
+        mock_insights.get_proposed_categories.return_value = {"test_coverage"}
+        phase._insights = mock_insights
+
+        evidence = [
+            MagicMock(pr_number=1, issue_number=10, summary="pr1"),
+            MagicMock(pr_number=2, issue_number=20, summary="pr2"),
+        ]
+        with patch(
+            "review_phase.analyze_patterns",
+            return_value=[("test_coverage", 4, evidence)],
+        ):
+            await phase._record_review_insight(result)
+
+        phase._prs.create_task.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sets_hitl_state_when_issue_created(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When an insight issue is created, HITL origin and cause are recorded in state."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(
+            issue_number=42, verdict=ReviewVerdict.REQUEST_CHANGES
+        )
+        phase._prs.create_task = AsyncMock(return_value=99)
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = [MagicMock()] * 5
+        mock_insights.get_proposed_categories.return_value = set()
+        phase._insights = mock_insights
+
+        evidence = [MagicMock(pr_number=10, issue_number=42, summary="pr10")]
+        with patch(
+            "review_phase.analyze_patterns",
+            return_value=[("type_errors", 3, evidence)],
+        ):
+            await phase._record_review_insight(result)
+
+        assert phase._state.get_hitl_origin(99) == config.improve_label[0]
+        cause = phase._state.get_hitl_cause(99)
+        assert cause is not None and "Recurring review pattern" in cause
+
+    @pytest.mark.asyncio
+    async def test_exception_does_not_propagate(self, config: HydraFlowConfig) -> None:
+        """Any exception during insight recording is swallowed — review flow continues."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create()
+
+        mock_insights = MagicMock()
+        mock_insights.append_review.side_effect = RuntimeError("disk full")
+        phase._insights = mock_insights
+
+        # Should not raise
+        await phase._record_review_insight(result)

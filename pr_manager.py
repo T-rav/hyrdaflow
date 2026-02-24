@@ -83,6 +83,8 @@ class PRManager:
         self._bus = event_bus
         self._repo = config.repo
         self._max_retries = config.gh_max_retries
+        self._label_counts_cache: dict[str, object] = {}
+        self._label_counts_ts: float = 0.0
 
     async def _run_gh(self, *cmd: str, cwd: Path | None = None) -> str:
         """Run a gh/git command with retry logic."""
@@ -1067,9 +1069,6 @@ class PRManager:
 
     # --- GitHub metrics helpers ---
 
-    _label_counts_cache: dict[str, object] = {}
-    _label_counts_ts: float = 0.0
-
     async def _search_github_count(self, query: str) -> int:
         """Run a GitHub search query and return the total_count.
 
@@ -1100,9 +1099,15 @@ class PRManager:
         for display_key, label_names in label_map.items():
             count = 0
             for label in label_names:
-                with contextlib.suppress(RuntimeError, ValueError):
+                try:
                     count += await self._search_github_count(
                         f'repo:{self._repo} is:issue is:open label:"{label}"'
+                    )
+                except (RuntimeError, ValueError):
+                    logger.debug(
+                        "Could not count open issues for label %r",
+                        label,
+                        exc_info=True,
                     )
             open_by_label[display_key] = count
         return open_by_label
@@ -1115,9 +1120,15 @@ class PRManager:
         """
         total = 0
         for label in labels:
-            with contextlib.suppress(RuntimeError, ValueError):
+            try:
                 total += await self._search_github_count(
                     f'repo:{self._repo} is:issue is:closed label:"{label}"'
+                )
+            except (RuntimeError, ValueError):
+                logger.debug(
+                    "Could not count closed issues for label %r",
+                    label,
+                    exc_info=True,
                 )
         return total
 
@@ -1132,6 +1143,11 @@ class PRManager:
                 f'repo:{self._repo} is:pr is:merged label:"{label}"'
             )
         except (RuntimeError, ValueError):
+            logger.debug(
+                "Could not count merged PRs for label %r",
+                label,
+                exc_info=True,
+            )
             return 0
 
     async def get_label_counts(self, config: HydraFlowConfig) -> dict[str, object]:

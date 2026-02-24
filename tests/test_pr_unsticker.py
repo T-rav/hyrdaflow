@@ -11,14 +11,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import GitHubIssue, HITLItem
+from models import ConflictResolutionResult, GitHubIssue, HITLItem
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
 from tests.conftest import make_state
 from tests.helpers import ConfigFactory
-
-
-def _raise_oserror(*args, **kwargs):
-    raise OSError("No space left on device")
 
 
 def _make_config(tmp_path: Path, **overrides) -> MagicMock:
@@ -41,6 +37,7 @@ def _make_unsticker(
     fetcher=None,
     hitl_runner=None,
     stop_event=None,
+    resolver=None,
     **config_overrides,
 ):
     cfg = config or _make_config(tmp_path, **config_overrides)
@@ -53,8 +50,23 @@ def _make_unsticker(
     ft = fetcher or AsyncMock()
     hr = hitl_runner or AsyncMock()
     se = stop_event or asyncio.Event()
+    rs = resolver or AsyncMock()
+    # save_conflict_transcript is sync; override the auto-generated AsyncMock
+    # attribute so callers don't produce "coroutine never awaited" warnings.
+    rs.save_conflict_transcript = MagicMock()
     return (
-        PRUnsticker(cfg, st, bus, prs, ag, wt, ft, hitl_runner=hr, stop_event=se),
+        PRUnsticker(
+            cfg,
+            st,
+            bus,
+            prs,
+            ag,
+            wt,
+            ft,
+            hitl_runner=hr,
+            stop_event=se,
+            resolver=rs,
+        ),
         st,
         prs,
         ag,
@@ -62,6 +74,7 @@ def _make_unsticker(
         ft,
         bus,
         hr,
+        rs,
     )
 
 
@@ -126,7 +139,7 @@ class TestAllCausesProcessing:
 
     @pytest.mark.asyncio
     async def test_all_causes_processes_everything(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
 
@@ -149,7 +162,7 @@ class TestAllCausesProcessing:
 
     @pytest.mark.asyncio
     async def test_conflicts_only_when_disabled(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=False, unstick_auto_merge=False
         )
 
@@ -174,7 +187,7 @@ class TestAllCausesProcessing:
 class TestMergeConflictFilter:
     @pytest.mark.asyncio
     async def test_filters_to_merge_conflict_causes_only(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=False, unstick_auto_merge=False
         )
 
@@ -209,23 +222,27 @@ class TestMergeConflictFilter:
 
 class TestCleanMerge:
     @pytest.mark.asyncio
-    async def test_clean_merge_resolves_without_agent(self, tmp_path: Path) -> None:
+    async def test_clean_merge_resolves_via_resolver(self, tmp_path: Path) -> None:
         issue = GitHubIssue(
             number=42,
             title="Test issue",
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=True)  # Clean merge
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
         prs.push_branch = AsyncMock(return_value=True)
+
+        # Resolver reports clean merge (no rebuild)
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -234,38 +251,38 @@ class TestCleanMerge:
 
         assert stats["resolved"] == 1
         assert stats["failed"] == 0
-        agents._execute.assert_not_called()
+        resolver.resolve_merge_conflicts.assert_awaited_once()
         prs.push_branch.assert_called_once()
 
 
 class TestSuccessfulResolution:
     @pytest.mark.asyncio
-    async def test_successful_conflict_resolution(self, tmp_path: Path) -> None:
+    async def test_successful_conflict_resolution_delegates_to_resolver(
+        self, tmp_path: Path
+    ) -> None:
         issue = GitHubIssue(
             number=42,
             title="Test issue",
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=False)
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
-
-        agents._build_command = MagicMock(return_value=["claude", "-p"])
-        agents._execute = AsyncMock(return_value="resolved conflicts")
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
-
         prs.push_branch = AsyncMock(return_value=True)
+
+        # Resolver succeeds without rebuild
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
-        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
         stats = await unsticker.unstick([_make_hitl_item(42)])
 
@@ -290,22 +307,21 @@ class TestFailedResolution:
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
-            tmp_path, max_merge_conflict_fix_attempts=2, unstick_auto_merge=False
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=False
         )
         state.set_hitl_cause(42, "Merge conflict")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=False)
-        wt.abort_merge = AsyncMock()
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-        agents._build_command = MagicMock(return_value=["claude", "-p"])
-        agents._execute = AsyncMock(return_value="failed transcript")
-        agents._verify_result = AsyncMock(return_value=(False, "make quality failed"))
+        # Resolver fails
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=False, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
-        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
         stats = await unsticker.unstick([_make_hitl_item(42)])
 
@@ -325,7 +341,7 @@ class TestFailedResolution:
 class TestBatchSizeLimit:
     @pytest.mark.asyncio
     async def test_batch_size_limits_processing(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, pr_unstick_batch_size=2, unstick_auto_merge=False
         )
 
@@ -355,7 +371,7 @@ class TestCIFailureResolution:
             labels=["hydraflow-hitl"],
             url="https://github.com/test-org/test-repo/issues/42",
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
         state.set_hitl_cause(42, "CI failed after 2 fix attempts")
@@ -411,7 +427,7 @@ class TestGenericResolution:
             return_value=HITLResult(issue_number=42, success=True)
         )
 
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
@@ -440,7 +456,7 @@ class TestGenericResolution:
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
@@ -474,19 +490,23 @@ class TestAutoMerge:
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=True
         )
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=True)  # Clean merge
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
         prs.push_branch = AsyncMock(return_value=True)
         prs.wait_for_ci = AsyncMock(return_value=(True, "All checks passed"))
         prs.merge_pr = AsyncMock(return_value=True)
         prs.pull_main = AsyncMock(return_value=True)
+
+        # Resolver reports clean merge
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -513,16 +533,20 @@ class TestAutoMergeDisabled:
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=True)
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
         prs.push_branch = AsyncMock(return_value=True)
+
+        # Resolver reports clean merge
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         wt_dir = tmp_path / "worktrees" / "issue-42"
         wt_dir.mkdir(parents=True)
@@ -543,7 +567,9 @@ class TestCascadingRebase:
 
     @pytest.mark.asyncio
     async def test_re_rebase_calls_start_merge_main(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(tmp_path)
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path
+        )
 
         # Create worktree dirs
         for i in [1, 2]:
@@ -563,7 +589,7 @@ class TestPriorityOrdering:
 
     @pytest.mark.asyncio
     async def test_merge_conflicts_sorted_first(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
 
@@ -600,7 +626,7 @@ class TestParallelWorkers:
     @pytest.mark.asyncio
     async def test_semaphore_limits_concurrency(self, tmp_path: Path) -> None:
         max_workers = 2
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
             pr_unstick_batch_size=max_workers,
             unstick_all_causes=True,
@@ -647,7 +673,7 @@ class TestGoalDrivenLoop:
         issue_a = GitHubIssue(number=1, title="Issue A", body="a", labels=[])
         issue_b = GitHubIssue(number=2, title="Issue B", body="b", labels=[])
 
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=True
         )
 
@@ -659,7 +685,7 @@ class TestGoalDrivenLoop:
         fetcher.fetch_issue_by_number = AsyncMock(
             side_effect=lambda num: issue_a if num == 1 else issue_b
         )
-        wt.start_merge_main = AsyncMock(return_value=True)  # Clean merges
+        wt.start_merge_main = AsyncMock(return_value=True)
         wt.create = AsyncMock(
             side_effect=lambda num, _branch: tmp_path / "worktrees" / f"issue-{num}"
         )
@@ -667,6 +693,11 @@ class TestGoalDrivenLoop:
         prs.wait_for_ci = AsyncMock(return_value=(True, "All checks passed"))
         prs.merge_pr = AsyncMock(return_value=True)
         prs.pull_main = AsyncMock(return_value=True)
+
+        # Resolver reports clean merge for both
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
 
         for i in [1, 2]:
             (tmp_path / "worktrees" / f"issue-{i}").mkdir(parents=True)
@@ -685,11 +716,13 @@ class TestGoalDrivenLoop:
         assert prs.pull_main.await_count >= 1
 
 
-class TestConflictPromptUsesSharedBuilder:
-    """Verify that _resolve_conflicts delegates to the shared builder."""
+class TestMergeConflictDelegation:
+    """Verify that merge conflict resolution delegates to the resolver with correct args."""
 
     @pytest.mark.asyncio
-    async def test_prompt_includes_urls(self, tmp_path: Path) -> None:
+    async def test_merge_conflict_delegates_to_resolver_with_correct_pr_info(
+        self, tmp_path: Path
+    ) -> None:
         issue = GitHubIssue(
             number=42,
             title="Fix the widget",
@@ -697,94 +730,189 @@ class TestConflictPromptUsesSharedBuilder:
             labels=[],
             url="https://github.com/test-org/test-repo/issues/42",
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=False
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        prs.push_branch = AsyncMock(return_value=True)
+
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+
+        pr_url = "https://github.com/test-org/test-repo/pull/100"
+        await unsticker.unstick([_make_hitl_item(42, pr=100, prUrl=pr_url)])
+
+        resolver.resolve_merge_conflicts.assert_awaited_once()
+        call_args = resolver.resolve_merge_conflicts.call_args
+
+        pr_info = call_args.args[0]
+        assert pr_info.number == 100
+        assert pr_info.issue_number == 42
+        assert pr_info.url == pr_url
+        assert pr_info.branch == "agent/issue-42"
+
+    @pytest.mark.asyncio
+    async def test_merge_conflict_uses_pr_unsticker_source(
+        self, tmp_path: Path
+    ) -> None:
+        issue = GitHubIssue(
+            number=42,
+            title="Test issue",
+            body="body",
+            labels=["hydraflow-hitl"],
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=False
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        prs.push_branch = AsyncMock(return_value=True)
+
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
+
+        await unsticker.unstick([_make_hitl_item(42)])
+
+        call_kwargs = resolver.resolve_merge_conflicts.call_args.kwargs
+        assert call_kwargs["source"] == "pr_unsticker"
+        assert call_kwargs["worker_id"] is None
+
+
+class TestFreshBranchRebuild:
+    """Tests for fresh branch rebuild delegation via the resolver."""
+
+    @pytest.mark.asyncio
+    async def test_conflict_falls_back_to_fresh_rebuild_via_resolver(
+        self, tmp_path: Path
+    ) -> None:
+        """Resolver returns (True, True) indicating rebuild was used."""
+        issue = GitHubIssue(
+            number=42,
+            title="Test issue",
+            body="body",
+            labels=["hydraflow-hitl"],
+            url="https://github.com/test-org/test-repo/issues/42",
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=False
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+
+        # Resolver used fresh rebuild
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=True)
+        )
+        prs.force_push_branch = AsyncMock(return_value=True)
+
+        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+
+        pr_url = "https://github.com/test-org/test-repo/pull/100"
+        stats = await unsticker.unstick([_make_hitl_item(42, pr=100, prUrl=pr_url)])
+
+        assert stats["resolved"] == 1
+        # Should use force_push since rebuild was used
+        prs.force_push_branch.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_resolver_failure_releases_to_hitl(self, tmp_path: Path) -> None:
+        """Resolver returns (False, False) — should release back to HITL."""
+        issue = GitHubIssue(
+            number=42,
+            title="Test issue",
+            body="body",
+            labels=["hydraflow-hitl"],
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
         state.set_hitl_cause(42, "Merge conflict")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=False)
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-        agents._build_command = MagicMock(return_value=["claude", "-p"])
-        agents._execute = AsyncMock(return_value="transcript")
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
-
-        prs.push_branch = AsyncMock(return_value=True)
-
-        wt_dir = tmp_path / "worktrees" / "issue-42"
-        wt_dir.mkdir(parents=True)
-        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
-
-        pr_url = "https://github.com/test-org/test-repo/pull/42"
-
-        captured_prompt = None
-        original_execute = agents._execute
-
-        async def capture_execute(cmd, prompt, wt_arg, issue_num):
-            nonlocal captured_prompt
-            captured_prompt = prompt
-            return await original_execute(cmd, prompt, wt_arg, issue_num)
-
-        agents._execute = capture_execute
-
-        stats = await unsticker.unstick([_make_hitl_item(42, prUrl=pr_url)])
-
-        assert stats["resolved"] == 1
-        assert captured_prompt is not None
-        assert "https://github.com/test-org/test-repo/issues/42" in captured_prompt
-        assert pr_url in captured_prompt
-        assert "merge conflicts" in captured_prompt.lower()
-
-
-class TestSaveTranscript:
-    def test_saves_transcript(self, tmp_path: Path) -> None:
-        unsticker, *_ = _make_unsticker(tmp_path)
-
-        (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
-
-        unsticker._save_transcript(42, 1, "transcript content here")
-
-        path = (
-            tmp_path
-            / "repo"
-            / ".hydraflow"
-            / "logs"
-            / "unsticker-issue-42-attempt-1.txt"
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=False, used_rebuild=False)
         )
-        assert path.exists()
-        assert path.read_text() == "transcript content here"
 
-    def test_save_transcript_handles_oserror(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
+
+        stats = await unsticker.unstick([_make_hitl_item(42)])
+
+        assert stats["failed"] == 1
+        assert stats["resolved"] == 0
+        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-hitl")
+
+
+class TestResolverNoneEdgeCases:
+    """Tests for edge cases when the resolver is not configured (resolver=None)."""
+
+    @pytest.mark.asyncio
+    async def test_merge_conflict_without_resolver_fails_and_releases_to_hitl(
+        self, tmp_path: Path
     ) -> None:
-        unsticker, *_ = _make_unsticker(tmp_path)
+        """When resolver is None and cause is MERGE_CONFLICT, return failure and release to HITL."""
+        issue = GitHubIssue(
+            number=42,
+            title="Test issue",
+            body="body",
+            labels=["hydraflow-hitl"],
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, _ = _make_unsticker(
+            tmp_path, unstick_all_causes=False, unstick_auto_merge=False
+        )
+        # Explicitly remove the resolver to test the None path
+        unsticker._resolver = None
 
-        (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
+        state.set_hitl_cause(42, "Merge conflict with main")
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(Path, "write_text", _raise_oserror)
-            unsticker._save_transcript(42, 1, "transcript content here")
+        (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
 
-        assert "Could not save unsticker transcript" in caplog.text
+        stats = await unsticker.unstick([_make_hitl_item(42)])
+
+        assert stats["failed"] == 1
+        assert stats["resolved"] == 0
+        # Should release back to HITL
+        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-hitl")
 
 
-def _setup_memory_test(tmp_path: Path, *, transcript: str = "transcript"):
-    """Set up shared fixtures for memory suggestion extraction tests."""
+def _setup_ci_fix_memory_test(tmp_path: Path, *, transcript: str = "transcript"):
+    """Set up shared fixtures for memory suggestion tests on the CI fix path."""
     issue = GitHubIssue(
         number=42,
         title="Test issue",
         body="body",
         labels=["hydraflow-hitl"],
+        url="https://github.com/test-org/test-repo/issues/42",
     )
-    unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
-        tmp_path, unstick_auto_merge=False
+    unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        tmp_path, unstick_all_causes=True, unstick_auto_merge=False
     )
-    state.set_hitl_cause(42, "Merge conflict")
+    state.set_hitl_cause(42, "CI failed after 2 fix attempts")
     state.set_hitl_origin(42, "hydraflow-review")
 
     fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-    wt.start_merge_main = AsyncMock(return_value=False)
+    wt.start_merge_main = AsyncMock(return_value=True)  # Clean rebase
     wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
     agents._build_command = MagicMock(return_value=["claude", "-p"])
@@ -794,19 +922,22 @@ def _setup_memory_test(tmp_path: Path, *, transcript: str = "transcript"):
     prs.push_branch = AsyncMock(return_value=True)
 
     (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
+    (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
     return unsticker, state, prs, agents, wt, fetcher, bus
 
 
 class TestMemorySuggestionExtraction:
     @pytest.mark.asyncio
-    async def test_unsticker_calls_file_memory_suggestion(self, tmp_path: Path) -> None:
-        unsticker, *_ = _setup_memory_test(
+    async def test_ci_fix_uses_safe_file_memory_suggestion(
+        self, tmp_path: Path
+    ) -> None:
+        unsticker, *_ = _setup_ci_fix_memory_test(
             tmp_path, transcript="transcript with suggestion"
         )
 
         with patch(
-            "pr_unsticker.file_memory_suggestion", new_callable=AsyncMock
+            "pr_unsticker.safe_file_memory_suggestion", new_callable=AsyncMock
         ) as mock_fms:
             stats = await unsticker.unstick([_make_hitl_item(42)])
 
@@ -819,150 +950,3 @@ class TestMemorySuggestionExtraction:
                 unsticker._prs,
                 unsticker._state,
             )
-
-    @pytest.mark.asyncio
-    async def test_unsticker_memory_failure_does_not_propagate(
-        self, tmp_path: Path
-    ) -> None:
-        unsticker, *_ = _setup_memory_test(tmp_path)
-
-        with patch(
-            "pr_unsticker.file_memory_suggestion",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("network error"),
-        ):
-            stats = await unsticker.unstick([_make_hitl_item(42)])
-
-            assert stats["resolved"] == 1
-
-
-class TestFreshBranchRebuild:
-    """Tests for the fresh branch rebuild fallback in the unsticker."""
-
-    @pytest.mark.asyncio
-    async def test_conflict_falls_back_to_fresh_rebuild(self, tmp_path: Path) -> None:
-        """Merge exhaustion → fresh rebuild is attempted and succeeds."""
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
-        )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
-            tmp_path,
-            max_merge_conflict_fix_attempts=1,
-            enable_fresh_branch_rebuild=True,
-            unstick_auto_merge=False,
-        )
-        state.set_hitl_cause(42, "Merge conflict")
-        state.set_hitl_origin(42, "hydraflow-review")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=False)
-        wt.abort_merge = AsyncMock()
-        wt.destroy = AsyncMock()
-        new_wt = tmp_path / "worktrees" / "issue-42"
-        wt.create = AsyncMock(return_value=new_wt)
-
-        # First call (merge attempt) fails, second (rebuild) succeeds
-        agents._build_command = MagicMock(return_value=["claude", "-p"])
-        agents._execute = AsyncMock(return_value="transcript")
-        agents._verify_result = AsyncMock(
-            side_effect=[(False, "quality failed"), (True, "OK")]
-        )
-
-        prs.get_pr_diff = AsyncMock(return_value="diff --git a/foo.py\n+bar")
-        prs.force_push_branch = AsyncMock(return_value=True)
-        prs.push_branch = AsyncMock(return_value=True)
-
-        new_wt.mkdir(parents=True)
-        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
-
-        pr_url = "https://github.com/test-org/test-repo/pull/100"
-        stats = await unsticker.unstick([_make_hitl_item(42, pr=100, prUrl=pr_url)])
-
-        assert stats["resolved"] == 1
-        wt.destroy.assert_awaited_once()
-        prs.get_pr_diff.assert_awaited_once_with(100)
-        # Should use force_push, not regular push
-        prs.force_push_branch.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_fresh_rebuild_disabled_skips(self, tmp_path: Path) -> None:
-        """Config flag off → goes straight to HITL without rebuild."""
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
-        )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
-            tmp_path,
-            max_merge_conflict_fix_attempts=1,
-            enable_fresh_branch_rebuild=False,
-            unstick_auto_merge=False,
-        )
-        state.set_hitl_cause(42, "Merge conflict")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=False)
-        wt.abort_merge = AsyncMock()
-
-        agents._build_command = MagicMock(return_value=["claude", "-p"])
-        agents._execute = AsyncMock(return_value="transcript")
-        agents._verify_result = AsyncMock(return_value=(False, "quality failed"))
-
-        (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
-        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
-
-        stats = await unsticker.unstick([_make_hitl_item(42)])
-
-        assert stats["failed"] == 1
-        assert stats["resolved"] == 0
-        # destroy should not have been called (no rebuild)
-        wt.destroy.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_pr_number_threaded_to_resolve_conflicts(
-        self, tmp_path: Path
-    ) -> None:
-        """pr_number from HITLItem flows through to _resolve_conflicts."""
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
-        )
-        unsticker, state, prs, agents, wt, fetcher, bus, _ = _make_unsticker(
-            tmp_path,
-            max_merge_conflict_fix_attempts=1,
-            enable_fresh_branch_rebuild=True,
-            unstick_auto_merge=False,
-        )
-        state.set_hitl_cause(42, "Merge conflict")
-        state.set_hitl_origin(42, "hydraflow-review")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        wt.start_merge_main = AsyncMock(return_value=False)
-        wt.abort_merge = AsyncMock()
-        wt.destroy = AsyncMock()
-        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
-
-        agents._build_command = MagicMock(return_value=["claude", "-p"])
-        agents._execute = AsyncMock(return_value="transcript")
-        # Merge fails, rebuild also fails
-        agents._verify_result = AsyncMock(return_value=(False, "failed"))
-
-        prs.get_pr_diff = AsyncMock(return_value="diff content")
-        prs.push_branch = AsyncMock(return_value=True)
-
-        (tmp_path / "worktrees" / "issue-42").mkdir(parents=True)
-        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
-
-        pr_url = "https://github.com/test-org/test-repo/pull/200"
-        await unsticker.unstick([_make_hitl_item(42, pr=200, prUrl=pr_url)])
-
-        # get_pr_diff should have been called with the PR number
-        prs.get_pr_diff.assert_awaited_once_with(200)

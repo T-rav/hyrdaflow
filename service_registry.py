@@ -23,6 +23,7 @@ from manifest import ProjectManifestManager
 from manifest_refresh_loop import ManifestRefreshLoop
 from memory import MemorySyncWorker
 from memory_sync_loop import MemorySyncLoop
+from merge_conflict_resolver import MergeConflictResolver
 from metrics_sync_loop import MetricsSyncLoop
 from plan_phase import PlanPhase
 from planner import PlannerRunner
@@ -117,7 +118,7 @@ def build_services(
     prs = PRManager(config, event_bus)
     reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner)
     hitl_runner = HITLRunner(config, event_bus, runner=subprocess_runner)
-    triage = TriageRunner(config, event_bus)
+    triage = TriageRunner(config, event_bus, runner=subprocess_runner)
     summarizer = TranscriptSummarizer(
         config, prs, event_bus, state, runner=subprocess_runner
     )
@@ -170,6 +171,15 @@ def build_services(
     from metrics_manager import MetricsManager
 
     metrics_manager = MetricsManager(config, state, prs, event_bus)
+    conflict_resolver = MergeConflictResolver(
+        config=config,
+        worktrees=worktrees,
+        agents=agents,
+        prs=prs,
+        event_bus=event_bus,
+        state=state,
+        summarizer=summarizer,
+    )
     pr_unsticker = PRUnsticker(
         config,
         state,
@@ -180,6 +190,7 @@ def build_services(
         fetcher,
         hitl_runner=hitl_runner,
         stop_event=stop_event,
+        resolver=conflict_resolver,
     )
     memory_sync = MemorySyncWorker(config, state, event_bus, runner=subprocess_runner)
     retrospective = RetrospectiveCollector(config, state, prs)
@@ -204,6 +215,7 @@ def build_services(
         transcript_summarizer=summarizer,
         epic_checker=epic_checker,
         harness_insights=harness_insights,
+        conflict_resolver=conflict_resolver,
     )
 
     # Background loops

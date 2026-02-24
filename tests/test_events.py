@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from events import EventBus, EventLog, EventType, HydraFlowEvent
+from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -717,3 +718,271 @@ class TestLoadSyncCorruptLines:
         ]
         assert len(warning_records) >= 1
         assert warning_records[0].exc_info is not None
+
+
+# ---------------------------------------------------------------------------
+# Persist event error handling (issue #1030)
+# ---------------------------------------------------------------------------
+
+
+class TestPersistEventErrorHandling:
+    """Verify fire-and-forget persist tasks handle errors gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_persist_event_catches_runtime_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Non-OSError exceptions in _persist_event are caught and logged."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with (
+            patch.object(
+                event_log, "append", side_effect=RuntimeError("thread pool exhausted")
+            ),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        records = [
+            r
+            for r in caplog.records
+            if "Failed to persist event to disk" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_persist_event_catches_os_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """OSError exceptions are still caught and logged with exc_info (regression test)."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with (
+            patch.object(event_log, "append", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        records = [
+            r
+            for r in caplog.records
+            if "Failed to persist event to disk" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_publish_delivers_event_to_subscriber_despite_persist_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """Subscribers receive events even when persistence fails."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+        queue = bus.subscribe()
+
+        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        assert queue.get_nowait() is event
+
+    @pytest.mark.asyncio
+    async def test_publish_updates_history_despite_persist_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """In-memory history is updated even when persistence fails."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        bus = EventBus(event_log=event_log)
+
+        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+            await bus.publish(event)
+            await bus.flush_persists()
+
+        assert event in bus.get_history()
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_skips_cancelled_task(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should not log for cancelled tasks."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.cancel()
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        assert "Event persist task failed" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_logs_exception(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should log warning when task has an exception."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.set_exception(ValueError("bad serialization"))
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        records = [
+            r for r in caplog.records if "Event persist task failed" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
+
+    @pytest.mark.asyncio
+    async def test_log_persist_failure_callback_silent_on_success(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Done callback should not log when task completed successfully."""
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        future.set_result(None)
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            _log_persist_failure(future)
+
+        assert "Event persist task failed" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _append_sync OSError handling (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestAppendSyncOSError:
+    """Verify EventLog._append_sync catches OSError gracefully."""
+
+    def test_append_sync_logs_warning_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When the event log file can't be written, log warning and don't raise."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        # Write once to ensure the file exists
+        event_log._append_sync("first line")
+
+        with (
+            patch("builtins.open", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._append_sync("should fail")  # should not raise
+
+        assert "Could not append to event log" in caplog.text
+
+    def test_append_sync_handles_mkdir_failure(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When mkdir fails with OSError, log warning and don't raise."""
+        event_log = EventLog(tmp_path / "subdir" / "events.jsonl")
+
+        with (
+            patch.object(Path, "mkdir", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._append_sync("should fail")  # should not raise
+
+        assert "Could not append to event log" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _load_sync OSError handling (issue #1038)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSyncOSError:
+    """Verify EventLog._load_sync catches OSError gracefully."""
+
+    def test_load_sync_returns_empty_on_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When event log file can't be opened, return empty list with warning."""
+        event_log = EventLog(tmp_path / "events.jsonl")
+        # Create the file so exists() passes but open() fails
+        event_log._append_sync('{"type": "test"}')
+
+        with (
+            patch("builtins.open", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            result = event_log._load_sync()  # should not raise
+
+        assert result == []
+        assert "Could not read event log" in caplog.text
+
+
+# --- _Counter.advance ---
+
+
+class TestCounterAdvance:
+    """Tests for _Counter.advance."""
+
+    def test_advance_sets_minimum(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        counter.advance(100)
+        assert next(counter) == 100
+
+    def test_advance_to_higher_value(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        # Consume a few values
+        next(counter)
+        next(counter)
+        counter.advance(50)
+        assert next(counter) == 50
+
+    def test_advance_replaces_iterator(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        counter.advance(10)
+        first = next(counter)
+        second = next(counter)
+        assert first == 10
+        assert second == 11
+
+
+# --- EventLog.append ---
+
+
+class TestEventLogAppend:
+    """Tests for EventLog.append."""
+
+    @pytest.mark.asyncio
+    async def test_append_writes_jsonl_line(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "events.jsonl")
+        event = EventFactory.create()
+        await event_log.append(event)
+
+        content = (tmp_path / "events.jsonl").read_text()
+        assert content.strip()  # Not empty
+        assert content.count("\n") == 1
+
+    @pytest.mark.asyncio
+    async def test_append_multiple_events(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "events.jsonl")
+        e1 = EventFactory.create(data={"n": 1})
+        e2 = EventFactory.create(data={"n": 2})
+        await event_log.append(e1)
+        await event_log.append(e2)
+
+        lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2
+
+    @pytest.mark.asyncio
+    async def test_append_creates_parent_dir(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "deep" / "nested" / "events.jsonl")
+        event = EventFactory.create()
+        await event_log.append(event)
+
+        assert (tmp_path / "deep" / "nested" / "events.jsonl").exists()

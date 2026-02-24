@@ -9,9 +9,9 @@ from typing import Any
 
 from agent import AgentRunner
 from config import HydraFlowConfig
-from events import EventBus, EventType, HydraFlowEvent
-from memory import file_memory_suggestion
-from models import PRInfo, Task, WorkerStatus
+from events import EventBus
+from models import ConflictResolutionResult, PRInfo, Task, WorkerStatus
+from phase_utils import publish_review_status, safe_file_memory_suggestion
 from pr_manager import PRManager
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
@@ -64,9 +64,11 @@ class MergeConflictResolver:
                 self._config.main_branch,
             )
             await publish_fn(pr, worker_id, WorkerStatus.MERGE_FIX.value)
-            merged, used_rebuild = await self.resolve_merge_conflicts(
+            resolution = await self.resolve_merge_conflicts(
                 pr, issue, wt_path, worker_id=worker_id
             )
+            merged = resolution.success
+            used_rebuild = resolution.used_rebuild
         if merged:
             if used_rebuild:
                 # Branch history was rewritten — need force-push
@@ -101,8 +103,9 @@ class MergeConflictResolver:
         pr: PRInfo,
         issue: Task,
         wt_path: Path,
-        worker_id: int,
-    ) -> tuple[bool, bool]:
+        worker_id: int | None = None,
+        source: str = "merge_conflict",
+    ) -> ConflictResolutionResult:
         """Use the implementation agent to resolve merge conflicts.
 
         Retries up to ``config.max_merge_conflict_fix_attempts`` times.
@@ -113,8 +116,8 @@ class MergeConflictResolver:
         which destroys the worktree and re-applies the PR diff on a clean
         branch from main.
 
-        Returns ``(success, used_rebuild)`` — *used_rebuild* is True when
-        the fresh rebuild path was taken (caller should force-push).
+        Returns a :class:`ConflictResolutionResult` — *used_rebuild* is True
+        when the fresh rebuild path was taken (caller should force-push).
         """
         from conflict_prompt import build_conflict_prompt
 
@@ -123,7 +126,7 @@ class MergeConflictResolver:
                 "No agent runner available for conflict resolution on PR #%d",
                 pr.number,
             )
-            return False, False
+            return ConflictResolutionResult(success=False, used_rebuild=False)
 
         max_attempts = self._config.max_merge_conflict_fix_attempts
         last_error: str | None = None
@@ -136,7 +139,7 @@ class MergeConflictResolver:
             # Start merge leaving conflict markers in place
             clean = await self._worktrees.start_merge_main(wt_path, pr.branch)
             if clean:
-                return True, False
+                return ConflictResolutionResult(success=True, used_rebuild=False)
 
             logger.info(
                 "Conflict resolution attempt %d/%d for PR #%d",
@@ -157,25 +160,21 @@ class MergeConflictResolver:
                     cmd,
                     prompt,
                     wt_path,
-                    {"issue": issue.id, "source": "merge_conflict"},
+                    {"issue": issue.id, "source": source},
                 )
 
-                self._save_conflict_transcript(pr.number, issue.id, attempt, transcript)
+                self.save_conflict_transcript(
+                    pr.number, issue.id, attempt, transcript, source=source
+                )
 
-                try:
-                    await file_memory_suggestion(
-                        transcript,
-                        "conflict_resolver",
-                        f"PR #{pr.number}",
-                        self._config,
-                        self._prs,
-                        self._state,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to file memory suggestion for conflict resolution on PR #%d",
-                        pr.number,
-                    )
+                await safe_file_memory_suggestion(
+                    transcript,
+                    source,
+                    f"PR #{pr.number}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
 
                 success, error_msg = await self._agents._verify_result(
                     wt_path, pr.branch
@@ -184,7 +183,7 @@ class MergeConflictResolver:
                     await self._maybe_summarize_conflict(
                         transcript, issue.id, pr.number
                     )
-                    return True, False
+                    return ConflictResolutionResult(success=True, used_rebuild=False)
 
                 last_error = error_msg
                 logger.warning(
@@ -217,17 +216,20 @@ class MergeConflictResolver:
             max_attempts,
             pr.number,
         )
-        rebuilt = await self.fresh_branch_rebuild(pr, issue, worker_id)
+        rebuilt = await self.fresh_branch_rebuild(
+            pr, issue, worker_id=worker_id, source=source
+        )
         if rebuilt:
-            return True, True
+            return ConflictResolutionResult(success=True, used_rebuild=True)
 
-        return False, False
+        return ConflictResolutionResult(success=False, used_rebuild=False)
 
     async def fresh_branch_rebuild(
         self,
         pr: PRInfo,
         issue: Task,
-        worker_id: int,
+        worker_id: int | None = None,
+        source: str = "fresh_rebuild",
     ) -> bool:
         """Rebuild the PR branch from scratch on a fresh branch from main.
 
@@ -282,25 +284,21 @@ class MergeConflictResolver:
                 cmd,
                 prompt,
                 new_wt,
-                {"issue": issue.id, "source": "fresh_rebuild"},
+                {"issue": issue.id, "source": source},
             )
 
-            self._save_conflict_transcript(pr.number, issue.id, 0, transcript)
+            self.save_conflict_transcript(
+                pr.number, issue.id, 0, transcript, source=source
+            )
 
-            try:
-                await file_memory_suggestion(
-                    transcript,
-                    "fresh_rebuild",
-                    f"PR #{pr.number}",
-                    self._config,
-                    self._prs,
-                    self._state,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to file memory suggestion for fresh rebuild on PR #%d",
-                    pr.number,
-                )
+            await safe_file_memory_suggestion(
+                transcript,
+                source,
+                f"PR #{pr.number}",
+                self._config,
+                self._prs,
+                self._state,
+            )
 
             success, error_msg = await self._agents._verify_result(new_wt, pr.branch)
             if success:
@@ -340,37 +338,43 @@ class MergeConflictResolver:
                 pr_number,
             )
 
-    def _save_conflict_transcript(
+    def save_conflict_transcript(
         self,
         pr_number: int,
         issue_number: int,
         attempt: int,
         transcript: str,
+        *,
+        source: str = "conflict",
     ) -> None:
         """Save a conflict resolution transcript to ``.hydraflow/logs/``."""
         log_dir = self._config.log_dir
-        log_dir.mkdir(parents=True, exist_ok=True)
-        path = log_dir / f"conflict-pr-{pr_number}-attempt-{attempt}.txt"
-        path.write_text(transcript)
-        logger.info(
-            "Conflict resolution transcript saved to %s",
-            path,
-            extra={"issue": issue_number},
-        )
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            path = log_dir / f"{source}-pr-{pr_number}-attempt-{attempt}.txt"
+            path.write_text(transcript)
+            logger.info(
+                "Conflict resolution transcript saved to %s",
+                path,
+                extra={"issue": issue_number},
+            )
+        except OSError:
+            logger.warning(
+                "Could not save conflict transcript to %s",
+                log_dir,
+                exc_info=True,
+                extra={"issue": issue_number},
+            )
 
     async def _publish_review_status(
-        self, pr: PRInfo, worker_id: int, status: str
+        self, pr: PRInfo, worker_id: int | None, status: str
     ) -> None:
-        """Emit a REVIEW_UPDATE event with the given status."""
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": pr.issue_number,
-                    "worker": worker_id,
-                    "status": status,
-                    "role": "reviewer",
-                },
-            )
-        )
+        """Emit a REVIEW_UPDATE event with the given status.
+
+        When *worker_id* is ``None`` (e.g. called from PRUnsticker),
+        the event is silently skipped because the caller does not
+        participate in review status tracking.
+        """
+        if worker_id is None:
+            return
+        await publish_review_status(self._bus, pr, worker_id, status)

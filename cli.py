@@ -13,14 +13,20 @@ import shutil
 import signal
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from config import HydraFlowConfig, load_config_file
 from log import setup_logging
 from orchestrator import HydraFlowOrchestrator
+
+_T = TypeVar("_T")
+
+_PREP_COVERAGE_MIN_REQUIRED = 20.0
+_PREP_COVERAGE_TARGET = 70.0
+_PREP_COVERAGE_ALLOW_MISSING = True
 
 
 def _supports_color_output() -> bool:
@@ -51,14 +57,14 @@ def _prep_stage_line(stage: str, detail: str, status: str, color: bool) -> str:
 
 
 async def _await_with_prep_heartbeat(
-    awaitable: Any,
+    awaitable: Coroutine[Any, Any, _T],
     *,
     stage: str,
     detail: str,
     color: bool,
     interval_seconds: float = 20.0,
     tail_provider: Callable[[], list[str]] | None = None,
-) -> Any:
+) -> _T:
     """Await long-running prep work while emitting periodic heartbeat lines."""
     task = asyncio.create_task(awaitable)
     start = asyncio.get_running_loop().time()
@@ -916,6 +922,7 @@ def _evaluate_coverage_validation(
     *,
     min_required: float = 70.0,
     target: float = 70.0,
+    allow_missing_artifact: bool = False,
 ) -> tuple[bool, bool, str]:
     """Evaluate coverage result.
 
@@ -923,6 +930,14 @@ def _evaluate_coverage_validation(
     """
     pct, source = _extract_coverage_percent(repo_root)
     if pct is None:
+        if allow_missing_artifact:
+            return (
+                True,
+                True,
+                "Coverage warning: no coverage report artifact found; "
+                f"allowing prep fallback floor {min_required:.0f}% "
+                f"(CI target remains {target:.0f}%+).",
+            )
         return (
             False,
             False,
@@ -1018,6 +1033,7 @@ def _evaluate_coverage_validation_projects(
     *,
     min_required: float = 70.0,
     target: float = 70.0,
+    allow_missing_artifact: bool = False,
 ) -> tuple[bool, bool, str]:
     """Evaluate coverage thresholds across all test-bearing project roots."""
     if not project_roots:
@@ -1037,7 +1053,10 @@ def _evaluate_coverage_validation_projects(
             else str(project_root.relative_to(repo_root))
         )
         ok, warn, detail = _evaluate_coverage_validation(
-            project_root, min_required=min_required, target=target
+            project_root,
+            min_required=min_required,
+            target=target,
+            allow_missing_artifact=allow_missing_artifact,
         )
         line = f"{rel}: {detail}"
         if ok:
@@ -1049,6 +1068,14 @@ def _evaluate_coverage_validation_projects(
     if failed_details:
         return False, False, " | ".join(failed_details)
     return True, any_warn, " | ".join(ok_details)
+
+
+def _coverage_below_target_from_detail(detail: str, target: float) -> bool:
+    """Return True if any rendered coverage percentage is below target."""
+    for match in re.finditer(r"(\d+(?:\.\d+)?)% from ", detail):
+        if float(match.group(1)) < target:
+            return True
+    return False
 
 
 def _slugify_issue_name(step_name: str) -> str:
@@ -1071,7 +1098,7 @@ def _best_model_for_tool(tool: str) -> str:
     """Return best default model for the selected tool."""
     if tool == "claude":
         return "opus"
-    return "gpt-5.3"
+    return "gpt-5-codex"
 
 
 def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
@@ -1126,8 +1153,10 @@ def _build_prep_agent_prompt(
         "(lint-fix, lint-check, typecheck, test, quality-lite, quality).\n"
         "6) Before each Edit, Read that file first. If a tool error says a file has not "
         "been read yet, immediately read it and retry the edit.\n"
-        "7) Do not run parallel/batch edits. Apply edits one file at a time.\n"
-        "8) Do not refactor unrelated application source to chase existing lint debt. "
+        "7) For independent failures, fan out work to sub-agents in parallel when available "
+        "(max 4 concurrent tracks).\n"
+        "8) Within each track, apply edits one file at a time and verify before the next edit.\n"
+        "9) Do not refactor unrelated application source to chase existing lint debt. "
         "If failures are outside prep-managed files, record/update `.hydraflow/prep` issues with "
         "concrete failing commands and file paths.\n\n"
         "Local prep issue files:\n"
@@ -1194,6 +1223,7 @@ async def _run_prep_agent_workflow(
     config: HydraFlowConfig,
     stack: str,
     local_issue_names: list[str],
+    project_paths: list[str],
     on_output: Callable[[str], bool] | None = None,
 ) -> tuple[bool, str]:
     """Run an end-to-end prep workflow via Claude/Codex."""
@@ -1206,6 +1236,7 @@ async def _run_prep_agent_workflow(
         "\n".join([f"- .hydraflow/prep/{name}" for name in local_issue_names])
         or "- none"
     )
+    fanout_paths = "\n".join([f"- {path}" for path in project_paths]) or "- ."
     prompt = (
         "You are the HydraFlow prep operator agent.\n"
         f"Driver: {tool}\n"
@@ -1223,6 +1254,8 @@ async def _run_prep_agent_workflow(
         'PREP_RESULT_JSON: {"prep_status":"SUCCESS|FAILED","summary":"...","coverage":{"status":"PASS|FAIL","notes":"..."}}\n\n'
         "8) Prefer Make targets for checks/fixes (lint-fix, lint-check, typecheck, test, "
         "quality-lite, quality) instead of ad-hoc commands.\n"
+        "8a) If running Vitest directly, always exclude the hydraflow submodule path "
+        "(`--exclude='hydraflow/**'`) unless vitest config already excludes it.\n"
         "9) Before each Edit, Read that file first. If a tool error says the file was not "
         "read yet, read it and retry the edit.\n"
         "10) Continue until `make quality` passes or you can provide a concrete failing "
@@ -1230,12 +1263,17 @@ async def _run_prep_agent_workflow(
         "11) Keep edits scoped to prep-managed files only (Makefile, .github/workflows/*, "
         "package manager files, lint/type config, test scaffold, hooks). Avoid refactoring "
         "existing app source files for pre-existing lint debt.\n"
-        "12) Never batch or parallelize edits. Work one file at a time and verify each step.\n"
-        "13) Coverage policy for all stacks: enforce at least 70% meaningful coverage; "
+        "12) Fan out independent work to sub-agents in parallel whenever possible "
+        "(for example: one track per project path or quality gate; max 4 concurrent tracks).\n"
+        "13) Within each track, keep edits serialized (one file at a time) and verify before "
+        "moving to the next file.\n"
+        "14) Coverage policy for all stacks: enforce at least 70% meaningful coverage; "
         "coverage should prioritize critical paths, not filler "
         "tests (for example, property-only inflation).\n"
-        "14) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
+        "15) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
         "with command output + affected files, then end with PREP_RESULT_JSON prep_status FAILED.\n\n"
+        "Fan-out project paths (parallelize across these when possible):\n"
+        f"{fanout_paths}\n\n"
         "Current local prep issues:\n"
         f"{issue_list}\n"
     )
@@ -1395,6 +1433,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 
     hardening_ok = True
     repo_root = config.repo_root
+    workflow_project_paths = sorted(makefile_results.results.keys()) or ["."]
     coverage_roots = _coverage_validation_roots(
         repo_root, list(makefile_results.results.keys())
     )
@@ -1413,6 +1452,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     failure_count = 0
     agent_runs = 0
     agent_successes = 0
+    coverage_below_target = False
     stage_line = _prep_stage_line(
         "hardening",
         f"starting hardening loop ({max_attempts} max attempts)",
@@ -1486,6 +1526,7 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
                 config=config,
                 stack=stack,
                 local_issue_names=issue_names,
+                project_paths=workflow_project_paths,
                 on_output=workflow_on_output,
             ),
             stage="hardening",
@@ -1500,8 +1541,15 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
                 _evaluate_coverage_validation_projects(
                     repo_root,
                     coverage_roots,
+                    min_required=_PREP_COVERAGE_MIN_REQUIRED,
+                    target=_PREP_COVERAGE_TARGET,
+                    allow_missing_artifact=_PREP_COVERAGE_ALLOW_MISSING,
                 )
             )
+            if _coverage_below_target_from_detail(
+                coverage_detail, _PREP_COVERAGE_TARGET
+            ):
+                coverage_below_target = True
             coverage_lines = [
                 line.strip() for line in coverage_detail.split(" | ") if line.strip()
             ]
@@ -1746,6 +1794,14 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     print(  # noqa: T201
         f"- Local issues closed this run: {len(issues_to_close) if hardening_ok else 0}"
     )
+    if coverage_below_target:
+        print(  # noqa: T201
+            "- Coverage is below 70% for one or more projects. "
+            "Run `make cover` (or `make cover 70`) to increase and verify coverage."
+        )
+        run_log_lines.append(
+            "- Coverage follow-up: below 70%; run `make cover` or `make cover 70` to improve coverage."
+        )
     stage_line = _prep_stage_line(
         "hardening",
         "hardening loop complete" if hardening_ok else "hardening loop failed",

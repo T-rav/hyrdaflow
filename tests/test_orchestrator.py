@@ -1469,6 +1469,49 @@ class TestSupervisorLoops:
         assert implement_calls >= 2
         assert not orch.running
 
+    @pytest.mark.asyncio
+    async def test_supervise_loops_restarts_loop_that_completes_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """A loop that completes normally (no exception) is restarted with a warning."""
+        orch = HydraFlowOrchestrator(config)
+        orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        _mock_fetcher_noop(orch)
+
+        implement_calls = 0
+
+        async def completing_then_stopping() -> None:
+            nonlocal implement_calls
+            implement_calls += 1
+            if implement_calls == 1:
+                # Complete normally — triggers the else branch in _supervise_loops
+                return
+            # Second invocation: stop the orchestrator
+            orch._stop_event.set()
+
+        # Replace the actual loop method (not the inner work fn) so the
+        # supervised task completes normally from _supervise_loops' perspective.
+        orch._implement_loop = completing_then_stopping  # type: ignore[method-assign]
+
+        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
+        orch._store.start = AsyncMock()  # type: ignore[method-assign]
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+
+        with patch("orchestrator.logger") as mock_logger:
+            await orch.run()
+
+        # The implement loop was restarted after normal completion (ran at least twice)
+        assert implement_calls >= 2
+        mock_logger.warning.assert_any_call(
+            "Loop %r completed unexpectedly — restarting", "implement"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Phase-specific active issue sets
@@ -2806,3 +2849,188 @@ class TestHandleLoopException:
         error_events = [e for e in bus.get_history() if e.type == EventType.ERROR]
         assert len(error_events) == 1
         assert "plan" in error_events[0].data["source"]
+
+
+# ---------------------------------------------------------------------------
+# MemoryError propagation through _polling_loop
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryErrorPropagation:
+    """Tests that MemoryError propagates through _polling_loop."""
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_polling_loop(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError should not be caught by _polling_loop's except Exception."""
+        orch = HydraFlowOrchestrator(config)
+
+        async def oom_work() -> None:
+            raise MemoryError("out of memory")
+
+        with pytest.raises(MemoryError, match="out of memory"):
+            await orch._polling_loop("test", oom_work, 10)
+
+    @pytest.mark.asyncio
+    async def test_generic_error_is_caught_by_polling_loop(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Non-critical exceptions should be caught and not propagate."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+
+        async def failing_then_stop() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("transient error")
+            orch._stop_event.set()
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+
+        # Should not raise — RuntimeError is caught
+        await orch._polling_loop("test", failing_then_stop, 10)
+        assert call_count == 2
+
+
+# --- Background Worker Enabled ---
+
+
+class TestBgWorkerEnabled:
+    """Tests for is_bg_worker_enabled / set_bg_worker_enabled."""
+
+    def test_is_bg_worker_enabled_defaults_true(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        assert orch.is_bg_worker_enabled("memory_sync") is True
+
+    def test_set_and_get_enabled(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_enabled("memory_sync", False)
+        assert orch.is_bg_worker_enabled("memory_sync") is False
+
+    def test_set_enabled_true(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_enabled("metrics", False)
+        orch.set_bg_worker_enabled("metrics", True)
+        assert orch.is_bg_worker_enabled("metrics") is True
+
+    def test_multiple_workers_independent(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_enabled("memory_sync", False)
+        orch.set_bg_worker_enabled("metrics", True)
+        assert orch.is_bg_worker_enabled("memory_sync") is False
+        assert orch.is_bg_worker_enabled("metrics") is True
+
+
+# --- Background Worker States ---
+
+
+class TestBgWorkerStates:
+    """Tests for get_bg_worker_states / update_bg_worker_status."""
+
+    def test_get_bg_worker_states_empty(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        assert orch.get_bg_worker_states() == {}
+
+    def test_update_and_get_states(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "running")
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "running"
+
+    def test_states_include_enabled_flag(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("metrics", "idle")
+        orch.set_bg_worker_enabled("metrics", False)
+        states = orch.get_bg_worker_states()
+        assert states["metrics"].get("enabled") is False
+
+
+# --- Background Worker Interval ---
+
+
+class TestBgWorkerInterval:
+    """Tests for set_bg_worker_interval."""
+
+    def test_set_bg_worker_interval_stores_value(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_interval("memory_sync", 300)
+        assert orch.get_bg_worker_interval("memory_sync") == 300
+
+    def test_set_bg_worker_interval_persists_to_state(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_interval("metrics", 600)
+        # Verify state was persisted via public StateTracker method
+        intervals = orch._state.get_worker_intervals()
+        assert intervals.get("metrics") == 600
+
+
+# --- Update Background Worker Status ---
+
+
+class TestUpdateBgWorkerStatus:
+    """Tests for update_bg_worker_status."""
+
+    def test_update_bg_worker_status_stores_fields(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "running")
+        state = orch._bg_worker_states["memory_sync"]
+        assert state["name"] == "memory_sync"
+        assert state["status"] == "running"
+        assert "last_run" in state
+
+    def test_update_bg_worker_status_with_details(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("metrics", "running", details={"synced": 5})
+        state = orch._bg_worker_states["metrics"]
+        assert state["details"]["synced"] == 5
+
+    def test_update_bg_worker_status_without_details(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "idle")
+        state = orch._bg_worker_states["memory_sync"]
+        assert state["details"] == {}
+
+
+# --- Orchestrator Property Accessors ---
+
+
+class TestOrchestratorPropertyAccessors:
+    """Tests for current_session_id, issue_store, metrics_manager, run_recorder."""
+
+    def test_current_session_id_none_when_no_session(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        assert orch.current_session_id is None
+
+    def test_issue_store_returns_store(self, config: HydraFlowConfig) -> None:
+        from issue_store import IssueStore
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch.issue_store, IssueStore)
+
+    def test_metrics_manager_returns_manager(self, config: HydraFlowConfig) -> None:
+        from metrics_manager import MetricsManager
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch.metrics_manager, MetricsManager)
+
+    def test_run_recorder_returns_recorder(self, config: HydraFlowConfig) -> None:
+        from run_recorder import RunRecorder
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch.run_recorder, RunRecorder)

@@ -8,7 +8,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from memory import file_memory_suggestion
+from models import ConflictResolutionResult
+from phase_utils import safe_file_memory_suggestion
 
 if TYPE_CHECKING:
     from agent import AgentRunner
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
     from events import EventBus
     from hitl_runner import HITLRunner
     from issue_fetcher import IssueFetcher
+    from merge_conflict_resolver import MergeConflictResolver
     from models import GitHubIssue, HITLItem, UnstickResult
     from pr_manager import PRManager
     from state import StateTracker
@@ -92,6 +94,7 @@ class PRUnsticker:
         fetcher: IssueFetcher,
         hitl_runner: HITLRunner | None = None,
         stop_event: asyncio.Event | None = None,
+        resolver: MergeConflictResolver | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -102,6 +105,7 @@ class PRUnsticker:
         self._fetcher = fetcher
         self._hitl_runner = hitl_runner
         self._stop_event = stop_event or asyncio.Event()
+        self._resolver = resolver
 
     async def unstick(self, hitl_items: list[HITLItem]) -> UnstickResult:
         """Process HITL items and return stats.
@@ -251,7 +255,7 @@ class PRUnsticker:
             self._state.set_worktree(issue_number, str(wt_path))
 
             # Dispatch to cause-specific resolver
-            resolved, used_rebuild = await self._resolve_by_cause(
+            resolution = await self._resolve_by_cause(
                 cause,
                 issue_number,
                 issue,
@@ -261,9 +265,9 @@ class PRUnsticker:
                 pr_number=item.pr,
             )
 
-            if resolved:
+            if resolution.success:
                 # Push the fixed branch
-                if used_rebuild:
+                if resolution.used_rebuild:
                     new_wt = self._config.worktree_path_for_issue(issue_number)
                     await self._prs.force_push_branch(new_wt, branch)
                 else:
@@ -318,28 +322,36 @@ class PRUnsticker:
         branch: str,
         pr_url: str,
         pr_number: int = 0,
-    ) -> tuple[bool, bool]:
+    ) -> ConflictResolutionResult:
         """Dispatch to the appropriate resolver based on cause classification.
 
-        Returns ``(resolved, used_rebuild)`` — *used_rebuild* is True when
-        the fresh-branch rebuild path was taken (caller should force-push).
+        Returns a :class:`ConflictResolutionResult` — *used_rebuild* is True
+        when the fresh-branch rebuild path was taken (caller should force-push).
         """
         if cause == FailureCause.MERGE_CONFLICT:
-            return await self._resolve_conflicts(
-                issue_number,
-                issue,
-                wt_path,
-                branch,
-                pr_url=pr_url,
-                pr_number=pr_number,
+            if self._resolver is None:
+                logger.error(
+                    "#%d: no resolver configured, cannot resolve conflict", issue_number
+                )
+                return ConflictResolutionResult(success=False, used_rebuild=False)
+            from models import PRInfo
+
+            pr = PRInfo(
+                number=pr_number,
+                issue_number=issue_number,
+                branch=branch,
+                url=pr_url,
+            )
+            return await self._resolver.resolve_merge_conflicts(
+                pr, issue, wt_path, worker_id=None, source="pr_unsticker"
             )
         if cause in (FailureCause.CI_FAILURE, FailureCause.REVIEW_FIX_CAP):
-            result = await self._resolve_ci_or_quality(
-                issue_number, issue, wt_path, branch, pr_url=pr_url
+            success = await self._resolve_ci_or_quality(
+                issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
             )
-            return result, False
-        result = await self._resolve_generic(issue_number, issue, wt_path, branch)
-        return result, False
+            return ConflictResolutionResult(success=success, used_rebuild=False)
+        success = await self._resolve_generic(issue_number, issue, wt_path, branch)
+        return ConflictResolutionResult(success=success, used_rebuild=False)
 
     async def _resolve_ci_or_quality(
         self,
@@ -348,6 +360,7 @@ class PRUnsticker:
         wt_path: Path,
         branch: str,
         pr_url: str,
+        pr_number: int = 0,
     ) -> bool:
         """Rebase on main and run agent with a CI/quality fix prompt."""
         # First rebase on main
@@ -367,22 +380,24 @@ class PRUnsticker:
                 wt_path,
                 {"issue": issue_number, "source": "pr_unsticker"},
             )
-            self._save_transcript(issue_number, 1, transcript)
-
-            try:
-                await file_memory_suggestion(
-                    transcript,
-                    "pr_unsticker",
-                    f"issue #{issue_number}",
-                    self._config,
-                    self._prs,
-                    self._state,
+            if self._resolver is not None:
+                self._resolver.save_conflict_transcript(
+                    pr_number, issue_number, 1, transcript, source="unsticker"
                 )
-            except Exception:
-                logger.exception(
-                    "Failed to file memory suggestion for unsticker on issue #%d",
+            else:
+                logger.warning(
+                    "No resolver configured; CI fix transcript for issue #%d not saved",
                     issue_number,
                 )
+
+            await safe_file_memory_suggestion(
+                transcript,
+                "pr_unsticker",
+                f"issue #{issue_number}",
+                self._config,
+                self._prs,
+                self._state,
+            )
 
             success, error_msg = await self._agents._verify_result(wt_path, branch)
             if success:
@@ -539,207 +554,6 @@ PR URL: {pr_url}
                     exc_info=True,
                 )
 
-    async def _resolve_conflicts(
-        self,
-        issue_number: int,
-        issue: GitHubIssue,
-        wt_path: Path,
-        branch: str,
-        pr_url: str,
-        pr_number: int = 0,
-    ) -> tuple[bool, bool]:
-        """Run the conflict resolution loop, mirroring ReviewPhase logic.
-
-        Returns ``(resolved, used_rebuild)`` — *used_rebuild* is True when
-        the fresh-branch rebuild path was taken.
-        """
-        from conflict_prompt import build_conflict_prompt
-
-        max_attempts = self._config.max_merge_conflict_fix_attempts
-        last_error: str | None = None
-
-        for attempt in range(1, max_attempts + 1):
-            # Abort any prior failed merge before retrying
-            if attempt > 1:
-                await self._worktrees.abort_merge(wt_path)
-
-            # Start merge leaving conflict markers in place
-            clean = await self._worktrees.start_merge_main(wt_path, branch)
-            if clean:
-                return True, False
-
-            logger.info(
-                "Unsticker conflict resolution attempt %d/%d for issue #%d",
-                attempt,
-                max_attempts,
-                issue_number,
-            )
-
-            try:
-                prompt = build_conflict_prompt(
-                    issue.url, pr_url, last_error, attempt, config=self._config
-                )
-                cmd = self._agents._build_command(wt_path)
-                transcript = await self._agents._execute(
-                    cmd,
-                    prompt,
-                    wt_path,
-                    {"issue": issue_number, "source": "pr_unsticker"},
-                )
-
-                self._save_transcript(issue_number, attempt, transcript)
-
-                try:
-                    await file_memory_suggestion(
-                        transcript,
-                        "pr_unsticker",
-                        f"issue #{issue_number}",
-                        self._config,
-                        self._prs,
-                        self._state,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to file memory suggestion for unsticker on issue #%d",
-                        issue_number,
-                    )
-
-                success, error_msg = await self._agents._verify_result(wt_path, branch)
-                if success:
-                    return True, False
-
-                last_error = error_msg
-                logger.warning(
-                    "Unsticker attempt %d/%d failed for issue #%d: %s",
-                    attempt,
-                    max_attempts,
-                    issue_number,
-                    error_msg[:200] if error_msg else "",
-                )
-            except Exception as exc:
-                logger.error(
-                    "Unsticker agent failed for issue #%d (attempt %d/%d): %s",
-                    issue_number,
-                    attempt,
-                    max_attempts,
-                    exc,
-                )
-                last_error = str(exc)
-
-        # All merge attempts exhausted — abort and try fresh rebuild
-        await self._worktrees.abort_merge(wt_path)
-
-        rebuilt = await self._fresh_branch_rebuild(
-            issue_number, issue, branch, pr_url, pr_number
-        )
-        if rebuilt:
-            return True, True
-
-        return False, False
-
-    async def _fresh_branch_rebuild(
-        self,
-        issue_number: int,
-        issue: GitHubIssue,
-        branch: str,
-        pr_url: str,
-        pr_number: int,
-    ) -> bool:
-        """Rebuild the PR branch from scratch on a fresh branch from main.
-
-        Fetches the PR diff, destroys the old conflicted worktree, creates a
-        fresh worktree from main, and runs an agent to re-apply the changes.
-        Returns *True* if the rebuild succeeded and verified.
-        """
-        from conflict_prompt import build_rebuild_prompt
-
-        if not self._config.enable_fresh_branch_rebuild:
-            logger.info(
-                "Fresh branch rebuild disabled — skipping for issue #%d",
-                issue_number,
-            )
-            return False
-
-        if not pr_number:
-            logger.warning(
-                "No PR number for issue #%d — cannot fetch diff for rebuild",
-                issue_number,
-            )
-            return False
-
-        # Fetch the PR diff
-        pr_diff = await self._prs.get_pr_diff(pr_number)
-        if not pr_diff.strip():
-            logger.warning(
-                "Empty PR diff for issue #%d — skipping fresh rebuild",
-                issue_number,
-            )
-            return False
-
-        logger.info(
-            "Attempting fresh branch rebuild for issue #%d (PR #%d)",
-            issue_number,
-            pr_number,
-        )
-
-        # Destroy old worktree and create fresh one from main
-        await self._worktrees.destroy(issue_number)
-        new_wt = await self._worktrees.create(issue_number, branch)
-
-        try:
-            prompt = build_rebuild_prompt(
-                issue.url,
-                pr_url,
-                issue_number,
-                pr_diff,
-                config=self._config,
-            )
-            cmd = self._agents._build_command(new_wt)
-            transcript = await self._agents._execute(
-                cmd,
-                prompt,
-                new_wt,
-                {"issue": issue_number, "source": "fresh_rebuild"},
-            )
-
-            self._save_transcript(issue_number, 0, transcript)
-
-            try:
-                await file_memory_suggestion(
-                    transcript,
-                    "fresh_rebuild",
-                    f"issue #{issue_number}",
-                    self._config,
-                    self._prs,
-                    self._state,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to file memory suggestion for fresh rebuild on issue #%d",
-                    issue_number,
-                )
-
-            success, error_msg = await self._agents._verify_result(new_wt, branch)
-            if success:
-                logger.info(
-                    "Fresh branch rebuild succeeded for issue #%d", issue_number
-                )
-                return True
-
-            logger.warning(
-                "Fresh branch rebuild verification failed for issue #%d: %s",
-                issue_number,
-                error_msg[:200] if error_msg else "",
-            )
-            return False
-        except Exception as exc:
-            logger.error(
-                "Fresh branch rebuild agent failed for issue #%d: %s",
-                issue_number,
-                exc,
-            )
-            return False
-
     async def _release_back_to_hitl(self, issue_number: int, reason: str) -> None:
         """Remove active label and re-add HITL label."""
         await self._prs.swap_pipeline_labels(issue_number, self._config.hitl_label[0])
@@ -754,25 +568,3 @@ PR URL: {pr_url}
         """Return *True* if *cause* indicates a merge conflict."""
         lower = cause.lower()
         return any(kw in lower for kw in _MERGE_CONFLICT_KEYWORDS)
-
-    def _save_transcript(
-        self, issue_number: int, attempt: int, transcript: str
-    ) -> None:
-        """Save a conflict resolution transcript to ``.hydraflow/logs/``."""
-        log_dir = self._config.log_dir
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            path = log_dir / f"unsticker-issue-{issue_number}-attempt-{attempt}.txt"
-            path.write_text(transcript)
-            logger.info(
-                "Unsticker transcript saved to %s",
-                path,
-                extra={"issue": issue_number},
-            )
-        except OSError:
-            logger.warning(
-                "Could not save unsticker transcript to %s",
-                log_dir,
-                exc_info=True,
-                extra={"issue": issue_number},
-            )

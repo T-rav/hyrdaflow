@@ -600,43 +600,47 @@ class TestReviewPhaseStop:
 class TestBuildInterruptedIssues:
     """Tests for the _build_interrupted_issues helper."""
 
-    def test_combines_store_and_memory_tracking(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_combines_store_and_memory_tracking(self, tmp_path: Path) -> None:
         """Merges IssueStore active + in-memory tracking sets."""
         orch = _make_orchestrator(tmp_path)
         orch._store.get_active_issues.return_value = {42: "implement"}
         orch._active_review_issues = {99}
 
-        result = orch._build_interrupted_issues()
+        result = await orch._build_interrupted_issues()
 
         assert result == {42: "implement", 99: "review"}
 
-    def test_store_takes_precedence(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_store_takes_precedence(self, tmp_path: Path) -> None:
         """If an issue is in both store and memory, store value is used."""
         orch = _make_orchestrator(tmp_path)
         orch._store.get_active_issues.return_value = {42: "review"}
         orch._active_impl_issues = {42}  # Also tracked here
 
-        result = orch._build_interrupted_issues()
+        result = await orch._build_interrupted_issues()
 
         # Store value takes precedence
         assert result[42] == "review"
 
-    def test_includes_hitl_issues(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_includes_hitl_issues(self, tmp_path: Path) -> None:
         """HITL issues are captured."""
         orch = _make_orchestrator(tmp_path)
         orch._store.get_active_issues.return_value = {}
         orch._hitl_phase.active_hitl_issues = {33}
 
-        result = orch._build_interrupted_issues()
+        result = await orch._build_interrupted_issues()
 
         assert result[33] == "hitl"
 
-    def test_empty_when_no_active(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_empty_when_no_active(self, tmp_path: Path) -> None:
         """Returns empty dict when nothing is active."""
         orch = _make_orchestrator(tmp_path)
         orch._store.get_active_issues.return_value = {}
 
-        assert orch._build_interrupted_issues() == {}
+        assert await orch._build_interrupted_issues() == {}
 
 
 # ---------------------------------------------------------------------------

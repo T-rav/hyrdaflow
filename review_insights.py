@@ -87,9 +87,16 @@ class ReviewInsightStore:
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        with self._reviews_path.open("a") as f:
-            f.write(record.model_dump_json() + "\n")
+        try:
+            self._memory_dir.mkdir(parents=True, exist_ok=True)
+            with self._reviews_path.open("a") as f:
+                f.write(record.model_dump_json() + "\n")
+        except OSError:
+            logger.warning(
+                "Could not append review to %s",
+                self._reviews_path,
+                exc_info=True,
+            )
 
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
         """Load the last *n* review records from disk."""

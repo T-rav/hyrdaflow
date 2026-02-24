@@ -7,17 +7,25 @@ import pytest
 # conftest.py already inserts the hydraflow package directory into sys.path
 from models import (
     BatchResult,
+    ConflictResolutionResult,
     ControlStatusConfig,
     ControlStatusResponse,
     GitHubIssue,
     HITLItem,
+    InstructionsQuality,
+    InstructionsQualityResult,
     JudgeResult,
     LifetimeStats,
+    ManifestRefreshResult,
     NewIssueSpec,
+    ParsedCriteria,
     Phase,
+    PlanAccuracyResult,
     PlannerStatus,
     PlanResult,
+    PrecheckResult,
     PRInfo,
+    PRInfoExtract,
     PRListItem,
     ReviewerStatus,
     ReviewResult,
@@ -31,7 +39,7 @@ from models import (
     WorkerStatus,
     parse_task_links,
 )
-from tests.conftest import ReviewResultFactory
+from tests.conftest import AnalysisResultFactory, ReviewResultFactory
 
 # ---------------------------------------------------------------------------
 # GitHubIssue
@@ -795,14 +803,6 @@ class TestReviewResult:
     def test_ci_fix_attempts_defaults_to_zero(self) -> None:
         review = ReviewResult(pr_number=1, issue_number=1)
         assert review.ci_fix_attempts == 0
-
-    def test_duration_seconds_defaults_to_zero(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1)
-        assert review.duration_seconds == pytest.approx(0.0)
-
-    def test_duration_seconds_can_be_set(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=45.5)
-        assert review.duration_seconds == pytest.approx(45.5)
 
     def test_duration_seconds_in_serialization(self) -> None:
         review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=30.0)
@@ -1686,3 +1686,415 @@ class TestParseTaskLinks:
         assert len(restored.links) == 1
         assert restored.links[0].kind == TaskLinkKind.REPLIES_TO
         assert restored.links[0].target_id == 9
+
+
+# --- DeltaReport ---
+
+
+class TestDeltaReport:
+    """Tests for DeltaReport properties and methods."""
+
+    def test_has_drift_false_when_no_missing_or_unexpected(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(planned=["a.py"], actual=["a.py"])
+        assert report.has_drift is False
+
+    def test_has_drift_true_when_missing(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py", "b.py"], actual=["a.py"], missing=["b.py"]
+        )
+        assert report.has_drift is True
+
+    def test_has_drift_true_when_unexpected(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py"], actual=["a.py", "c.py"], unexpected=["c.py"]
+        )
+        assert report.has_drift is True
+
+    def test_has_drift_true_when_both(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py", "b.py"],
+            actual=["a.py", "c.py"],
+            missing=["b.py"],
+            unexpected=["c.py"],
+        )
+        assert report.has_drift is True
+
+    def test_format_summary_no_drift(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(planned=["a.py"], actual=["a.py"])
+        summary = report.format_summary()
+        assert "No drift detected" in summary
+        assert "**Planned:** 1 files" in summary
+        assert "**Actual:** 1 files" in summary
+
+    def test_format_summary_with_missing(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py", "b.py"], actual=["a.py"], missing=["b.py"]
+        )
+        summary = report.format_summary()
+        assert "**Missing**" in summary
+        assert "b.py" in summary
+        assert "No drift detected" not in summary
+
+    def test_format_summary_with_unexpected(self) -> None:
+        from models import DeltaReport
+
+        report = DeltaReport(
+            planned=["a.py"], actual=["a.py", "c.py"], unexpected=["c.py"]
+        )
+        summary = report.format_summary()
+        assert "**Unexpected**" in summary
+        assert "c.py" in summary
+
+
+# --- AnalysisResult ---
+
+
+class TestAnalysisResult:
+    """Tests for AnalysisResult properties and methods."""
+
+    def test_blocked_false_when_no_block_verdicts(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(name="A", verdict=AnalysisVerdict.PASS, details=[]),
+                AnalysisSection(name="B", verdict=AnalysisVerdict.WARN, details=[]),
+            ]
+        )
+        assert result.blocked is False
+
+    def test_blocked_true_when_any_block_verdict(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(name="A", verdict=AnalysisVerdict.PASS, details=[]),
+                AnalysisSection(
+                    name="B", verdict=AnalysisVerdict.BLOCK, details=["Bad"]
+                ),
+            ]
+        )
+        assert result.blocked is True
+
+    def test_blocked_false_when_empty_sections(self) -> None:
+        result = AnalysisResultFactory.create(sections=[])
+        assert result.blocked is False
+
+    def test_format_comment_contains_section_names(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(
+                    name="File Validation",
+                    verdict=AnalysisVerdict.PASS,
+                    details=["All files exist."],
+                ),
+            ]
+        )
+        comment = result.format_comment()
+        assert "File Validation" in comment
+
+    def test_format_comment_verdict_icons(self) -> None:
+        from models import AnalysisSection, AnalysisVerdict
+
+        result = AnalysisResultFactory.create(
+            sections=[
+                AnalysisSection(name="A", verdict=AnalysisVerdict.PASS, details=[]),
+                AnalysisSection(name="B", verdict=AnalysisVerdict.WARN, details=[]),
+                AnalysisSection(name="C", verdict=AnalysisVerdict.BLOCK, details=[]),
+            ]
+        )
+        comment = result.format_comment()
+        assert "\u2705 PASS" in comment
+        assert "\u26a0\ufe0f WARN" in comment
+        assert "\U0001f6d1 BLOCK" in comment
+
+    def test_format_comment_footer(self) -> None:
+        result = AnalysisResultFactory.create()
+        comment = result.format_comment()
+        assert "Generated by HydraFlow Analyzer" in comment
+
+
+# --- AuditResult ---
+
+
+class TestAuditResult:
+    """Tests for AuditResult properties and methods."""
+
+    def test_missing_checks_returns_missing_and_partial(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+                AuditCheckFactory.create(name="Lint", status="missing"),
+                AuditCheckFactory.create(name="Tests", status="partial"),
+            ]
+        )
+        missing = result.missing_checks
+        names = [c.name for c in missing]
+        assert "Lint" in names
+        assert "Tests" in names
+        assert "CI" not in names
+
+    def test_missing_checks_empty_when_all_present(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+                AuditCheckFactory.create(name="Lint", status="present"),
+            ]
+        )
+        assert result.missing_checks == []
+
+    def test_has_critical_gaps_true_when_critical_missing(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="missing", critical=True),
+            ]
+        )
+        assert result.has_critical_gaps is True
+
+    def test_has_critical_gaps_false_when_critical_partial(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="partial", critical=True),
+            ]
+        )
+        assert result.has_critical_gaps is False
+
+    def test_has_critical_gaps_false_when_non_critical_missing(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="missing", critical=False),
+            ]
+        )
+        assert result.has_critical_gaps is False
+
+    def test_format_report_no_color(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+            ]
+        )
+        report = result.format_report(color=False)
+        assert "HydraFlow Repo Audit" in report
+        assert "\033[" not in report
+
+    def test_format_report_with_color(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="CI", status="present"),
+            ]
+        )
+        report = result.format_report(color=True)
+        assert "\033[" in report
+
+    def test_format_report_with_gaps(self) -> None:
+        from tests.helpers import AuditCheckFactory, AuditResultFactory
+
+        result = AuditResultFactory.create(
+            checks=[
+                AuditCheckFactory.create(name="Lint", status="missing"),
+            ]
+        )
+        report = result.format_report()
+        assert "Missing (1)" in report
+        assert "hydraflow prep" in report
+
+
+# --- MemoryType ---
+
+
+class TestMemoryType:
+    """Tests for MemoryType.is_actionable classmethod."""
+
+    def test_is_actionable_knowledge_false(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.KNOWLEDGE) is False
+
+    def test_is_actionable_config_true(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.CONFIG) is True
+
+    def test_is_actionable_instruction_true(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.INSTRUCTION) is True
+
+    def test_is_actionable_code_true(self) -> None:
+        from models import MemoryType
+
+        assert MemoryType.is_actionable(MemoryType.CODE) is True
+
+
+# ---------------------------------------------------------------------------
+# Structured Return Types
+# ---------------------------------------------------------------------------
+
+
+class TestPrecheckResult:
+    """Tests for the PrecheckResult dataclass."""
+
+    def test_fields_accessible_by_name(self) -> None:
+        result = PrecheckResult(
+            risk="low",
+            confidence=0.95,
+            escalate=False,
+            summary="All good",
+            parse_failed=False,
+        )
+        assert result.risk == "low"
+        assert result.confidence == 0.95
+        assert result.escalate is False
+        assert result.summary == "All good"
+        assert result.parse_failed is False
+
+    def test_equality(self) -> None:
+        a = PrecheckResult(
+            risk="high",
+            confidence=0.3,
+            escalate=True,
+            summary="Bad",
+            parse_failed=False,
+        )
+        b = PrecheckResult(
+            risk="high",
+            confidence=0.3,
+            escalate=True,
+            summary="Bad",
+            parse_failed=False,
+        )
+        assert a == b
+
+    def test_not_iterable(self) -> None:
+        result = PrecheckResult(
+            risk="low", confidence=0.5, escalate=False, summary="", parse_failed=False
+        )
+        with pytest.raises(TypeError):
+            list(result)  # type: ignore[call-overload]
+
+    def test_is_immutable(self) -> None:
+        from dataclasses import FrozenInstanceError
+
+        result = PrecheckResult(
+            risk="low", confidence=0.5, escalate=False, summary="", parse_failed=False
+        )
+        with pytest.raises(FrozenInstanceError):
+            result.risk = "high"  # type: ignore[misc]
+
+
+class TestConflictResolutionResult:
+    """Tests for the ConflictResolutionResult dataclass."""
+
+    def test_fields_accessible_by_name(self) -> None:
+        result = ConflictResolutionResult(success=True, used_rebuild=False)
+        assert result.success is True
+        assert result.used_rebuild is False
+
+    def test_equality(self) -> None:
+        a = ConflictResolutionResult(success=True, used_rebuild=False)
+        b = ConflictResolutionResult(success=True, used_rebuild=False)
+        assert a == b
+
+    def test_inequality(self) -> None:
+        a = ConflictResolutionResult(success=True, used_rebuild=False)
+        b = ConflictResolutionResult(success=False, used_rebuild=False)
+        assert a != b
+
+    def test_not_iterable(self) -> None:
+        result = ConflictResolutionResult(success=True, used_rebuild=False)
+        with pytest.raises(TypeError):
+            list(result)  # type: ignore[call-overload]
+
+    def test_is_immutable(self) -> None:
+        from dataclasses import FrozenInstanceError
+
+        result = ConflictResolutionResult(success=True, used_rebuild=False)
+        with pytest.raises(FrozenInstanceError):
+            result.success = False  # type: ignore[misc]
+
+
+class TestPlanAccuracyResult:
+    """Tests for the PlanAccuracyResult NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        accuracy, unplanned, missed = PlanAccuracyResult(1.0, [], [])
+        assert accuracy == 1.0
+        assert unplanned == []
+        assert missed == []
+
+    def test_supports_named_access(self) -> None:
+        result = PlanAccuracyResult(accuracy=75.0, unplanned=["a.py"], missed=["b.py"])
+        assert result.accuracy == 75.0
+        assert result.unplanned == ["a.py"]
+        assert result.missed == ["b.py"]
+
+
+class TestPRInfoExtract:
+    """Tests for the PRInfoExtract NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        pr_number, url, branch = PRInfoExtract(42, "https://example.com", "fix/42")
+        assert pr_number == 42
+        assert url == "https://example.com"
+        assert branch == "fix/42"
+
+    def test_none_pr_number(self) -> None:
+        result = PRInfoExtract(pr_number=None, url="", branch="")
+        assert result.pr_number is None
+
+
+class TestManifestRefreshResult:
+    """Tests for the ManifestRefreshResult NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        content, digest_hash = ManifestRefreshResult("content", "abc123")
+        assert content == "content"
+        assert digest_hash == "abc123"
+
+
+class TestInstructionsQualityResult:
+    """Tests for the InstructionsQualityResult NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        quality, feedback = InstructionsQualityResult(
+            InstructionsQuality.READY, "Looks good"
+        )
+        assert quality == InstructionsQuality.READY
+        assert feedback == "Looks good"
+
+
+class TestParsedCriteria:
+    """Tests for the ParsedCriteria NamedTuple."""
+
+    def test_supports_positional_unpacking(self) -> None:
+        criteria_list, instructions_text = ParsedCriteria(["AC-1"], "Step 1")
+        assert criteria_list == ["AC-1"]
+        assert instructions_text == "Step 1"

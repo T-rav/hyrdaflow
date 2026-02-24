@@ -39,6 +39,16 @@ class TestMemorySuggestionPrompt:
         result = MEMORY_SUGGESTION_PROMPT.format(context="correction")
         assert "correction" in result
 
+    def test_format_with_conflict_resolution_context(self) -> None:
+        result = MEMORY_SUGGESTION_PROMPT.format(context="conflict resolution")
+        assert "conflict resolution" in result
+        assert "{context}" not in result
+
+    def test_format_with_rebuild_context(self) -> None:
+        result = MEMORY_SUGGESTION_PROMPT.format(context="rebuild")
+        assert "rebuild" in result
+        assert "{context}" not in result
+
     def test_contains_type_definitions(self) -> None:
         assert "knowledge" in MEMORY_SUGGESTION_PROMPT
         assert "config" in MEMORY_SUGGESTION_PROMPT

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from cli import (
+    _best_model_for_tool,
     _build_prep_agent_prompt,
     _build_prep_failure_error_message,
     _coverage_validation_roots,
@@ -93,14 +94,26 @@ class TestPrepResultParsing:
 class TestPrepAgentPrompt:
     """Tests for prep prompt safety constraints."""
 
-    def test_prompt_includes_scope_and_no_parallel_constraints(self) -> None:
+    def test_prompt_includes_scope_and_parallel_fanout_constraints(self) -> None:
         prompt = _build_prep_agent_prompt(
             stack="node",
             failures=[("prep-workflow-agent", ["claude", "opus"], "failed")],
             issue_filenames=["auto-fix-prep.md"],
         )
-        assert "Do not run parallel/batch edits" in prompt
+        assert "fan out work to sub-agents in parallel" in prompt
+        assert "max 4 concurrent tracks" in prompt
+        assert "one file at a time" in prompt
         assert "Do not refactor unrelated application source" in prompt
+
+
+class TestPrepModelSelection:
+    """Tests for prep model defaults by selected tool."""
+
+    def test_claude_default_model(self) -> None:
+        assert _best_model_for_tool("claude") == "opus"
+
+    def test_codex_default_model(self) -> None:
+        assert _best_model_for_tool("codex") == "gpt-5-codex"
 
 
 class TestCoverageValidation:
@@ -135,6 +148,20 @@ class TestCoverageValidation:
         assert ok is False
         assert warn is False
         assert "no coverage report artifact found" in detail
+
+    def test_validation_warns_without_artifact_when_missing_allowed(
+        self, tmp_path: Path
+    ) -> None:
+        ok, warn, detail = _evaluate_coverage_validation(
+            tmp_path,
+            min_required=20.0,
+            target=70.0,
+            allow_missing_artifact=True,
+        )
+        assert ok is True
+        assert warn is True
+        assert "fallback floor 20%" in detail
+        assert "CI target remains 70%+" in detail
 
     def test_validation_fails_below_minimum(self, tmp_path: Path) -> None:
         (tmp_path / "lcov.info").write_text("LF:100\nLH:60\n")
@@ -188,6 +215,19 @@ class TestCoverageValidation:
         assert warn is False
         assert "packages/a:" in detail
         assert "below minimum 70%" in detail
+
+    def test_coverage_projects_warns_when_missing_allowed(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        ok, warn, detail = _evaluate_coverage_validation_projects(
+            tmp_path,
+            [tmp_path],
+            min_required=20.0,
+            target=70.0,
+            allow_missing_artifact=True,
+        )
+        assert ok is True
+        assert warn is True
+        assert "fallback floor 20%" in detail
 
 
 # ---------------------------------------------------------------------------

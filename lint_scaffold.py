@@ -13,6 +13,7 @@ import tomllib
 from pathlib import Path
 
 from manifest import detect_language
+from prep_ignore import PREP_IGNORED_DIRS
 
 logger = logging.getLogger("hydraflow.lint_scaffold")
 
@@ -99,7 +100,7 @@ def has_typescript_files(repo_root: Path) -> bool:
     """Check if the repo contains TypeScript source files (excluding node_modules and .d.ts)."""
     for ext in ("*.ts", "*.tsx"):
         for p in repo_root.rglob(ext):
-            if "node_modules" in p.parts:
+            if any(part in PREP_IGNORED_DIRS for part in p.parts):
                 continue
             if p.name.endswith(".d.ts"):
                 continue

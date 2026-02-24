@@ -430,7 +430,7 @@ class TestEventBusWithPersistence:
             # Give the fire-and-forget task a moment to complete
             await asyncio.sleep(0.1)
 
-            assert "Failed to persist event to disk" in caplog.text
+            assert "Could not append to event log" in caplog.text
         finally:
             log.path.chmod(0o644)
 

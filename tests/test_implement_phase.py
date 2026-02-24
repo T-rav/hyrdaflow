@@ -1682,3 +1682,79 @@ class TestReadPlanForRecording:
         result = phase._read_plan_for_recording(99)
 
         assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Critical exception propagation through _worker
+# ---------------------------------------------------------------------------
+
+
+class TestCriticalExceptionPropagation:
+    """Tests that critical exceptions propagate through the worker."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_propagates_through_worker(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AuthenticationError should propagate, not be caught by except Exception."""
+        from subprocess_util import AuthenticationError
+
+        issue = TaskFactory.create()
+
+        async def auth_failing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            raise AuthenticationError("401 Unauthorized")
+
+        phase, _, _ = _make_phase(config, [issue], agent_run=auth_failing_agent)
+
+        with pytest.raises(AuthenticationError, match="401"):
+            await phase.run_batch()
+
+    @pytest.mark.asyncio
+    async def test_credit_error_propagates_through_worker(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """CreditExhaustedError should propagate, not be caught by except Exception."""
+        from subprocess_util import CreditExhaustedError
+
+        issue = TaskFactory.create()
+
+        async def credit_failing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            raise CreditExhaustedError("limit reached")
+
+        phase, _, _ = _make_phase(config, [issue], agent_run=credit_failing_agent)
+
+        with pytest.raises(CreditExhaustedError, match="limit reached"):
+            await phase.run_batch()
+
+    @pytest.mark.asyncio
+    async def test_memory_error_propagates_through_worker(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """MemoryError should propagate, not be caught by except Exception."""
+        issue = TaskFactory.create()
+
+        async def oom_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            raise MemoryError("out of memory")
+
+        phase, _, _ = _make_phase(config, [issue], agent_run=oom_agent)
+
+        with pytest.raises(MemoryError, match="out of memory"):
+            await phase.run_batch()

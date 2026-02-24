@@ -53,6 +53,7 @@ class HydraFlowOrchestrator:
         # In-memory tracking of active issues (avoids double-processing)
         self._active_impl_issues: set[int] = set()
         self._active_review_issues: set[int] = set()
+        self._active_issues_lock = asyncio.Lock()
         # Issues recovered from persisted state on startup (one-cycle grace period)
         self._recovered_issues: set[int] = set()
         # Stop mechanism for dashboard control
@@ -225,7 +226,7 @@ class HydraFlowOrchestrator:
         self._hitl_runner.terminate()
 
         # Checkpoint interrupted issues before cancelling tasks
-        interrupted = self._build_interrupted_issues()
+        interrupted = await self._build_interrupted_issues()
         if interrupted:
             self._state.set_interrupted_issues(interrupted)
             logger.info(
@@ -242,23 +243,29 @@ class HydraFlowOrchestrator:
 
         await self._publish_status()
 
-    def _build_interrupted_issues(self) -> dict[int, str]:
-        """Build a mapping of issue_number → phase for all in-flight issues."""
-        interrupted: dict[int, str] = {}
-        # Use IssueStore active tracking as the primary source
-        for issue_num, stage in self._store.get_active_issues().items():
-            interrupted[issue_num] = stage
-        # Also check in-memory tracking sets for issues not yet in the store
-        for issue_num in self._active_impl_issues:
-            if issue_num not in interrupted:
-                interrupted[issue_num] = "implement"
-        for issue_num in self._active_review_issues:
-            if issue_num not in interrupted:
-                interrupted[issue_num] = "review"
-        for issue_num in self._hitl_phase.active_hitl_issues:
-            if issue_num not in interrupted:
-                interrupted[issue_num] = "hitl"
-        return interrupted
+    async def _build_interrupted_issues(self) -> dict[int, str]:
+        """Build a mapping of issue_number → phase for all in-flight issues.
+
+        Acquires ``_active_issues_lock`` to ensure a consistent snapshot of the
+        in-memory tracking sets, preventing races with concurrent workers that
+        add/remove issues across ``await`` points.
+        """
+        async with self._active_issues_lock:
+            interrupted: dict[int, str] = {}
+            # Use IssueStore active tracking as the primary source
+            for issue_num, stage in self._store.get_active_issues().items():
+                interrupted[issue_num] = stage
+            # Also check in-memory tracking sets for issues not yet in the store
+            for issue_num in self._active_impl_issues:
+                if issue_num not in interrupted:
+                    interrupted[issue_num] = "implement"
+            for issue_num in self._active_review_issues:
+                if issue_num not in interrupted:
+                    interrupted[issue_num] = "review"
+            for issue_num in self._hitl_phase.active_hitl_issues:
+                if issue_num not in interrupted:
+                    interrupted[issue_num] = "hitl"
+            return interrupted
 
     # Alias for backward compatibility
     request_stop = stop
@@ -596,6 +603,16 @@ class HydraFlowOrchestrator:
                             name, exc, tasks, loop_factories
                         )
                         break
+                    else:
+                        # Loop completed without error — should never happen;
+                        # restart to maintain supervision.
+                        logger.warning(
+                            "Loop %r completed unexpectedly — restarting", name
+                        )
+                        factory_fn = dict(loop_factories)[name]
+                        tasks[name] = asyncio.create_task(
+                            factory_fn(), name=f"hydraflow-{name}"
+                        )
         finally:
             for task in tasks.values():
                 task.cancel()
@@ -615,7 +632,7 @@ class HydraFlowOrchestrator:
                 continue
             try:
                 await work_fn()
-            except (AuthenticationError, CreditExhaustedError):
+            except (AuthenticationError, CreditExhaustedError, MemoryError):
                 raise
             except Exception:
                 display = name.replace("_", " ").capitalize()
@@ -730,15 +747,16 @@ class HydraFlowOrchestrator:
         """Work function for the implement loop."""
         # After one poll cycle, release crash-recovered issues
         if self._recovered_issues:
-            self._active_impl_issues -= self._recovered_issues
-            self._recovered_issues.clear()
-            self._state.set_active_issue_numbers(
-                list(
-                    self._active_impl_issues
-                    | self._active_review_issues
-                    | self._active_hitl_issues
+            async with self._active_issues_lock:
+                self._active_impl_issues -= self._recovered_issues
+                self._recovered_issues.clear()
+                self._state.set_active_issue_numbers(
+                    list(
+                        self._active_impl_issues
+                        | self._active_review_issues
+                        | self._active_hitl_issues
+                    )
                 )
-            )
         results, _ = await self._implementer.run_batch()
         for result in results:
             self._session_issue_results[result.issue_number] = result.success

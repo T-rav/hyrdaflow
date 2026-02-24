@@ -125,9 +125,16 @@ class HarnessInsightStore:
 
     def append_failure(self, record: FailureRecord) -> None:
         """Append *record* as a JSON line to ``harness_failures.jsonl``."""
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        with self._failures_path.open("a") as f:
-            f.write(record.model_dump_json() + "\n")
+        try:
+            self._memory_dir.mkdir(parents=True, exist_ok=True)
+            with self._failures_path.open("a") as f:
+                f.write(record.model_dump_json() + "\n")
+        except OSError:
+            logger.warning(
+                "Could not append failure to %s",
+                self._failures_path,
+                exc_info=True,
+            )
 
     def load_recent(self, n: int = 20) -> list[FailureRecord]:
         """Load the last *n* failure records from disk."""

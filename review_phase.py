@@ -19,13 +19,19 @@ from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
+    ConflictResolutionResult,
     JudgeResult,
     PRInfo,
     ReviewResult,
     ReviewVerdict,
     Task,
 )
-from phase_utils import record_harness_failure, run_concurrent_batch, store_lifecycle
+from phase_utils import (
+    publish_review_status,
+    record_harness_failure,
+    run_concurrent_batch,
+    store_lifecycle,
+)
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
 from retrospective import RetrospectiveCollector
@@ -39,6 +45,7 @@ from review_insights import (
 )
 from reviewer import ReviewRunner
 from state import StateTracker
+from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
 from transcript_summarizer import TranscriptSummarizer
 from verification_judge import VerificationJudge
@@ -67,6 +74,7 @@ class ReviewPhase:
         transcript_summarizer: TranscriptSummarizer | None = None,
         epic_checker: EpicCompletionChecker | None = None,
         harness_insights: HarnessInsightStore | None = None,
+        conflict_resolver: MergeConflictResolver | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -86,7 +94,8 @@ class ReviewPhase:
         self._harness_insights = harness_insights
         self._insights = ReviewInsightStore(config.memory_dir)
         self._active_issues: set[int] = set()
-        self._conflict_resolver = MergeConflictResolver(
+        self._active_issues_lock = asyncio.Lock()
+        self._conflict_resolver = conflict_resolver or MergeConflictResolver(
             config=config,
             worktrees=worktrees,
             agents=agents,
@@ -132,11 +141,14 @@ class ReviewPhase:
                         issue_number=pr.issue_number,
                         summary="stopped",
                     )
-                self._active_issues.add(pr.issue_number)
-                self._state.set_active_issue_numbers(list(self._active_issues))
+                async with self._active_issues_lock:
+                    self._active_issues.add(pr.issue_number)
+                    self._state.set_active_issue_numbers(list(self._active_issues))
                 async with store_lifecycle(self._store, pr.issue_number, "review"):
                     try:
                         return await self._review_one_inner(idx, pr, issue_map)
+                    except (AuthenticationError, CreditExhaustedError, MemoryError):
+                        raise
                     except Exception:
                         logger.exception(
                             "Review failed for PR #%d (issue #%d)",
@@ -150,8 +162,11 @@ class ReviewPhase:
                         )
                     finally:
                         await self._publish_review_status(pr, idx, "done")
-                        self._active_issues.discard(pr.issue_number)
-                        self._state.set_active_issue_numbers(list(self._active_issues))
+                        async with self._active_issues_lock:
+                            self._active_issues.discard(pr.issue_number)
+                            self._state.set_active_issue_numbers(
+                                list(self._active_issues)
+                            )
 
         return await run_concurrent_batch(prs, _review_one, self._stop_event)
 
@@ -380,6 +395,8 @@ class ReviewPhase:
                 re_result.verdict.value,
             )
             return result, updated_diff
+        except (AuthenticationError, CreditExhaustedError, MemoryError):
+            raise
         except Exception:
             logger.warning(
                 "PR #%d: self-fix re-review failed — falling back to original rejection",
@@ -620,18 +637,7 @@ class ReviewPhase:
         self, pr: PRInfo, worker_id: int, status: str
     ) -> None:
         """Emit a REVIEW_UPDATE event with the given status."""
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": pr.issue_number,
-                    "worker": worker_id,
-                    "status": status,
-                    "role": "reviewer",
-                },
-            )
-        )
+        await publish_review_status(self._bus, pr, worker_id, status)
 
     async def _escalate_to_hitl(
         self,
@@ -834,7 +840,7 @@ class ReviewPhase:
     @property
     def _resolve_merge_conflicts(
         self,
-    ) -> Callable[..., Coroutine[Any, Any, tuple[bool, bool]]]:
+    ) -> Callable[..., Coroutine[Any, Any, ConflictResolutionResult]]:
         """Backward-compatible access to conflict resolver."""
         return self._conflict_resolver.resolve_merge_conflicts
 
@@ -856,7 +862,7 @@ class ReviewPhase:
     @property
     def _save_conflict_transcript(self) -> Callable[..., None]:
         """Backward-compatible access to conflict transcript saving."""
-        return self._conflict_resolver._save_conflict_transcript
+        return self._conflict_resolver.save_conflict_transcript
 
     @property
     def _maybe_summarize_conflict(self) -> Callable[..., Coroutine[Any, Any, None]]:

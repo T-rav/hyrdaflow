@@ -1063,6 +1063,17 @@ class TestSummariseWithModel:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_runtime_error_returns_none(self, tmp_path: Path) -> None:
+        """Should return None when run_simple raises RuntimeError."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(side_effect=RuntimeError("event loop closed"))
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+        result = await worker._summarise_with_model("content", 4000)
+
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_uses_configured_timeout(self, tmp_path: Path) -> None:
         """run_simple is called with timeout from config.memory_compaction_timeout."""
         config = ConfigFactory.create(repo_root=tmp_path, memory_compaction_timeout=90)

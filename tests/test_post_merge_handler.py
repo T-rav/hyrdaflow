@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -174,6 +175,227 @@ class TestPostMergeHandler:
         )
 
         mock_retro.record.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_verification_issue_created_when_judge_returns_verdict(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """create_issue should be called when the judge returns a non-None verdict."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="Looks good",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Run the tests",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        handler = _make_handler(config, verification_judge=mock_judge)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(return_value=42)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        handler._prs.create_issue.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_epic_runs_when_verification_issue_creation_fails(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Epic checker should still run when _create_verification_issue raises."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="OK",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Check it",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        mock_epic = AsyncMock()
+        handler = _make_handler(
+            config,
+            verification_judge=mock_judge,
+            epic_checker=mock_epic,
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(side_effect=RuntimeError("GH API down"))
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        mock_epic.check_and_close_epics.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_returns_result_on_success(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_safe_hook should return the coroutine's result on success."""
+        handler = _make_handler(config)
+
+        async def _success() -> str:
+            return "ok"
+
+        result = await handler._safe_hook("test hook", _success(), issue_number=1)
+        assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_returns_none_on_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_safe_hook should return None when the coroutine raises."""
+        handler = _make_handler(config)
+
+        async def _fail() -> str:
+            msg = "boom"
+            raise RuntimeError(msg)
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_logs_warning_on_failure(
+        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_safe_hook should log a warning with hook name and issue number."""
+        handler = _make_handler(config)
+
+        async def _fail() -> str:
+            msg = "boom"
+            raise RuntimeError(msg)
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.post_merge_handler"):
+            await handler._safe_hook("AC generation", _fail(), issue_number=42)
+
+        matching = [
+            rec
+            for rec in caplog.records
+            if "AC generation failed for issue #42" in rec.message
+        ]
+        assert matching, "Expected warning log for hook failure"
+        assert matching[0].exc_info is not None, "Expected exc_info to be attached"
+
+    @pytest.mark.asyncio
+    async def test_all_hooks_called_when_all_present(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AC, retrospective, judge, and epic hooks should all run after a successful merge.
+
+        Verification-issue creation is conditional on a non-None judge verdict
+        and is covered by test_verification_issue_created_when_judge_returns_verdict.
+        """
+        mock_ac = AsyncMock()
+        mock_retro = AsyncMock()
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=None)
+        mock_epic = AsyncMock()
+        handler = _make_handler(
+            config,
+            ac_generator=mock_ac,
+            retrospective=mock_retro,
+            verification_judge=mock_judge,
+            epic_checker=mock_epic,
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        mock_ac.generate.assert_awaited_once()
+        mock_retro.record.assert_awaited_once()
+        mock_judge.judge.assert_awaited_once()
+        mock_epic.check_and_close_epics.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_later_hooks_run_when_earlier_hook_fails(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Epic checker should still run when verification judge fails."""
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(side_effect=RuntimeError("judge broke"))
+        mock_epic = AsyncMock()
+        handler = _make_handler(
+            config,
+            verification_judge=mock_judge,
+            epic_checker=mock_epic,
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        mock_epic.check_and_close_epics.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_hook_failure_does_not_block_others(

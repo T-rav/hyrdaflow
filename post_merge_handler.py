@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from config import HydraFlowConfig
@@ -28,6 +28,8 @@ from verification import format_verification_issue_body
 from verification_judge import VerificationJudge
 
 logger = logging.getLogger("hydraflow.post_merge_handler")
+
+_T = TypeVar("_T")
 
 
 class PostMergeHandler:
@@ -140,6 +142,24 @@ class PostMergeHandler:
                 event_cause="merge_failed",
             )
 
+    @staticmethod
+    async def _safe_hook(
+        name: str,
+        coro: Coroutine[Any, Any, _T],
+        issue_number: int,
+    ) -> _T | None:
+        """Await a post-merge hook, logging and swallowing any exception."""
+        try:
+            return await coro
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "%s failed for issue #%d",
+                name,
+                issue_number,
+                exc_info=True,
+            )
+            return None
+
     async def _run_post_merge_hooks(
         self,
         pr: PRInfo,
@@ -149,70 +169,54 @@ class PostMergeHandler:
     ) -> None:
         """Run non-blocking post-merge hooks (AC, retrospective, judge, epic)."""
         if self._ac_generator:
-            try:
-                await self._ac_generator.generate(
+            await self._safe_hook(
+                "AC generation",
+                self._ac_generator.generate(
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     issue=GitHubIssue.from_task(issue),
                     diff=diff,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Acceptance criteria generation failed for issue #%d",
-                    pr.issue_number,
-                    exc_info=True,
-                )
+                ),
+                pr.issue_number,
+            )
         if self._retrospective:
-            try:
-                await self._retrospective.record(
+            await self._safe_hook(
+                "retrospective",
+                self._retrospective.record(
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     review_result=result,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Retrospective record failed for issue #%d",
-                    pr.issue_number,
-                    exc_info=True,
-                )
+                ),
+                pr.issue_number,
+            )
+
         verdict: JudgeVerdict | None = None
         if self._verification_judge:
-            try:
-                verdict = await self._verification_judge.judge(
+            verdict = await self._safe_hook(
+                "verification judge",
+                self._verification_judge.judge(
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     diff=diff,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Verification judge failed for issue #%d",
-                    pr.issue_number,
-                    exc_info=True,
-                )
+                ),
+                pr.issue_number,
+            )
 
         judge_result = self._get_judge_result(issue, pr, verdict)
         if judge_result is not None:
-            try:
-                await self._create_verification_issue(issue, pr, judge_result)
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Verification issue creation failed for issue #%d",
-                    pr.issue_number,
-                    exc_info=True,
-                )
+            await self._safe_hook(
+                "verification issue creation",
+                self._create_verification_issue(issue, pr, judge_result),
+                pr.issue_number,
+            )
 
         # Check if any parent epics can be closed
         if self._epic_checker:
-            try:
-                await self._epic_checker.check_and_close_epics(
-                    pr.issue_number,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Epic completion check failed for issue #%d",
-                    pr.issue_number,
-                    exc_info=True,
-                )
+            await self._safe_hook(
+                "epic completion check",
+                self._epic_checker.check_and_close_epics(pr.issue_number),
+                pr.issue_number,
+            )
 
     def _get_judge_result(
         self,

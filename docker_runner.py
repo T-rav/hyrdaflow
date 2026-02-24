@@ -11,10 +11,11 @@ import asyncio
 import contextlib
 import logging
 import struct
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from execution import HostRunner, SimpleResult, get_default_runner
+from execution import SimpleResult, SubprocessRunner, get_default_runner
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -236,7 +237,7 @@ class DockerProcess:
         self.pid: int | None = None
 
     def kill(self) -> None:
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(OSError, RuntimeError):
             self._container.kill()
 
     async def wait(self) -> int:
@@ -283,6 +284,12 @@ class DockerRunner:
         self._last_spawn_time: float = 0.0
         self._containers: set[Any] = set()
 
+    async def __aenter__(self) -> DockerRunner:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.cleanup()
+
     def _build_mounts(self, cwd: str | None) -> dict[str, dict[str, str]]:
         """Build Docker volume mount specification."""
         mounts: dict[str, dict[str, str]] = {}
@@ -325,7 +332,7 @@ class DockerRunner:
 
     async def create_streaming_process(
         self,
-        cmd: list[str],
+        cmd: Sequence[str],
         *,
         cwd: str | None = None,
         env: dict[str, str] | None = None,  # noqa: ARG002
@@ -334,7 +341,7 @@ class DockerRunner:
         stderr: int | None = None,  # noqa: ARG002
         limit: int = 1024 * 1024,  # noqa: ARG002
         start_new_session: bool = True,  # noqa: ARG002
-    ) -> DockerProcess:
+    ) -> asyncio.subprocess.Process:
         """Create a streaming Docker container process.
 
         Mounts the worktree directory (``cwd``) as ``/workspace`` inside
@@ -386,8 +393,11 @@ class DockerRunner:
                     params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1}
                 ),
             )
-            return DockerProcess(
-                cast(ContainerLike, container), cast(DockerSocket, socket), loop
+            return cast(
+                asyncio.subprocess.Process,
+                DockerProcess(
+                    cast(ContainerLike, container), cast(DockerSocket, socket), loop
+                ),
             )
         except Exception:
             with contextlib.suppress(Exception):
@@ -397,7 +407,7 @@ class DockerRunner:
 
     async def run_simple(
         self,
-        cmd: list[str],
+        cmd: Sequence[str],
         *,
         cwd: str | None = None,
         env: dict[str, str] | None = None,  # noqa: ARG002
@@ -496,13 +506,16 @@ def _check_docker_available() -> bool:
         client.ping()
         return True
     except Exception:
+        logger.debug("Docker availability check failed", exc_info=True)
         return False
 
 
-def get_docker_runner(config: HydraFlowConfig) -> DockerRunner | HostRunner:
-    """Factory: returns DockerRunner if Docker is available, else HostRunner.
+def get_docker_runner(config: HydraFlowConfig) -> SubprocessRunner:
+    """Factory: returns a :class:`SubprocessRunner` for agent execution.
 
-    Falls back to host runner with a warning if:
+    Returns a ``DockerRunner`` when Docker is available and configured,
+    otherwise falls back to a ``HostRunner`` with a warning if:
+
     - ``docker_enabled`` is False
     - ``docker_image`` is not configured
     - Docker daemon is not available
