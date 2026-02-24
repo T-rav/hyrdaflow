@@ -2285,7 +2285,7 @@ class TestGetLabelCounts:
 
         mgr._run_gh = mock_run_gh
         # Reset cache
-        mgr._label_counts_cache = {}
+        mgr._label_counts_cache = None
         mgr._label_counts_ts = 0.0
 
         result = await mgr.get_label_counts(cfg)
