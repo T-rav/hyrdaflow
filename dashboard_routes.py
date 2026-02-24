@@ -777,6 +777,16 @@ def create_router(
             records, config.harness_pattern_threshold, proposed
         )
 
+        # Mark new suggestions as proposed for deduplication
+        for s in suggestions:
+            key = (
+                f"subcategory:{s.subcategory}"
+                if s.subcategory
+                else f"category:{s.category}"
+            )
+            store.mark_pattern_proposed(key)
+            proposed.add(key)
+
         # Build category summary
         cat_counts: Counter[str] = Counter(r.category for r in records)
         sub_counts: Counter[str] = Counter()

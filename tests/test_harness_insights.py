@@ -260,6 +260,51 @@ class TestHarnessInsightStore:
         store = HarnessInsightStore(memory_dir)
         assert store.get_proposed_patterns() == set()
 
+    def test_mark_proposed_writes_dict_format(self, tmp_path: Path) -> None:
+        """harness_proposed.json must be a JSON object, not an array."""
+        import json
+
+        store = HarnessInsightStore(tmp_path / "memory")
+        store.mark_pattern_proposed("category:quality_gate")
+
+        raw = json.loads((tmp_path / "memory" / "harness_proposed.json").read_text())
+        assert isinstance(raw, dict)
+        assert "category:quality_gate" in raw
+
+    def test_get_proposed_reads_legacy_list_format(self, tmp_path: Path) -> None:
+        """Backwards compat: accept legacy JSON array format."""
+        import json
+
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "harness_proposed.json").write_text(
+            json.dumps(["category:quality_gate", "subcategory:lint_error"])
+        )
+
+        store = HarnessInsightStore(memory_dir)
+        assert store.get_proposed_patterns() == {
+            "category:quality_gate",
+            "subcategory:lint_error",
+        }
+
+    def test_mark_proposed_migrates_legacy_list_to_dict(self, tmp_path: Path) -> None:
+        """Adding a pattern to a legacy list file migrates to dict format."""
+        import json
+
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "harness_proposed.json").write_text(
+            json.dumps(["category:quality_gate"])
+        )
+
+        store = HarnessInsightStore(memory_dir)
+        store.mark_pattern_proposed("subcategory:lint_error")
+
+        raw = json.loads((memory_dir / "harness_proposed.json").read_text())
+        assert isinstance(raw, dict)
+        assert "category:quality_gate" in raw
+        assert "subcategory:lint_error" in raw
+
 
 # ---------------------------------------------------------------------------
 # analyze_category_patterns
@@ -486,6 +531,35 @@ class TestGenerateSuggestions:
         suggestions = generate_suggestions(records, threshold=3)
         assert suggestions[0].evidence
         assert len(suggestions[0].evidence) == 3
+
+    def test_dedup_after_mark_proposed_returns_no_suggestions(
+        self, tmp_path: Path
+    ) -> None:
+        """Simulates the API deduplication: generate → mark proposed → regenerate."""
+        store = HarnessInsightStore(tmp_path / "memory")
+        records = [
+            _make_record(issue_number=i, category=FailureCategory.QUALITY_GATE)
+            for i in range(4)
+        ]
+
+        # First call: suggestions are returned
+        proposed = store.get_proposed_patterns()
+        suggestions = generate_suggestions(records, threshold=3, proposed=proposed)
+        assert len(suggestions) >= 1
+
+        # Mark each suggestion as proposed (simulates API endpoint behavior)
+        for s in suggestions:
+            key = (
+                f"subcategory:{s.subcategory}"
+                if s.subcategory
+                else f"category:{s.category}"
+            )
+            store.mark_pattern_proposed(key)
+
+        # Second call: no suggestions (all patterns already proposed)
+        proposed2 = store.get_proposed_patterns()
+        suggestions2 = generate_suggestions(records, threshold=3, proposed=proposed2)
+        assert suggestions2 == []
 
 
 # ---------------------------------------------------------------------------

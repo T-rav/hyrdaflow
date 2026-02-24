@@ -152,16 +152,19 @@ class HarnessInsightStore:
             return set()
         try:
             data = json.loads(self._proposed_path.read_text())
+            if isinstance(data, dict):
+                return set(data.keys())
+            # Backwards compat: accept legacy list format
             return set(data) if isinstance(data, list) else set()
         except (json.JSONDecodeError, TypeError, OSError):
             return set()
 
     def mark_pattern_proposed(self, key: str) -> None:
         """Record that an improvement proposal has been filed for *key*."""
-        proposed = self.get_proposed_patterns()
-        proposed.add(key)
+        proposed = dict.fromkeys(self.get_proposed_patterns(), True)
+        proposed[key] = True
         self._memory_dir.mkdir(parents=True, exist_ok=True)
-        self._proposed_path.write_text(json.dumps(sorted(proposed)))
+        self._proposed_path.write_text(json.dumps(proposed, sort_keys=True))
 
 
 # ---------------------------------------------------------------------------
