@@ -306,3 +306,11 @@ class TestGetDefaultRunner:
         runner1 = get_default_runner()
         runner2 = get_default_runner()
         assert runner1 is runner2
+
+    def test_returns_subprocess_runner_protocol(self) -> None:
+        """get_default_runner returns a SubprocessRunner protocol instance."""
+        import execution
+
+        execution._default_runner = None
+        runner = get_default_runner()
+        assert isinstance(runner, SubprocessRunner)

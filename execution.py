@@ -146,7 +146,7 @@ class HostRunner:
 _default_runner: HostRunner | None = None
 
 
-def get_default_runner() -> HostRunner:
+def get_default_runner() -> SubprocessRunner:
     """Return a module-level ``HostRunner`` singleton."""
     global _default_runner  # noqa: PLW0603
     if _default_runner is None:

@@ -13,14 +13,16 @@ import shutil
 import signal
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from config import HydraFlowConfig, load_config_file
 from log import setup_logging
 from orchestrator import HydraFlowOrchestrator
+
+_T = TypeVar("_T")
 
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
@@ -55,14 +57,14 @@ def _prep_stage_line(stage: str, detail: str, status: str, color: bool) -> str:
 
 
 async def _await_with_prep_heartbeat(
-    awaitable: Any,
+    awaitable: Coroutine[Any, Any, _T],
     *,
     stage: str,
     detail: str,
     color: bool,
     interval_seconds: float = 20.0,
     tail_provider: Callable[[], list[str]] | None = None,
-) -> Any:
+) -> _T:
     """Await long-running prep work while emitting periodic heartbeat lines."""
     task = asyncio.create_task(awaitable)
     start = asyncio.get_running_loop().time()

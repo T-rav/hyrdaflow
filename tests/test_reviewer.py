@@ -63,6 +63,13 @@ def test_build_command_does_not_include_cwd(config, tmp_path):
     assert "--cwd" not in cmd
 
 
+def test_build_command_accepts_none_worktree_path(config):
+    """ReviewRunner._build_command accepts None since it doesn't use the path."""
+    runner = _make_runner(config, None)
+    cmd = runner._build_command(None)
+    assert cmd[0] == "claude"
+
+
 def test_build_command_includes_output_format(config, tmp_path):
     runner = _make_runner(config, None)
     cmd = runner._build_command(tmp_path)
