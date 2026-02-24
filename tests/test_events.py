@@ -744,7 +744,7 @@ class TestPersistEventErrorHandling:
         ):
             event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
             await bus.publish(event)
-            await asyncio.sleep(0)  # let fire-and-forget task complete
+            await bus.flush_persists()
 
         assert "Failed to persist event to disk" in caplog.text
         records = [
@@ -759,7 +759,7 @@ class TestPersistEventErrorHandling:
     async def test_persist_event_catches_os_error(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """OSError exceptions are still caught (regression test)."""
+        """OSError exceptions are still caught and logged with exc_info (regression test)."""
         event_log = EventLog(tmp_path / "events.jsonl")
         bus = EventBus(event_log=event_log)
 
@@ -769,9 +769,15 @@ class TestPersistEventErrorHandling:
         ):
             event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
             await bus.publish(event)
-            await asyncio.sleep(0)
+            await bus.flush_persists()
 
-        assert "Failed to persist event to disk" in caplog.text
+        records = [
+            r
+            for r in caplog.records
+            if "Failed to persist event to disk" in r.getMessage()
+        ]
+        assert len(records) == 1
+        assert records[0].exc_info is not None
 
     @pytest.mark.asyncio
     async def test_publish_delivers_event_despite_persist_failure(
@@ -785,7 +791,7 @@ class TestPersistEventErrorHandling:
         with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
             event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
             await bus.publish(event)
-            await asyncio.sleep(0)
+            await bus.flush_persists()
 
         assert queue.get_nowait() is event
         assert event in bus.get_history()

@@ -230,6 +230,7 @@ class EventBus:
         self._max_history = max_history
         self._event_log = event_log
         self._active_session_id: str | None = None
+        self._pending_persists: set[asyncio.Task[None]] = set()
 
     def set_session_id(self, session_id: str | None) -> None:
         """Set the active session ID to auto-inject into published events."""
@@ -253,6 +254,8 @@ class EventBus:
 
         if self._event_log is not None:
             task = asyncio.create_task(self._persist_event(event))
+            self._pending_persists.add(task)
+            task.add_done_callback(self._pending_persists.discard)
             task.add_done_callback(_log_persist_failure)
 
     async def _persist_event(self, event: HydraFlowEvent) -> None:
@@ -262,6 +265,15 @@ class EventBus:
             await self._event_log.append(event)
         except Exception:
             logger.warning("Failed to persist event to disk", exc_info=True)
+
+    async def flush_persists(self) -> None:
+        """Await all in-flight persist tasks, suppressing exceptions.
+
+        Use in tests instead of ``asyncio.sleep(0)`` to reliably drain
+        fire-and-forget persist tasks without timing assumptions.
+        """
+        if self._pending_persists:
+            await asyncio.gather(*self._pending_persists, return_exceptions=True)
 
     async def load_history_from_disk(self) -> None:
         """Populate in-memory history from the on-disk event log.
