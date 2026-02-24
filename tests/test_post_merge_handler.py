@@ -177,6 +177,97 @@ class TestPostMergeHandler:
         mock_retro.record.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_verification_issue_created_when_judge_returns_verdict(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """create_issue should be called when the judge returns a non-None verdict."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="Looks good",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Run the tests",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        handler = _make_handler(config, verification_judge=mock_judge)
+        pr = PRInfoFactory.create()
+        issue = IssueFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(return_value=42)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        handler._prs.create_issue.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_epic_runs_when_verification_issue_creation_fails(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Epic checker should still run when _create_verification_issue raises."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="OK",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Check it",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        mock_epic = AsyncMock()
+        handler = _make_handler(
+            config,
+            verification_judge=mock_judge,
+            epic_checker=mock_epic,
+        )
+        pr = PRInfoFactory.create()
+        issue = IssueFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(side_effect=RuntimeError("GH API down"))
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        mock_epic.check_and_close_epics.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_safe_hook_returns_result_on_success(
         self, config: HydraFlowConfig
     ) -> None:
@@ -229,7 +320,11 @@ class TestPostMergeHandler:
     async def test_all_hooks_called_when_all_present(
         self, config: HydraFlowConfig
     ) -> None:
-        """All four hooks should be invoked after a successful merge."""
+        """AC, retrospective, judge, and epic hooks should all run after a successful merge.
+
+        Verification-issue creation is conditional on a non-None judge verdict
+        and is covered by test_verification_issue_created_when_judge_returns_verdict.
+        """
         mock_ac = AsyncMock()
         mock_retro = AsyncMock()
         mock_judge = AsyncMock()
