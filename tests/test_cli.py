@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from cli import (
+    _best_model_for_tool,
     _build_prep_agent_prompt,
     _build_prep_failure_error_message,
     _coverage_validation_roots,
@@ -103,6 +104,16 @@ class TestPrepAgentPrompt:
         assert "max 4 concurrent tracks" in prompt
         assert "one file at a time" in prompt
         assert "Do not refactor unrelated application source" in prompt
+
+
+class TestPrepModelSelection:
+    """Tests for prep model defaults by selected tool."""
+
+    def test_claude_default_model(self) -> None:
+        assert _best_model_for_tool("claude") == "opus"
+
+    def test_codex_default_model(self) -> None:
+        assert _best_model_for_tool("codex") == "gpt-5-codex"
 
 
 class TestCoverageValidation:

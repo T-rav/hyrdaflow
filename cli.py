@@ -1096,7 +1096,7 @@ def _best_model_for_tool(tool: str) -> str:
     """Return best default model for the selected tool."""
     if tool == "claude":
         return "opus"
-    return "gpt-5.3"
+    return "gpt-5-codex"
 
 
 def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
