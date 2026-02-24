@@ -10,7 +10,7 @@ from config import HydraFlowConfig
 from events import EventBus
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
-from models import PlanResult, Task
+from models import PipelineStage, PlanResult, Task
 from phase_utils import (
     escalate_to_hitl,
     record_harness_failure,
@@ -146,7 +146,7 @@ class PlanPhase:
             issue.id,
             FailureCategory.PLAN_VALIDATION,
             "; ".join(result.validation_errors),
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
         logger.warning(
             "Planning failed validation for issue #%d after retry — escalated to HITL",
@@ -240,5 +240,5 @@ class PlanPhase:
             issue_number,
             category,
             details,
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )

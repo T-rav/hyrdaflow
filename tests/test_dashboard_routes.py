@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
-from models import HITLItem
+from models import HITLItem, SessionStatus
 
 
 class TestCreateRouter:
@@ -1977,7 +1977,7 @@ class TestDeleteSessionEndpoint:
                 id="s1",
                 repo="org/repo",
                 started_at="2024-01-01T00:00:00",
-                status="completed",
+                status=SessionStatus.COMPLETED,
             )
         )
         router = self._make_router(config, event_bus, state, tmp_path)
@@ -2014,7 +2014,7 @@ class TestDeleteSessionEndpoint:
                 id="active-s",
                 repo="org/repo",
                 started_at="2024-01-01T00:00:00",
-                status="active",
+                status=SessionStatus.ACTIVE,
             )
         )
         router = self._make_router(config, event_bus, state, tmp_path)
@@ -2969,7 +2969,6 @@ class TestGetTimelineIssueEndpoint:
     async def test_returns_404_for_unknown_issue(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         router = self._make_router(config, event_bus, state, tmp_path)
         endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_num}")
         response = await endpoint(9999)
@@ -3095,7 +3094,6 @@ class TestHITLCloseEndpoint:
     async def test_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         router, _ = self._make_router(config, event_bus, state, tmp_path)
         endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(42)
@@ -3261,7 +3259,6 @@ class TestSubmitIntentEndpoint:
     async def test_submit_intent_returns_error_on_failure(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         from models import IntentRequest
 
         router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
@@ -3401,7 +3398,6 @@ class TestStopOrchestratorEndpoint:
     async def test_stop_returns_error_when_not_running(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         router = self._make_router(config, event_bus, state, tmp_path)
         endpoint = self._find_endpoint(router, "/api/control/stop")
         response = await endpoint()
@@ -3488,7 +3484,6 @@ class TestSPAEndpoints:
     async def test_spa_catchall_returns_404_for_api_paths(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         router = self._make_router(config, event_bus, state, tmp_path)
         endpoint = self._find_endpoint(router, "/{path:path}")
         response = await endpoint("api/nonexistent")

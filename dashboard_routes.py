@@ -16,10 +16,12 @@ from pydantic import ValidationError
 
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
+from issue_store import IssueStoreStage
 from metrics_manager import get_metrics_cache_dir
 from models import (
     BackgroundWorkersResponse,
     BackgroundWorkerStatus,
+    BGWorkerHealth,
     ControlStatusConfig,
     ControlStatusResponse,
     IntentRequest,
@@ -29,6 +31,7 @@ from models import (
     MetricsSnapshot,
     PipelineIssue,
     PipelineSnapshot,
+    PipelineSnapshotEntry,
     QueueStats,
 )
 from pr_manager import PRManager
@@ -41,12 +44,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger("hydraflow.dashboard")
 
 # Backend stage keys → frontend stage names
-_STAGE_NAME_MAP = {
-    "find": "triage",
-    "plan": "plan",
-    "ready": "implement",
-    "review": "review",
-    "hitl": "hitl",
+_STAGE_NAME_MAP: dict[str, str] = {
+    IssueStoreStage.FIND: "triage",
+    IssueStoreStage.PLAN: "plan",
+    IssueStoreStage.READY: "implement",
+    IssueStoreStage.REVIEW: "review",
+    IssueStoreStage.HITL: "hitl",
 }
 
 # Frontend stage key → config label field name (for request-changes)
@@ -188,13 +191,13 @@ def create_router(
         orch = get_orchestrator()
         if orch:
             raw = orch.issue_store.get_pipeline_snapshot()
-            mapped: dict[str, list[dict[str, object]]] = {}
+            mapped: dict[str, list[PipelineSnapshotEntry]] = {}
             for backend_stage, issues in raw.items():
                 frontend_stage = _STAGE_NAME_MAP.get(backend_stage, backend_stage)
                 mapped[frontend_stage] = issues
             snapshot = PipelineSnapshot(
                 stages={
-                    k: [PipelineIssue(**i) for i in v]  # type: ignore[arg-type]
+                    k: [PipelineIssue.model_validate(i) for i in v]
                     for k, v in mapped.items()
                 }
             )
@@ -591,7 +594,9 @@ def create_router(
                     BackgroundWorkerStatus(
                         name=name,
                         label=label,
-                        status=entry["status"],
+                        status=BGWorkerHealth(
+                            entry.get("status", BGWorkerHealth.DISABLED)
+                        ),
                         enabled=enabled,
                         last_run=last_run,
                         interval_seconds=interval,

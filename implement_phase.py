@@ -10,7 +10,7 @@ from agent import AgentRunner
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
-from models import GitHubIssue, Task, WorkerResult
+from models import GitHubIssue, PipelineStage, Task, WorkerResult, WorkerResultMeta
 from phase_utils import (
     escalate_to_hitl,
     record_harness_failure,
@@ -128,7 +128,7 @@ class ImplementPhase:
                             issue.id,
                             FailureCategory.IMPLEMENTATION_ERROR,
                             f"Worker exception for issue #{issue.id}",
-                            stage="implement",
+                            stage=PipelineStage.IMPLEMENT,
                         )
                         return WorkerResult(
                             issue_number=issue.id,
@@ -218,7 +218,7 @@ class ImplementPhase:
             issue.id,
             FailureCategory.HITL_ESCALATION,
             f"Implementation attempt cap exceeded after {attempts - 1} attempt(s): {last_error}",
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )
 
     async def _check_attempt_cap(self, issue: Task, branch: str) -> WorkerResult | None:
@@ -275,17 +275,15 @@ class ImplementPhase:
                 FailureCategory.QUALITY_GATE,
                 f"Quality fix needed: {result.quality_fix_attempts} round(s). "
                 f"Error: {result.error or 'none'}",
-                stage="implement",
+                stage=PipelineStage.IMPLEMENT,
             )
-        self._state.set_worker_result_meta(
-            issue.id,
-            {
-                "quality_fix_attempts": result.quality_fix_attempts,
-                "duration_seconds": result.duration_seconds,
-                "error": result.error,
-                "commits": result.commits,
-            },
-        )
+        meta: WorkerResultMeta = {
+            "quality_fix_attempts": result.quality_fix_attempts,
+            "duration_seconds": result.duration_seconds,
+            "error": result.error,
+            "commits": result.commits,
+        }
+        self._state.set_worker_result_meta(issue.id, meta)
 
     async def _run_implementation(
         self,
@@ -359,5 +357,5 @@ class ImplementPhase:
             issue_number,
             category,
             details,
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )

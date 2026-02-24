@@ -17,6 +17,7 @@ from typing import Any
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from models import StatusCallback
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.base_background_loop")
@@ -38,7 +39,7 @@ class BaseBackgroundLoop(abc.ABC):
         config: HydraFlowConfig,
         bus: EventBus,
         stop_event: asyncio.Event,
-        status_cb: Callable[[str, str, dict[str, Any] | None], None],
+        status_cb: StatusCallback,
         enabled_cb: Callable[[str], bool],
         sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
         interval_cb: Callable[[str], int] | None = None,

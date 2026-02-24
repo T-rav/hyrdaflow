@@ -11,6 +11,7 @@ from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
 from issue_store import IssueStore
+from models import StatusCallback
 
 if TYPE_CHECKING:
     from metrics_manager import MetricsManager
@@ -28,7 +29,7 @@ class MetricsSyncLoop(BaseBackgroundLoop):
         metrics_manager: MetricsManager,
         event_bus: EventBus,
         stop_event: asyncio.Event,
-        status_cb: Callable[[str, str, dict[str, Any] | None], None],
+        status_cb: StatusCallback,
         enabled_cb: Callable[[str], bool],
         sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
         interval_cb: Callable[[str], int] | None = None,

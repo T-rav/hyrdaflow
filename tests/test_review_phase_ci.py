@@ -24,7 +24,7 @@ from tests.conftest import (
     ReviewResultFactory,
     TaskFactory,
 )
-from tests.helpers import make_review_phase
+from tests.helpers import ConfigFactory, make_review_phase
 
 # ---------------------------------------------------------------------------
 # CI wait/fix loop (wait_and_fix_ci)
@@ -39,28 +39,17 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """When CI passes on first check, PR should be merged."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(True, "All 3 checks passed"))
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -73,15 +62,13 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """When CI fails after all fix attempts, PR should not be merged."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -92,18 +79,8 @@ class TestWaitAndFixCI:
             fixes_made=True,
         )
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -116,28 +93,17 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """When max_ci_fix_attempts=0, CI wait is skipped entirely."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=0,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(True, "passed"))
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -150,15 +116,13 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """CI wait only triggers for APPROVE — REQUEST_CHANGES skips it."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -167,13 +131,7 @@ class TestWaitAndFixCI:
                 verdict=ReviewVerdict.REQUEST_CHANGES
             )
         )
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(True, "passed"))
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -186,15 +144,13 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """When fix agent makes changes, loop should retry CI."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -218,17 +174,8 @@ class TestWaitAndFixCI:
             fixes_made=True,
         )
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = fake_wait_for_ci
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -242,15 +189,13 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """When fix agent makes no changes, loop should stop early."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=3,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -261,18 +206,8 @@ class TestWaitAndFixCI:
             fixes_made=False,  # No changes made
         )
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -288,15 +223,13 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure should post a comment and swap label to hydraflow-hitl."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -307,18 +240,8 @@ class TestWaitAndFixCI:
             fixes_made=True,
         )
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -334,15 +257,13 @@ class TestWaitAndFixCI:
     @pytest.mark.asyncio
     async def test_ci_failure_sets_hitl_cause(self, config: HydraFlowConfig) -> None:
         """CI failure escalation should record cause with attempt count in state."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -353,18 +274,8 @@ class TestWaitAndFixCI:
             fixes_made=True,
         )
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -375,15 +286,13 @@ class TestWaitAndFixCI:
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure escalation should record review_label as HITL origin."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -394,18 +303,8 @@ class TestWaitAndFixCI:
             fixes_made=True,
         )
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -425,15 +324,13 @@ class TestWaitAndFixCIEdgeCases:
         self, config: HydraFlowConfig
     ) -> None:
         """When fix_ci raises, the outer _review_one except catches it."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create(id=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
 
@@ -444,16 +341,7 @@ class TestWaitAndFixCIEdgeCases:
         )
         # fix_ci raises an exception
         phase._reviewers.fix_ci = AsyncMock(side_effect=RuntimeError("agent crashed"))
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: tests"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -469,15 +357,13 @@ class TestWaitAndFixCIEdgeCases:
         self, config: HydraFlowConfig
     ) -> None:
         """When stop_event is set, wait_for_ci returns (False, 'Stopped')."""
-        from tests.helpers import ConfigFactory
-
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        phase = make_review_phase(cfg)
+        phase = make_review_phase(cfg, default_mocks=True)
         issue = TaskFactory.create(id=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
 
@@ -486,19 +372,10 @@ class TestWaitAndFixCIEdgeCases:
                 pr_number=101, issue_number=42, verdict=ReviewVerdict.APPROVE
             )
         )
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Stopped"))
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
 
         # Set stop_event before running
         phase._stop_event.set()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -518,8 +395,6 @@ class TestWaitAndFixCIWithLogs:
     @pytest.mark.asyncio
     async def test_fetches_ci_logs_when_enabled(self, tmp_path: Path) -> None:
         """When inject_runtime_logs is True, fetch_ci_failure_logs is called."""
-        from tests.helpers import ConfigFactory
-
         config = ConfigFactory.create(
             inject_runtime_logs=True,
             max_ci_fix_attempts=1,
@@ -527,12 +402,10 @@ class TestWaitAndFixCIWithLogs:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "state.json",
         )
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
         result = ReviewResultFactory.create()
-        wt = tmp_path / "wt" / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         # First call: wait_for_ci fails; second: CI fix; third: wait_for_ci passes
         phase._prs.wait_for_ci = AsyncMock(
@@ -546,8 +419,8 @@ class TestWaitAndFixCIWithLogs:
         )
         fix_result = ReviewResultFactory.create(fixes_made=True)
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.push_branch = AsyncMock(return_value=True)
 
+        wt = tmp_path / "wt" / "issue-42"
         passed = await phase.wait_and_fix_ci(pr, issue, wt, result, 0)
 
         assert passed is True
@@ -562,9 +435,7 @@ class TestWaitAndFixCIWithLogs:
         self, config: HydraFlowConfig, tmp_path: Path
     ) -> None:
         """When inject_runtime_logs is False, fetch_ci_failure_logs is NOT called."""
-        from tests.helpers import ConfigFactory
-
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
         result = ReviewResultFactory.create()
@@ -580,7 +451,6 @@ class TestWaitAndFixCIWithLogs:
         phase._prs.fetch_ci_failure_logs = AsyncMock(return_value="")
         fix_result = ReviewResultFactory.create(fixes_made=True)
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
-        phase._prs.push_branch = AsyncMock(return_value=True)
 
         # Need max_ci_fix_attempts > 0
         phase._config = ConfigFactory.create(

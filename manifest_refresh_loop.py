@@ -16,6 +16,7 @@ from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
 from manifest import ProjectManifestManager
+from models import ManifestRefreshSummary, StatusCallback
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.manifest_refresh_loop")
@@ -35,7 +36,7 @@ class ManifestRefreshLoop(BaseBackgroundLoop):
         state: StateTracker,
         event_bus: EventBus,
         stop_event: asyncio.Event,
-        status_cb: Callable[[str, str, dict[str, Any] | None], None],
+        status_cb: StatusCallback,
         enabled_cb: Callable[[str], bool],
         sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
         interval_cb: Callable[[str], int] | None = None,
@@ -65,4 +66,5 @@ class ManifestRefreshLoop(BaseBackgroundLoop):
             digest_hash,
             len(content),
         )
-        return {"hash": digest_hash, "length": len(content)}
+        result: ManifestRefreshSummary = {"hash": digest_hash, "length": len(content)}
+        return dict(result)

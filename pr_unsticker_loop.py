@@ -10,6 +10,7 @@ from typing import Any
 from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
+from models import StatusCallback
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 
@@ -26,7 +27,7 @@ class PRUnstickerLoop(BaseBackgroundLoop):
         prs: PRManager,
         event_bus: EventBus,
         stop_event: asyncio.Event,
-        status_cb: Callable[[str, str, dict[str, Any] | None], None],
+        status_cb: StatusCallback,
         enabled_cb: Callable[[str], bool],
         sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
     ) -> None:

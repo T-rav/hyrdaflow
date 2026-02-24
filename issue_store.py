@@ -6,31 +6,43 @@ import asyncio
 import logging
 from collections import deque
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import QueueStats, Task
+from models import PipelineSnapshotEntry, QueueStats, Task
 from subprocess_util import AuthenticationError
 from task_source import TaskFetcher
 
 logger = logging.getLogger("hydraflow.issue_store")
 
-# Pipeline stage names used as queue keys
-STAGE_FIND = "find"
-STAGE_PLAN = "plan"
-STAGE_READY = "ready"
-STAGE_REVIEW = "review"
-STAGE_HITL = "hitl"
+
+class IssueStoreStage(StrEnum):
+    """Internal routing stage names for the issue store queues."""
+
+    FIND = "find"
+    PLAN = "plan"
+    READY = "ready"
+    REVIEW = "review"
+    HITL = "hitl"
+
+
+# Backward-compatible module-level aliases
+STAGE_FIND = IssueStoreStage.FIND
+STAGE_PLAN = IssueStoreStage.PLAN
+STAGE_READY = IssueStoreStage.READY
+STAGE_REVIEW = IssueStoreStage.REVIEW
+STAGE_HITL = IssueStoreStage.HITL
 
 # Priority order — higher index = further along in the pipeline.
 # When an issue has multiple HydraFlow labels, it is routed to the
 # most advanced stage (highest priority).
 _STAGE_PRIORITY = {
-    STAGE_FIND: 0,
-    STAGE_PLAN: 1,
-    STAGE_READY: 2,
-    STAGE_REVIEW: 3,
-    STAGE_HITL: 4,
+    IssueStoreStage.FIND: 0,
+    IssueStoreStage.PLAN: 1,
+    IssueStoreStage.READY: 2,
+    IssueStoreStage.REVIEW: 3,
+    IssueStoreStage.HITL: 4,
 }
 
 
@@ -53,14 +65,14 @@ class IssueStore:
         self._bus = event_bus
 
         # Per-stage queues (FIFO)
-        self._queues: dict[str, deque[Task]] = {
+        self._queues: dict[IssueStoreStage, deque[Task]] = {
             STAGE_FIND: deque(),
             STAGE_PLAN: deque(),
             STAGE_READY: deque(),
             STAGE_REVIEW: deque(),
         }
         # Companion sets for O(1) membership checks (task ids in each queue)
-        self._queue_members: dict[str, set[int]] = {
+        self._queue_members: dict[IssueStoreStage, set[int]] = {
             STAGE_FIND: set(),
             STAGE_PLAN: set(),
             STAGE_READY: set(),
@@ -137,13 +149,15 @@ class IssueStore:
             )
         )
 
-    def _compute_stage_map(self, tasks: list[Task]) -> dict[int, tuple[str, Task]]:
+    def _compute_stage_map(
+        self, tasks: list[Task]
+    ) -> dict[int, tuple[IssueStoreStage, Task]]:
         """Return {task_id: (best_stage, task)} for all incoming tasks."""
         label_to_stage = self._build_label_map()
-        incoming: dict[int, tuple[str, Task]] = {}
+        incoming: dict[int, tuple[IssueStoreStage, Task]] = {}
         for task in tasks:
             self._issue_cache[task.id] = task
-            best_stage: str | None = None
+            best_stage: IssueStoreStage | None = None
             best_priority = -1
             for tag in task.tags:
                 stage = label_to_stage.get(tag)
@@ -166,7 +180,9 @@ class IssueStore:
                 members -= stale
         self._hitl_numbers &= incoming_ids | set(self._active.keys())
 
-    def _route_incoming_tasks(self, stage_map: dict[int, tuple[str, Task]]) -> None:
+    def _route_incoming_tasks(
+        self, stage_map: dict[int, tuple[IssueStoreStage, Task]]
+    ) -> None:
         """Move each task to its target queue if it isn't already there."""
         for task_id, (stage, task) in stage_map.items():
             if task_id in self._active:
@@ -196,9 +212,9 @@ class IssueStore:
         self._evict_stale_tasks(set(stage_map.keys()))
         self._route_incoming_tasks(stage_map)
 
-    def _build_label_map(self) -> dict[str, str]:
+    def _build_label_map(self) -> dict[str, IssueStoreStage]:
         """Build a mapping from label name → pipeline stage."""
-        m: dict[str, str] = {}
+        m: dict[str, IssueStoreStage] = {}
         for lbl in self._config.find_label:
             m[lbl] = STAGE_FIND
         for lbl in self._config.planner_label:
@@ -213,14 +229,14 @@ class IssueStore:
             m[lbl] = STAGE_HITL
         return m
 
-    def _find_queue_stage(self, issue_number: int) -> str | None:
+    def _find_queue_stage(self, issue_number: int) -> IssueStoreStage | None:
         """Return the stage name if the issue is in any queue, else None."""
         for stage, members in self._queue_members.items():
             if issue_number in members:
                 return stage
         return None
 
-    def _remove_from_queue(self, stage: str, issue_number: int) -> None:
+    def _remove_from_queue(self, stage: IssueStoreStage, issue_number: int) -> None:
         """Remove a task from a specific queue."""
         if issue_number in self._queue_members[stage]:
             self._queues[stage] = deque(
@@ -257,7 +273,7 @@ class IssueStore:
         """Return the set of HITL issue numbers."""
         return set(self._hitl_numbers)
 
-    def _take_from_queue(self, stage: str, max_count: int) -> list[Task]:
+    def _take_from_queue(self, stage: IssueStoreStage, max_count: int) -> list[Task]:
         """Pop up to *max_count* tasks from *stage* queue, skipping active.
 
         Safety note: This method is synchronous with no ``await`` points, so
@@ -316,51 +332,51 @@ class IssueStore:
     # Stats
     # ------------------------------------------------------------------
 
-    def _snapshot_queued(self) -> dict[str, list[dict[str, object]]]:
+    def _snapshot_queued(self) -> dict[str, list[PipelineSnapshotEntry]]:
         """Return queued tasks grouped by stage."""
-        snapshot: dict[str, list[dict[str, object]]] = {}
+        snapshot: dict[str, list[PipelineSnapshotEntry]] = {}
         for stage, q in self._queues.items():
             snapshot[stage] = [
-                {
-                    "issue_number": task.id,
-                    "title": task.title,
-                    "url": task.source_url,
-                    "status": "queued",
-                }
+                PipelineSnapshotEntry(
+                    issue_number=task.id,
+                    title=task.title,
+                    url=task.source_url,
+                    status="queued",
+                )
                 for task in q
             ]
         return snapshot
 
-    def _snapshot_active(self) -> dict[str, list[dict[str, object]]]:
+    def _snapshot_active(self) -> dict[str, list[PipelineSnapshotEntry]]:
         """Return active tasks grouped by stage."""
-        active_by_stage: dict[str, list[dict[str, object]]] = {}
+        active_by_stage: dict[str, list[PipelineSnapshotEntry]] = {}
         for issue_number, stage in self._active.items():
             cached = self._issue_cache.get(issue_number)
-            entry: dict[str, object] = {
-                "issue_number": issue_number,
-                "title": cached.title if cached else f"Issue #{issue_number}",
-                "url": cached.source_url if cached else "",
-                "status": "active",
-            }
+            entry = PipelineSnapshotEntry(
+                issue_number=issue_number,
+                title=cached.title if cached else f"Issue #{issue_number}",
+                url=cached.source_url if cached else "",
+                status="active",
+            )
             active_by_stage.setdefault(stage, []).append(entry)
         return active_by_stage
 
-    def _snapshot_hitl(self) -> list[dict[str, object]]:
+    def _snapshot_hitl(self) -> list[PipelineSnapshotEntry]:
         """Return HITL tasks as a flat list."""
-        hitl_list: list[dict[str, object]] = []
+        hitl_list: list[PipelineSnapshotEntry] = []
         for issue_number in self._hitl_numbers:
             cached = self._issue_cache.get(issue_number)
             hitl_list.append(
-                {
-                    "issue_number": issue_number,
-                    "title": cached.title if cached else f"Issue #{issue_number}",
-                    "url": cached.source_url if cached else "",
-                    "status": "hitl",
-                }
+                PipelineSnapshotEntry(
+                    issue_number=issue_number,
+                    title=cached.title if cached else f"Issue #{issue_number}",
+                    url=cached.source_url if cached else "",
+                    status="hitl",
+                )
             )
         return hitl_list
 
-    def get_pipeline_snapshot(self) -> dict[str, list[dict[str, object]]]:
+    def get_pipeline_snapshot(self) -> dict[str, list[PipelineSnapshotEntry]]:
         """Return a snapshot of all pipeline stages with their issues.
 
         Each stage maps to a list of dicts with keys:

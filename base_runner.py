@@ -14,6 +14,7 @@ from events import EventBus
 from execution import get_default_runner
 from manifest import load_project_manifest
 from memory import load_memory_digest
+from models import TranscriptEventData
 from runner_utils import stream_claude_process, terminate_processes
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ class BaseRunner:
         cmd: list[str],
         prompt: str,
         cwd: Path,
-        event_data: dict[str, object],
+        event_data: TranscriptEventData,
         *,
         on_output: Callable[[str], bool] | None = None,
     ) -> str:

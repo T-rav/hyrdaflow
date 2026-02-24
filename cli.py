@@ -671,7 +671,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--config-file",
-        default=_DEFAULT_CONFIG_PATH,
+        default=None,
         help=f"Path to JSON config file for persisting runtime changes (default: {_DEFAULT_CONFIG_PATH})",
     )
     parser.add_argument(

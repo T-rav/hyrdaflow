@@ -454,6 +454,9 @@ def make_review_phase(
     event_bus=None,
     agents=None,
     ac_generator=None,
+    default_mocks: bool = False,
+    review_result=None,
+    issue_number: int = 42,
 ):
     """Build a ReviewPhase with standard mock dependencies.
 
@@ -463,6 +466,16 @@ def make_review_phase(
         agents: Optional AgentRunner mock; wired into a MergeConflictResolver.
         ac_generator: Optional AcceptanceCriteriaGenerator mock; wired into a
             PostMergeHandler.
+
+    When ``default_mocks=True``, the phase is returned with the standard happy-path
+    mocks pre-wired so tests only need to override the specific mocks they care about:
+
+    * ``_reviewers.review`` → returns *review_result* (default ``ReviewResultFactory.create()``)
+    * ``_prs.get_pr_diff`` → ``"diff text"``
+    * ``_prs.push_branch`` → ``True``
+    * ``_prs.merge_pr`` → ``True``
+    * ``_prs.remove_label`` / ``add_labels`` / ``post_pr_comment`` / ``submit_review``
+    * worktree directory ``issue-{issue_number}`` created under ``config.worktree_base``
     """
     from events import EventBus
     from issue_store import IssueStore
@@ -512,7 +525,7 @@ def make_review_phase(
             epic_checker=None,
         )
 
-    return ReviewPhase(
+    phase = ReviewPhase(
         config=config,
         state=state,
         worktrees=mock_wt,
@@ -524,3 +537,22 @@ def make_review_phase(
         conflict_resolver=conflict_resolver,
         post_merge=post_merge,
     )
+
+    if default_mocks:
+        from tests.conftest import ReviewResultFactory
+
+        phase._reviewers.review = AsyncMock(
+            return_value=review_result or ReviewResultFactory.create()
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.submit_review = AsyncMock(return_value=True)
+
+        wt = config.worktree_base / f"issue-{issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+
+    return phase

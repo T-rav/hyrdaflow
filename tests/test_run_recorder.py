@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from run_recorder import RunContext, RunManifest, RunRecorder
@@ -229,3 +231,33 @@ class TestRunManifest:
         )
         restored = RunManifest.model_validate_json(m.model_dump_json())
         assert restored == m
+
+
+# ---------------------------------------------------------------------------
+# RunManifest.outcome Literal validation (issue #1048)
+# ---------------------------------------------------------------------------
+
+
+class TestRunManifestOutcome:
+    """Tests for RunManifest.outcome Literal constraint."""
+
+    @pytest.mark.parametrize("outcome", ["success", "failed", "stopped", ""])
+    def test_valid_outcomes_accepted(self, outcome: str) -> None:
+        m = RunManifest(issue_number=42, timestamp="20260101T000000Z", outcome=outcome)
+        assert m.outcome == outcome
+
+    def test_invalid_outcome_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RunManifest(
+                issue_number=42, timestamp="20260101T000000Z", outcome="cancelled"
+            )
+
+    def test_invalid_outcome_partial_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RunManifest(
+                issue_number=42, timestamp="20260101T000000Z", outcome="partial"
+            )

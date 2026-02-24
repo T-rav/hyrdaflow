@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ class RunManifest(BaseModel):
 
     issue_number: int
     timestamp: str
-    outcome: str = ""
+    outcome: Literal["success", "failed", "stopped", ""] = ""
     error: str | None = None
     duration_seconds: float = 0.0
     files: list[str] = Field(default_factory=list)
@@ -66,7 +66,11 @@ class RunContext:
         """Write the git diff produced by this run."""
         (self._run_dir / "diff.patch").write_text(diff_text)
 
-    def finalize(self, outcome: str, error: str | None = None) -> RunManifest:
+    def finalize(
+        self,
+        outcome: Literal["success", "failed", "stopped", ""],
+        error: str | None = None,
+    ) -> RunManifest:
         """Write transcript, manifest, and return the manifest.
 
         *outcome* should be ``"success"``, ``"failed"``, or ``"stopped"``.

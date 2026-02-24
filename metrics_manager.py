@@ -214,21 +214,9 @@ class MetricsManager:
         github_total_merged = 0
         try:
             counts = await self._prs.get_label_counts(self._config)
-            open_by = counts.get("open_by_label", {})
-            if isinstance(open_by, dict):
-                github_open_by_label = {k: int(v) for k, v in open_by.items()}
-            raw_closed = counts.get("total_closed", 0)
-            github_total_closed = (
-                int(raw_closed)  # type: ignore[arg-type]
-                if raw_closed is not None
-                else 0
-            )
-            raw_merged = counts.get("total_merged", 0)
-            github_total_merged = (
-                int(raw_merged)  # type: ignore[arg-type]
-                if raw_merged is not None
-                else 0
-            )
+            github_open_by_label = counts["open_by_label"]
+            github_total_closed = counts["total_closed"]
+            github_total_merged = counts["total_merged"]
         except Exception:
             logger.warning("Could not fetch GitHub label counts for snapshot")
 

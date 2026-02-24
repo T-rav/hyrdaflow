@@ -52,20 +52,9 @@ class TestReviewPRs:
 
     @pytest.mark.asyncio
     async def test_reviews_non_draft_prs(self, config: HydraFlowConfig) -> None:
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        # Ensure worktree path exists
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -74,19 +63,9 @@ class TestReviewPRs:
 
     @pytest.mark.asyncio
     async def test_marks_pr_status_in_state(self, config: HydraFlowConfig) -> None:
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -156,19 +135,9 @@ class TestReviewPRs:
     @pytest.mark.asyncio
     async def test_review_merges_approved_pr(self, config: HydraFlowConfig) -> None:
         """review_prs should merge PRs that the reviewer approves."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -180,21 +149,15 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """review_prs should not merge PRs with REQUEST_CHANGES verdict."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(
+            config,
+            default_mocks=True,
+            review_result=ReviewResultFactory.create(
+                verdict=ReviewVerdict.REQUEST_CHANGES
+            ),
+        )
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(
-            return_value=ReviewResultFactory.create(
-                verdict=ReviewVerdict.REQUEST_CHANGES
-            )
-        )
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -206,20 +169,11 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """review_prs should merge main and push before reviewing."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -325,22 +279,13 @@ class TestReviewPRs:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        phase = make_review_phase(config, agents=mock_agents)
+        phase = make_review_phase(config, default_mocks=True, agents=mock_agents)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=False)  # Conflicts
         # But agent resolves them
         phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -378,23 +323,14 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """When merge fails after successful merge-main, should escalate to HITL."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=False)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
+        phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
         phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -412,23 +348,14 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Merge failure escalation should record review_label as HITL origin."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=False)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
+        phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
         phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -439,23 +366,14 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Merge failure escalation should record cause in state."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=False)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
+        phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
         phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -466,20 +384,11 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Merging a PR should record both pr_merged and issue_completed."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.pull_main = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -492,19 +401,9 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Merging a PR should swap label from hydraflow-review to hydraflow-fixed."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -516,17 +415,11 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Failed merge should not increment lifetime stats."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=False)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
+        phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
 
         await phase.review_prs([pr], [issue])
 
@@ -539,19 +432,9 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Successful merge should mark issue status as 'merged'."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -562,17 +445,11 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """Failed merge should leave issue as 'reviewed', not 'merged'."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=False)
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
+        phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
 
         await phase.review_prs([pr], [issue])
 
@@ -583,23 +460,9 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """post_pr_comment should be called with the review summary."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        review = ReviewResultFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=review)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.submit_review = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -610,23 +473,9 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """submit_review should NOT be called for approve to avoid self-approval errors."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        review = ReviewResultFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=review)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.submit_review = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -641,23 +490,13 @@ class TestReviewPRs:
         self, config: HydraFlowConfig, verdict: ReviewVerdict
     ) -> None:
         """submit_review should be called for request-changes and comment verdicts."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(
+            config,
+            default_mocks=True,
+            review_result=ReviewResultFactory.create(verdict=verdict),
+        )
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        review = ReviewResultFactory.create(verdict=verdict)
-
-        phase._reviewers.review = AsyncMock(return_value=review)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.submit_review = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -670,24 +509,21 @@ class TestReviewPRs:
         """When submit_review raises SelfReviewError, state should still be marked."""
         from pr_manager import SelfReviewError
 
-        phase = make_review_phase(config)
+        phase = make_review_phase(
+            config,
+            default_mocks=True,
+            review_result=ReviewResultFactory.create(
+                verdict=ReviewVerdict.REQUEST_CHANGES
+            ),
+        )
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        review = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
-
-        phase._reviewers.review = AsyncMock(return_value=review)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.post_pr_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock(
             side_effect=SelfReviewError(
                 "Can not request changes on your own pull request"
             )
         )
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -755,10 +591,6 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """post_pr_comment should NOT be called when summary is empty."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-
         review = ReviewResult(
             pr_number=101,
             issue_number=42,
@@ -766,18 +598,9 @@ class TestReviewPRs:
             summary="",
             fixes_made=False,
         )
-
-        phase._reviewers.review = AsyncMock(return_value=review)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.submit_review = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
+        phase = make_review_phase(config, default_mocks=True, review_result=review)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
 
         await phase.review_prs([pr], [issue])
 
@@ -826,23 +649,11 @@ class TestReviewPRs:
         self, config: HydraFlowConfig
     ) -> None:
         """post_pr_comment should be called regardless of merge outcome."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        review = ReviewResultFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=review)
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.submit_review = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=False)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
+        phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
 
         await phase.review_prs([pr], [issue])
 
@@ -1055,19 +866,9 @@ class TestActiveIssuesCleanup:
         self, config: HydraFlowConfig
     ) -> None:
         """On the happy path, store must mark_complete after review_prs."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -1087,19 +888,9 @@ class TestReviewUpdateStartEvent:
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """A REVIEW_UPDATE 'start' event should be published when _review_one() starts."""
-        phase = make_review_phase(config, event_bus=event_bus)
+        phase = make_review_phase(config, default_mocks=True, event_bus=event_bus)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -1143,19 +934,9 @@ class TestReviewUpdateStartEvent:
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """The start event should include the worker ID."""
-        phase = make_review_phase(config, event_bus=event_bus)
+        phase = make_review_phase(config, default_mocks=True, event_bus=event_bus)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -1530,19 +1311,9 @@ class TestReviewOneInner:
         self, config: HydraFlowConfig
     ) -> None:
         """Should coordinate merge, review, state recording, and verdict handling."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {42: issue})
 
@@ -1927,23 +1698,13 @@ class TestSkipGuardNoNewCommits:
     @pytest.mark.asyncio
     async def test_proceeds_with_new_commits(self, config: HydraFlowConfig) -> None:
         """When stored SHA differs from current HEAD, review should proceed."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         # Stored SHA differs from current
         phase._state.set_last_reviewed_sha(42, "old_sha_111")
         phase._prs.get_pr_head_sha = AsyncMock(return_value="new_sha_222")
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -1953,23 +1714,13 @@ class TestSkipGuardNoNewCommits:
     @pytest.mark.asyncio
     async def test_proceeds_when_no_prior_sha(self, config: HydraFlowConfig) -> None:
         """When no stored SHA exists, review should proceed (first review)."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         # No prior SHA stored
         assert phase._state.get_last_reviewed_sha(42) is None
         phase._prs.get_pr_head_sha = AsyncMock(return_value="first_sha_abc")
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -1979,7 +1730,7 @@ class TestSkipGuardNoNewCommits:
     @pytest.mark.asyncio
     async def test_sha_updated_after_review(self, config: HydraFlowConfig) -> None:
         """After a successful review, the SHA should be stored in state."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
@@ -1987,15 +1738,6 @@ class TestSkipGuardNoNewCommits:
         phase._prs.get_pr_head_sha = AsyncMock(
             side_effect=["first_sha", "post_review_sha"]
         )
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -2005,23 +1747,13 @@ class TestSkipGuardNoNewCommits:
     @pytest.mark.asyncio
     async def test_proceeds_when_sha_fetch_fails(self, config: HydraFlowConfig) -> None:
         """When get_pr_head_sha returns empty string (fail), review should proceed (fail-open)."""
-        phase = make_review_phase(config)
+        phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         # Even with a stored SHA, an empty current SHA means we can't compare
         phase._state.set_last_reviewed_sha(42, "old_sha")
         phase._prs.get_pr_head_sha = AsyncMock(return_value="")
-
-        phase._reviewers.review = AsyncMock(return_value=ReviewResultFactory.create())
-        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
-        phase._prs.push_branch = AsyncMock(return_value=True)
-        phase._prs.merge_pr = AsyncMock(return_value=True)
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-
-        wt = config.worktree_base / "issue-42"
-        wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
 

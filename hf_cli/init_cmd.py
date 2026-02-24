@@ -15,7 +15,7 @@ def _extract_assets(target: Path, force: bool) -> tuple[int, int]:
     asset_path = resources.files("hf_cli").joinpath("assets.tar.gz")
     created = 0
     skipped = 0
-    with tarfile.open(asset_path) as tar:
+    with tarfile.open(str(asset_path)) as tar:
         for member in tar.getmembers():
             dest = target / member.name
             if member.isdir():
@@ -25,8 +25,9 @@ def _extract_assets(target: Path, force: bool) -> tuple[int, int]:
                 skipped += 1
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
-            with tar.extractfile(member) as src, open(dest, "wb") as dst:
-                assert src is not None
+            raw = tar.extractfile(member)
+            assert raw is not None
+            with raw as src, open(dest, "wb") as dst:
                 dst.write(src.read())
             created += 1
     return created, skipped

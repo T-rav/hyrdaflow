@@ -892,7 +892,6 @@ def _resolve_paths(config: HydraFlowConfig) -> None:
         data_root = (config.repo_root / ".hydraflow").resolve()
     else:
         data_root = config.data_root.expanduser().resolve()
-    data_root.mkdir(parents=True, exist_ok=True)
     object.__setattr__(config, "data_root", data_root)
     if config.state_file == Path("."):
         object.__setattr__(config, "state_file", data_root / "state.json")

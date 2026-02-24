@@ -243,10 +243,14 @@ class TestPRManagerLabelCachePerInstance:
         pm1 = _make_pr_manager(config, bus)
         pm2 = _make_pr_manager(config, bus)
 
-        pm1._label_counts_cache["key"] = "value"
+        pm1._label_counts_cache = {
+            "open_by_label": {},
+            "total_closed": 0,
+            "total_merged": 0,
+        }
         pm1._label_counts_ts = 99.0
 
-        assert pm2._label_counts_cache == {}
+        assert pm2._label_counts_cache is None
         assert pm2._label_counts_ts == 0.0
 
     def test_cache_not_class_attribute(self) -> None:

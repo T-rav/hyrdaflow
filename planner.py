@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from pathlib import Path
+from typing import Literal
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -15,6 +16,8 @@ from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.planner")
+
+PlanScale = Literal["lite", "full"]
 
 # Canonical section descriptions — single source of truth for prompt generation.
 # Each entry is (header, description).  Order matches the desired prompt order.
@@ -299,7 +302,7 @@ class PlannerRunner(BaseRunner):
     _IMAGE_RE = re.compile(r"!\[.*?\]\(.*?\)|<img\s[^>]*>", re.IGNORECASE)
 
     @classmethod
-    def _format_sections_list(cls, scale: str = "full") -> str:
+    def _format_sections_list(cls, scale: PlanScale = "full") -> str:
         """Return a formatted bullet list of required sections for *scale*.
 
         Filters :data:`_PLAN_SECTION_DESCRIPTIONS` to only include sections
@@ -316,7 +319,7 @@ class PlannerRunner(BaseRunner):
                 lines.append(f"- `{header}` \u2014 {desc}")
         return "\n".join(lines)
 
-    def _build_prompt(self, issue: Task, *, scale: str = "full") -> str:
+    def _build_prompt(self, issue: Task, *, scale: PlanScale = "full") -> str:
         """Build the planning prompt for the agent.
 
         *scale* is ``"lite"`` or ``"full"``.  The prompt adjusts which
@@ -524,7 +527,7 @@ requirements are already implemented — not when the issue is unclear or you ar
         re.IGNORECASE,
     )
 
-    def _detect_plan_scale(self, issue: Task) -> str:
+    def _detect_plan_scale(self, issue: Task) -> PlanScale:
         """Determine whether *issue* needs a ``"lite"`` or ``"full"`` plan.
 
         Lite plans are used for small issues (bug fixes, typos, docs).
@@ -582,7 +585,9 @@ requirements are already implemented — not when the issue is unclear or you ar
                 words.add(w)
         return words
 
-    def _validate_plan(self, issue: Task, plan: str, scale: str = "full") -> list[str]:
+    def _validate_plan(
+        self, issue: Task, plan: str, scale: PlanScale = "full"
+    ) -> list[str]:
         """Validate that *plan* has all required sections and minimum content.
 
         *scale* is ``"lite"`` or ``"full"``.  Lite plans only require three
@@ -840,7 +845,7 @@ requirements are already implemented — not when the issue is unclear or you ar
         failed_plan: str,
         validation_errors: list[str],
         *,
-        scale: str = "full",
+        scale: PlanScale = "full",
     ) -> str:
         """Build a retry prompt that includes the original issue, the failed plan, and validation feedback."""
         error_list = "\n".join(f"- {e}" for e in validation_errors)

@@ -14,7 +14,14 @@ from typing import Any, Literal
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import GitHubIssue, HITLItem, PRInfo, PRListItem, ReviewVerdict
+from models import (
+    GitHubIssue,
+    HITLItem,
+    LabelCounts,
+    PRInfo,
+    PRListItem,
+    ReviewVerdict,
+)
 from prep import HYDRAFLOW_LABELS
 from subprocess_util import run_subprocess, run_subprocess_with_retry
 
@@ -83,7 +90,7 @@ class PRManager:
         self._bus = event_bus
         self._repo = config.repo
         self._max_retries = config.gh_max_retries
-        self._label_counts_cache: dict[str, object] = {}
+        self._label_counts_cache: LabelCounts | None = None
         self._label_counts_ts: float = 0.0
 
     async def _run_gh(self, *cmd: str, cwd: Path | None = None) -> str:
@@ -1150,7 +1157,7 @@ class PRManager:
             )
             return 0
 
-    async def get_label_counts(self, config: HydraFlowConfig) -> dict[str, object]:
+    async def get_label_counts(self, config: HydraFlowConfig) -> LabelCounts:
         """Query GitHub for issue/PR counts by HydraFlow label.
 
         Returns a dict with ``open_by_label``, ``total_closed``, and
@@ -1159,7 +1166,10 @@ class PRManager:
         import time
 
         now = time.monotonic()
-        if self._label_counts_cache and now - self._label_counts_ts < _LABEL_CACHE_TTL:
+        if (
+            self._label_counts_cache is not None
+            and now - self._label_counts_ts < _LABEL_CACHE_TTL
+        ):
             return self._label_counts_cache
 
         label_map = {
@@ -1175,7 +1185,7 @@ class PRManager:
         fixed_label = config.fixed_label[0] if config.fixed_label else "hydraflow-fixed"
         total_merged = await self._count_merged_prs(fixed_label)
 
-        result: dict[str, object] = {
+        result: LabelCounts = {
             "open_by_label": open_by_label,
             "total_closed": total_closed,
             "total_merged": total_merged,

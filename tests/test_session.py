@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from models import SessionLog
+from models import SessionLog, SessionStatus
 from tests.conftest import make_state
 
 # ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ def make_session(
     issues_processed: list[int] | None = None,
     issues_succeeded: int = 0,
     issues_failed: int = 0,
-    status: str = "active",
+    status: SessionStatus = SessionStatus.ACTIVE,
 ) -> SessionLog:
     return SessionLog(
         id=id,
@@ -53,7 +53,7 @@ class TestSessionLogModel:
             issues_processed=[1, 2, 3],
             issues_succeeded=2,
             issues_failed=1,
-            status="completed",
+            status=SessionStatus.COMPLETED,
         )
         assert session.id == "test-repo-20240315T142530"
         assert session.repo == "test-org/test-repo"
@@ -80,7 +80,7 @@ class TestSessionLogModel:
             issues_processed=[10, 20],
             issues_succeeded=1,
             issues_failed=1,
-            status="completed",
+            status=SessionStatus.COMPLETED,
         )
         json_str = original.model_dump_json()
         restored = SessionLog.model_validate_json(json_str)
@@ -185,9 +185,9 @@ class TestSessionPersistence:
         """Saving a session twice (start then end) must not produce duplicate entries."""
         tracker = make_state(tmp_path)
         # Simulate orchestrator: save at start (active), then again at end (completed)
-        session = make_session(id="s1", status="active")
+        session = make_session(id="s1", status=SessionStatus.ACTIVE)
         tracker.save_session(session)
-        session.status = "completed"
+        session.status = SessionStatus.COMPLETED
         session.ended_at = "2024-03-15T15:00:00+00:00"
         tracker.save_session(session)
 
@@ -201,9 +201,9 @@ class TestSessionPersistence:
     def test_get_session_returns_last_written_state(self, tmp_path: Path) -> None:
         """get_session must return the most-recently-written entry, not the first."""
         tracker = make_state(tmp_path)
-        session = make_session(id="s1", status="active")
+        session = make_session(id="s1", status=SessionStatus.ACTIVE)
         tracker.save_session(session)
-        session.status = "completed"
+        session.status = SessionStatus.COMPLETED
         session.ended_at = "2024-03-15T15:00:00+00:00"
         tracker.save_session(session)
 
@@ -218,7 +218,7 @@ class TestSessionPersistence:
         """Corrupt JSONL lines produce warning logs in delete/prune paths."""
         tracker = make_state(tmp_path)
         sessions_file = tmp_path / "sessions.jsonl"
-        s1 = make_session(id="valid", status="completed")
+        s1 = make_session(id="valid", status=SessionStatus.COMPLETED)
         with open(sessions_file, "w") as f:
             f.write("{ corrupt line }\n")
             f.write(s1.model_dump_json() + "\n")
@@ -305,10 +305,10 @@ class TestSessionPruning:
             session = make_session(
                 id=f"s{i}",
                 started_at=f"2024-01-0{i + 1}T00:00:00",
-                status="active",
+                status=SessionStatus.ACTIVE,
             )
             tracker.save_session(session)
-            session.status = "completed"
+            session.status = SessionStatus.COMPLETED
             tracker.save_session(session)
 
         tracker.prune_sessions("test-org/test-repo", max_keep=2)
@@ -333,8 +333,12 @@ class TestSessionPruning:
 class TestSessionDeletion:
     def test_delete_completed_session(self, tmp_path: Path) -> None:
         tracker = make_state(tmp_path)
-        s1 = make_session(id="s1", status="completed", started_at="2024-01-01T00:00:00")
-        s2 = make_session(id="s2", status="completed", started_at="2024-01-02T00:00:00")
+        s1 = make_session(
+            id="s1", status=SessionStatus.COMPLETED, started_at="2024-01-01T00:00:00"
+        )
+        s2 = make_session(
+            id="s2", status=SessionStatus.COMPLETED, started_at="2024-01-02T00:00:00"
+        )
         tracker.save_session(s1)
         tracker.save_session(s2)
         result = tracker.delete_session("s1")
@@ -345,13 +349,13 @@ class TestSessionDeletion:
 
     def test_delete_nonexistent_returns_false(self, tmp_path: Path) -> None:
         tracker = make_state(tmp_path)
-        tracker.save_session(make_session(id="s1", status="completed"))
+        tracker.save_session(make_session(id="s1", status=SessionStatus.COMPLETED))
         result = tracker.delete_session("nonexistent")
         assert result is False
 
     def test_delete_active_session_raises(self, tmp_path: Path) -> None:
         tracker = make_state(tmp_path)
-        tracker.save_session(make_session(id="s1", status="active"))
+        tracker.save_session(make_session(id="s1", status=SessionStatus.ACTIVE))
         with pytest.raises(ValueError, match="Cannot delete active session"):
             tracker.delete_session("s1")
 
@@ -366,7 +370,7 @@ class TestSessionDeletion:
             tracker.save_session(
                 make_session(
                     id=f"s{i}",
-                    status="completed",
+                    status=SessionStatus.COMPLETED,
                     started_at=f"2024-01-0{i + 1}T00:00:00",
                 )
             )
@@ -379,9 +383,9 @@ class TestSessionDeletion:
     def test_delete_deduplicates_before_removal(self, tmp_path: Path) -> None:
         """Session saved twice (start + end) should be fully removed."""
         tracker = make_state(tmp_path)
-        session = make_session(id="s1", status="active")
+        session = make_session(id="s1", status=SessionStatus.ACTIVE)
         tracker.save_session(session)
-        session.status = "completed"
+        session.status = SessionStatus.COMPLETED
         session.ended_at = "2024-03-15T15:00:00+00:00"
         tracker.save_session(session)
 
@@ -392,9 +396,13 @@ class TestSessionDeletion:
 
     def test_delete_persists_across_reload(self, tmp_path: Path) -> None:
         tracker = make_state(tmp_path)
-        tracker.save_session(make_session(id="s1", status="completed"))
+        tracker.save_session(make_session(id="s1", status=SessionStatus.COMPLETED))
         tracker.save_session(
-            make_session(id="s2", status="completed", started_at="2024-01-02T00:00:00")
+            make_session(
+                id="s2",
+                status=SessionStatus.COMPLETED,
+                started_at="2024-01-02T00:00:00",
+            )
         )
         tracker.delete_session("s1")
 
@@ -511,7 +519,7 @@ class TestNarrowedExceptionHandling:
         tracker = make_state(tmp_path)
         sessions_file = tmp_path / "sessions.jsonl"
         sessions_file.parent.mkdir(parents=True, exist_ok=True)
-        valid = make_session(id="s1", status="completed")
+        valid = make_session(id="s1", status=SessionStatus.COMPLETED)
         with open(sessions_file, "w") as f:
             f.write("corrupt\n")
             f.write(valid.model_dump_json() + "\n")

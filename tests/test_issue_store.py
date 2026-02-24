@@ -565,7 +565,7 @@ class TestLifecycle:
 
         # Set stop after a short delay
         async def _set_stop() -> None:
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0)
             stop.set()
 
         task = asyncio.create_task(_set_stop())

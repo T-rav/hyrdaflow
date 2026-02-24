@@ -23,6 +23,7 @@ from harness_insights import (
     file_harness_suggestions,
     generate_suggestions,
 )
+from models import PipelineStage
 from state import StateTracker
 from tests.conftest import ConfigFactory
 
@@ -38,7 +39,7 @@ def _make_record(
     category: str = FailureCategory.QUALITY_GATE,
     subcategories: list[str] | None = None,
     details: str = "ruff lint error: missing import",
-    stage: str = "implement",
+    stage: PipelineStage = PipelineStage.IMPLEMENT,
 ) -> FailureRecord:
     return FailureRecord(
         issue_number=issue_number,
@@ -770,3 +771,64 @@ class TestAppendFailureOSError:
             store.append_failure(record)  # should not raise
 
         assert "Could not append failure" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# FailureRecord timestamp validation (issue #1048)
+# ---------------------------------------------------------------------------
+
+
+class TestFailureRecordTimestamp:
+    """Tests for FailureRecord IsoTimestamp validation."""
+
+    def test_default_timestamp_is_valid_iso(self) -> None:
+        record = FailureRecord(issue_number=1, category="quality_gate")
+        from datetime import datetime
+
+        datetime.fromisoformat(record.timestamp)
+
+    def test_invalid_timestamp_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="Invalid ISO 8601 timestamp"):
+            FailureRecord(
+                issue_number=1,
+                category="quality_gate",
+                timestamp="not-a-timestamp",
+            )
+
+    def test_valid_iso_timestamp_accepted(self) -> None:
+        record = FailureRecord(
+            issue_number=1,
+            category="quality_gate",
+            timestamp="2026-02-20T10:30:00+00:00",
+        )
+        assert record.timestamp == "2026-02-20T10:30:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# Field descriptions (issue #1048)
+# ---------------------------------------------------------------------------
+
+
+class TestFieldDescriptions:
+    """Tests that field descriptions are present in model schemas."""
+
+    def test_failure_record_has_field_descriptions(self) -> None:
+        schema = FailureRecord.model_json_schema()
+        props = schema["properties"]
+        # category is now a FailureCategory StrEnum — represented as $ref in schema
+        assert "category" in props
+        # stage is now PipelineStage | Literal[""] — represented as anyOf in schema
+        assert "stage" in props
+        assert "details" in props
+
+    def test_improvement_suggestion_has_field_descriptions(self) -> None:
+        schema = ImprovementSuggestion.model_json_schema()
+        props = schema["properties"]
+        assert "description" in props["category"]
+        assert "description" in props["subcategory"]
+        assert "description" in props["occurrence_count"]
+        assert "description" in props["window_size"]
+        assert "description" in props["description"]
+        assert "description" in props["suggestion"]

@@ -22,7 +22,6 @@ from acceptance_criteria import (
     _VERIFY_START,
     AcceptanceCriteriaGenerator,
 )
-from escalation_gate import EscalationDecision
 from models import VerificationCriteria
 from tests.conftest import IssueFactory
 from tests.helpers import ConfigFactory
@@ -642,128 +641,6 @@ class TestGenerate:
 
 
 # ---------------------------------------------------------------------------
-# _parse_precheck_transcript
-# ---------------------------------------------------------------------------
-
-
-class TestParsePrecheckTranscript:
-    """Tests for AcceptanceCriteriaGenerator._parse_precheck_transcript."""
-
-    def test_all_fields_present(self) -> None:
-        transcript = (
-            "PRECHECK_RISK: low\n"
-            "PRECHECK_CONFIDENCE: 0.95\n"
-            "PRECHECK_ESCALATE: no\n"
-            "PRECHECK_SUMMARY: All looks good.\n"
-        )
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript(transcript)
-        assert result.risk == "low"
-        assert result.confidence == 0.95
-        assert result.escalate is False
-        assert result.summary == "All looks good."
-        assert result.parse_failed is False
-
-    def test_missing_risk_defaults_to_medium(self) -> None:
-        transcript = (
-            "PRECHECK_CONFIDENCE: 0.8\nPRECHECK_ESCALATE: no\nPRECHECK_SUMMARY: Fine.\n"
-        )
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript(transcript)
-        assert result.risk == "medium"
-        assert result.parse_failed is True
-
-    def test_missing_confidence_defaults_to_zero(self) -> None:
-        transcript = (
-            "PRECHECK_RISK: high\nPRECHECK_ESCALATE: yes\nPRECHECK_SUMMARY: Risky.\n"
-        )
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript(transcript)
-        assert result.confidence == 0.0
-        assert result.parse_failed is True
-
-    def test_escalate_yes(self) -> None:
-        transcript = (
-            "PRECHECK_RISK: high\n"
-            "PRECHECK_CONFIDENCE: 0.3\n"
-            "PRECHECK_ESCALATE: yes\n"
-            "PRECHECK_SUMMARY: Needs debug.\n"
-        )
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript(transcript)
-        assert result.escalate is True
-
-    def test_escalate_no(self) -> None:
-        transcript = (
-            "PRECHECK_RISK: low\n"
-            "PRECHECK_CONFIDENCE: 0.9\n"
-            "PRECHECK_ESCALATE: no\n"
-            "PRECHECK_SUMMARY: OK.\n"
-        )
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript(transcript)
-        assert result.escalate is False
-
-    def test_case_insensitive_parsing(self) -> None:
-        transcript = (
-            "precheck_risk: HIGH\n"
-            "precheck_confidence: 0.42\n"
-            "precheck_escalate: YES\n"
-            "precheck_summary: Mixed case.\n"
-        )
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript(transcript)
-        assert result.risk == "high"
-        assert result.confidence == 0.42
-        assert result.escalate is True
-        assert result.summary == "Mixed case."
-        assert result.parse_failed is False
-
-    def test_empty_string_returns_defaults(self) -> None:
-        result = AcceptanceCriteriaGenerator._parse_precheck_transcript("")
-        assert result.risk == "medium"
-        assert result.confidence == 0.0
-        assert result.escalate is False
-        assert result.summary == ""
-        assert result.parse_failed is True
-
-
-# ---------------------------------------------------------------------------
-# _build_subskill_command / _build_debug_command
-# ---------------------------------------------------------------------------
-
-
-class TestBuildSubskillAndDebugCommands:
-    """Tests for AC generator _build_subskill_command and _build_debug_command."""
-
-    def test_subskill_command_uses_config_tool_and_model(
-        self, config, event_bus
-    ) -> None:
-        gen, _ = _make_generator(config, event_bus)
-        cmd = gen._build_subskill_command()
-        assert "claude" in cmd
-        assert "--model" in cmd
-        idx = cmd.index("--model")
-        assert cmd[idx + 1] == "haiku"
-
-    def test_subskill_command_codex_backend(self, event_bus) -> None:
-        cfg = ConfigFactory.create(subskill_tool="codex", subskill_model="gpt-4")
-        gen, _ = _make_generator(cfg, event_bus)
-        cmd = gen._build_subskill_command()
-        assert cmd[:3] == ["codex", "exec", "--json"]
-        assert cmd[cmd.index("--model") + 1] == "gpt-4"
-
-    def test_debug_command_uses_config_tool_and_model(self, config, event_bus) -> None:
-        gen, _ = _make_generator(config, event_bus)
-        cmd = gen._build_debug_command()
-        assert "claude" in cmd
-        assert "--model" in cmd
-        idx = cmd.index("--model")
-        assert cmd[idx + 1] == "opus"
-
-    def test_debug_command_codex_backend(self, event_bus) -> None:
-        cfg = ConfigFactory.create(debug_tool="codex", debug_model="gpt-5")
-        gen, _ = _make_generator(cfg, event_bus)
-        cmd = gen._build_debug_command()
-        assert cmd[:3] == ["codex", "exec", "--json"]
-        assert cmd[cmd.index("--model") + 1] == "gpt-5"
-
-
-# ---------------------------------------------------------------------------
 # _build_precheck_prompt
 # ---------------------------------------------------------------------------
 
@@ -790,183 +667,22 @@ class TestBuildPrecheckPrompt:
 
 
 # ---------------------------------------------------------------------------
-# _run_precheck_context
+# _run_precheck_context (wiring tests — shared logic tested in test_precheck.py)
 # ---------------------------------------------------------------------------
 
 
 class TestRunPrecheckContext:
-    """Tests for AcceptanceCriteriaGenerator._run_precheck_context."""
+    """Tests for AcceptanceCriteriaGenerator._run_precheck_context wiring."""
 
     @pytest.mark.asyncio
-    async def test_disabled_when_max_subskill_zero(self, config, event_bus) -> None:
-        gen, _ = _make_generator(config, event_bus)
-        issue = IssueFactory.create()
-        result = await gen._run_precheck_context(issue, 42, 101, "diff summary", "")
-        assert result == "Low-tier precheck disabled."
-
-    @pytest.mark.asyncio
-    async def test_success_no_escalation(self, event_bus, tmp_path) -> None:
-        cfg = ConfigFactory.create(
-            max_subskill_attempts=1,
-            subskill_confidence_threshold=0.7,
-            debug_escalation_enabled=False,
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        valid_transcript = (
-            "PRECHECK_RISK: low\n"
-            "PRECHECK_CONFIDENCE: 0.95\n"
-            "PRECHECK_ESCALATE: no\n"
-            "PRECHECK_SUMMARY: All clear.\n"
-        )
-
-        with patch(
-            "acceptance_criteria.stream_claude_process",
-            new_callable=AsyncMock,
-            return_value=valid_transcript,
-        ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
-
-        assert "Precheck risk: low" in result
-        assert "Precheck confidence: 0.95" in result
-        assert "Precheck summary: All clear." in result
-        assert "Debug escalation: no" in result
-        mock_stream.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_retries_on_parse_failure(self, event_bus, tmp_path) -> None:
-        cfg = ConfigFactory.create(
-            max_subskill_attempts=3,
-            debug_escalation_enabled=False,
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        garbage = "No parseable fields here."
-        valid_transcript = (
-            "PRECHECK_RISK: low\n"
-            "PRECHECK_CONFIDENCE: 0.9\n"
-            "PRECHECK_ESCALATE: no\n"
-            "PRECHECK_SUMMARY: Finally parsed.\n"
-        )
-
-        with patch(
-            "acceptance_criteria.stream_claude_process",
-            new_callable=AsyncMock,
-            side_effect=[garbage, garbage, valid_transcript],
-        ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
-
-        assert mock_stream.call_count == 3
-        assert "Precheck risk: low" in result
-        assert "Precheck summary: Finally parsed." in result
-
-    @pytest.mark.asyncio
-    async def test_escalates_to_debug(self, event_bus, tmp_path) -> None:
-        cfg = ConfigFactory.create(
-            max_subskill_attempts=1,
-            debug_escalation_enabled=True,
-            max_debug_attempts=1,
-            subskill_confidence_threshold=0.7,
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        high_risk_transcript = (
-            "PRECHECK_RISK: high\n"
-            "PRECHECK_CONFIDENCE: 0.3\n"
-            "PRECHECK_ESCALATE: yes\n"
-            "PRECHECK_SUMMARY: Risky change.\n"
-        )
-        debug_transcript = "Debug: found critical issues."
-
-        with patch(
-            "acceptance_criteria.stream_claude_process",
-            new_callable=AsyncMock,
-            side_effect=[high_risk_transcript, debug_transcript],
-        ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
-
-        assert mock_stream.call_count == 2
-        assert "Precheck risk: high" in result
-        assert "Debug escalation: yes" in result
-        assert "Debug precheck transcript:" in result
-        assert "Debug: found critical issues." in result
-        assert "Escalation reasons:" in result
-
-    @pytest.mark.asyncio
-    async def test_no_debug_when_max_debug_zero(self, event_bus, tmp_path) -> None:
-        cfg = ConfigFactory.create(
-            max_subskill_attempts=1,
-            debug_escalation_enabled=True,
-            max_debug_attempts=0,
-            subskill_confidence_threshold=0.7,
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        high_risk_transcript = (
-            "PRECHECK_RISK: high\n"
-            "PRECHECK_CONFIDENCE: 0.3\n"
-            "PRECHECK_ESCALATE: yes\n"
-            "PRECHECK_SUMMARY: Risky.\n"
-        )
-
-        with patch(
-            "acceptance_criteria.stream_claude_process",
-            new_callable=AsyncMock,
-            return_value=high_risk_transcript,
-        ) as mock_stream:
-            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
-
-        assert mock_stream.call_count == 1
-        assert "Debug escalation: yes" in result
-        assert "Debug precheck transcript:" not in result
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_fallback(self, event_bus, tmp_path) -> None:
-        cfg = ConfigFactory.create(
-            max_subskill_attempts=1,
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        with patch(
-            "acceptance_criteria.stream_claude_process",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("subprocess crashed"),
-        ):
-            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
-
-        assert (
-            result == "Low-tier precheck failed; continuing without precheck context."
-        )
-
-    @pytest.mark.asyncio
-    async def test_debug_transcript_truncated_to_1000_chars(
+    async def test_delegates_to_shared_run_precheck_context(
         self, event_bus, tmp_path
     ) -> None:
+        """Verify AC generator delegates to the shared precheck module."""
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
-            debug_escalation_enabled=True,
-            max_debug_attempts=1,
             subskill_confidence_threshold=0.7,
+            debug_escalation_enabled=False,
             repo_root=tmp_path / "repo",
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
@@ -974,108 +690,97 @@ class TestRunPrecheckContext:
         gen, _ = _make_generator(cfg, event_bus)
         issue = IssueFactory.create()
 
-        high_risk_transcript = (
-            "PRECHECK_RISK: high\n"
-            "PRECHECK_CONFIDENCE: 0.3\n"
-            "PRECHECK_ESCALATE: yes\n"
-            "PRECHECK_SUMMARY: Risky.\n"
+        with patch(
+            "acceptance_criteria.run_precheck_context",
+            new_callable=AsyncMock,
+            return_value="Precheck risk: low",
+        ) as mock_rpc:
+            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
+
+        mock_rpc.assert_awaited_once()
+        assert result == "Precheck risk: low"
+        # Verify correct config and debug_message are passed
+        call_kwargs = mock_rpc.call_args[1]
+        assert call_kwargs["config"] is cfg
+        assert "ambiguity" in call_kwargs["debug_message"]
+
+    @pytest.mark.asyncio
+    async def test_execute_closure_calls_stream_claude_process(
+        self, event_bus, tmp_path
+    ) -> None:
+        """Verify the execute closure wires through to stream_claude_process."""
+        cfg = ConfigFactory.create(
+            max_subskill_attempts=1,
+            debug_escalation_enabled=False,
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
         )
-        long_debug = "D" * 2000
+        gen, _ = _make_generator(cfg, event_bus)
+        issue = IssueFactory.create()
+
+        captured_execute = {}
+
+        async def capture_rpc(**kwargs):
+            captured_execute["fn"] = kwargs["execute"]
+            return "Precheck risk: low"
+
+        with patch(
+            "acceptance_criteria.run_precheck_context",
+            side_effect=capture_rpc,
+        ):
+            await gen._run_precheck_context(issue, 42, 101, "diff", "")
+
+        # Call the captured execute closure
+        with patch(
+            "acceptance_criteria.stream_claude_process",
+            new_callable=AsyncMock,
+            return_value="transcript",
+        ) as mock_stream:
+            result = await captured_execute["fn"](["cmd"], "prompt")
+
+        assert result == "transcript"
+        mock_stream.assert_called_once()
+        call_kwargs = mock_stream.call_args[1]
+        assert call_kwargs["cmd"] == ["cmd"]
+        assert call_kwargs["prompt"] == "prompt"
+        assert call_kwargs["event_data"]["source"] == "ac_precheck"
+
+    @pytest.mark.asyncio
+    async def test_execute_debug_closure_uses_ac_precheck_debug_source(
+        self, event_bus, tmp_path
+    ) -> None:
+        """Verify the execute_debug closure uses source='ac_precheck_debug'."""
+        cfg = ConfigFactory.create(
+            max_subskill_attempts=1,
+            debug_escalation_enabled=False,
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        gen, _ = _make_generator(cfg, event_bus)
+        issue = IssueFactory.create()
+
+        captured_debug = {}
+
+        async def capture_rpc(**kwargs):
+            captured_debug["fn"] = kwargs.get("execute_debug")
+            return "Precheck risk: low"
+
+        with patch(
+            "acceptance_criteria.run_precheck_context",
+            side_effect=capture_rpc,
+        ):
+            await gen._run_precheck_context(issue, 42, 101, "diff", "")
+
+        assert captured_debug["fn"] is not None, "execute_debug must be passed"
 
         with patch(
             "acceptance_criteria.stream_claude_process",
             new_callable=AsyncMock,
-            side_effect=[high_risk_transcript, long_debug],
-        ):
-            result = await gen._run_precheck_context(issue, 42, 101, "diff", "")
+            return_value="debug transcript",
+        ) as mock_stream:
+            await captured_debug["fn"](["cmd"], "prompt")
 
-        assert "D" * 1000 in result
-        assert "D" * 1001 not in result
-
-
-# ---------------------------------------------------------------------------
-# TestPrecheckHighRiskFiles
-# ---------------------------------------------------------------------------
-
-
-HIGH_RISK_DIFF = """\
-diff --git a/src/auth/login.py b/src/auth/login.py
-index abc123..def456 100644
---- a/src/auth/login.py
-+++ b/src/auth/login.py
-@@ -1,3 +1,8 @@
-+def new_login():
-+    pass
-"""
-
-SAFE_DIFF = """\
-diff --git a/src/utils.py b/src/utils.py
-index abc123..def456 100644
---- a/src/utils.py
-+++ b/src/utils.py
-@@ -1,3 +1,8 @@
-+def helper():
-+    pass
-"""
-
-
-class TestPrecheckHighRiskFiles:
-    """Verify _run_precheck_context passes high_risk_files_touched correctly."""
-
-    @pytest.mark.asyncio
-    async def test_high_risk_diff_passes_true(self, event_bus) -> None:
-        cfg = ConfigFactory.create(max_subskill_attempts=1)
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        precheck_transcript = (
-            "PRECHECK_RISK: high\n"
-            "PRECHECK_CONFIDENCE: 0.5\n"
-            "PRECHECK_ESCALATE: no\n"
-            "PRECHECK_SUMMARY: risky auth change\n"
-        )
-
-        with (
-            patch(
-                "acceptance_criteria.stream_claude_process",
-                new_callable=AsyncMock,
-                return_value=precheck_transcript,
-            ),
-            patch(
-                "acceptance_criteria.should_escalate_debug",
-                return_value=EscalationDecision(escalate=False, reasons=[]),
-            ) as mock_escalate,
-        ):
-            await gen._run_precheck_context(issue, 42, 101, "summary", HIGH_RISK_DIFF)
-
-        mock_escalate.assert_called_once()
-        assert mock_escalate.call_args[1]["high_risk_files_touched"] is True
-
-    @pytest.mark.asyncio
-    async def test_safe_diff_passes_false(self, event_bus) -> None:
-        cfg = ConfigFactory.create(max_subskill_attempts=1)
-        gen, _ = _make_generator(cfg, event_bus)
-        issue = IssueFactory.create()
-
-        precheck_transcript = (
-            "PRECHECK_RISK: low\n"
-            "PRECHECK_CONFIDENCE: 0.9\n"
-            "PRECHECK_ESCALATE: no\n"
-            "PRECHECK_SUMMARY: safe change\n"
-        )
-
-        with (
-            patch(
-                "acceptance_criteria.stream_claude_process",
-                new_callable=AsyncMock,
-                return_value=precheck_transcript,
-            ),
-            patch(
-                "acceptance_criteria.should_escalate_debug",
-                return_value=EscalationDecision(escalate=False, reasons=[]),
-            ) as mock_escalate,
-        ):
-            await gen._run_precheck_context(issue, 42, 101, "summary", SAFE_DIFF)
-
-        mock_escalate.assert_called_once()
-        assert mock_escalate.call_args[1]["high_risk_files_touched"] is False
+        mock_stream.assert_called_once()
+        assert mock_stream.call_args[1]["event_data"]["source"] == "ac_precheck_debug"

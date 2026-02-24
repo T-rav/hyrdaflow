@@ -12,7 +12,7 @@ from config import HydraFlowConfig
 from events import EventBus
 from issue_fetcher import IssueFetcher
 from memory import MemorySyncWorker
-from models import MemoryIssueData
+from models import MemoryIssueData, StatusCallback
 
 logger = logging.getLogger("hydraflow.memory_sync_loop")
 
@@ -27,7 +27,7 @@ class MemorySyncLoop(BaseBackgroundLoop):
         memory_sync: MemorySyncWorker,
         event_bus: EventBus,
         stop_event: asyncio.Event,
-        status_cb: Callable[[str, str, dict[str, Any] | None], None],
+        status_cb: StatusCallback,
         enabled_cb: Callable[[str], bool],
         sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
         interval_cb: Callable[[str], int] | None = None,

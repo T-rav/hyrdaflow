@@ -64,6 +64,7 @@ def _start_repo(path: str) -> int:
         stderr=subprocess.STDOUT,
         start_new_session=True,
         env=env,
+        text=True,
     )
     RUNNERS[slug] = RepoProcess(slug, proc, port, repo_path)
     _wait_for_port(port)

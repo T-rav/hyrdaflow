@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import SessionLog
+from models import SessionLog, SessionStatus
 
 
 def _make_session(
@@ -20,7 +20,7 @@ def _make_session(
     repo: str = "test-org/test-repo",
     started_at: str = "2024-03-15T14:25:30+00:00",
     ended_at: str | None = None,
-    status: str = "active",
+    status: SessionStatus = SessionStatus.ACTIVE,
 ) -> SessionLog:
     return SessionLog(
         id=id,

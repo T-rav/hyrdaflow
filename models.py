@@ -4,11 +4,55 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
-from typing import Any, NamedTuple, NotRequired
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    NamedTuple,
+    NotRequired,
+    Protocol,
+)
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import (
+    AfterValidator,
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+# --- Shared validated types ---
+
+
+def _check_url(v: str) -> str:
+    """Accept empty strings or valid http(s):// URLs."""
+    if v and not v.startswith(("http://", "https://")):
+        msg = f"URL must be empty or start with http(s)://, got: {v!r}"
+        raise ValueError(msg)
+    return v
+
+
+def _check_iso_timestamp(v: str) -> str:
+    """Accept empty strings or valid ISO 8601 timestamps."""
+    if v:
+        try:
+            datetime.fromisoformat(v)
+        except (ValueError, TypeError) as exc:
+            msg = f"Invalid ISO 8601 timestamp: {v!r}"
+            raise ValueError(msg) from exc
+    return v
+
+
+HttpUrl = Annotated[str, AfterValidator(_check_url)]
+IsoTimestamp = Annotated[str, AfterValidator(_check_iso_timestamp)]
 
 # --- Task (source-agnostic task abstraction) ---
 
@@ -94,7 +138,7 @@ class GitHubIssue(BaseModel):
     body: str = ""
     labels: list[str] = Field(default_factory=list)
     comments: list[str] = Field(default_factory=list)
-    url: str = ""
+    url: HttpUrl = ""
     created_at: str = Field(
         default="",
         validation_alias=AliasChoices("createdAt", "created_at"),
@@ -324,7 +368,7 @@ class PRInfo(BaseModel):
     number: int
     issue_number: int
     branch: str
-    url: str = ""
+    url: HttpUrl = ""
     draft: bool = False
 
 
@@ -351,7 +395,7 @@ class VerificationCriteria(BaseModel):
     pr_number: int
     acceptance_criteria: str
     verification_instructions: str
-    timestamp: str
+    timestamp: IsoTimestamp
 
 
 class ReviewerStatus(StrEnum):
@@ -494,6 +538,13 @@ class QueueStats(BaseModel):
     last_poll_timestamp: str | None = None
 
 
+class SessionStatus(StrEnum):
+    """Lifecycle status of an orchestrator session."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
 class SessionLog(BaseModel):
     """A single orchestrator session — one per run() invocation."""
 
@@ -504,7 +555,7 @@ class SessionLog(BaseModel):
     issues_processed: list[int] = Field(default_factory=list)
     issues_succeeded: int = 0
     issues_failed: int = 0
-    status: str = "active"
+    status: SessionStatus = SessionStatus.ACTIVE
 
 
 class LifetimeStats(BaseModel):
@@ -543,7 +594,7 @@ class StateData(BaseModel):
     hitl_causes: dict[str, str] = Field(default_factory=dict)
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
-    worker_result_meta: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
     verification_issues: dict[str, int] = Field(default_factory=dict)
     issue_attempts: dict[str, int] = Field(default_factory=dict)
     active_issue_numbers: list[int] = Field(default_factory=list)
@@ -565,13 +616,23 @@ class StateData(BaseModel):
 # --- Dashboard API Responses ---
 
 
+class PipelineIssueStatus(StrEnum):
+    """Status of an issue in the pipeline snapshot."""
+
+    QUEUED = "queued"
+    ACTIVE = "active"
+    HITL = "hitl"
+
+
 class PipelineIssue(BaseModel):
     """A single issue in a pipeline stage snapshot."""
 
+    model_config = ConfigDict(frozen=True)
+
     issue_number: int
     title: str = ""
-    url: str = ""
-    status: str = "queued"  # "queued" | "active" | "hitl"
+    url: HttpUrl = ""
+    status: PipelineIssueStatus = PipelineIssueStatus.QUEUED
 
 
 class PipelineSnapshot(BaseModel):
@@ -591,7 +652,7 @@ class IntentResponse(BaseModel):
 
     issue_number: int
     title: str
-    url: str = ""
+    url: HttpUrl = ""
     status: str = "created"
 
 
@@ -601,7 +662,7 @@ class PRListItem(BaseModel):
     pr: int
     issue: int = 0
     branch: str = ""
-    url: str = ""
+    url: HttpUrl = ""
     draft: bool = False
     title: str = ""
 
@@ -611,9 +672,9 @@ class HITLItem(BaseModel):
 
     issue: int
     title: str = ""
-    issueUrl: str = ""  # camelCase to match existing frontend contract
+    issueUrl: HttpUrl = ""  # camelCase to match existing frontend contract
     pr: int = 0
-    prUrl: str = ""  # camelCase to match existing frontend contract
+    prUrl: HttpUrl = ""  # camelCase to match existing frontend contract
     branch: str = ""
     cause: str = ""  # escalation reason (populated by #113)
     status: str = "pending"  # pending | processing | resolved
@@ -661,6 +722,198 @@ class BackgroundWorkerState(TypedDict):
     last_run: str | None
     details: dict[str, Any]
     enabled: NotRequired[bool]  # added by get_bg_worker_states()
+
+
+class TranscriptEventData(TypedDict, total=False):
+    """Event data shape passed to ``stream_claude_process`` and ``BaseRunner._execute``.
+
+    All keys are optional since different runners include different subsets.
+    """
+
+    issue: int
+    pr: int
+    source: str
+
+
+class WorkerUpdatePayload(TypedDict):
+    """Payload for ``EventType.WORKER_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
+
+
+class PlannerUpdatePayload(TypedDict):
+    """Payload for ``EventType.PLANNER_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
+
+
+class TriageUpdatePayload(TypedDict):
+    """Payload for ``EventType.TRIAGE_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
+
+
+class ReviewUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.REVIEW_UPDATE``."""
+
+    pr: int
+    issue: int
+    worker: int
+    status: str
+    role: str
+    verdict: str
+    duration: float
+
+
+class PRCreatedPayload(TypedDict):
+    """Payload for ``EventType.PR_CREATED``."""
+
+    pr: int
+    issue: int
+    branch: str
+    draft: bool
+    url: str
+
+
+class MergeUpdatePayload(TypedDict):
+    """Payload for ``EventType.MERGE_UPDATE``."""
+
+    pr: int
+    status: str
+
+
+class CICheckPayload(TypedDict, total=False):
+    """Payload for ``EventType.CI_CHECK``."""
+
+    pr: int
+    issue: int
+    status: str
+    pending: int
+    total: int
+    failed: list[str]
+    worker: int
+    attempt: int
+
+
+class HITLEscalationPayload(TypedDict, total=False):
+    """Payload for ``EventType.HITL_ESCALATION``."""
+
+    issue: int
+    cause: str
+    origin: str
+    ci_fix_attempts: int
+    pr: int
+    status: str
+    role: str
+
+
+class IssueCreatedPayload(TypedDict):
+    """Payload for ``EventType.ISSUE_CREATED``."""
+
+    number: int
+    title: str
+    labels: list[str]
+
+
+class HITLUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.HITL_UPDATE``."""
+
+    issue: int
+    status: str
+    action: str
+    worker: int
+    duration: float
+
+
+class ErrorPayload(TypedDict):
+    """Payload for ``EventType.ERROR``."""
+
+    message: str
+    source: str
+
+
+class BackgroundWorkerStatusPayload(TypedDict):
+    """Payload for ``EventType.BACKGROUND_WORKER_STATUS``."""
+
+    worker: str
+    status: str
+    last_run: str
+    details: dict[str, Any]
+
+
+class OrchestratorStatusPayload(TypedDict, total=False):
+    """Payload for ``EventType.ORCHESTRATOR_STATUS``."""
+
+    status: str
+    reset: bool
+
+
+class SessionStartPayload(TypedDict):
+    """Payload for ``EventType.SESSION_START``."""
+
+    session_id: str
+    repo: str
+
+
+class SessionEndPayload(TypedDict):
+    """Payload for ``EventType.SESSION_END``."""
+
+    session_id: str
+    status: str
+    issues_processed: list[int]
+    issues_succeeded: int
+    issues_failed: int
+
+
+class PipelineSnapshotEntry(TypedDict):
+    """Shape of issue dicts returned by ``IssueStore.get_pipeline_snapshot``."""
+
+    issue_number: int
+    title: str
+    url: str
+    status: str
+
+
+class LabelCounts(TypedDict):
+    """Return shape of ``PRManager.get_label_counts``."""
+
+    open_by_label: dict[str, int]
+    total_closed: int
+    total_merged: int
+
+
+class WorkerResultMeta(TypedDict, total=False):
+    """Metadata stored by ``StateTracker.set_worker_result_meta``."""
+
+    quality_fix_attempts: int
+    duration_seconds: float
+    error: str | None
+    commits: int
+
+
+class ManifestRefreshSummary(TypedDict):
+    """Return shape of ``ManifestRefreshLoop._do_work``."""
+
+    hash: str
+    length: int
+
+
+class TimelineStageMetadata(TypedDict, total=False):
+    """Metadata for ``TimelineStage.metadata``."""
+
+    verdict: str
+    duration: float
+    commits: int
+    hitl_cause: str
 
 
 class MemoryType(StrEnum):
@@ -805,12 +1058,22 @@ class ParsedCriteria(NamedTuple):
 # --- Background Worker Status ---
 
 
+class BGWorkerHealth(StrEnum):
+    """Health status of a background worker."""
+
+    OK = "ok"
+    ERROR = "error"
+    DISABLED = "disabled"
+
+
 class BackgroundWorkerStatus(BaseModel):
     """Status of a single background worker."""
 
+    model_config = ConfigDict(frozen=True)
+
     name: str
     label: str
-    status: str = "disabled"  # ok | error | disabled
+    status: BGWorkerHealth = BGWorkerHealth.DISABLED
     enabled: bool = True
     last_run: str | None = None
     interval_seconds: int | None = None
@@ -836,7 +1099,7 @@ class MetricsResponse(BaseModel):
 class MetricsSnapshot(BaseModel):
     """A single timestamped metrics snapshot for historical tracking."""
 
-    timestamp: str
+    timestamp: IsoTimestamp
     # Core counters (from LifetimeStats)
     issues_completed: int = 0
     prs_merged: int = 0
@@ -852,11 +1115,11 @@ class MetricsSnapshot(BaseModel):
     total_implementation_seconds: float = 0.0
     total_review_seconds: float = 0.0
     # Derived rates (computed at snapshot time)
-    merge_rate: float = 0.0
-    quality_fix_rate: float = 0.0
-    hitl_escalation_rate: float = 0.0
-    first_pass_approval_rate: float = 0.0
-    avg_implementation_seconds: float = 0.0
+    merge_rate: float = Field(default=0.0, ge=0.0)
+    quality_fix_rate: float = Field(default=0.0, ge=0.0)
+    hitl_escalation_rate: float = Field(default=0.0, ge=0.0)
+    first_pass_approval_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    avg_implementation_seconds: float = Field(default=0.0, ge=0.0)
     # Queue snapshot
     queue_depth: dict[str, int] = Field(default_factory=dict)
     # GitHub label counts
@@ -875,16 +1138,35 @@ class MetricsHistoryResponse(BaseModel):
 # --- Timeline ---
 
 
+class PipelineStage(StrEnum):
+    """Display pipeline stages for issue lifecycle."""
+
+    TRIAGE = "triage"
+    PLAN = "plan"
+    IMPLEMENT = "implement"
+    REVIEW = "review"
+    MERGE = "merge"
+
+
+class StageStatus(StrEnum):
+    """Status of a pipeline stage."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    FAILED = "failed"
+
+
 class TimelineStage(BaseModel):
     """A single stage in an issue's lifecycle timeline."""
 
-    stage: str  # "triage", "plan", "implement", "review", "merge"
-    status: str  # "pending", "in_progress", "done", "failed"
+    stage: PipelineStage
+    status: StageStatus
     started_at: str | None = None
     completed_at: str | None = None
     duration_seconds: float | None = None
     transcript_preview: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: TimelineStageMetadata = Field(default_factory=dict)  # type: ignore[assignment]
 
 
 class IssueTimeline(BaseModel):
@@ -892,11 +1174,11 @@ class IssueTimeline(BaseModel):
 
     issue_number: int
     title: str = ""
-    current_stage: str = ""
+    current_stage: PipelineStage | Literal[""] = ""
     stages: list[TimelineStage] = Field(default_factory=list)
     total_duration_seconds: float | None = None
     pr_number: int | None = None
-    pr_url: str = ""
+    pr_url: HttpUrl = ""
     branch: str = ""
 
 
@@ -981,3 +1263,80 @@ class AuditResult(BaseModel):
             )
 
         return "\n".join(lines)
+
+
+# --- Callback Protocols ---
+# These replace Callable[..., None] and Callable[..., Coroutine[Any, Any, ...]]
+# with explicit signatures for full type-safety at call sites.
+
+
+class EscalateFn(Protocol):
+    """Async callback for HITL escalation.
+
+    Matches ``ReviewPhase._escalate_to_hitl``.
+    """
+
+    async def __call__(
+        self,
+        issue_number: int,
+        pr_number: int,
+        cause: str,
+        origin_label: str,
+        *,
+        comment: str,
+        post_on_pr: bool = ...,
+        event_cause: str = ...,
+        extra_event_data: dict[str, object] | None = ...,
+    ) -> None: ...
+
+
+class PublishFn(Protocol):
+    """Async callback for publishing review status.
+
+    Matches ``ReviewPhase._publish_review_status``.
+    """
+
+    async def __call__(self, pr: PRInfo, worker_id: int, status: str) -> None: ...
+
+
+class CiGateFn(Protocol):
+    """Async callback for CI gate checks.
+
+    Matches ``ReviewPhase.wait_and_fix_ci``.
+    """
+
+    async def __call__(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        wt_path: Path,
+        result: ReviewResult,
+        worker_id: int,
+    ) -> bool: ...
+
+
+class StatusCallback(Protocol):
+    """Sync callback for background worker status updates.
+
+    Matches ``HydraFlowOrchestrator.update_bg_worker_status``.
+    """
+
+    def __call__(
+        self,
+        name: str,
+        status: str,
+        details: dict[str, Any] | None = ...,
+    ) -> None: ...
+
+
+class WorkFn(Protocol):
+    """Async zero-arg callback for polling loop work functions.
+
+    Matches the work functions passed to ``_polling_loop``
+    (e.g. ``triage_issues``, ``plan_issues``).  Uses ``object``
+    return type because some work functions return values
+    (e.g. ``plan_issues`` returns ``list[PlanResult]``) even
+    though the return value is always discarded by the caller.
+    """
+
+    async def __call__(self) -> object: ...

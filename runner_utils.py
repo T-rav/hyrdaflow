@@ -9,10 +9,10 @@ import os
 import signal
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
+from models import TranscriptEventData
 from stream_parser import StreamParser
 from subprocess_util import (
     CreditExhaustedError,
@@ -29,7 +29,7 @@ async def stream_claude_process(
     cwd: Path,
     active_procs: set[asyncio.subprocess.Process],
     event_bus: EventBus,
-    event_data: dict[str, Any],
+    event_data: TranscriptEventData,
     logger: logging.Logger,
     on_output: Callable[[str], bool] | None = None,
     timeout: float = 3600.0,
