@@ -54,7 +54,15 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str, s
     slug = slug or _slug_for_repo(repo_path)
     existing = RUNNERS.get(slug)
     if existing and existing.proc.poll() is None:
-        return existing.port, existing.slug, str(existing.repo_path.resolve())
+        log_dir = STATE_DIR / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = (log_dir / f"{existing.slug}-{existing.port}.log").resolve()
+        return (
+            existing.port,
+            existing.slug,
+            str(existing.repo_path.resolve()),
+            str(log_file),
+        )
     state_root = STATE_DIR / slug
     state_root.mkdir(parents=True, exist_ok=True)
     port = _find_free_port()
