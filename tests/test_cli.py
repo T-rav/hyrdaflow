@@ -12,9 +12,12 @@ import pytest
 from cli import (
     _build_prep_agent_prompt,
     _build_prep_failure_error_message,
+    _coverage_validation_roots,
     _evaluate_coverage_validation,
+    _evaluate_coverage_validation_projects,
     _extract_coverage_percent,
     _parse_label_arg,
+    _project_has_test_signal,
     _run_main,
     build_config,
     parse_args,
@@ -123,6 +126,38 @@ class TestCoverageValidation:
         assert ok is True
         assert warn is False
         assert "passed" in detail
+
+    def test_project_has_test_signal_from_makefile_target(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        assert _project_has_test_signal(tmp_path) is True
+
+    def test_coverage_roots_include_only_projects_with_tests(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "Makefile").write_text("test:\n\t@echo test\n")
+        pkg_a = tmp_path / "packages" / "a"
+        pkg_a.mkdir(parents=True)
+        (pkg_a / "Makefile").write_text("test:\n\t@echo test\n")
+        pkg_b = tmp_path / "packages" / "b"
+        pkg_b.mkdir(parents=True)
+        roots = _coverage_validation_roots(tmp_path, [".", "packages/a", "packages/b"])
+        rels = ["." if p == tmp_path else str(p.relative_to(tmp_path)) for p in roots]
+        assert rels == [".", "packages/a"]
+
+    def test_coverage_projects_fails_when_any_project_below_min(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "lcov.info").write_text("LF:100\nLH:80\n")
+        pkg_a = tmp_path / "packages" / "a"
+        pkg_a.mkdir(parents=True)
+        (pkg_a / "lcov.info").write_text("LF:100\nLH:40\n")
+        ok, warn, detail = _evaluate_coverage_validation_projects(
+            tmp_path, [tmp_path, pkg_a]
+        )
+        assert ok is False
+        assert warn is False
+        assert "packages/a:" in detail
+        assert "below minimum 50%" in detail
 
 
 # ---------------------------------------------------------------------------

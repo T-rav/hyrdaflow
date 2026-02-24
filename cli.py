@@ -913,6 +913,109 @@ def _evaluate_coverage_validation(
     )
 
 
+def _project_has_test_signal(project_root: Path) -> bool:
+    """Return True if a project appears to have runnable tests."""
+    tests_dir = project_root / "tests"
+    has_python_tests = tests_dir.is_dir() and (
+        list(tests_dir.glob("test_*.py")) or list(tests_dir.glob("*_test.py"))
+    )
+
+    js_tests_dir = project_root / "__tests__"
+    has_js_tests = js_tests_dir.is_dir() and (
+        list(js_tests_dir.glob("*.test.*")) or list(js_tests_dir.glob("*.spec.*"))
+    )
+
+    has_pytest_config = (project_root / "pytest.ini").is_file()
+    has_js_test_config = any(
+        (project_root / name).is_file()
+        for name in (
+            "vitest.config.js",
+            "vitest.config.ts",
+            "jest.config.js",
+            "jest.config.ts",
+            "jest.config.json",
+        )
+    )
+
+    has_test_script = False
+    package_json = project_root / "package.json"
+    if package_json.is_file():
+        try:
+            data = json.loads(package_json.read_text())
+            scripts = data.get("scripts", {})
+            has_test_script = isinstance(scripts, dict) and "test" in scripts
+        except (OSError, json.JSONDecodeError):
+            has_test_script = False
+
+    return any(
+        (
+            _makefile_has_target(project_root, "test"),
+            has_python_tests,
+            has_js_tests,
+            has_pytest_config,
+            has_js_test_config,
+            has_test_script,
+        )
+    )
+
+
+def _coverage_validation_roots(repo_root: Path, project_paths: list[str]) -> list[Path]:
+    """Return fan-out project roots that should be coverage-validated."""
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    candidates = [repo_root]
+    for rel_path in project_paths:
+        candidate = repo_root if rel_path in ("", ".") else repo_root / rel_path
+        candidates.append(candidate)
+
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if _project_has_test_signal(candidate):
+            roots.append(candidate)
+    return roots
+
+
+def _evaluate_coverage_validation_projects(
+    repo_root: Path,
+    project_roots: list[Path],
+    *,
+    min_required: float = 50.0,
+    target: float = 70.0,
+) -> tuple[bool, bool, str]:
+    """Evaluate coverage thresholds across all test-bearing project roots."""
+    if not project_roots:
+        return (
+            True,
+            True,
+            "Coverage validation skipped: no fan-out project with tests detected.",
+        )
+
+    any_warn = False
+    failed_details: list[str] = []
+    ok_details: list[str] = []
+    for project_root in project_roots:
+        rel = (
+            "."
+            if project_root == repo_root
+            else str(project_root.relative_to(repo_root))
+        )
+        ok, warn, detail = _evaluate_coverage_validation(
+            project_root, min_required=min_required, target=target
+        )
+        line = f"{rel}: {detail}"
+        if ok:
+            ok_details.append(line)
+            any_warn = any_warn or warn
+        else:
+            failed_details.append(line)
+
+    if failed_details:
+        return False, False, " | ".join(failed_details)
+    return True, any_warn, " | ".join(ok_details)
+
+
 def _slugify_issue_name(step_name: str) -> str:
     """Convert a step name to a safe `.hydraflow/prep` issue slug."""
     slug = re.sub(r"[^a-z0-9]+", "-", step_name.lower()).strip("-")
@@ -1256,6 +1359,17 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 
     hardening_ok = True
     repo_root = config.repo_root
+    coverage_roots = _coverage_validation_roots(
+        repo_root, list(makefile_results.results.keys())
+    )
+    coverage_scope = (
+        ", ".join(
+            "." if p == repo_root else str(p.relative_to(repo_root))
+            for p in coverage_roots
+        )
+        or "none"
+    )
+    run_log_lines.append(f"- Coverage validation scope: {coverage_scope}")
 
     max_attempts = 3
     attempts_used = 0
@@ -1346,8 +1460,11 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
         if agent_ok:
             agent_successes += 1
             run_log_lines.append("- Prep workflow agent: success")
-            coverage_ok, coverage_warn, coverage_detail = _evaluate_coverage_validation(
-                repo_root
+            coverage_ok, coverage_warn, coverage_detail = (
+                _evaluate_coverage_validation_projects(
+                    repo_root,
+                    coverage_roots,
+                )
             )
             run_log_lines.append(f"- {coverage_detail}")
             if coverage_ok:
