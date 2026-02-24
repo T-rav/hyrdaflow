@@ -57,11 +57,20 @@ async def _poll_then_stop(
     *,
     max_iters: int = 5000,
 ) -> None:
-    """Poll *condition* with zero-sleep yields, then stop the orchestrator."""
+    """Poll *condition* with zero-sleep yields, then stop the orchestrator.
+
+    Raises AssertionError if *condition* is still False after *max_iters*
+    iterations so that test failures point at the unmet condition rather
+    than at downstream assertions.
+    """
     for _ in range(max_iters):
         if condition():
             break
         await asyncio.sleep(0)
+    else:
+        raise AssertionError(
+            f"_poll_then_stop: condition never became True after {max_iters} iterations"
+        )
     await orch.stop()
 
 
