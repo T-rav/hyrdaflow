@@ -84,6 +84,16 @@ def create_router(
     except ImportError:  # pragma: no cover - env missing CLI
         supervisor_client = None  # type: ignore[assignment]
 
+    def _normalize_repo_path(path_str: str) -> Path:
+        """Normalize and minimally validate a repository path from client input."""
+        stripped = path_str.strip()
+        if not stripped:
+            raise ValueError("Empty path is not allowed")
+        # Expand '~' and normalize the path; strict=False so the path need not exist yet.
+        expanded = Path(stripped).expanduser()
+        normalized = expanded.resolve(strict=False)
+        return normalized
+
     def _serve_spa_index() -> HTMLResponse:
         """Serve the SPA index.html, falling back to template or placeholder."""
         react_index = ui_dist_dir / "index.html"
@@ -876,8 +886,12 @@ def create_router(
         if not path:
             return JSONResponse({"error": "path required"}, status_code=400)
         try:
+            normalized_path = _normalize_repo_path(path)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        try:
             info = await _call_supervisor(
-                supervisor_client.add_repo, Path(path).expanduser(), slug
+                supervisor_client.add_repo, normalized_path, slug
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Supervisor add_repo failed: %s", exc)
