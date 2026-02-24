@@ -772,7 +772,7 @@ class TestMergeConflictDelegation:
         await unsticker.unstick([_make_hitl_item(42)])
 
         call_kwargs = resolver.resolve_merge_conflicts.call_args.kwargs
-        assert call_kwargs["source"] == "pr_unsticker"
+        assert call_kwargs["source"] == "unsticker"
         assert call_kwargs["worker_id"] is None
 
 

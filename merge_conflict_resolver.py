@@ -347,11 +347,22 @@ class MergeConflictResolver:
         *,
         source: str = "conflict",
     ) -> None:
-        """Save a conflict resolution transcript to ``.hydraflow/logs/``."""
+        """Save a conflict resolution transcript to ``.hydraflow/logs/``.
+
+        Unsticker sources (those containing ``"unsticker"``) use
+        ``{source}-issue-{issue_number}-attempt-{attempt}.txt`` naming.
+        All other sources use ``{source}-pr-{pr_number}-attempt-{attempt}.txt``.
+        """
         log_dir = self._config.log_dir
+        is_unsticker = "unsticker" in source
+        if is_unsticker:
+            filename = f"{source}-issue-{issue_number}-attempt-{attempt}.txt"
+        else:
+            filename = f"{source}-pr-{pr_number}-attempt-{attempt}.txt"
+        transcript_type = "unsticker" if is_unsticker else "conflict"
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
-            path = log_dir / f"{source}-pr-{pr_number}-attempt-{attempt}.txt"
+            path = log_dir / filename
             path.write_text(transcript)
             logger.info(
                 "Conflict resolution transcript saved to %s",
@@ -360,7 +371,8 @@ class MergeConflictResolver:
             )
         except OSError:
             logger.warning(
-                "Could not save conflict transcript to %s",
+                "Could not save %s transcript to %s",
+                transcript_type,
                 log_dir,
                 exc_info=True,
                 extra={"issue": issue_number},

@@ -342,14 +342,14 @@ class PRUnsticker:
                 url=pr_url,
             )
             return await self._resolver.resolve_merge_conflicts(
-                pr, issue, wt_path, worker_id=None, source="pr_unsticker"
+                pr, issue, wt_path, worker_id=None, source="unsticker"
             )
         if cause in (FailureCause.CI_FAILURE, FailureCause.REVIEW_FIX_CAP):
             result = await self._resolve_ci_or_quality(
                 issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
             )
             return result, False
-        result = await self._resolve_generic(issue_number, issue, wt_path, branch)
+        result = await self._resolve_generic(issue_number, issue, wt_path)
         return result, False
 
     async def _resolve_ci_or_quality(
@@ -421,7 +421,6 @@ class PRUnsticker:
         issue_number: int,
         issue: GitHubIssue,
         wt_path: Path,
-        branch: str,
     ) -> bool:
         """Use HITLRunner for generic/unknown causes."""
         if not self._hitl_runner:

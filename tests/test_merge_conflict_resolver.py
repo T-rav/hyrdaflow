@@ -171,7 +171,7 @@ class TestSourceParameter:
     async def test_save_transcript_uses_source_prefix(
         self, config: HydraFlowConfig
     ) -> None:
-        """Verify that transcripts use the source parameter for filename prefix."""
+        """Verify that unsticker transcripts use issue-based naming."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript content")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
@@ -186,11 +186,11 @@ class TestSourceParameter:
             issue,
             config.worktree_base / "issue-42",
             worker_id=0,
-            source="pr_unsticker",
+            source="unsticker",
         )
 
         log_dir = config.repo_root / ".hydraflow" / "logs"
-        assert (log_dir / "pr_unsticker-pr-101-attempt-1.txt").exists()
+        assert (log_dir / "unsticker-issue-42-attempt-1.txt").exists()
 
     @pytest.mark.asyncio
     async def test_source_passed_to_memory_suggestion(
@@ -305,7 +305,7 @@ class TestSaveTranscriptOSError:
     def test_save_transcript_handles_oserror(
         self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Verify OSError is caught and logged."""
+        """Verify OSError is caught and logged for conflict source."""
         resolver = _make_resolver(config)
 
         def _raise_oserror(*args, **kwargs):
@@ -319,6 +319,25 @@ class TestSaveTranscriptOSError:
 
         assert "Could not save conflict transcript" in caplog.text
 
+    def test_save_transcript_handles_oserror_unsticker(
+        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verify OSError warning says 'unsticker transcript' for unsticker source."""
+        resolver = _make_resolver(config)
+
+        def _raise_oserror(*args, **kwargs):
+            raise OSError("No space left on device")
+
+        import pytest as _pytest
+
+        with _pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "write_text", _raise_oserror)
+            resolver.save_conflict_transcript(
+                101, 42, 1, "transcript content", source="unsticker"
+            )
+
+        assert "Could not save unsticker transcript" in caplog.text
+
     def test_save_transcript_uses_source_in_filename(
         self, config: HydraFlowConfig
     ) -> None:
@@ -327,6 +346,15 @@ class TestSaveTranscriptOSError:
         resolver.save_conflict_transcript(101, 42, 1, "content", source="my_source")
         log_dir = config.repo_root / ".hydraflow" / "logs"
         assert (log_dir / "my_source-pr-101-attempt-1.txt").exists()
+
+    def test_save_transcript_unsticker_uses_issue_naming(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verify unsticker source uses issue-based naming."""
+        resolver = _make_resolver(config)
+        resolver.save_conflict_transcript(101, 42, 1, "content", source="unsticker")
+        log_dir = config.repo_root / ".hydraflow" / "logs"
+        assert (log_dir / "unsticker-issue-42-attempt-1.txt").exists()
 
 
 class TestFreshBranchRebuild:
