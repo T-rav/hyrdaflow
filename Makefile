@@ -37,7 +37,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean test tests coverage cover test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
+.PHONY: help run dev dry-run clean coverage cover test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps
 
 help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
@@ -136,7 +136,7 @@ TEST_COVERAGE_IS_NUM := $(shell printf '%s' "$(TEST_COVERAGE)" | grep -Eq '^[0-9
 TEST_COVERAGE_DEFAULT ?= 70
 TEST_COVERAGE_EFFECTIVE := $(if $(TEST_COVERAGE),$(TEST_COVERAGE),$(TEST_COVERAGE_DEFAULT))
 
-ifneq ($(filter test tests coverage cover,$(firstword $(MAKECMDGOALS))),)
+ifneq ($(filter coverage cover,$(firstword $(MAKECMDGOALS))),)
 ifneq ($(TEST_COVERAGE),)
 ifneq ($(TEST_COVERAGE_IS_NUM),1)
 $(error Usage: make coverage|cover [0-100])
@@ -153,10 +153,6 @@ coverage: deps
 	@echo "$(GREEN)All tests passed$(RESET)"
 
 cover: coverage
-
-# Back-compat aliases; prefer `make coverage` / `make cover`.
-test: coverage
-tests: coverage
 
 test-fast: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x --tb=short
