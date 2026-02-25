@@ -1189,6 +1189,25 @@ def _detect_repo_slug(repo_root: Path) -> str:
     Falls back to an empty string if detection fails.
     """
     import subprocess  # noqa: PLC0415
+    from urllib.parse import urlparse
+
+    def _from_https(remote: str) -> str:
+        parsed = urlparse(remote)
+        host = (parsed.hostname or "").lower()
+        if host != "github.com":
+            return ""
+        path = parsed.path.lstrip("/").removesuffix(".git")
+        return path
+
+    def _from_ssh(remote: str) -> str:
+        # Example: git@github.com:owner/repo.git
+        if "@" not in remote or ":" not in remote:
+            return ""
+        user_host, _, remainder = remote.partition(":")
+        _, _, host = user_host.partition("@")
+        if host.lower() != "github.com":
+            return ""
+        return remainder.lstrip("/").removesuffix(".git")
 
     try:
         result = subprocess.run(
@@ -1202,13 +1221,10 @@ def _detect_repo_slug(repo_root: Path) -> str:
         url = result.stdout.strip()
         if not url:
             return ""
-        # Handle HTTPS: https://github.com/owner/repo.git
-        # Handle SSH:   git@github.com:owner/repo.git
-        url = url.removesuffix(".git")
-        if "github.com/" in url:
-            return url.split("github.com/")[-1]
-        if "github.com:" in url:
-            return url.split("github.com:")[-1]
+        if url.startswith("http://") or url.startswith("https://"):
+            return _from_https(url)
+        if url.startswith("git@"):
+            return _from_ssh(url)
         return ""
     except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return ""
