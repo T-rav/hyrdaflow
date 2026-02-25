@@ -56,3 +56,32 @@ def test_ensure_running_times_out_when_no_ping(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="Timed out waiting for supervisor"):
         supervisor_manager.ensure_running()
+
+
+def test_ensure_running_starts_and_waits_until_ping_succeeds(monkeypatch) -> None:
+    class _Proc:
+        returncode = None
+
+        def poll(self):
+            return None
+
+    calls = {"ping": 0, "sleep": 0}
+
+    def _ping() -> bool:
+        calls["ping"] += 1
+        return calls["ping"] >= 3
+
+    monkeypatch.setattr(supervisor_manager.supervisor_client, "ping", _ping)
+    monkeypatch.setattr(
+        supervisor_manager.subprocess, "Popen", lambda *_a, **_k: _Proc()
+    )
+    monkeypatch.setattr(
+        supervisor_manager.time,
+        "sleep",
+        lambda _x: calls.__setitem__("sleep", calls["sleep"] + 1),
+    )
+
+    supervisor_manager.ensure_running()
+
+    assert calls["ping"] >= 3
+    assert calls["sleep"] >= 1

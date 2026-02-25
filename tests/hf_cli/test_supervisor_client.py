@@ -39,6 +39,45 @@ def test_list_repos_raises_runtime_error_on_error_response(monkeypatch) -> None:
         supervisor_client.list_repos()
 
 
+def test_list_repos_returns_payload_on_success(monkeypatch) -> None:
+    repos = [{"slug": "repo-a"}, {"slug": "repo-b"}]
+    monkeypatch.setattr(
+        supervisor_client, "_send", lambda _request: {"status": "ok", "repos": repos}
+    )
+
+    assert supervisor_client.list_repos() == repos
+
+
+def test_add_repo_includes_slug_in_payload(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def _send(payload):
+        captured.update(payload)
+        return {"status": "ok", "slug": "repo-a"}
+
+    monkeypatch.setattr(supervisor_client, "_send", _send)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    response = supervisor_client.add_repo(repo, repo_slug="repo-a")
+
+    assert response["slug"] == "repo-a"
+    assert captured["action"] == "add_repo"
+    assert captured["repo_slug"] == "repo-a"
+    assert captured["path"] == str(repo.resolve())
+
+
+def test_remove_repo_raises_when_server_returns_error(monkeypatch) -> None:
+    monkeypatch.setattr(
+        supervisor_client,
+        "_send",
+        lambda _request: {"status": "error", "error": "not found"},
+    )
+
+    with pytest.raises(RuntimeError, match="not found"):
+        supervisor_client.remove_repo(slug="missing")
+
+
 def test_send_parses_newline_delimited_json(monkeypatch) -> None:
     class _FakeSocket:
         def __enter__(self):

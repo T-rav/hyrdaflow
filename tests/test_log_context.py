@@ -45,6 +45,13 @@ class TestTruncateLog:
         result = truncate_log(text, max_chars=100)
         assert result.startswith("[Log truncated")
 
+    def test_truncation_when_marker_exceeds_budget(self) -> None:
+        """When max_chars is tiny, output is a clipped marker."""
+        text = "x" * 500
+        result = truncate_log(text, max_chars=10)
+        assert len(result) == 10
+        assert result == "[Log trunc"
+
 
 # ---------------------------------------------------------------------------
 # load_runtime_logs

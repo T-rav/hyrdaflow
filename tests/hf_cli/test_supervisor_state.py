@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 
 
@@ -60,3 +61,24 @@ def test_remove_by_slug_and_path(tmp_path, monkeypatch):
     assert supervisor_state.remove_repo(path=repo_path) is False
     assert supervisor_state.remove_repo(path=second_path) is True
     assert supervisor_state.get_repo(slug="two") is None
+
+
+def test_list_repos_returns_empty_on_invalid_json(tmp_path, monkeypatch):
+    supervisor_state = _load_state_module(tmp_path, monkeypatch)
+    supervisor_state.SUPERVISOR_STATE_FILE.write_text("{bad json")
+
+    assert supervisor_state.list_repos() == []
+
+
+def test_upsert_updates_existing_entry(tmp_path, monkeypatch):
+    supervisor_state = _load_state_module(tmp_path, monkeypatch)
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    supervisor_state.upsert_repo(repo_path, "repo-slug", 5555, "/logs/repo.log")
+    supervisor_state.upsert_repo(repo_path, "repo-slug-v2", 6000, "/logs/repo-v2.log")
+    data = json.loads(supervisor_state.SUPERVISOR_STATE_FILE.read_text())
+
+    assert len(data["repos"]) == 1
+    assert data["repos"][0]["slug"] == "repo-slug-v2"
+    assert data["repos"][0]["port"] == 6000

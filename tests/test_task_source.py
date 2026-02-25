@@ -53,3 +53,26 @@ def test_task_source_protocols_are_runtime_checkable() -> None:
     assert isinstance(_FetcherImpl(), TaskFetcher)
     assert isinstance(_SourceImpl(), TaskSource)
     assert isinstance(_TransitionerImpl(), TaskTransitioner)
+
+
+def test_task_source_protocol_rejects_missing_required_method() -> None:
+    class _IncompleteSource:
+        def get_triageable(self, n: int):
+            return []
+
+        def get_plannable(self, n: int):
+            return []
+
+        def get_implementable(self, n: int):
+            return []
+
+        def get_reviewable(self, n: int):
+            return []
+
+        def mark_active(self, task_id: int, stage: str) -> None:
+            return None
+
+        def mark_complete(self, task_id: int) -> None:
+            return None
+
+    assert not isinstance(_IncompleteSource(), TaskSource)
