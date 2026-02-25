@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import cli as cli_module
 from cli import (
     _best_model_for_tool,
     _build_prep_agent_prompt,
@@ -31,11 +32,15 @@ from cli import (
 
 
 @pytest.fixture(autouse=True)
-def _clear_hydraflow_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent host HYDRAFLOW_* env vars from leaking into CLI default tests."""
+def _isolate_cli_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Prevent host env/config defaults from leaking into CLI tests."""
     for key in list(os.environ):
         if key.startswith("HYDRAFLOW_"):
             monkeypatch.delenv(key, raising=False)
+    # Ensure parse_args/build_config do not read the user's persisted config.
+    monkeypatch.setattr(
+        cli_module, "_DEFAULT_CONFIG_PATH", str(tmp_path / "hydraflow-test-config.json")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -374,8 +379,8 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("background_tool", "inherit"),
     ("background_model", ""),
     ("hitl_active_label", ["hydraflow-hitl-active"]),
-    ("implementation_tool", "codex"),
-    ("model", "gpt-5-codex"),
+    ("implementation_tool", "claude"),
+    ("model", "opus"),
     ("review_tool", "claude"),
     ("review_model", "sonnet"),
     ("ci_check_timeout", 600),
@@ -428,7 +433,7 @@ class TestBuildConfig:
         assert cfg.batch_size == 10
         # Other fields remain at defaults
         assert cfg.max_workers == 2
-        assert cfg.model == "gpt-5-codex"
+        assert cfg.model == "opus"
 
     def test_label_arg_parsed_to_list(self) -> None:
         """A comma-separated label CLI arg should become a list."""
