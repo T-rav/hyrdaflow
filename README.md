@@ -12,7 +12,7 @@ Log an issue. Agents handle the rest - triaging, planning, implementing, reviewi
 
 HydraFlow is a delivery kernel for GitHub repositories: it accepts intent, compiles it through a staged pipeline, enforces quality gates, and produces merged software changes.
 
-It scales your workflow, not just your output, turning your repository into a programmable delivery engine powered by your hooks and skills. This is Harness Engineering in practice.
+It scales your workflow, not just your output, turning your repository into a programmable delivery engine powered by your hooks and skills. This is __Harness Engineering__ in practice.
 
 ## What Makes It Different
 
