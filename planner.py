@@ -102,7 +102,7 @@ class PlannerRunner(BaseRunner):
             logger.info("Issue #%d classified as %s plan", task.id, scale)
 
             cmd = self._build_command()
-            prompt = self._build_prompt(task, scale=scale)
+            prompt, prompt_stats = self._build_prompt_with_stats(task, scale=scale)
 
             def _check_plan_complete(accumulated: str) -> bool:
                 if "PLAN_END" in accumulated:
@@ -125,6 +125,7 @@ class PlannerRunner(BaseRunner):
                 self._config.repo_root,
                 {"issue": task.id, "source": "planner"},
                 on_output=_check_plan_complete,
+                telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
 
@@ -177,7 +178,7 @@ class PlannerRunner(BaseRunner):
                         len(all_errors),
                     )
                     await self._emit_status(task.id, worker_id, PlannerStatus.RETRYING)
-                    retry_prompt = self._build_retry_prompt(
+                    retry_prompt, retry_stats = self._build_retry_prompt(
                         task, result.plan, all_errors, scale=scale
                     )
                     retry_transcript = await self._execute(
@@ -186,6 +187,7 @@ class PlannerRunner(BaseRunner):
                         self._config.repo_root,
                         {"issue": task.id, "source": "planner"},
                         on_output=_check_plan_complete,
+                        telemetry_stats=retry_stats,
                     )
                     result.transcript += "\n\n--- RETRY ---\n\n" + retry_transcript
 
@@ -322,18 +324,36 @@ class PlannerRunner(BaseRunner):
     def _build_prompt(self, issue: Task, *, scale: PlanScale = "full") -> str:
         """Build the planning prompt for the agent.
 
+        Compatibility wrapper that returns only the prompt string.
+        """
+        prompt, _stats = self._build_prompt_with_stats(issue, scale=scale)
+        return prompt
+
+    def _build_prompt_with_stats(
+        self, issue: Task, *, scale: PlanScale = "full"
+    ) -> tuple[str, dict[str, object]]:
+        """Build the planning prompt and pruning stats.
+
         *scale* is ``"lite"`` or ``"full"``.  The prompt adjusts which
         sections are required and whether to include the pre-mortem step.
         """
         comments_section = ""
+        history_before = sum(len(c) for c in issue.comments)
+        history_after = 0
         if issue.comments:
+            max_comments = 6
+            selected_comments = issue.comments[:max_comments]
             truncated = [
                 self._truncate_text(c, self._MAX_COMMENT_CHARS, self._MAX_LINE_CHARS)
-                for c in issue.comments
+                for c in selected_comments
             ]
             formatted = "\n".join(f"- {c}" for c in truncated)
+            history_after = len(formatted)
             comments_section = f"\n\n## Discussion\n{formatted}"
+            if len(issue.comments) > max_comments:
+                comments_section += f"\n- ... ({len(issue.comments) - max_comments} more comments omitted)"
 
+        body_raw = issue.body or ""
         body = self._truncate_text(
             issue.body or "", self._config.max_issue_body_chars, self._MAX_LINE_CHARS
         )
@@ -383,7 +403,7 @@ class PlannerRunner(BaseRunner):
                 "`## Key Considerations` section."
             )
 
-        return f"""You are a planning agent for GitHub issue #{issue.id}.
+        prompt = f"""You are a planning agent for GitHub issue #{issue.id}.
 
 ## Issue: {issue.title}
 
@@ -394,31 +414,15 @@ class PlannerRunner(BaseRunner):
 {mode_note}You are in READ-ONLY mode. Do NOT create, modify, or delete any files.
 Do NOT run any commands that change state (no git commit, no file writes, no installs).
 
-Your job is to explore the codebase and create a detailed implementation plan.
+Your job: explore code and produce a concrete implementation plan.
 
 ## Exploration Strategy — USE SEMANTIC TOOLS
 
-You have access to powerful semantic navigation tools. Use them instead of grep:
-
-1. **claude-context (search_code)** — Semantic code search. Use this FIRST to find
-   relevant code by describing what you're looking for in natural language.
-   Example: search for "authentication middleware" or "database connection pool".
-
-2. **claude-context (index_codebase)** — If search_code returns an error about
-   missing index, index the codebase first, then search.
-
-3. **cclsp (find_definition)** — Jump to the definition of any symbol (function, class, variable).
-4. **cclsp (find_references)** — Find all callers/usages of a symbol across the workspace.
-5. **cclsp (find_implementation)** — Find implementations of an interface or abstract method.
-6. **cclsp (get_incoming_calls)** — Find what calls a given function.
-7. **cclsp (get_outgoing_calls)** — Find what a function calls.
-8. **cclsp (find_workspace_symbols)** — Search for symbols by name across the workspace.
-
-Use these tools to build a deep understanding of the code:
-- Start with `search_code` to find relevant areas
-- Use `find_definition` and `find_references` to trace through the code
-- Use `get_incoming_calls` / `get_outgoing_calls` to understand call graphs
-- Only fall back to Grep for simple text pattern matching
+Use semantic tools first (before grep):
+- `claude-context search_code` to find relevant code by intent.
+- `claude-context index_codebase` only if search says index is missing.
+- `cclsp` (`find_definition`, `find_references`, `find_implementation`,
+  `get_incoming_calls`, `get_outgoing_calls`, `find_workspace_symbols`) to trace impact.
 
 ### UI Exploration (when the issue involves UI changes)
 
@@ -429,13 +433,11 @@ Use these tools to build a deep understanding of the code:
 
 ## Planning Steps
 
-1. Read the issue carefully and understand what needs to be done.
-2. Restate what the issue asks for before diving into details — this ensures your plan stays on target.
-3. Use semantic search and LSP navigation to explore the relevant code.
-4. Identify what needs to change and where.
-5. Consider testing strategy (what tests to write, what to mock).
-6. Consider edge cases and potential pitfalls.
-7. If the issue involves UI changes, list existing components and shared code (`constants.js`, `types.js`, `theme.js`) that should be reused or extended.
+1. Restate the issue in your own words.
+2. Explore relevant code with semantic tools.
+3. Identify concrete file-level deltas.
+4. Define testing strategy and edge cases.
+5. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
 
 ## Required Output
 
@@ -452,15 +454,13 @@ SUMMARY: <brief one-line description of the plan>
 
 ## Handling Uncertainty
 
-If any requirement is ambiguous or has multiple valid interpretations, mark it with
-`[NEEDS CLARIFICATION: <brief description of what's unclear>]` rather than making
-assumptions. This is preferred over guessing. Plans with 0-3 markers are acceptable;
-plans with 4 or more markers will be escalated for human review.
+If a requirement is ambiguous, add
+`[NEEDS CLARIFICATION: <brief description>]` instead of guessing.
+Plans with 0-3 markers are acceptable; 4+ will escalate to human review.
 
 ## Optional: Discovered Issues
 
-If you discover bugs, tech debt, or out-of-scope work during exploration,
-you can file them as new GitHub issues using these markers:
+If you discover bugs/tech debt/out-of-scope work, optionally propose issues:
 
 NEW_ISSUES_START
 - title: Short issue title
@@ -473,27 +473,36 @@ NEW_ISSUES_START
   labels: {find_label}
 NEW_ISSUES_END
 
-Only include this section if you actually discover issues worth filing.
-**IMPORTANT:** Each issue body MUST be detailed (at least 50 characters). One-word
-or one-line bodies will be rejected. Include file paths, function names, and context.
-
-**IMPORTANT:** You MUST only use the following label for new issues: `{find_label}`
-Do NOT invent labels. All discovered issues enter the pipeline via the find label.
+Only include this section for real findings.
+Each issue body must be detailed (>=50 chars) with file/context.
+Use only label `{find_label}`.
 
 ## Already Satisfied
 
-If after exploring the codebase you determine that the issue's acceptance criteria are
-**already fully met** by the existing code (i.e., no changes are needed), do NOT produce
-a plan. Instead, output:
+If requirements are already fully met (no changes needed), do NOT produce a plan. Output:
 
 ALREADY_SATISFIED_START
 <explanation of why no changes are needed, referencing specific files and code>
 ALREADY_SATISFIED_END
 
-This will close the issue automatically. Only use this when you are **certain** the
-requirements are already implemented — not when the issue is unclear or you are unsure.
+This closes the issue automatically. Use only when you are certain.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
+        stats = {
+            "history_chars_before": history_before,
+            "history_chars_after": history_after,
+            "context_chars_before": len(body_raw),
+            "context_chars_after": len(body),
+            "pruned_chars_total": max(0, history_before - history_after)
+            + max(0, len(body_raw) - len(body)),
+            "section_chars": {
+                "issue_body_before": len(body_raw),
+                "issue_body_after": len(body),
+                "discussion_before": history_before,
+                "discussion_after": history_after,
+            },
+        }
+        return prompt, stats
 
     # Required plan sections — each must appear as a ## header.
     REQUIRED_SECTIONS: tuple[str, ...] = (
@@ -846,20 +855,27 @@ requirements are already implemented — not when the issue is unclear or you ar
         validation_errors: list[str],
         *,
         scale: PlanScale = "full",
-    ) -> str:
+    ) -> tuple[str, dict[str, int | dict[str, int]]]:
         """Build a retry prompt that includes the original issue, the failed plan, and validation feedback."""
-        error_list = "\n".join(f"- {e}" for e in validation_errors)
+        error_list = "\n".join(f"- {e}" for e in validation_errors[:12])
         sections_list = self._format_sections_list(scale)
+        raw_body = issue.body or ""
+        compact_body = self._truncate_text(
+            raw_body, self._config.max_issue_body_chars, self._MAX_LINE_CHARS
+        )
+        compact_failed_plan = self._truncate_text(
+            failed_plan, 4_000, self._MAX_LINE_CHARS
+        )
 
-        return f"""You previously generated a plan for GitHub issue #{issue.id} but it failed validation.
+        prompt = f"""You previously generated a plan for GitHub issue #{issue.id} but it failed validation.
 
 ## Issue: {issue.title}
 
-{issue.body or ""}
+{compact_body}
 
 ## Previous Plan (FAILED VALIDATION)
 
-{failed_plan}
+{compact_failed_plan}
 
 ## Validation Errors
 
@@ -884,6 +900,23 @@ PLAN_END
 Then provide a one-line summary:
 SUMMARY: <brief one-line description of the plan>
 """
+        before = (
+            len(raw_body) + len(failed_plan) + sum(len(e) for e in validation_errors)
+        )
+        after = len(compact_body) + len(compact_failed_plan) + len(error_list)
+        stats: dict[str, int | dict[str, int]] = {
+            "context_chars_before": before,
+            "context_chars_after": after,
+            "pruned_chars_total": max(0, before - after),
+            "section_chars": {
+                "retry_issue_body_before": len(raw_body),
+                "retry_issue_body_after": len(compact_body),
+                "retry_failed_plan_before": len(failed_plan),
+                "retry_failed_plan_after": len(compact_failed_plan),
+                "retry_validation_errors_after": len(error_list),
+            },
+        }
+        return prompt, stats
 
     async def _emit_status(
         self, issue_number: int, worker_id: int, status: PlannerStatus

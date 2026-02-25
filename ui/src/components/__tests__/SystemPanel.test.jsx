@@ -114,6 +114,29 @@ describe('SystemPanel', () => {
       expect(screen.getByText('2400')).toBeInTheDocument()
     })
 
+    it('shows inference/pruning details from worker payloads', () => {
+      const workers = mockBgWorkers.map(worker => (
+        worker.name === 'memory_sync'
+          ? {
+              ...worker,
+              details: {
+                inference_calls: 4,
+                total_tokens: 1300,
+                pruned_chars_total: 2000,
+                saved_tokens_est: 500,
+                unpruned_tokens_est: 1800,
+              },
+            }
+          : worker
+      ))
+      render(<SystemPanel backgroundWorkers={workers} />)
+      expect(screen.getByText('inference calls')).toBeInTheDocument()
+      expect(screen.getByText('total tokens')).toBeInTheDocument()
+      expect(screen.getByText('pruned chars total')).toBeInTheDocument()
+      expect(screen.getByText('saved tokens est')).toBeInTheDocument()
+      expect(screen.getByText('unpruned tokens est')).toBeInTheDocument()
+    })
+
     it('shows System section heading that groups system workers', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
       expect(screen.getByText('System')).toBeInTheDocument()

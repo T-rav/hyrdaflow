@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from events import EventBus
+from events import EventBus, EventType, HydraFlowEvent
 from models import HITLItem, SessionStatus
 
 
@@ -71,6 +71,7 @@ class TestCreateRouter:
             "/api/pipeline",
             "/api/metrics",
             "/api/metrics/github",
+            "/api/issues/history",
             "/api/events",
             "/api/prs",
             "/api/hitl",
@@ -177,6 +178,264 @@ class TestStartOrchestratorBroadcast:
         assert event.type == "orchestrator_status"
         assert event.data["status"] == "running"
         assert event.data["reset"] is True
+
+
+class TestIssueHistoryEndpoint:
+    @pytest.mark.asyncio
+    async def test_issue_history_aggregates_inference_and_events(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+        from prompt_telemetry import PromptTelemetry
+
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="implementer",
+            tool="codex",
+            model="gpt-5",
+            issue_number=77,
+            pr_number=501,
+            session_id="sess-x",
+            prompt_chars=400,
+            transcript_chars=200,
+            duration_seconds=1.5,
+            success=True,
+            stats={"total_tokens": 123, "input_tokens": 80, "output_tokens": 43},
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={
+                    "issue": 77,
+                    "title": "Improve planner quality",
+                    "labels": ["epic:quality"],
+                },
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={"issue": 77, "pr": 501, "url": "https://example.com/pull/501"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                data={"pr": 501, "status": "merged"},
+            )
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        endpoint = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/issues/history"
+                and hasattr(route, "endpoint")
+            ):
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        assert payload["totals"]["issues"] >= 1
+        assert payload["totals"]["total_tokens"] >= 123
+
+        issue = next((x for x in payload["items"] if x["issue_number"] == 77), None)
+        assert issue is not None
+        assert issue["status"] == "merged"
+        assert issue["epic"] == "epic:quality"
+        assert issue["inference"]["total_tokens"] == 123
+        assert issue["session_ids"] == ["sess-x"]
+        assert issue["prs"][0]["number"] == 501
+        assert issue["prs"][0]["merged"] is True
+
+    @pytest.mark.asyncio
+    async def test_issue_history_uses_latest_status_not_highest_rank(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.WORKER_UPDATE,
+                timestamp="2026-02-25T00:00:00+00:00",
+                data={"issue": 88, "status": "failed", "worker": 1},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.WORKER_UPDATE,
+                timestamp="2026-02-25T00:05:00+00:00",
+                data={"issue": 88, "status": "running", "worker": 1},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 88), None)
+        assert issue is not None
+        assert issue["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_issue_history_merges_with_pr_created_outside_range(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                timestamp="2026-02-01T00:00:00+00:00",
+                data={"issue": 99, "pr": 9001},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                timestamp="2026-02-20T00:00:00+00:00",
+                data={"pr": 9001, "status": "merged"},
+            )
+        )
+
+        response = await endpoint(
+            since="2026-02-10T00:00:00+00:00", until="2026-02-28T00:00:00+00:00"
+        )
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 99), None)
+        assert issue is not None
+        assert issue["status"] == "merged"
+        assert issue["prs"][0]["number"] == 9001
+        assert issue["prs"][0]["merged"] is True
+
+    @pytest.mark.asyncio
+    async def test_issue_history_filters_by_status_and_query(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={"issue": 101, "title": "Fix auth cache"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.WORKER_UPDATE,
+                timestamp="2026-02-21T00:01:00+00:00",
+                data={"issue": 101, "status": "running", "worker": 1},
+            )
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={"issue": 102, "title": "Merge docs"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                timestamp="2026-02-21T00:02:00+00:00",
+                data={"issue": 102, "pr": 3002},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                timestamp="2026-02-21T00:03:00+00:00",
+                data={"pr": 3002, "status": "merged"},
+            )
+        )
+
+        response = await endpoint(status="merged", query="docs")
+        payload = json.loads(response.body)
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["issue_number"] == 102
 
 
 class TestControlStatusImproveLabel:
@@ -858,6 +1117,57 @@ class TestMetricsEndpoint:
 
         assert data["rates"].get("first_pass_approval_rate", 0.0) == pytest.approx(0.0)
         assert data["rates"].get("reviewer_fix_rate", 0.0) == pytest.approx(0.0)
+
+    @pytest.mark.asyncio
+    async def test_metrics_includes_inference_lifetime_and_session_totals(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from prompt_telemetry import PromptTelemetry
+
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="planner",
+            tool="claude",
+            model="opus",
+            issue_number=1,
+            pr_number=0,
+            session_id="session-1",
+            prompt_chars=100,
+            transcript_chars=50,
+            duration_seconds=0.1,
+            success=True,
+            stats={"total_tokens": 60},
+        )
+
+        class Orch:
+            current_session_id = "session-1"
+
+        def _get_orch():
+            return Orch()
+
+        # Build router with orchestrator getter override
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=_get_orch,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        get_metrics = self._find_endpoint(router, "/api/metrics")
+        response = await get_metrics()
+        data = json.loads(response.body)
+        assert data["inference_lifetime"]["total_tokens"] == 60
+        assert data["inference_session"]["total_tokens"] == 60
 
 
 class TestGitHubMetricsEndpoint:
@@ -2885,6 +3195,75 @@ class TestGetSystemWorkersEndpoint:
         response = await endpoint()
         data = json.loads(response.body)
         assert "workers" in data
+
+    @pytest.mark.asyncio
+    async def test_system_workers_include_inference_rollups(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from prompt_telemetry import PromptTelemetry
+
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="planner",
+            tool="claude",
+            model="sonnet",
+            issue_number=42,
+            pr_number=None,
+            session_id="s-1",
+            prompt_chars=200,
+            transcript_chars=50,
+            duration_seconds=1.2,
+            success=True,
+            stats={"total_tokens": 120, "pruned_chars_total": 800},
+        )
+        telemetry.record(
+            source="agent",
+            tool="codex",
+            model="gpt-5",
+            issue_number=43,
+            pr_number=None,
+            session_id="s-1",
+            prompt_chars=150,
+            transcript_chars=40,
+            duration_seconds=0.8,
+            success=True,
+            stats={"total_tokens": 60, "pruned_chars_total": 200},
+        )
+        telemetry.record(
+            source="merge_conflict",
+            tool="claude",
+            model="sonnet",
+            issue_number=44,
+            pr_number=222,
+            session_id="s-1",
+            prompt_chars=180,
+            transcript_chars=50,
+            duration_seconds=1.0,
+            success=True,
+            stats={"total_tokens": 70, "pruned_chars_total": 400},
+        )
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/system/workers")
+        response = await endpoint()
+        data = json.loads(response.body)
+        plan_worker = next(w for w in data["workers"] if w["name"] == "plan")
+        details = plan_worker["details"]
+        assert details["inference_calls"] == 1
+        assert details["total_tokens"] == 120
+        assert details["pruned_chars_total"] == 800
+        assert details["saved_tokens_est"] == 200
+        assert details["unpruned_tokens_est"] == 320
+
+        implement_worker = next(w for w in data["workers"] if w["name"] == "implement")
+        assert implement_worker["details"]["inference_calls"] == 1
+        assert implement_worker["details"]["total_tokens"] == 60
+
+        review_worker = next(w for w in data["workers"] if w["name"] == "review")
+        assert review_worker["details"]["inference_calls"] == 1
+        assert review_worker["details"]["total_tokens"] == 70
 
 
 # ---------------------------------------------------------------------------

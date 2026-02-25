@@ -45,6 +45,7 @@ class ReviewRunner(BaseRunner):
     """
 
     _log = logger
+    _MAX_CI_LOG_PROMPT_CHARS = 6_000
 
     async def review(
         self,
@@ -89,12 +90,16 @@ class ReviewRunner(BaseRunner):
                 pr, issue, diff, worktree_path
             )
             cmd = self._build_command(worktree_path)
-            prompt = self._build_review_prompt(
+            prompt, prompt_stats = self._build_review_prompt_with_stats(
                 pr, issue, diff, precheck_context=precheck_context
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
-                cmd, prompt, worktree_path, {"pr": pr.number, "source": "reviewer"}
+                cmd,
+                prompt,
+                worktree_path,
+                {"pr": pr.number, "issue": issue.id, "source": "reviewer"},
+                telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
 
@@ -178,12 +183,16 @@ class ReviewRunner(BaseRunner):
 
         try:
             cmd = self._build_command(worktree_path)
-            prompt = self._build_ci_fix_prompt(
+            prompt, prompt_stats = self._build_ci_fix_prompt(
                 pr, issue, failure_summary, attempt, ci_logs=ci_logs
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
-                cmd, prompt, worktree_path, {"pr": pr.number, "source": "reviewer"}
+                cmd,
+                prompt,
+                worktree_path,
+                {"pr": pr.number, "issue": issue.id, "source": "reviewer"},
+                telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
@@ -221,14 +230,24 @@ class ReviewRunner(BaseRunner):
         failure_summary: str,
         attempt: int,
         ci_logs: str = "",
-    ) -> str:
+    ) -> tuple[str, dict[str, int | dict[str, int]]]:
         """Build a focused prompt for fixing CI failures."""
+        raw_ci_logs = ci_logs or ""
+        compact_ci_logs = raw_ci_logs
+        if len(compact_ci_logs) > self._MAX_CI_LOG_PROMPT_CHARS:
+            compact_ci_logs = (
+                compact_ci_logs[: self._MAX_CI_LOG_PROMPT_CHARS]
+                + f"\n\n[CI logs truncated from {len(raw_ci_logs):,} chars]"
+            )
+
         ci_logs_section = ""
-        if ci_logs:
-            ci_logs_section = f"\n\n## Full CI Failure Logs\n\n```\n{ci_logs}\n```"
+        if compact_ci_logs:
+            ci_logs_section = (
+                f"\n\n## Full CI Failure Logs\n\n```\n{compact_ci_logs}\n```"
+            )
 
         test_cmd = self._config.test_command
-        return f"""You are fixing CI failures on PR #{pr.number} (issue #{issue.id}: {issue.title}).
+        prompt = f"""You are fixing CI failures on PR #{pr.number} (issue #{issue.id}: {issue.title}).
 
 ## CI Failure Summary
 
@@ -249,6 +268,19 @@ End your response with EXACTLY one of these verdict lines:
 
 Then a brief summary on the next line starting with "SUMMARY: ".
 """
+        before = len(failure_summary) + len(raw_ci_logs)
+        after = len(failure_summary) + len(compact_ci_logs)
+        stats: dict[str, int | dict[str, int]] = {
+            "context_chars_before": before,
+            "context_chars_after": after,
+            "pruned_chars_total": max(0, before - after),
+            "section_chars": {
+                "ci_failure_summary": len(failure_summary),
+                "ci_logs_before": len(raw_ci_logs),
+                "ci_logs_after": len(compact_ci_logs),
+            },
+        }
+        return prompt, stats
 
     def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the review CLI invocation.
@@ -261,6 +293,133 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             model=self._config.review_model,
         )
 
+    def _summarize_issue_body(self, body: str) -> str:
+        """Return compact issue context to reduce prompt size."""
+        text = (body or "").strip()
+        if not text:
+            return "(No issue body provided)"
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        cue_lines = [
+            ln
+            for ln in lines
+            if re.match(r"^([-*]|\d+\.)\s+", ln) or ln.lower().startswith("acceptance")
+        ]
+        selected = cue_lines[:8] if cue_lines else lines[:8]
+        compact = "\n".join(f"- {ln[:200]}" for ln in selected)
+        compacted = len(text) > self._config.max_issue_body_chars
+        note = (
+            f"[Body summarized from {len(text):,} chars to reduce prompt size]"
+            if compacted
+            else "[Body summarized for prompt efficiency]"
+        )
+        return f"Issue body summarized for token efficiency:\n{compact}\n\n{note}"
+
+    def _summarize_diff(self, pr_number: int, diff: str) -> str:
+        """Return compact diff context with file/change summary and excerpts."""
+        max_diff = self._config.max_review_diff_chars
+        source = diff
+        truncated = False
+        if len(source) > max_diff:
+            logger.warning(
+                "PR #%d diff truncated from %d to %d chars",
+                pr_number,
+                len(source),
+                max_diff,
+            )
+            source = source[:max_diff]
+            truncated = True
+
+        files: list[str] = []
+        file_stats: dict[str, dict[str, int]] = {}
+        current_file = ""
+        added = 0
+        removed = 0
+        excerpt_lines: list[str] = []
+        excerpt_chars = 0
+        hunk_changes = 0
+        excerpt_limit = min(1600, max_diff)
+        max_files_in_summary = 10
+
+        for line in source.splitlines():
+            if line.startswith("diff --git "):
+                m = re.search(r" b/(.+)$", line)
+                current_file = m.group(1) if m else ""
+                if current_file and current_file not in files:
+                    files.append(current_file)
+                    file_stats[current_file] = {"added": 0, "removed": 0}
+                hunk_changes = 0
+                if excerpt_chars < excerpt_limit:
+                    excerpt_lines.append(line)
+                    excerpt_chars += len(line) + 1
+                continue
+
+            if line.startswith("@@"):
+                hunk_changes = 0
+                if excerpt_chars < excerpt_limit:
+                    excerpt_lines.append(line)
+                    excerpt_chars += len(line) + 1
+                continue
+
+            if line.startswith(("+++", "---")):
+                continue
+
+            if line.startswith("+"):
+                added += 1
+                if current_file:
+                    file_stats.setdefault(current_file, {"added": 0, "removed": 0})[
+                        "added"
+                    ] += 1
+                if hunk_changes < 4 and excerpt_chars < excerpt_limit:
+                    excerpt_lines.append(line)
+                    excerpt_chars += len(line) + 1
+                hunk_changes += 1
+                continue
+
+            if line.startswith("-"):
+                removed += 1
+                if current_file:
+                    file_stats.setdefault(current_file, {"added": 0, "removed": 0})[
+                        "removed"
+                    ] += 1
+                if hunk_changes < 4 and excerpt_chars < excerpt_limit:
+                    excerpt_lines.append(line)
+                    excerpt_chars += len(line) + 1
+                hunk_changes += 1
+
+        top_files: list[tuple[str, dict[str, int]]] = sorted(
+            file_stats.items(),
+            key=lambda item: item[1]["added"] + item[1]["removed"],
+            reverse=True,
+        )[:max_files_in_summary]
+        if top_files:
+            file_lines = "\n".join(
+                f"- {path}: +{stats['added']} / -{stats['removed']}"
+                for path, stats in top_files
+            )
+        else:
+            file_lines = "- (could not detect files)"
+        truncated_note = ""
+        if truncated:
+            truncated_note = f"\n[Diff truncated at {max_diff:,} chars — review may be incomplete for large PRs]"
+        else:
+            truncated_note = "\n[Diff summarized to reduce prompt size]"
+
+        excerpt_block = (
+            "\n".join(excerpt_lines).strip() or "(No excerpt lines captured)"
+        )
+        return (
+            "### Diff Summary\n"
+            f"- Files changed (detected): {len(files)}\n"
+            f"- Added lines (detected): {added}\n"
+            f"- Removed lines (detected): {removed}\n"
+            "- Top changed files:\n"
+            f"{file_lines}\n\n"
+            "### Diff Excerpts\n"
+            f"```diff\n{excerpt_block}\n```"
+            f"{truncated_note}"
+        )
+
     def _build_review_prompt(
         self,
         pr: PRInfo,
@@ -269,6 +428,19 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         precheck_context: str = "",
     ) -> str:
         """Build the review prompt for the agent."""
+        prompt, _stats = self._build_review_prompt_with_stats(
+            pr, issue, diff, precheck_context=precheck_context
+        )
+        return prompt
+
+    def _build_review_prompt_with_stats(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        diff: str,
+        precheck_context: str = "",
+    ) -> tuple[str, dict[str, object]]:
+        """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
         test_cmd = self._config.test_command
         ui_criteria = ""
@@ -294,22 +466,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             )
             fix_verify = f"2. Run `make lint` and `{test_cmd}`."
 
-        # Truncate diff with warning
-        max_diff = self._config.max_review_diff_chars
-        if len(diff) > max_diff:
-            logger.warning(
-                "PR #%d diff truncated from %d to %d chars",
-                pr.number,
-                len(diff),
-                max_diff,
-            )
-            diff_text = (
-                diff[:max_diff]
-                + f"\n\n[Diff truncated at {max_diff:,} chars"
-                + " — review may be incomplete for large PRs]"
-            )
-        else:
-            diff_text = diff
+        diff_context = self._summarize_diff(pr.number, diff)
 
         min_findings = self._config.min_review_findings
 
@@ -324,11 +481,13 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             if logs:
                 log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
 
-        return f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
+        issue_body = self._summarize_issue_body(issue.body)
+
+        prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue.body}{manifest_section}{memory_section}{log_section}
+{issue_body}{manifest_section}{memory_section}{log_section}
 
 ## Precheck Context
 
@@ -336,37 +495,14 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
 ## PR Diff
 
-```diff
-{diff_text}
-```
-
-## Review Dimensions
-
-Review this PR across three dimensions:
-
-### 1. Correctness
-- Does the code work as intended? Are there edge cases?
-- Proper error handling? No off-by-one errors?
-- Are all branches tested?
-
-### 2. Completeness
-- Does the implementation address ALL requirements from the issue?
-- Were any requirements silently dropped or partially implemented?
-- Cross-reference the issue body's requirements list against the diff.
-- If any requirement from the issue body is not addressed, flag it as a completeness gap.
-
-### 3. Quality
-- Code style, type annotations, naming conventions?
-- Comprehensive test coverage (tests are MANDATORY per CLAUDE.md)?
-- Security concerns? Performance issues?
-- CLAUDE.md compliance: linting, formatting, no secrets committed?
+{diff_context}
 
 ## Review Instructions
 
-1. Check each of the three dimensions above thoroughly.
-2. You MUST examine the code critically. Look for: correctness issues, edge cases, missing error handling, security concerns, test coverage gaps, style/convention violations, and performance issues.
+1. Evaluate three dimensions: correctness, completeness, and quality.
+2. Look for edge cases, missing error handling, security risks, test gaps, and style violations.
 3. You MUST find at least {min_findings} issues across all categories. If you find fewer, re-examine the code more carefully.
-4. If after thorough examination you genuinely find fewer than {min_findings} issues, you MUST include a THOROUGH_REVIEW_COMPLETE block justifying why each category had no findings. Format:
+4. If you genuinely find fewer than {min_findings} issues, include THOROUGH_REVIEW_COMPLETE:
 ```
 THOROUGH_REVIEW_COMPLETE
 Correctness: No issues — <justification>
@@ -374,7 +510,7 @@ Completeness: No issues — <justification>
 Quality: No issues — <justification>
 ```
 {verify_step}
-6. Run the project's audit commands on the changed code:
+6. Run project audits on changed code:
    - Review code quality patterns (SRP, type hints, naming, complexity)
    - Review test quality (3As structure, factories, edge cases)
    - Check for security issues (injection, crypto, auth)
@@ -385,6 +521,12 @@ If you find issues that you can fix:
 1. Make the fixes directly.
 {fix_verify}
 3. Commit with message: "review: fix <description> (PR #{pr.number})"
+
+## Findings Format
+
+List findings in this compact schema:
+`[SEVERITY] file[:line] - issue - expected fix`
+Use `HIGH|MEDIUM|LOW`.
 
 ## Required Output
 
@@ -400,6 +542,22 @@ VERDICT: APPROVE
 SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="review")}"""
+        stats = {
+            "context_chars_before": len(issue.body or "") + len(diff),
+            "context_chars_after": len(issue_body) + len(diff_context),
+            "pruned_chars_total": max(
+                0,
+                (len(issue.body or "") + len(diff))
+                - (len(issue_body) + len(diff_context)),
+            ),
+            "section_chars": {
+                "issue_body_before": len(issue.body or ""),
+                "issue_body_after": len(issue_body),
+                "diff_before": len(diff),
+                "diff_after": len(diff_context),
+            },
+        }
+        return prompt, stats
 
     def _build_subskill_command(self) -> list[str]:
         return build_agent_command(
@@ -414,7 +572,7 @@ SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
         )
 
     def _build_precheck_prompt(self, pr: PRInfo, issue: Task, diff: str) -> str:
-        max_diff = min(len(diff), 6000)
+        max_diff = min(len(diff), 3000, self._config.max_review_diff_chars)
         diff_snippet = diff[:max_diff]
         return f"""Run a compact review precheck for PR #{pr.number} (issue #{issue.id}).
 
@@ -442,8 +600,19 @@ Diff snippet:
         prompt = self._build_precheck_prompt(pr, issue, diff)
 
         async def execute(cmd: list[str], p: str) -> str:
+            telemetry_stats = {
+                "context_chars_before": len(issue.body or "") + len(diff),
+                "context_chars_after": len(p),
+                "pruned_chars_total": max(
+                    0, (len(issue.body or "") + len(diff)) - len(p)
+                ),
+            }
             return await self._execute(
-                cmd, p, worktree_path, {"pr": pr.number, "source": "reviewer"}
+                cmd,
+                p,
+                worktree_path,
+                {"pr": pr.number, "issue": issue.id, "source": "reviewer"},
+                telemetry_stats=telemetry_stats,
             )
 
         return await run_precheck_context(

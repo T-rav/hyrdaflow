@@ -329,6 +329,33 @@ class TestBuildPrompt:
         assert "## Instructions" in prompt
         assert "## Rules" in prompt
 
+    def test_prompt_truncates_long_discussion_comments(
+        self, config, event_bus: EventBus
+    ) -> None:
+        issue = Task(
+            id=11,
+            title="Fix long comment token blowup",
+            body="Normal issue body",
+            comments=["A" * 5000],
+        )
+        runner = AgentRunner(config, event_bus)
+        prompt, stats = runner._build_prompt_with_stats(issue)
+        assert "[Comment truncated from" in prompt
+        assert int(stats["pruned_chars_total"]) > 0
+
+    def test_prompt_truncates_common_feedback_section(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner,
+            "_get_review_feedback_section",
+            return_value="B" * 10000,
+        ):
+            prompt, stats = runner._build_prompt_with_stats(issue)
+        assert "Common review feedback summarized" in prompt
+        assert int(stats["pruned_chars_total"]) > 0
+
     def test_prompt_includes_review_feedback_when_provided(
         self, config, event_bus: EventBus, issue
     ) -> None:
@@ -1920,9 +1947,9 @@ class TestVerifyResultTimeout:
         """_verify_result should return (False, ...) when make quality times out."""
         runner = AgentRunner(config, event_bus)
 
-        mock_proc = AsyncMock()
+        mock_proc = MagicMock()
         mock_proc.returncode = None
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
         with (
@@ -1950,9 +1977,9 @@ class TestVerifyResultTimeout:
         """_verify_result should kill the process on timeout."""
         runner = AgentRunner(config, event_bus)
 
-        mock_proc = AsyncMock()
+        mock_proc = MagicMock()
         mock_proc.returncode = None
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
         with (
@@ -1988,9 +2015,9 @@ class TestCountCommitsTimeout:
     ) -> None:
         """_count_commits should return 0 when git rev-list times out."""
         runner = AgentRunner(config, event_bus)
-        mock_proc = AsyncMock()
+        mock_proc = MagicMock()
         mock_proc.returncode = None
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
         with (

@@ -1409,7 +1409,7 @@ def test_build_retry_prompt_includes_issue_and_errors(config, event_bus, issue):
     failed_plan = "Some bad plan text"
     errors = ["Missing required section: ## Testing Strategy", "Plan has 10 words"]
 
-    prompt = runner._build_retry_prompt(task, failed_plan, errors)
+    prompt, _stats = runner._build_retry_prompt(task, failed_plan, errors)
 
     assert f"#{task.id}" in prompt
     assert task.title in prompt
@@ -1418,6 +1418,18 @@ def test_build_retry_prompt_includes_issue_and_errors(config, event_bus, issue):
     assert "Plan has 10 words" in prompt
     assert "PLAN_START" in prompt
     assert "PLAN_END" in prompt
+
+
+def test_build_retry_prompt_truncates_large_context(config, event_bus, issue):
+    runner = _make_runner(config, event_bus)
+    task = issue.to_task()
+    failed_plan = "P" * 10000
+    errors = ["x" * 1000 for _ in range(20)]
+
+    prompt, stats = runner._build_retry_prompt(task, failed_plan, errors)
+
+    assert "…(truncated)" in prompt
+    assert int(stats["pruned_chars_total"]) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -1527,7 +1539,7 @@ def test_build_retry_prompt_includes_clarification_instruction(
     """Retry prompt should also mention [NEEDS CLARIFICATION] markers."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt = runner._build_retry_prompt(task, "failed plan", ["some error"])
+    prompt, _stats = runner._build_retry_prompt(task, "failed plan", ["some error"])
     assert "NEEDS CLARIFICATION" in prompt
 
 
@@ -1718,7 +1730,7 @@ def test_build_retry_prompt_lite_has_fewer_sections(config, event_bus, issue):
     """Retry prompt for lite plan only lists 3 required sections."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt = runner._build_retry_prompt(
+    prompt, _stats = runner._build_retry_prompt(
         task, "failed plan", ["some error"], scale="lite"
     )
     assert "## Files to Modify" in prompt
@@ -1732,7 +1744,7 @@ def test_build_retry_prompt_full_has_all_sections(config, event_bus, issue):
     """Retry prompt for full plan lists all 7 required sections."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt = runner._build_retry_prompt(
+    prompt, _stats = runner._build_retry_prompt(
         task, "failed plan", ["some error"], scale="full"
     )
     assert "## Files to Modify" in prompt

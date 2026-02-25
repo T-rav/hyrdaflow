@@ -251,6 +251,11 @@ class EventBus:
         """Set the active session ID to auto-inject into published events."""
         self._active_session_id = session_id
 
+    @property
+    def current_session_id(self) -> str | None:
+        """Return the active session ID, if any."""
+        return self._active_session_id
+
     async def publish(self, event: HydraFlowEvent) -> None:
         """Publish *event* to all subscribers and append to history."""
         if event.session_id is None and getattr(self, "_active_session_id", None):

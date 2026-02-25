@@ -18,6 +18,7 @@ from models import (
 )
 from phase_utils import publish_review_status, safe_file_memory_suggestion
 from pr_manager import PRManager
+from prompt_stats import build_prompt_stats
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from worktree import WorktreeManager
@@ -160,12 +161,26 @@ class MergeConflictResolver:
                 prompt = build_conflict_prompt(
                     issue.source_url, pr.url, last_error, attempt, config=self._config
                 )
+                error_before = 0
+                error_after = 0
+                if last_error and attempt > 1:
+                    error_before = len(last_error)
+                    error_after = min(error_before, self._config.error_output_max_chars)
+                prompt_stats = build_prompt_stats(
+                    history_before=error_before,
+                    history_after=error_after,
+                    section_chars={
+                        "previous_error_before": error_before,
+                        "previous_error_after": error_after,
+                    },
+                )
                 cmd = self._agents._build_command(wt_path)
                 transcript = await self._agents._execute(
                     cmd,
                     prompt,
                     wt_path,
                     {"issue": issue.id, "source": source},
+                    telemetry_stats=prompt_stats,
                 )
 
                 self.save_conflict_transcript(
@@ -284,12 +299,23 @@ class MergeConflictResolver:
                 pr_diff,
                 config=self._config,
             )
+            prompt_stats = build_prompt_stats(
+                context_before=len(pr_diff),
+                context_after=min(len(pr_diff), self._config.max_review_diff_chars),
+                section_chars={
+                    "pr_diff_before": len(pr_diff),
+                    "pr_diff_after": min(
+                        len(pr_diff), self._config.max_review_diff_chars
+                    ),
+                },
+            )
             cmd = self._agents._build_command(new_wt)
             transcript = await self._agents._execute(
                 cmd,
                 prompt,
                 new_wt,
                 {"issue": issue.id, "source": source},
+                telemetry_stats=prompt_stats,
             )
 
             self.save_conflict_transcript(

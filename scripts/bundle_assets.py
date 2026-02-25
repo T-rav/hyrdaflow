@@ -56,7 +56,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Bundle HydraFlow assets for hf init")
     parser.add_argument(
         "--output",
-        default=Path("hf_cli/assets.tar.gz"),
+        default=Path("dist/hf_cli-assets.tar.gz"),
         type=Path,
         help="Path to the generated tar.gz",
     )

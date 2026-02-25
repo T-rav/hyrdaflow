@@ -408,6 +408,13 @@ class TestBuildPrompt:
         assert "Actionability" in prompt
         assert "Scope" in prompt
 
+    def test_build_prompt_with_stats_tracks_body_pruning(self) -> None:
+        issue = TaskFactory.create(id=9, body="a" * 200)
+        _prompt, stats = TriageRunner._build_prompt_with_stats(issue, max_body=50)
+        assert stats["context_chars_before"] == 200
+        assert stats["context_chars_after"] > 50
+        assert stats["pruned_chars_total"] > 0
+
 
 # ---------------------------------------------------------------------------
 # Event publishing

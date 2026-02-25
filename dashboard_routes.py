@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections import Counter
 from collections.abc import Callable
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
+from issue_fetcher import IssueFetcher
 from issue_store import IssueStoreStage
 from metrics_manager import get_metrics_cache_dir
 from models import (
@@ -26,6 +27,9 @@ from models import (
     ControlStatusResponse,
     IntentRequest,
     IntentResponse,
+    IssueHistoryEntry,
+    IssueHistoryPR,
+    IssueHistoryResponse,
     MetricsHistoryResponse,
     MetricsResponse,
     MetricsSnapshot,
@@ -33,8 +37,10 @@ from models import (
     PipelineSnapshot,
     PipelineSnapshotEntry,
     QueueStats,
+    parse_task_links,
 )
 from pr_manager import PRManager
+from prompt_telemetry import PromptTelemetry
 from state import StateTracker
 from timeline import TimelineBuilder
 
@@ -59,6 +65,132 @@ _FRONTEND_STAGE_TO_LABEL_FIELD = {
     "implement": "ready_label",
     "review": "review_label",
 }
+
+
+_INFERENCE_COUNTER_KEYS: tuple[str, ...] = (
+    "inference_calls",
+    "prompt_est_tokens",
+    "total_est_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+    "history_chars_saved",
+    "context_chars_saved",
+    "pruned_chars_total",
+    "cache_hits",
+    "cache_misses",
+)
+
+
+def _parse_iso_or_none(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _event_issue_number(data: dict[str, Any]) -> int | None:
+    value = data.get("issue")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str | None:
+    status = str(data.get("status", "")).lower()
+    result: str | None = None
+    if event_type == EventType.MERGE_UPDATE:
+        result = "merged" if status == "merged" else None
+    elif event_type == EventType.HITL_ESCALATION:
+        result = "hitl"
+    elif event_type == EventType.HITL_UPDATE:
+        result = "reviewed" if status == "resolved" else "hitl"
+    elif event_type == EventType.REVIEW_UPDATE:
+        if status == "done":
+            result = "reviewed"
+        elif status == "failed":
+            result = "failed"
+        else:
+            result = "active"
+    elif event_type in {
+        EventType.WORKER_UPDATE,
+        EventType.PLANNER_UPDATE,
+        EventType.TRIAGE_UPDATE,
+    }:
+        if status == "done":
+            done_map = {
+                EventType.WORKER_UPDATE: "implemented",
+                EventType.PLANNER_UPDATE: "planned",
+                EventType.TRIAGE_UPDATE: "triaged",
+            }
+            result = done_map.get(event_type, "active")
+        elif status == "failed":
+            result = "failed"
+        else:
+            result = "active"
+    elif event_type == EventType.PR_CREATED:
+        result = "in_review"
+    return result
+
+
+def _status_rank(status: str) -> int:
+    ranks = {
+        "unknown": 0,
+        "triaged": 1,
+        "planned": 2,
+        "implemented": 3,
+        "in_review": 4,
+        "reviewed": 5,
+        "hitl": 6,
+        "active": 7,
+        "failed": 8,
+        "merged": 9,
+    }
+    return ranks.get(status, 0)
+
+
+def _coerce_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _is_timestamp_in_range(
+    raw: str | None, since: datetime | None, until: datetime | None
+) -> bool:
+    if raw is None:
+        return since is None and until is None
+    parsed = _parse_iso_or_none(raw)
+    if parsed is None:
+        return since is None and until is None
+    if since is not None and parsed < since:
+        return False
+    return not (until is not None and parsed > until)
+
+
+def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]:
+    parsed = _parse_iso_or_none(timestamp)
+    if parsed is None:
+        parsed = datetime.min.replace(tzinfo=UTC)
+    return (parsed, _status_rank(status))
 
 
 def create_router(
@@ -125,6 +257,63 @@ def create_router(
             )
             return []
         return snapshots[-limit:]
+
+    def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
+        return {
+            "issue_number": issue_number,
+            "title": f"Issue #{issue_number}",
+            "issue_url": "",
+            "status": "unknown",
+            "epic": "",
+            "linked_issues": set(),
+            "prs": {},
+            "session_ids": set(),
+            "source_calls": {},
+            "model_calls": {},
+            "inference": dict.fromkeys(_INFERENCE_COUNTER_KEYS, 0),
+            "first_seen": None,
+            "last_seen": None,
+            "status_updated_at": None,
+        }
+
+    def _touch_issue_timestamps(row: dict[str, Any], timestamp: str | None) -> None:
+        if not timestamp:
+            return
+        current_first = row.get("first_seen")
+        current_last = row.get("last_seen")
+        if not isinstance(current_first, str) or timestamp < current_first:
+            row["first_seen"] = timestamp
+        if not isinstance(current_last, str) or timestamp > current_last:
+            row["last_seen"] = timestamp
+
+    async def _enrich_issue_history_with_github(
+        entries: dict[int, dict[str, Any]], limit: int = 150
+    ) -> None:
+        if not entries:
+            return
+
+        fetcher = IssueFetcher(config)
+        issue_numbers = sorted(entries.keys(), reverse=True)[:limit]
+        sem = asyncio.Semaphore(6)
+
+        async def _fetch_and_apply(issue_number: int) -> None:
+            async with sem:
+                issue = await fetcher.fetch_issue_by_number(issue_number)
+            if issue is None:
+                return
+            row = entries.get(issue_number)
+            if row is None:
+                return
+            row["title"] = issue.title or row.get("title") or f"Issue #{issue_number}"
+            row["issue_url"] = issue.url or row.get("issue_url", "")
+            labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
+            if not row.get("epic"):
+                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                row["epic"] = epic
+            for link in parse_task_links(issue.body or ""):
+                row["linked_issues"].add(int(link.target_id))
+
+        await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -552,6 +741,41 @@ def create_router(
     _INTERVAL_WORKERS = {"memory_sync", "metrics", "pr_unsticker", "pipeline_poller"}
     # Pipeline loops share poll_interval (read-only display)
     _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}
+    _WORKER_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
+        "plan": ("planner",),
+        "implement": ("agent",),
+        "review": ("reviewer", "merge_conflict", "fresh_rebuild"),
+    }
+
+    def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
+        telemetry = PromptTelemetry(config)
+        source_totals = telemetry.get_source_totals()
+
+        worker_totals: dict[str, dict[str, int]] = {}
+        for worker_name, _label in _bg_worker_defs:
+            sources = (worker_name, *_WORKER_SOURCE_ALIASES.get(worker_name, ()))
+            totals = {
+                "inference_calls": 0,
+                "total_tokens": 0,
+                "pruned_chars_total": 0,
+            }
+            for source_name in sources:
+                source_entry = source_totals.get(source_name)
+                if not source_entry:
+                    continue
+                totals["inference_calls"] += source_entry["inference_calls"]
+                totals["total_tokens"] += source_entry["total_tokens"]
+                totals["pruned_chars_total"] += source_entry["pruned_chars_total"]
+            if totals["inference_calls"] > 0:
+                saved_tokens_est = round(totals["pruned_chars_total"] / 4)
+                worker_totals[worker_name] = {
+                    "inference_calls": totals["inference_calls"],
+                    "total_tokens": totals["total_tokens"],
+                    "pruned_chars_total": totals["pruned_chars_total"],
+                    "saved_tokens_est": saved_tokens_est,
+                    "unpruned_tokens_est": totals["total_tokens"] + saved_tokens_est,
+                }
+        return worker_totals
 
     def _compute_next_run(
         last_run: str | None, interval_seconds: int | None
@@ -575,6 +799,7 @@ def create_router(
         """Return last known status of each background worker."""
         orch = get_orchestrator()
         bg_states = orch.get_bg_worker_states() if orch else {}
+        inference_by_worker = _build_system_worker_inference_stats()
         workers = []
         for name, label in _bg_worker_defs:
             enabled = orch.is_bg_worker_enabled(name) if orch else True
@@ -598,6 +823,13 @@ def create_router(
             if name in bg_states:
                 entry = bg_states[name]
                 last_run = entry.get("last_run")
+                raw_details = entry.get("details", {})
+                details: dict[str, Any] = (
+                    dict(raw_details)
+                    if isinstance(raw_details, dict)
+                    else {"raw_details": str(raw_details)}
+                )
+                details.update(inference_by_worker.get(name, {}))
                 workers.append(
                     BackgroundWorkerStatus(
                         name=name,
@@ -609,7 +841,7 @@ def create_router(
                         last_run=last_run,
                         interval_seconds=interval,
                         next_run=_compute_next_run(last_run, interval),
-                        details=entry.get("details", {}),
+                        details=details,
                     )
                 )
             else:
@@ -619,6 +851,7 @@ def create_router(
                         label=label,
                         enabled=enabled,
                         interval_seconds=interval,
+                        details=inference_by_worker.get(name, {}),
                     )
                 )
         return JSONResponse(BackgroundWorkersResponse(workers=workers).model_dump())
@@ -681,6 +914,362 @@ def create_router(
             {"status": "ok", "name": name, "interval_seconds": interval}
         )
 
+    @router.get("/api/issues/history")
+    async def get_issue_history(
+        since: str | None = None,
+        until: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+        limit: int = 300,
+    ) -> JSONResponse:
+        """Return issue lifecycle history with inference rollups."""
+        since_dt = _parse_iso_or_none(since)
+        until_dt = _parse_iso_or_none(until)
+        requested_status = (status or "").strip().lower()
+        query_text = (query or "").strip().lower()
+        clamped_limit = max(1, min(limit, 1000))
+
+        telemetry = PromptTelemetry(config)
+        issue_rows: dict[int, dict[str, Any]] = {}
+        all_events = event_bus.get_history()
+        pr_to_issue: dict[int, int] = {}
+
+        # Build PR→issue mapping from all in-memory events first so merge events
+        # in the selected range still resolve when PR creation happened earlier.
+        for event in all_events:
+            if event.type != EventType.PR_CREATED:
+                continue
+            mapped_issue = _event_issue_number(event.data)
+            mapped_pr = _coerce_int(event.data.get("pr"))
+            if mapped_issue is not None and mapped_issue > 0 and mapped_pr > 0:
+                pr_to_issue[mapped_pr] = mapped_issue
+
+        use_issue_rollups = (
+            since_dt is None
+            and until_dt is None
+            and not query_text
+            and not requested_status
+        )
+        if use_issue_rollups:
+            for issue_number, counters in telemetry.get_issue_totals().items():
+                row = issue_rows.setdefault(
+                    issue_number, _new_issue_history_entry(issue_number)
+                )
+                for key in _INFERENCE_COUNTER_KEYS:
+                    row["inference"][key] = _coerce_int(counters.get(key, 0))
+            # Keep metadata (sessions/model/source/pr links) from recent rows
+            # without re-summing counters that already came from rollups.
+            for record in telemetry.load_inferences(limit=5000):
+                issue_number = _coerce_int(record.get("issue_number"))
+                if issue_number <= 0:
+                    continue
+                row = issue_rows.get(issue_number)
+                if row is None:
+                    continue
+                timestamp = record.get("timestamp")
+                _touch_issue_timestamps(
+                    row, timestamp if isinstance(timestamp, str) else None
+                )
+                session_id = str(record.get("session_id", "")).strip()
+                if session_id:
+                    row["session_ids"].add(session_id)
+                source = str(record.get("source", "")).strip()
+                if source:
+                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
+                model = str(record.get("model", "")).strip()
+                if model:
+                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
+                pr_number = _coerce_int(record.get("pr_number"))
+                if pr_number > 0:
+                    prs: dict[int, dict[str, Any]] = row["prs"]
+                    if pr_number not in prs:
+                        prs[pr_number] = {
+                            "number": pr_number,
+                            "url": "",
+                            "merged": False,
+                        }
+                    pr_to_issue.setdefault(pr_number, issue_number)
+        else:
+            inference_rows = telemetry.load_inferences(limit=50000)
+            for record in inference_rows:
+                timestamp = record.get("timestamp")
+                if not _is_timestamp_in_range(
+                    timestamp if isinstance(timestamp, str) else None,
+                    since_dt,
+                    until_dt,
+                ):
+                    continue
+                issue_number = _coerce_int(record.get("issue_number"))
+                if issue_number <= 0:
+                    continue
+                row = issue_rows.setdefault(
+                    issue_number, _new_issue_history_entry(issue_number)
+                )
+                _touch_issue_timestamps(
+                    row, timestamp if isinstance(timestamp, str) else None
+                )
+
+                session_id = str(record.get("session_id", "")).strip()
+                if session_id:
+                    row["session_ids"].add(session_id)
+
+                source = str(record.get("source", "")).strip()
+                if source:
+                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
+
+                model = str(record.get("model", "")).strip()
+                if model:
+                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
+
+                for key in _INFERENCE_COUNTER_KEYS:
+                    row["inference"][key] += _coerce_int(record.get(key))
+
+                pr_number = _coerce_int(record.get("pr_number"))
+                if pr_number > 0:
+                    prs: dict[int, dict[str, Any]] = row["prs"]
+                    if pr_number not in prs:
+                        prs[pr_number] = {
+                            "number": pr_number,
+                            "url": "",
+                            "merged": False,
+                        }
+                    pr_to_issue.setdefault(pr_number, issue_number)
+
+        for event in all_events:
+            timestamp = event.timestamp
+            if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
+                continue
+
+            issue_number = _event_issue_number(event.data)
+            if issue_number is None and event.type == EventType.MERGE_UPDATE:
+                pr_num = _coerce_int(event.data.get("pr"))
+                issue_number = pr_to_issue.get(pr_num)
+
+            if issue_number is None or issue_number <= 0:
+                continue
+
+            row = issue_rows.setdefault(
+                issue_number, _new_issue_history_entry(issue_number)
+            )
+            _touch_issue_timestamps(row, timestamp)
+
+            maybe_title = str(event.data.get("title", "")).strip()
+            if maybe_title:
+                row["title"] = maybe_title
+
+            maybe_url = str(event.data.get("url", "")).strip()
+            if maybe_url.startswith(("http://", "https://")):
+                row["issue_url"] = maybe_url
+
+            if event.type == EventType.ISSUE_CREATED:
+                labels = event.data.get("labels", [])
+                if isinstance(labels, list) and not row.get("epic"):
+                    for lbl in labels:
+                        s = str(lbl).strip()
+                        if s and "epic" in s.lower():
+                            row["epic"] = s
+                            break
+
+            if event.type == EventType.PR_CREATED:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    pr_to_issue[pr_number] = issue_number
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    url = str(event.data.get("url", "")).strip()
+                    if url.startswith(("http://", "https://")):
+                        payload["url"] = url
+                    prs[pr_number] = payload
+
+            if event.type == EventType.MERGE_UPDATE:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    if str(event.data.get("status", "")).lower() == "merged":
+                        payload["merged"] = True
+                    prs[pr_number] = payload
+
+            normalised = _normalise_event_status(event.type, event.data)
+            if normalised:
+                current = str(row.get("status", "unknown"))
+                current_ts = (
+                    row.get("status_updated_at")
+                    if isinstance(row.get("status_updated_at"), str)
+                    else None
+                )
+                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
+                    current, current_ts
+                ):
+                    row["status"] = normalised
+                    row["status_updated_at"] = timestamp
+
+        items: list[IssueHistoryEntry] = []
+        for row in issue_rows.values():
+            row_status = str(row.get("status", "unknown")).lower()
+            if requested_status and row_status != requested_status:
+                continue
+
+            issue_number = int(row["issue_number"])
+            title = str(row.get("title", f"Issue #{issue_number}"))
+            if (
+                query_text
+                and query_text not in title.lower()
+                and query_text not in str(issue_number)
+            ):
+                continue
+
+            linked_issues = sorted(
+                int(v) for v in row.get("linked_issues", set()) if _coerce_int(v) > 0
+            )
+            prs_map = row.get("prs", {})
+            if not isinstance(prs_map, dict):
+                prs_map = {}
+            pr_rows = sorted(
+                (
+                    IssueHistoryPR(
+                        number=int(pr_data["number"]),
+                        url=str(pr_data.get("url", "")),
+                        merged=bool(pr_data.get("merged", False)),
+                    )
+                    for pr_data in prs_map.values()
+                    if isinstance(pr_data, dict)
+                    and _coerce_int(pr_data.get("number")) > 0
+                ),
+                key=lambda p: p.number,
+                reverse=True,
+            )
+
+            items.append(
+                IssueHistoryEntry(
+                    issue_number=issue_number,
+                    title=title,
+                    issue_url=str(row.get("issue_url", "")),
+                    status=row_status,
+                    epic=str(row.get("epic", "")),
+                    linked_issues=linked_issues,
+                    prs=pr_rows,
+                    session_ids=sorted(
+                        str(s) for s in row.get("session_ids", set()) if str(s)
+                    ),
+                    source_calls=dict(sorted(row.get("source_calls", {}).items())),
+                    model_calls=dict(sorted(row.get("model_calls", {}).items())),
+                    inference={
+                        k: _coerce_int(v) for k, v in row.get("inference", {}).items()
+                    },
+                    first_seen=row.get("first_seen"),
+                    last_seen=row.get("last_seen"),
+                )
+            )
+
+        # Keep API fast by enriching only visible rows and only when needed.
+        issue_lookup = {
+            item.issue_number: issue_rows[item.issue_number] for item in items
+        }
+        enrich_candidates = [
+            item.issue_number
+            for item in items
+            if (
+                not item.issue_url
+                or item.title.startswith("Issue #")
+                or (not item.epic and not item.linked_issues)
+            )
+        ][:40]
+        if enrich_candidates:
+            await _enrich_issue_history_with_github(
+                {k: issue_lookup[k] for k in enrich_candidates}
+            )
+            items = []
+            for row in issue_rows.values():
+                row_status = str(row.get("status", "unknown")).lower()
+                if requested_status and row_status != requested_status:
+                    continue
+                issue_number = int(row["issue_number"])
+                title = str(row.get("title", f"Issue #{issue_number}"))
+                if (
+                    query_text
+                    and query_text not in title.lower()
+                    and query_text not in str(issue_number)
+                ):
+                    continue
+                linked_issues = sorted(
+                    int(v)
+                    for v in row.get("linked_issues", set())
+                    if _coerce_int(v) > 0
+                )
+                prs_map = row.get("prs", {})
+                if not isinstance(prs_map, dict):
+                    prs_map = {}
+                pr_rows = sorted(
+                    (
+                        IssueHistoryPR(
+                            number=int(pr_data["number"]),
+                            url=str(pr_data.get("url", "")),
+                            merged=bool(pr_data.get("merged", False)),
+                        )
+                        for pr_data in prs_map.values()
+                        if isinstance(pr_data, dict)
+                        and _coerce_int(pr_data.get("number")) > 0
+                    ),
+                    key=lambda p: p.number,
+                    reverse=True,
+                )
+                items.append(
+                    IssueHistoryEntry(
+                        issue_number=issue_number,
+                        title=title,
+                        issue_url=str(row.get("issue_url", "")),
+                        status=row_status,
+                        epic=str(row.get("epic", "")),
+                        linked_issues=linked_issues,
+                        prs=pr_rows,
+                        session_ids=sorted(
+                            str(s) for s in row.get("session_ids", set()) if str(s)
+                        ),
+                        source_calls=dict(sorted(row.get("source_calls", {}).items())),
+                        model_calls=dict(sorted(row.get("model_calls", {}).items())),
+                        inference={
+                            k: _coerce_int(v)
+                            for k, v in row.get("inference", {}).items()
+                        },
+                        first_seen=row.get("first_seen"),
+                        last_seen=row.get("last_seen"),
+                    )
+                )
+
+        items.sort(
+            key=lambda item: (
+                item.last_seen or "",
+                item.inference.get("total_tokens", 0),
+                item.issue_number,
+            ),
+            reverse=True,
+        )
+        items = items[:clamped_limit]
+
+        totals = {
+            "issues": len(items),
+            "inference_calls": sum(
+                i.inference.get("inference_calls", 0) for i in items
+            ),
+            "total_tokens": sum(i.inference.get("total_tokens", 0) for i in items),
+        }
+
+        return JSONResponse(
+            IssueHistoryResponse(
+                items=items,
+                totals=totals,
+                since=since_dt.isoformat() if since_dt else None,
+                until=until_dt.isoformat() if until_dt else None,
+            ).model_dump()
+        )
+
     @router.get("/api/metrics")
     async def get_metrics() -> JSONResponse:
         """Return lifetime stats, derived rates, time-to-merge, and thresholds."""
@@ -714,12 +1303,23 @@ def create_router(
         retries = state.get_retries_summary()
         if retries:
             rates["retries_per_stage"] = sum(retries.values())
+
+        telemetry = PromptTelemetry(config)
+        inference_lifetime = telemetry.get_lifetime_totals()
+        orch = get_orchestrator()
+        session_id = orch.current_session_id if orch else ""
+        inference_session = (
+            telemetry.get_session_totals(session_id) if session_id else {}
+        )
+
         return JSONResponse(
             MetricsResponse(
                 lifetime=lifetime,
                 rates=rates,
                 time_to_merge=time_to_merge,
                 thresholds=thresholds,
+                inference_lifetime=inference_lifetime,
+                inference_session=inference_session,
             ).model_dump()
         )
 

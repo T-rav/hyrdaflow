@@ -31,6 +31,10 @@ class AgentRunner(BaseRunner):
     """
 
     _log = logger
+    _MAX_DISCUSSION_COMMENT_CHARS = 500
+    _MAX_COMMON_FEEDBACK_CHARS = 2_000
+    _MAX_IMPL_PLAN_CHARS = 6_000
+    _MAX_REVIEW_FEEDBACK_CHARS = 2_000
 
     def __init__(
         self,
@@ -72,9 +76,15 @@ class AgentRunner(BaseRunner):
         try:
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
-            prompt = self._build_prompt(task, review_feedback=review_feedback)
+            prompt, prompt_stats = self._build_prompt_with_stats(
+                task, review_feedback=review_feedback
+            )
             transcript = await self._execute(
-                cmd, prompt, worktree_path, {"issue": task.id}
+                cmd,
+                prompt,
+                worktree_path,
+                {"issue": task.id, "source": "implementer"},
+                telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
 
@@ -227,18 +237,68 @@ class AgentRunner(BaseRunner):
         Returns an empty string if no data is available or on any error.
         """
         try:
-            recent = self._insights.load_recent(self._config.review_insight_window)
-            return get_common_feedback_section(recent)
+            reviews_path = self._config.memory_dir / "reviews.jsonl"
+
+            def _load_feedback(_cfg: HydraFlowConfig) -> str:
+                recent = self._insights.load_recent(self._config.review_insight_window)
+                return get_common_feedback_section(recent)
+
+            feedback, _hit = self._context_cache.get_or_load(
+                key="common_review_feedback",
+                source_path=reviews_path,
+                loader=_load_feedback,
+            )
+            return feedback
         except Exception:  # noqa: BLE001
             return ""
 
+    def _summarize_for_prompt(self, text: str, max_chars: int, label: str) -> str:
+        """Return text trimmed for prompt efficiency with a traceable note."""
+        if len(text) <= max_chars:
+            return text
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        cue_lines = [
+            ln for ln in lines if re.match(r"^([-*]|\d+\.)\s+", ln) or "## " in ln
+        ]
+        selected = cue_lines[:10] if cue_lines else lines[:10]
+        compact = "\n".join(f"- {ln[:200]}" for ln in selected).strip()
+        if not compact:
+            compact = text[:max_chars]
+        return (
+            f"{compact}\n\n"
+            f"[{label} summarized from {len(text):,} chars to reduce prompt size]"
+        )
+
+    def _truncate_comment_for_prompt(self, text: str) -> str:
+        """Return one discussion comment compacted for prompt efficiency."""
+        raw = (text or "").strip()
+        if len(raw) <= self._MAX_DISCUSSION_COMMENT_CHARS:
+            return raw
+        return (
+            raw[: self._MAX_DISCUSSION_COMMENT_CHARS]
+            + f"\n[Comment truncated from {len(raw):,} chars]"
+        )
+
     def _build_prompt(self, issue: Task, review_feedback: str = "") -> str:
         """Build the implementation prompt for the agent."""
+        prompt, _stats = self._build_prompt_with_stats(
+            issue, review_feedback=review_feedback
+        )
+        return prompt
+
+    def _build_prompt_with_stats(
+        self, issue: Task, review_feedback: str = ""
+    ) -> tuple[str, dict[str, object]]:
+        """Build the implementation prompt and pruning stats."""
         plan_comment, other_comments = self._extract_plan_comment(issue.comments)
+        history_before = len(plan_comment) + sum(len(c) for c in other_comments)
+        history_after = 0
 
         # Fallback to saved plan file
         if not plan_comment:
             plan_comment = self._load_plan_fallback(issue.id)
+            history_before += len(plan_comment)
             if not plan_comment:
                 logger.error(
                     "No plan found for issue #%d — implementer will proceed without a plan",
@@ -248,6 +308,12 @@ class AgentRunner(BaseRunner):
 
         plan_section = ""
         if plan_comment:
+            plan_comment = self._summarize_for_prompt(
+                plan_comment,
+                max_chars=self._MAX_IMPL_PLAN_CHARS,
+                label="Implementation plan",
+            )
+            history_after += len(plan_comment)
             plan_section = (
                 f"\n\n## Implementation Plan\n\n"
                 f"Follow this plan closely. It was created by a planner agent "
@@ -257,6 +323,13 @@ class AgentRunner(BaseRunner):
 
         review_feedback_section = ""
         if review_feedback:
+            history_before += len(review_feedback)
+            review_feedback = self._summarize_for_prompt(
+                review_feedback,
+                max_chars=self._MAX_REVIEW_FEEDBACK_CHARS,
+                label="Review feedback",
+            )
+            history_after += len(review_feedback)
             review_feedback_section = (
                 f"\n\n## Review Feedback\n\n"
                 f"A reviewer rejected the previous implementation. "
@@ -266,10 +339,28 @@ class AgentRunner(BaseRunner):
 
         comments_section = ""
         if other_comments:
-            formatted = "\n".join(f"- {c}" for c in other_comments)
+            max_comments = 6
+            selected_comments = other_comments[:max_comments]
+            compact_comments = [
+                self._truncate_comment_for_prompt(c) for c in selected_comments
+            ]
+            formatted = "\n".join(f"- {c}" for c in compact_comments)
+            history_after += len(formatted)
             comments_section = f"\n\n## Discussion\n{formatted}"
+            if len(other_comments) > max_comments:
+                comments_section += f"\n- ... ({len(other_comments) - max_comments} more comments omitted)"
 
-        feedback_section = self._get_review_feedback_section()
+        raw_feedback_section = self._get_review_feedback_section()
+        feedback_section = ""
+        if raw_feedback_section:
+            history_before += len(raw_feedback_section)
+            compact_feedback = self._summarize_for_prompt(
+                raw_feedback_section,
+                max_chars=self._MAX_COMMON_FEEDBACK_CHARS,
+                label="Common review feedback",
+            )
+            history_after += len(compact_feedback)
+            feedback_section = compact_feedback
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
@@ -285,15 +376,17 @@ class AgentRunner(BaseRunner):
         # Truncate issue body if too long
         body = issue.body
         max_body = self._config.max_issue_body_chars
+        body_before = len(body)
         if len(body) > max_body:
             body = (
                 body[:max_body]
                 + f"\n\n[Body truncated at {max_body:,} chars — see full issue on GitHub]"
             )
+        body_after = len(body)
 
         test_cmd = self._config.test_command
 
-        return f"""You are implementing GitHub issue #{issue.id}.
+        prompt = f"""You are implementing GitHub issue #{issue.id}.
 
 ## Issue: {issue.title}
 
@@ -301,20 +394,11 @@ class AgentRunner(BaseRunner):
 
 ## Instructions
 
-1. Read the issue carefully and understand what needs to be done.
-2. Explore the codebase to understand the relevant code.
-3. Write comprehensive tests FIRST (TDD approach).
-4. Implement the solution.
-5. Run a **Pre-Quality Review Skill** (self-review and corrections before quality checks):
-   - validate correctness, plan adherence, and edge cases,
-   - identify missing/weak tests and add them,
-   - simplify/refactor obviously risky code paths.
-6. Run a **Run-Tool Skill** for executable checks:
-   - run `make lint`,
-   - run `{test_cmd}`,
-   - run `make quality`,
-   - fix failures and rerun until green or clearly blocked.
-7. Commit your changes with a message: "Fixes #{issue.id}: <concise summary>"
+1. Understand the issue and relevant code paths.
+2. Write/adjust tests first, then implement.
+3. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
+4. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality`; fix and rerun.
+5. Commit with: "Fixes #{issue.id}: <concise summary>"
 {feedback_section}
 ## UI Guidelines
 
@@ -333,6 +417,21 @@ class AgentRunner(BaseRunner):
 - If you encounter issues, commit what works with a descriptive message.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
+        stats = {
+            "history_chars_before": history_before,
+            "history_chars_after": history_after,
+            "context_chars_before": body_before,
+            "context_chars_after": body_after,
+            "pruned_chars_total": max(0, history_before - history_after)
+            + max(0, body_before - body_after),
+            "section_chars": {
+                "issue_body_before": body_before,
+                "issue_body_after": body_after,
+                "history_before": history_before,
+                "history_after": history_after,
+            },
+        }
+        return prompt, stats
 
     async def _verify_result(
         self, worktree_path: Path, branch: str
@@ -467,7 +566,10 @@ SUMMARY: <one-line summary>
             review_prompt = self._build_pre_quality_review_prompt(issue, attempt)
             review_cmd = self._build_pre_quality_review_command()
             review_transcript = await self._execute(
-                review_cmd, review_prompt, worktree_path, {"issue": issue.id}
+                review_cmd,
+                review_prompt,
+                worktree_path,
+                {"issue": issue.id, "source": "implementer"},
             )
             review_ok, review_summary = self._parse_skill_result(
                 review_transcript, "PRE_QUALITY_REVIEW_RESULT"
@@ -476,7 +578,10 @@ SUMMARY: <one-line summary>
             run_tool_prompt = self._build_pre_quality_run_tool_prompt(issue, attempt)
             run_tool_cmd = self._build_command(worktree_path)
             run_tool_transcript = await self._execute(
-                run_tool_cmd, run_tool_prompt, worktree_path, {"issue": issue.id}
+                run_tool_cmd,
+                run_tool_prompt,
+                worktree_path,
+                {"issue": issue.id, "source": "implementer"},
             )
             run_tool_ok, run_tool_summary = self._parse_skill_result(
                 run_tool_transcript, "RUN_TOOL_RESULT"
@@ -524,7 +629,12 @@ SUMMARY: <one-line summary>
 
             prompt = self._build_quality_fix_prompt(issue, last_error, attempt)
             cmd = self._build_command(worktree_path)
-            await self._execute(cmd, prompt, worktree_path, {"issue": issue.id})
+            await self._execute(
+                cmd,
+                prompt,
+                worktree_path,
+                {"issue": issue.id, "source": "implementer"},
+            )
 
             success, verify_msg = await self._verify_result(worktree_path, branch)
             if success:

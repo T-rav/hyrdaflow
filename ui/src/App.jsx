@@ -6,15 +6,17 @@ import { HumanInputBanner } from './components/HumanInputBanner'
 import { HITLTable } from './components/HITLTable'
 import { SystemPanel } from './components/SystemPanel'
 import { MetricsPanel } from './components/MetricsPanel'
+import { IssueHistoryPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
 import { theme } from './theme'
 import { ACTIVE_STATUSES } from './constants'
 
-const TABS = ['issues', 'transcript', 'hitl', 'metrics', 'system']
+const TABS = ['issues', 'history', 'transcript', 'hitl', 'metrics', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
+  history: 'History',
   transcript: 'Transcript',
   hitl: 'HITL',
   metrics: 'Metrics',
@@ -138,6 +140,7 @@ function AppContent() {
                 onRequestChanges={handleRequestChanges}
               />
             )}
+            {activeTab === 'history' && <IssueHistoryPanel />}
             {activeTab === 'transcript' && (
               <TranscriptView workers={workers} selectedWorker={selectedWorker} />
             )}

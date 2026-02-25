@@ -26,6 +26,13 @@ class StreamParser:
         self._prev_text_len: int = 0
         self._prev_msg_id: str = ""
         self._last_result_text: str = ""
+        self._usage: dict[str, int] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "total_tokens": 0,
+        }
 
     def parse(self, raw_line: str) -> tuple[str, str | None]:
         """Parse a single stream-json line.
@@ -39,6 +46,7 @@ class StreamParser:
         except (json.JSONDecodeError, TypeError):
             return (raw_line, None)
 
+        self._capture_usage(event)
         event_type = event.get("type", "")
 
         display = ""
@@ -60,6 +68,11 @@ class StreamParser:
             display = raw_line
 
         return (display, result)
+
+    @property
+    def usage_totals(self) -> dict[str, int]:
+        """Return cumulative usage totals captured from stream events."""
+        return dict(self._usage)
 
     def _parse_assistant(self, event: dict[str, Any]) -> str:
         """Extract new content from an assistant message event."""
@@ -133,6 +146,79 @@ class StreamParser:
         if item_type:
             return f"  → {item_type}"
         return ""
+
+    def _capture_usage(self, event: dict[str, Any]) -> None:
+        """Extract token usage fields from arbitrary event payloads.
+
+        Different tool backends emit usage in different shapes. We inspect
+        explicit usage containers first, then top-level fields, and track
+        the maximum seen value for each known field.
+        """
+        for key, value in _iter_usage_numeric_fields(event):
+            canonical = _canonical_usage_key(key)
+            if not canonical:
+                continue
+            current = self._usage.get(canonical, 0)
+            if value > current:
+                self._usage[canonical] = value
+
+
+def _iter_usage_numeric_fields(event: dict[str, Any]) -> list[tuple[str, int]]:
+    """Return usage-related ``(key, int_value)`` fields from an event payload."""
+    out: list[tuple[str, int]] = []
+
+    # Top-level direct usage fields (some backends emit usage flat).
+    for key, value in event.items():
+        if isinstance(value, (int, float)):
+            out.append((str(key), int(value)))
+
+    # Common usage containers.
+    for usage_key in ("usage", "token_usage", "usage_metadata"):
+        usage_obj = event.get(usage_key)
+        out.extend(_iter_numeric_fields(usage_obj))
+
+    return out
+
+
+def _iter_numeric_fields(obj: Any) -> list[tuple[str, int]]:
+    """Return nested ``(key, int_value)`` numeric fields for a usage payload."""
+    out: list[tuple[str, int]] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, (int, float)):
+                out.append((str(k), int(v)))
+            else:
+                out.extend(_iter_numeric_fields(v))
+    elif isinstance(obj, list):
+        for item in obj:
+            out.extend(_iter_numeric_fields(item))
+    return out
+
+
+def _canonical_usage_key(raw_key: str) -> str:
+    """Map backend-specific usage keys to canonical names."""
+    key = raw_key.lower()
+    if key in {"input_tokens", "prompt_tokens", "inputtokencount"}:
+        return "input_tokens"
+    if key in {"output_tokens", "completion_tokens", "outputtokencount"}:
+        return "output_tokens"
+    if key in {
+        "cache_creation_input_tokens",
+        "cache_creation_tokens",
+        "cachewriteinputtokens",
+    }:
+        return "cache_creation_input_tokens"
+    if key in {
+        "cache_read_input_tokens",
+        "cache_read_tokens",
+        "cached_tokens",
+        "cached_input_tokens",
+        "cachereadinputtokens",
+    }:
+        return "cache_read_input_tokens"
+    if key in {"total_tokens", "totaltokencount"}:
+        return "total_tokens"
+    return ""
 
 
 def _summarize_input(name: str, tool_input: dict[str, Any]) -> str:  # noqa: PLR0911

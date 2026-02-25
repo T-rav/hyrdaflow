@@ -332,3 +332,72 @@ class TestStreamParserDelta:
         # The preview part (after "    ← ") should be 80 chars + ellipsis
         preview = display.replace("    ← ", "")
         assert len(preview) == 81  # 80 chars + "…"
+
+    def test_captures_usage_from_result_event(self):
+        parser = StreamParser()
+        event = {
+            "type": "result",
+            "result": "done",
+            "usage": {
+                "input_tokens": 120,
+                "output_tokens": 45,
+                "cache_creation_input_tokens": 30,
+                "cache_read_input_tokens": 10,
+                "total_tokens": 165,
+            },
+        }
+        parser.parse(json.dumps(event))
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 120
+        assert usage["output_tokens"] == 45
+        assert usage["cache_creation_input_tokens"] == 30
+        assert usage["cache_read_input_tokens"] == 10
+        assert usage["total_tokens"] == 165
+
+    def test_usage_tracks_max_for_cumulative_events(self):
+        parser = StreamParser()
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "usage": {"input_tokens": 100, "output_tokens": 20},
+                    "message": {"id": "m1", "content": [{"type": "text", "text": "a"}]},
+                }
+            )
+        )
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "usage": {"input_tokens": 90, "output_tokens": 15},
+                    "message": {
+                        "id": "m1",
+                        "content": [{"type": "text", "text": "ab"}],
+                    },
+                }
+            )
+        )
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 100
+        assert usage["output_tokens"] == 20
+
+    def test_usage_ignores_token_like_keys_in_tool_payloads(self):
+        parser = StreamParser()
+        event = {
+            "type": "assistant",
+            "message": {
+                "id": "m2",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool_1",
+                        "name": "Read",
+                        "input": {"input_tokens": 9999, "total_tokens": 9999},
+                    }
+                ],
+            },
+        }
+        parser.parse(json.dumps(event))
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 0
+        assert usage["total_tokens"] == 0

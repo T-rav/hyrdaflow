@@ -958,7 +958,9 @@ async def test_execute_uses_large_stream_limit(config, event_bus, pr_info, tmp_p
 
 def test_build_ci_fix_prompt_includes_failure_summary(config, event_bus, pr_info, task):
     runner = _make_runner(config, event_bus)
-    prompt = runner._build_ci_fix_prompt(pr_info, task, "Failed checks: ci, lint", 1)
+    prompt, _stats = runner._build_ci_fix_prompt(
+        pr_info, task, "Failed checks: ci, lint", 1
+    )
 
     assert "Failed checks: ci, lint" in prompt
 
@@ -967,7 +969,7 @@ def test_build_ci_fix_prompt_includes_pr_and_issue_context(
     config, event_bus, pr_info, task
 ):
     runner = _make_runner(config, event_bus)
-    prompt = runner._build_ci_fix_prompt(pr_info, task, "CI failed", 2)
+    prompt, _stats = runner._build_ci_fix_prompt(pr_info, task, "CI failed", 2)
 
     assert f"#{pr_info.number}" in prompt
     assert f"#{task.id}" in prompt
@@ -979,7 +981,7 @@ def test_build_ci_fix_prompt_uses_configured_test_command(event_bus, pr_info, ta
     """CI fix prompt should use the configured test_command."""
     cfg = ConfigFactory.create(test_command="npm test")
     runner = _make_runner(cfg, event_bus)
-    prompt = runner._build_ci_fix_prompt(pr_info, task, "CI failed", 1)
+    prompt, _stats = runner._build_ci_fix_prompt(pr_info, task, "CI failed", 1)
 
     assert "`npm test`" in prompt
     assert "make test-fast" not in prompt
@@ -1178,12 +1180,13 @@ async def test_fix_ci_failure_records_duration(
 def test_build_review_prompt_truncates_long_diff_with_warning(
     config, event_bus, pr_info, task
 ):
-    """Diff exceeding max_review_diff_chars should be truncated with a note."""
+    """Large diffs should be summarized/truncated with a note."""
     runner = _make_runner(config, event_bus)
     long_diff = "x" * 20_000
     prompt = runner._build_review_prompt(pr_info, task, long_diff)
 
-    assert "x" * 15_000 in prompt
+    assert "### Diff Summary" in prompt
+    assert "### Diff Excerpts" in prompt
     assert "x" * 20_000 not in prompt
     assert "Diff truncated" in prompt
     assert "review may be incomplete" in prompt
@@ -1200,13 +1203,13 @@ def test_build_review_prompt_preserves_short_diff(config, event_bus, pr_info, ta
 
 
 def test_build_review_prompt_diff_truncation_configurable(event_bus, pr_info, task):
-    """max_review_diff_chars should control the truncation limit."""
+    """Configured max_review_diff_chars should appear in truncation note."""
     cfg = ConfigFactory.create(max_review_diff_chars=5_000)
     runner = _make_runner(cfg, event_bus)
     diff = "x" * 10_000
     prompt = runner._build_review_prompt(pr_info, task, diff)
 
-    assert "x" * 5_000 in prompt
+    assert "### Diff Summary" in prompt
     assert "x" * 10_000 not in prompt
     assert "5,000 chars" in prompt
 
@@ -1314,15 +1317,15 @@ class TestBuildPrecheckPrompt:
         assert task.title in prompt
         assert "some diff content" in prompt
 
-    def test_truncates_diff_to_6000_chars(
+    def test_truncates_diff_to_3000_chars(
         self, config, event_bus, pr_info, task
     ) -> None:
         runner = _make_runner(config, event_bus)
         long_diff = "x" * 10_000
         prompt = runner._build_precheck_prompt(pr_info, task, long_diff)
-        # Should contain at most 6000 x's
-        assert "x" * 6000 in prompt
-        assert "x" * 6001 not in prompt
+        # Should contain at most 3000 x's
+        assert "x" * 3000 in prompt
+        assert "x" * 3001 not in prompt
 
     def test_short_diff_not_truncated(self, config, event_bus, pr_info, task) -> None:
         runner = _make_runner(config, event_bus)
@@ -1391,7 +1394,17 @@ class TestRunPrecheckContext:
 
         assert result == "transcript"
         mock_self_execute.assert_called_once_with(
-            ["cmd"], "prompt", tmp_path, {"pr": pr_info.number, "source": "reviewer"}
+            ["cmd"],
+            "prompt",
+            tmp_path,
+            {"pr": pr_info.number, "issue": task.id, "source": "reviewer"},
+            telemetry_stats={
+                "context_chars_before": len(task.body or "") + len("diff"),
+                "context_chars_after": len("prompt"),
+                "pruned_chars_total": len(task.body or "")
+                + len("diff")
+                - len("prompt"),
+            },
         )
 
 
@@ -1408,7 +1421,7 @@ def test_build_ci_fix_prompt_includes_ci_logs_when_provided(config, event_bus):
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
 
-    prompt = runner._build_ci_fix_prompt(
+    prompt, _stats = runner._build_ci_fix_prompt(
         pr, issue, "Failed checks: Build", attempt=1, ci_logs="Error in main.py:42"
     )
 
@@ -1424,9 +1437,28 @@ def test_build_ci_fix_prompt_excludes_ci_logs_when_empty(config, event_bus):
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
 
-    prompt = runner._build_ci_fix_prompt(pr, issue, "Failed checks: Build", attempt=1)
+    prompt, _stats = runner._build_ci_fix_prompt(
+        pr, issue, "Failed checks: Build", attempt=1
+    )
 
     assert "## Full CI Failure Logs" not in prompt
+
+
+def test_build_ci_fix_prompt_truncates_large_ci_logs(config, event_bus):
+    """Large CI logs are truncated and counted in pruning stats."""
+    from tests.conftest import PRInfoFactory, TaskFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = TaskFactory.create()
+    logs = "E" * (runner._MAX_CI_LOG_PROMPT_CHARS + 200)
+
+    prompt, stats = runner._build_ci_fix_prompt(
+        pr, issue, "Failed checks: Build", attempt=1, ci_logs=logs
+    )
+
+    assert "truncated from" in prompt
+    assert int(stats["pruned_chars_total"]) > 0
 
 
 # ---------------------------------------------------------------------------

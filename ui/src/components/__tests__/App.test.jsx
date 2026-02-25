@@ -194,10 +194,10 @@ describe('System and Metrics tabs', () => {
 })
 
 describe('Main tab bar', () => {
-  it('has exactly 5 main tabs', async () => {
+  it('has exactly 6 main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Work Stream', 'Transcript', 'HITL', 'Metrics', 'System']
+    const tabLabels = ['Work Stream', 'History', 'Transcript', 'HITL', 'Metrics', 'System']
     for (const label of tabLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }

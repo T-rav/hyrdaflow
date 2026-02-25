@@ -1094,6 +1094,43 @@ class MetricsResponse(BaseModel):
     rates: dict[str, float] = Field(default_factory=dict)
     time_to_merge: dict[str, float] = Field(default_factory=dict)
     thresholds: list[ThresholdProposal] = Field(default_factory=list)
+    inference_lifetime: dict[str, int] = Field(default_factory=dict)
+    inference_session: dict[str, int] = Field(default_factory=dict)
+
+
+class IssueHistoryPR(BaseModel):
+    """A PR linked to an issue in history views."""
+
+    number: int
+    url: HttpUrl = ""
+    merged: bool = False
+
+
+class IssueHistoryEntry(BaseModel):
+    """A single issue row for GET /api/issues/history."""
+
+    issue_number: int
+    title: str = ""
+    issue_url: HttpUrl = ""
+    status: str = "unknown"
+    epic: str = ""
+    linked_issues: list[int] = Field(default_factory=list)
+    prs: list[IssueHistoryPR] = Field(default_factory=list)
+    session_ids: list[str] = Field(default_factory=list)
+    source_calls: dict[str, int] = Field(default_factory=dict)
+    model_calls: dict[str, int] = Field(default_factory=dict)
+    inference: dict[str, int] = Field(default_factory=dict)
+    first_seen: str | None = None
+    last_seen: str | None = None
+
+
+class IssueHistoryResponse(BaseModel):
+    """Response for GET /api/issues/history."""
+
+    items: list[IssueHistoryEntry] = Field(default_factory=list)
+    totals: dict[str, int] = Field(default_factory=dict)
+    since: str | None = None
+    until: str | None = None
 
 
 class MetricsSnapshot(BaseModel):

@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from agent_cli import build_agent_command
 from config import HydraFlowConfig
+from context_cache import ContextSectionCache
 from events import EventBus
 from execution import get_default_runner
 from manifest import load_project_manifest
 from memory import load_memory_digest
 from models import TranscriptEventData
+from prompt_telemetry import PromptTelemetry, parse_command_tool_model
 from runner_utils import stream_claude_process, terminate_processes
 
 if TYPE_CHECKING:
@@ -42,6 +45,9 @@ class BaseRunner:
         self._bus = event_bus
         self._active_procs: set[asyncio.subprocess.Process] = set()
         self._runner = runner or get_default_runner()
+        self._context_cache = ContextSectionCache(config)
+        self._prompt_telemetry = PromptTelemetry(config)
+        self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
 
     def terminate(self) -> None:
         """Kill all active subprocesses."""
@@ -55,20 +61,53 @@ class BaseRunner:
         event_data: TranscriptEventData,
         *,
         on_output: Callable[[str], bool] | None = None,
+        telemetry_stats: Mapping[str, object] | None = None,
     ) -> str:
         """Run a claude subprocess and stream its output."""
-        return await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=cwd,
-            active_procs=self._active_procs,
-            event_bus=self._bus,
-            event_data=event_data,
-            logger=self._log,
-            on_output=on_output,
-            timeout=self._config.agent_timeout,
-            runner=self._runner,
-        )
+        start = time.monotonic()
+        transcript = ""
+        succeeded = False
+        usage_stats: dict[str, int] = {}
+        try:
+            transcript = await stream_claude_process(
+                cmd=cmd,
+                prompt=prompt,
+                cwd=cwd,
+                active_procs=self._active_procs,
+                event_bus=self._bus,
+                event_data=event_data,
+                logger=self._log,
+                on_output=on_output,
+                timeout=self._config.agent_timeout,
+                runner=self._runner,
+                usage_stats=usage_stats,
+            )
+            succeeded = True
+            return transcript
+        finally:
+            duration = time.monotonic() - start
+            source = str(event_data.get("source", "unknown"))
+            issue_number = event_data.get("issue")
+            pr_number = event_data.get("pr")
+            tool, model = parse_command_tool_model(cmd)
+            merged_stats = {
+                **self._consume_context_stats(),
+                **usage_stats,
+                **(telemetry_stats or {}),
+            }
+            self._prompt_telemetry.record(
+                source=source,
+                tool=tool,
+                model=model,
+                issue_number=issue_number,
+                pr_number=pr_number,
+                session_id=self._bus.current_session_id,
+                prompt_chars=len(prompt),
+                transcript_chars=len(transcript),
+                duration_seconds=duration,
+                success=succeeded,
+                stats=merged_stats,
+            )
 
     def _save_transcript(self, prefix: str, identifier: int, transcript: str) -> None:
         """Write a transcript to ``.hydraflow/logs/<prefix>-<identifier>.txt``."""
@@ -91,17 +130,46 @@ class BaseRunner:
         Returns ``(manifest_section, memory_section)`` where each is an
         empty string when the corresponding file is missing.
         """
+        cache_hits = 0
+        cache_misses = 0
+
         manifest_section = ""
-        manifest = load_project_manifest(self._config)
+        manifest_path = self._config.data_path("memory", "manifest.md")
+        manifest, manifest_hit = self._context_cache.get_or_load(
+            key="manifest",
+            source_path=manifest_path,
+            loader=load_project_manifest,
+        )
+        cache_hits += 1 if manifest_hit else 0
+        cache_misses += 0 if manifest_hit else 1
         if manifest:
             manifest_section = f"\n\n## Project Context\n\n{manifest}"
 
         memory_section = ""
-        digest = load_memory_digest(self._config)
+        digest_path = self._config.data_path("memory", "digest.md")
+        digest, digest_hit = self._context_cache.get_or_load(
+            key="memory_digest",
+            source_path=digest_path,
+            loader=load_memory_digest,
+        )
+        cache_hits += 1 if digest_hit else 0
+        cache_misses += 0 if digest_hit else 1
         if digest:
             memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
 
+        self._last_context_stats = {
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+            "context_chars_before": len(manifest) + len(digest),
+            "context_chars_after": len(manifest_section) + len(memory_section),
+        }
+
         return manifest_section, memory_section
+
+    def _consume_context_stats(self) -> dict[str, int]:
+        stats = dict(self._last_context_stats)
+        self._last_context_stats = {"cache_hits": 0, "cache_misses": 0}
+        return stats
 
     def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the default implementation CLI invocation.

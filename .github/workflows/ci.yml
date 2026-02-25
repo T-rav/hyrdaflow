@@ -77,6 +77,8 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: uv sync --all-extras
+      - name: Warning gate (targeted)
+        run: uv run pytest tests/test_execution.py tests/test_agent.py tests/test_hitl_runner.py tests/test_prompt_telemetry.py tests/test_dashboard_routes.py -W error::RuntimeWarning -W error::pytest.PytestUnraisableExceptionWarning
       - name: Run tests with coverage
         run: uv run pytest tests/ --cov=. --cov-fail-under=70 --cov-report=term-missing
       - name: Upload coverage report

@@ -82,6 +82,44 @@ class TestPostMergeHandler:
         handler._prs.swap_pipeline_labels.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_handle_approved_posts_inference_totals_comment(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """On successful merge, should comment inference usage on the issue."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create(number=123, issue_number=42)
+        issue = TaskFactory.create(id=42)
+        result = ReviewResultFactory.create()
+
+        handler._prompt_telemetry.get_pr_totals = lambda _pr: {
+            "inference_calls": 5,
+            "total_tokens": 1200,
+            "total_est_tokens": 1300,
+            "actual_usage_calls": 5,
+        }
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        handler._prs.post_comment.assert_awaited()
+        args = handler._prs.post_comment.await_args.args
+        assert args[0] == 42
+        assert "Inference Usage" in args[1]
+        assert "Total tokens: 1,200" in args[1]
+
+    @pytest.mark.asyncio
     async def test_handle_approved_escalates_on_merge_failure(
         self, config: HydraFlowConfig
     ) -> None:

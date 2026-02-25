@@ -25,6 +25,7 @@ from models import (
     VerificationCriterion,
 )
 from pr_manager import PRManager
+from prompt_telemetry import PromptTelemetry
 from retrospective import RetrospectiveCollector
 from state import StateTracker
 from verification import format_verification_issue_body
@@ -57,6 +58,7 @@ class PostMergeHandler:
         self._retrospective = retrospective
         self._verification_judge = verification_judge
         self._epic_checker = epic_checker
+        self._prompt_telemetry = PromptTelemetry(config)
 
     async def handle_approved(
         self,
@@ -129,6 +131,7 @@ class PostMergeHandler:
             await self._prs.swap_pipeline_labels(
                 pr.issue_number, self._config.fixed_label[0]
             )
+            await self._post_inference_totals_comment(pr, issue)
             await self._run_post_merge_hooks(pr, issue, result, diff)
         else:
             logger.warning("PR #%d merge failed — escalating to HITL", pr.number)
@@ -143,6 +146,34 @@ class PostMergeHandler:
                     "Escalating to human review."
                 ),
                 event_cause="merge_failed",
+            )
+
+    async def _post_inference_totals_comment(self, pr: PRInfo, issue: Task) -> None:
+        """Post PR inference totals to the issue after a successful merge."""
+        totals = self._prompt_telemetry.get_pr_totals(pr.number)
+        if not totals:
+            return
+        token_total = int(totals.get("total_tokens", 0))
+        est_total = int(totals.get("total_est_tokens", 0))
+        calls = int(totals.get("inference_calls", 0))
+        actual_calls = int(totals.get("actual_usage_calls", 0))
+        source = "actual usage" if actual_calls > 0 else "estimated usage"
+
+        body = (
+            "## Inference Usage\n\n"
+            f"- PR: #{pr.number}\n"
+            f"- Inference calls: {calls}\n"
+            f"- Total tokens: {token_total:,} ({source})\n"
+            f"- Estimated fallback tokens: {est_total:,}\n"
+        )
+        try:
+            await self._prs.post_comment(issue.id, body)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Could not post inference usage comment for issue #%d (PR #%d)",
+                issue.id,
+                pr.number,
+                exc_info=True,
             )
 
     @staticmethod

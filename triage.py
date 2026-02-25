@@ -11,6 +11,7 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import Task, TriageResult, TriageStatus
+from prompt_stats import build_prompt_stats, truncate_with_notice
 from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.triage")
@@ -174,10 +175,14 @@ class TriageRunner(BaseRunner):
         )
 
     @staticmethod
-    def _build_prompt(issue: Task) -> str:
-        """Build the triage evaluation prompt."""
-        body = (issue.body or "")[:5000]
-        return f"""You are a triage agent evaluating whether a GitHub issue has enough detail for an implementation planning agent to succeed.
+    def _build_prompt_with_stats(
+        issue: Task, max_body: int = 5000
+    ) -> tuple[str, dict[str, object]]:
+        """Build the triage evaluation prompt and pruning stats."""
+        body, body_before, body_after = truncate_with_notice(
+            issue.body or "", max_body, label="Issue body"
+        )
+        prompt = f"""You are a triage agent evaluating whether a GitHub issue has enough detail for an implementation planning agent to succeed.
 
 ## Issue #{issue.id}
 
@@ -214,17 +219,36 @@ or
 {{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"]}}
 ```
 """
+        stats = build_prompt_stats(
+            context_before=body_before,
+            context_after=body_after,
+            section_chars={
+                "issue_body_before": body_before,
+                "issue_body_after": body_after,
+            },
+        )
+        return prompt, stats
+
+    @staticmethod
+    def _build_prompt(issue: Task, max_body: int = 5000) -> str:
+        """Build the triage evaluation prompt."""
+        prompt, _stats = TriageRunner._build_prompt_with_stats(issue, max_body=max_body)
+        return prompt
 
     async def _evaluate_with_llm(self, issue: Task) -> TriageResult:
         """Run LLM evaluation and parse the verdict."""
         cmd = self._build_command()
-        prompt = self._build_prompt(issue)
+        prompt, prompt_stats = self._build_prompt_with_stats(
+            issue,
+            max_body=max(1000, min(self._config.max_issue_body_chars, 3000)),
+        )
 
         transcript = await self._execute(
             cmd,
             prompt,
             self._config.repo_root,
             {"issue": issue.id, "source": "triage"},
+            telemetry_stats=prompt_stats,
         )
         self._save_transcript("triage-issue", issue.id, transcript)
 

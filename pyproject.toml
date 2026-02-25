@@ -11,13 +11,11 @@ version = "1.0.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "pydantic>=2.0.0",
+    "docker>=7.0.0",
 ]
 
 [project.scripts]
 hf = "hf_cli.__main__:entrypoint"
-
-[tool.setuptools.package-data]
-hf_cli = ["assets.tar.gz"]
 
 [project.optional-dependencies]
 test = [
@@ -28,16 +26,14 @@ test = [
     "pytest-xdist>=3.5.0",
     "httpx>=0.27.0",
     "hydraflow[dashboard]",
-    "hydraflow[docker]",
 ]
 dev = [
     "ruff==0.15.0",
     "pyright==1.1.408",
     "bandit[toml]==1.8.0",
 ]
-docker = [
-    "docker>=7.0.0",
-]
+# Compatibility extra retained so existing `hydraflow[docker]` installs keep working.
+docker = []
 dashboard = [
     "fastapi>=0.110.0",
     "uvicorn>=0.30.0",

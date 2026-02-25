@@ -106,6 +106,11 @@ function SnapshotTimeline({ snapshots }) {
   )
 }
 
+function formatTokens(n) {
+  const value = Number.isFinite(n) ? n : 0
+  return value.toLocaleString()
+}
+
 export function MetricsPanel() {
   const {
     metrics, lifetimeStats, githubMetrics, metricsHistory, stageStatus,
@@ -121,6 +126,8 @@ export function MetricsPanel() {
 
   const timeToMerge = metrics?.time_to_merge || {}
   const thresholds = metrics?.thresholds || []
+  const inferenceLifetime = metrics?.inference_lifetime || {}
+  const inferenceSession = metrics?.inference_session || {}
 
   const hasGithub = githubMetrics !== null && githubMetrics !== undefined
   const hasSession = sessionTriaged > 0 || sessionPlanned > 0 ||
@@ -224,6 +231,40 @@ export function MetricsPanel() {
           </div>
         </>
       )}
+
+      <h3 style={styles.heading}>Inference</h3>
+      <div style={styles.row}>
+        <StatCard
+          label="Session Tokens"
+          value={formatTokens(inferenceSession.total_tokens || 0)}
+          subtle
+        />
+        <StatCard
+          label="Session Calls"
+          value={formatTokens(inferenceSession.inference_calls || 0)}
+          subtle
+        />
+        <StatCard
+          label="Lifetime Tokens"
+          value={formatTokens(inferenceLifetime.total_tokens || 0)}
+          subtle
+        />
+        <StatCard
+          label="Lifetime Calls"
+          value={formatTokens(inferenceLifetime.inference_calls || 0)}
+          subtle
+        />
+        <StatCard
+          label="Session Pruned Chars"
+          value={formatTokens(inferenceSession.pruned_chars_total || 0)}
+          subtle
+        />
+        <StatCard
+          label="Lifetime Pruned Chars"
+          value={formatTokens(inferenceLifetime.pruned_chars_total || 0)}
+          subtle
+        />
+      </div>
 
       <SnapshotTimeline snapshots={snapshots} />
 

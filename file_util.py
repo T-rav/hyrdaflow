@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -31,3 +33,15 @@ def atomic_write(path: Path, data: str) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
+
+
+@contextmanager
+def file_lock(path: Path):
+    """Acquire an exclusive advisory lock for *path* until context exit."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+") as lock_f:
+        fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)

@@ -157,7 +157,7 @@ class ReviewPhase:
     async def _should_skip_review(self, pr: PRInfo, last_sha: str | None) -> bool:
         """Return True if the PR HEAD SHA is unchanged since last review."""
         current_sha = await self._prs.get_pr_head_sha(pr.number)
-        if not current_sha:
+        if not isinstance(current_sha, str) or not current_sha:
             return False
         if last_sha and last_sha == current_sha:
             logger.info(
@@ -251,7 +251,7 @@ class ReviewPhase:
     async def _check_sha_skip_guard(self, pr: PRInfo) -> ReviewResult | None:
         """Return a skip result if no new commits since last review, else None."""
         current_sha = await self._prs.get_pr_head_sha(pr.number)
-        if current_sha:
+        if isinstance(current_sha, str) and current_sha:
             stored_sha = self._state.get_last_reviewed_sha(pr.issue_number)
             if stored_sha and stored_sha == current_sha:
                 logger.info(
@@ -278,7 +278,7 @@ class ReviewPhase:
         self._state.record_review_verdict(result.verdict.value, result.fixes_made)
 
         post_review_sha = await self._prs.get_pr_head_sha(pr.number)
-        if post_review_sha:
+        if isinstance(post_review_sha, str) and post_review_sha:
             self._state.set_last_reviewed_sha(pr.issue_number, post_review_sha)
 
         if result.duration_seconds > 0:

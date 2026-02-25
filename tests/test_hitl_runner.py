@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -273,6 +273,8 @@ class TestRunExecution:
         assert result.issue_number == 42
         assert result.transcript == "transcript text"
         assert result.duration_seconds > 0
+        telemetry = runner._execute.await_args.kwargs["telemetry_stats"]
+        assert int(telemetry["pruned_chars_total"]) >= 0
 
     @pytest.mark.asyncio
     async def test_run_failure_sets_error(self, config, event_bus) -> None:
@@ -290,6 +292,18 @@ class TestRunExecution:
         assert result.success is False
         assert result.error is not None
         assert "make quality" in result.error
+
+    def test_build_prompt_with_stats_prunes_large_guidance(
+        self, config, event_bus
+    ) -> None:
+        runner = HITLRunner(config, event_bus)
+        issue = IssueFactory.create(number=42, body="b" * 200)
+        _prompt, stats = runner._build_prompt_with_stats(
+            issue,
+            correction="x" * 10_000,
+            cause="y" * 6000,
+        )
+        assert stats["pruned_chars_total"] > 0
 
     @pytest.mark.asyncio
     async def test_run_exception_sets_error(self, config, event_bus) -> None:
@@ -423,9 +437,9 @@ class TestVerifyQualityTimeout:
         """_verify_quality should return (False, ...) when make quality times out."""
         runner = HITLRunner(config, EventBus())
 
-        mock_proc = AsyncMock()
+        mock_proc = MagicMock()
         mock_proc.returncode = None
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
         with (
@@ -444,9 +458,9 @@ class TestVerifyQualityTimeout:
         """_verify_quality should kill the process on timeout."""
         runner = HITLRunner(config, EventBus())
 
-        mock_proc = AsyncMock()
+        mock_proc = MagicMock()
         mock_proc.returncode = None
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
         with (

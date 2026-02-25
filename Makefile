@@ -56,7 +56,7 @@ help:
 	@echo "  make lint-fix       Auto-repair formatting/lint issues"
 	@echo "  make typecheck      Run Pyright type checks"
 	@echo "  make security       Run Bandit security scan"
-	@echo "  make bundle-assets  Regenerate hf init asset bundle (.claude/.codex/.githooks)"
+	@echo "  make bundle-assets  Generate hf init asset bundle for release/build artifacts"
 	@echo "  make quality-lite   Lint + typecheck + security (parallel)"
 	@echo "  make quality        quality-lite + test (parallel)"
 	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
@@ -127,8 +127,8 @@ status:
 
 bundle-assets:
 	@echo "$(BLUE)Bundling HydraFlow assets for hf init...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && $(UV) python scripts/bundle_assets.py --output hf_cli/assets.tar.gz --root $(PROJECT_ROOT)
-	@echo "$(GREEN)Updated hf_cli/assets.tar.gz$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && mkdir -p dist && $(UV) python scripts/bundle_assets.py --output dist/hf_cli-assets.tar.gz --root $(PROJECT_ROOT)
+	@echo "$(GREEN)Generated dist/hf_cli-assets.tar.gz$(RESET)"
 
 $(DEPS_STAMP): pyproject.toml
 	@echo "$(BLUE)Syncing dependencies...$(RESET)"
