@@ -10,6 +10,7 @@ from typing import Literal
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import GitHubIssue, HITLResult
+from prompt_stats import build_prompt_stats, truncate_with_notice
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
 
@@ -53,6 +54,9 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
         '4. Commit with message: "hitl-fix: <description> (#{issue})".'
     ),
 }
+
+_MAX_HITL_CORRECTION_CHARS = 4000
+_MAX_HITL_CAUSE_CHARS = 2000
 
 
 def _classify_cause(cause: str) -> HITLCauseKey:
@@ -113,9 +117,15 @@ class HITLRunner(BaseRunner):
 
         try:
             cmd = self._build_command(worktree_path)
-            prompt = self._build_prompt(issue, correction, cause)
+            prompt, prompt_stats = self._build_prompt_with_stats(
+                issue, correction, cause
+            )
             transcript = await self._execute(
-                cmd, prompt, worktree_path, {"issue": issue.number, "source": "hitl"}
+                cmd,
+                prompt,
+                worktree_path,
+                {"issue": issue.number, "source": "hitl"},
+                telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
 
@@ -151,28 +161,39 @@ class HITLRunner(BaseRunner):
 
         return result
 
-    def _build_prompt(self, issue: GitHubIssue, correction: str, cause: str) -> str:
-        """Build the HITL prompt with cause-specific instructions and human guidance."""
+    def _build_prompt_with_stats(
+        self, issue: GitHubIssue, correction: str, cause: str
+    ) -> tuple[str, dict[str, object]]:
+        """Build the HITL prompt with pruning stats."""
         cause_key = _classify_cause(cause)
         instructions = _CAUSE_INSTRUCTIONS[cause_key].replace(
             "#{issue}", f"#{issue.number}"
         )
+        issue_body, body_before, body_after = truncate_with_notice(
+            issue.body or "", self._config.max_issue_body_chars, label="Issue body"
+        )
+        cause_text, cause_before, cause_after = truncate_with_notice(
+            cause or "", _MAX_HITL_CAUSE_CHARS, label="Escalation reason"
+        )
+        correction_text, correction_before, correction_after = truncate_with_notice(
+            correction or "", _MAX_HITL_CORRECTION_CHARS, label="Human guidance"
+        )
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
-        return f"""You are applying a human-in-the-loop correction for GitHub issue #{issue.number}.
+        prompt = f"""You are applying a human-in-the-loop correction for GitHub issue #{issue.number}.
 
 ## Issue: {issue.title}
 
-{issue.body}{manifest_section}{memory_section}
+{issue_body}{manifest_section}{memory_section}
 
 ## Escalation Reason
 
-{cause}
+{cause_text}
 
 ## Human Guidance
 
-{correction}
+{correction_text}
 
 ## Instructions
 
@@ -187,3 +208,23 @@ class HITLRunner(BaseRunner):
 - Ensure `make quality` passes before committing.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="correction")}"""
+        stats = build_prompt_stats(
+            history_before=cause_before + correction_before,
+            history_after=cause_after + correction_after,
+            context_before=body_before,
+            context_after=body_after,
+            section_chars={
+                "issue_body_before": body_before,
+                "issue_body_after": body_after,
+                "cause_before": cause_before,
+                "cause_after": cause_after,
+                "guidance_before": correction_before,
+                "guidance_after": correction_after,
+            },
+        )
+        return prompt, stats
+
+    def _build_prompt(self, issue: GitHubIssue, correction: str, cause: str) -> str:
+        """Build the HITL prompt with cause-specific instructions and human guidance."""
+        prompt, _stats = self._build_prompt_with_stats(issue, correction, cause)
+        return prompt

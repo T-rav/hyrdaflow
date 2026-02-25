@@ -3196,6 +3196,41 @@ class TestGetSystemWorkersEndpoint:
         data = json.loads(response.body)
         assert "workers" in data
 
+    @pytest.mark.asyncio
+    async def test_system_workers_include_inference_rollups(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from prompt_telemetry import PromptTelemetry
+
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="planner",
+            tool="claude",
+            model="sonnet",
+            issue_number=42,
+            pr_number=None,
+            session_id="s-1",
+            prompt_chars=200,
+            transcript_chars=50,
+            duration_seconds=1.2,
+            success=True,
+            stats={"total_tokens": 120, "pruned_chars_total": 800},
+        )
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/system/workers")
+        response = await endpoint()
+        data = json.loads(response.body)
+        plan_worker = next(w for w in data["workers"] if w["name"] == "plan")
+        details = plan_worker["details"]
+        assert details["inference_calls"] == 1
+        assert details["total_tokens"] == 120
+        assert details["pruned_chars_total"] == 800
+        assert details["saved_tokens_est"] == 200
+        assert details["unpruned_tokens_est"] == 320
+
 
 # ---------------------------------------------------------------------------
 # GET /api/timeline and /api/timeline/issue/{issue_num}

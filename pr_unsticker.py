@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from models import ConflictResolutionResult
 from phase_utils import safe_file_memory_suggestion
+from prompt_stats import build_prompt_stats, truncate_with_notice
 
 if TYPE_CHECKING:
     from agent import AgentRunner
@@ -40,6 +41,7 @@ _CI_FAILURE_KEYWORDS = (
 
 # Keywords for review fix cap exceeded
 _REVIEW_CAP_KEYWORDS = ("review fix", "fix attempt", "fix cap", "review cap")
+_MAX_UNSTICKER_CAUSE_CHARS = 3000
 
 
 class FailureCause(StrEnum):
@@ -370,7 +372,7 @@ class PRUnsticker:
             await self._worktrees.abort_merge(wt_path)
 
         cause_str = self._state.get_hitl_cause(issue_number) or ""
-        prompt = self._build_ci_fix_prompt(issue, pr_url, cause_str)
+        prompt, prompt_stats = self._build_ci_fix_prompt(issue, pr_url, cause_str)
 
         try:
             cmd = self._agents._build_command(wt_path)
@@ -379,6 +381,7 @@ class PRUnsticker:
                 prompt,
                 wt_path,
                 {"issue": issue_number, "source": "pr_unsticker"},
+                telemetry_stats=prompt_stats,
             )
             if self._resolver is not None:
                 self._resolver.save_conflict_transcript(
@@ -443,9 +446,14 @@ class PRUnsticker:
         )
         return result.success
 
-    def _build_ci_fix_prompt(self, issue: GitHubIssue, pr_url: str, cause: str) -> str:
-        """Build a targeted prompt for CI/quality fix."""
-        return f"""You are fixing CI/quality failures for a pull request.
+    def _build_ci_fix_prompt(
+        self, issue: GitHubIssue, pr_url: str, cause: str
+    ) -> tuple[str, dict[str, object]]:
+        """Build a targeted prompt for CI/quality fix and pruning stats."""
+        cause_text, cause_before, cause_after = truncate_with_notice(
+            cause or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Escalation reason"
+        )
+        prompt = f"""You are fixing CI/quality failures for a pull request.
 
 ## Issue: {issue.title}
 Issue URL: {issue.url}
@@ -453,7 +461,7 @@ PR URL: {pr_url}
 
 ## Escalation Reason
 
-{cause}
+{cause_text}
 
 ## Instructions
 
@@ -471,6 +479,15 @@ PR URL: {pr_url}
 - Do NOT run `git push` or `gh pr create`.
 - Ensure `make quality` passes before committing.
 """
+        stats = build_prompt_stats(
+            history_before=cause_before,
+            history_after=cause_after,
+            section_chars={
+                "cause_before": cause_before,
+                "cause_after": cause_after,
+            },
+        )
+        return prompt, stats
 
     async def _wait_and_merge(self, item: HITLItem) -> bool:
         """Wait for CI to pass, then squash-merge the PR.

@@ -144,6 +144,8 @@ class TestMergeConflictResolver:
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
         mock_agents._build_command.assert_called_once()
         mock_agents._execute.assert_awaited_once()
+        telemetry = mock_agents._execute.await_args.kwargs["telemetry_stats"]
+        assert "pruned_chars_total" in telemetry
 
     @pytest.mark.asyncio
     async def test_saves_transcript(self, config: HydraFlowConfig) -> None:
@@ -402,6 +404,8 @@ class TestFreshBranchRebuild:
         mock_agents._build_command.assert_called_once_with(new_wt)
         mock_agents._execute.assert_awaited_once()
         mock_agents._verify_result.assert_awaited_once()
+        telemetry = mock_agents._execute.await_args.kwargs["telemetry_stats"]
+        assert "pruned_chars_total" in telemetry
 
     @pytest.mark.asyncio
     async def test_fresh_rebuild_skipped_when_disabled(self, tmp_path: Path) -> None:

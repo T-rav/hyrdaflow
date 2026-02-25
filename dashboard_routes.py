@@ -741,6 +741,59 @@ def create_router(
     _INTERVAL_WORKERS = {"memory_sync", "metrics", "pr_unsticker", "pipeline_poller"}
     # Pipeline loops share poll_interval (read-only display)
     _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}
+    _WORKER_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
+        "plan": ("planner",),
+        "implement": ("agent",),
+        "review": ("reviewer",),
+    }
+
+    def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
+        telemetry = PromptTelemetry(config)
+        rows = telemetry.load_inferences(limit=5000)
+        source_totals: dict[str, dict[str, int]] = {}
+        for row in rows:
+            source = str(row.get("source", "")).strip()
+            if not source:
+                continue
+            bucket = source_totals.setdefault(
+                source,
+                {
+                    "inference_calls": 0,
+                    "total_tokens": 0,
+                    "pruned_chars_total": 0,
+                },
+            )
+            bucket["inference_calls"] += 1
+            bucket["total_tokens"] += _coerce_int(row.get("total_tokens", 0))
+            bucket["pruned_chars_total"] += _coerce_int(
+                row.get("pruned_chars_total", 0)
+            )
+
+        worker_totals: dict[str, dict[str, int]] = {}
+        for worker_name, _label in _bg_worker_defs:
+            sources = (worker_name, *_WORKER_SOURCE_ALIASES.get(worker_name, ()))
+            totals = {
+                "inference_calls": 0,
+                "total_tokens": 0,
+                "pruned_chars_total": 0,
+            }
+            for source_name in sources:
+                source_entry = source_totals.get(source_name)
+                if not source_entry:
+                    continue
+                totals["inference_calls"] += source_entry["inference_calls"]
+                totals["total_tokens"] += source_entry["total_tokens"]
+                totals["pruned_chars_total"] += source_entry["pruned_chars_total"]
+            if totals["inference_calls"] > 0:
+                saved_tokens_est = round(totals["pruned_chars_total"] / 4)
+                worker_totals[worker_name] = {
+                    "inference_calls": totals["inference_calls"],
+                    "total_tokens": totals["total_tokens"],
+                    "pruned_chars_total": totals["pruned_chars_total"],
+                    "saved_tokens_est": saved_tokens_est,
+                    "unpruned_tokens_est": totals["total_tokens"] + saved_tokens_est,
+                }
+        return worker_totals
 
     def _compute_next_run(
         last_run: str | None, interval_seconds: int | None
@@ -764,6 +817,7 @@ def create_router(
         """Return last known status of each background worker."""
         orch = get_orchestrator()
         bg_states = orch.get_bg_worker_states() if orch else {}
+        inference_by_worker = _build_system_worker_inference_stats()
         workers = []
         for name, label in _bg_worker_defs:
             enabled = orch.is_bg_worker_enabled(name) if orch else True
@@ -787,6 +841,13 @@ def create_router(
             if name in bg_states:
                 entry = bg_states[name]
                 last_run = entry.get("last_run")
+                raw_details = entry.get("details", {})
+                details: dict[str, Any] = (
+                    dict(raw_details)
+                    if isinstance(raw_details, dict)
+                    else {"raw_details": str(raw_details)}
+                )
+                details.update(inference_by_worker.get(name, {}))
                 workers.append(
                     BackgroundWorkerStatus(
                         name=name,
@@ -798,7 +859,7 @@ def create_router(
                         last_run=last_run,
                         interval_seconds=interval,
                         next_run=_compute_next_run(last_run, interval),
-                        details=entry.get("details", {}),
+                        details=details,
                     )
                 )
             else:
@@ -808,6 +869,7 @@ def create_router(
                         label=label,
                         enabled=enabled,
                         interval_seconds=interval,
+                        details=inference_by_worker.get(name, {}),
                     )
                 )
         return JSONResponse(BackgroundWorkersResponse(workers=workers).model_dump())
