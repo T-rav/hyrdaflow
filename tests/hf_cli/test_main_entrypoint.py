@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from hf_cli import __main__ as cli_main
 from hf_cli.update_check import UpdateCheckResult
@@ -102,3 +103,60 @@ def test_run_skips_update_check_when_flag_present(
 
     out = capsys.readouterr().out
     assert "Registered repo" in out
+
+
+def test_update_uses_uv_tool_upgrade_first(monkeypatch, capsys) -> None:
+    calls: list[list[str]] = []
+
+    def _run(cmd, check):
+        assert check is False
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", _run)
+
+    cli_main.entrypoint(["update"])
+
+    out = capsys.readouterr().out
+    assert "Update complete via `uv tool upgrade hydraflow`." in out
+    assert calls == [["uv", "tool", "upgrade", "hydraflow"]]
+
+
+def test_update_falls_back_to_uv_pip(monkeypatch, capsys) -> None:
+    calls: list[list[str]] = []
+
+    def _run(cmd, check):
+        assert check is False
+        calls.append(cmd)
+        if len(calls) == 1:
+            return SimpleNamespace(returncode=1)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", _run)
+
+    cli_main.entrypoint(["update"])
+
+    out = capsys.readouterr().out
+    assert "Tool upgrade failed; trying environment upgrade..." in out
+    assert "Update complete via `uv pip install -U hydraflow`." in out
+    assert calls == [
+        ["uv", "tool", "upgrade", "hydraflow"],
+        ["uv", "pip", "install", "-U", "hydraflow"],
+    ]
+
+
+def test_update_exits_nonzero_when_both_commands_fail(monkeypatch, capsys) -> None:
+    def _run(_cmd, check):
+        assert check is False
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", _run)
+
+    try:
+        cli_main.entrypoint(["update"])
+        raise AssertionError("expected SystemExit")
+    except SystemExit as exc:
+        assert exc.code == 1
+
+    out = capsys.readouterr().out
+    assert "Update failed. Try manually:" in out

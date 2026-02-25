@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
@@ -87,6 +88,33 @@ def _handle_check_update() -> None:
     print(f"Up to date: {result.current_version}")
 
 
+def _handle_update() -> None:
+    print("Updating hydraflow...")
+    tool_upgrade = subprocess.run(  # noqa: S603
+        ["uv", "tool", "upgrade", "hydraflow"],
+        check=False,
+    )
+    if tool_upgrade.returncode == 0:
+        print("Update complete via `uv tool upgrade hydraflow`.")
+        return
+
+    print("Tool upgrade failed; trying environment upgrade...")
+    pip_upgrade = subprocess.run(  # noqa: S603
+        ["uv", "pip", "install", "-U", "hydraflow"],
+        check=False,
+    )
+    if pip_upgrade.returncode == 0:
+        print("Update complete via `uv pip install -U hydraflow`.")
+        return
+
+    print(
+        "Update failed. Try manually:\n"
+        "  uv tool upgrade hydraflow\n"
+        "  uv pip install -U hydraflow"
+    )
+    raise SystemExit(1)
+
+
 def _print_update_notice() -> None:
     if str(Path.home()) == "/":
         return
@@ -163,6 +191,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         "start": lambda: hydraflow_main(rest),
         "version": _handle_version,
         "check-update": _handle_check_update,
+        "update": _handle_update,
     }
     if cmd in command_map:
         command_map[cmd]()
