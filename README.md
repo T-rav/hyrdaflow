@@ -12,8 +12,6 @@ Log an issue. Agents handle the rest - triaging, planning, implementing, reviewi
 
 HydraFlow is a delivery kernel for GitHub repositories: it accepts intent, compiles it through a staged pipeline, enforces quality gates, and produces merged software changes.
 
-HydraFlow is a delivery kernel for GitHub repositories: it accepts intent, compiles it through a staged pipeline, enforces quality gates, and produces merged software changes.
-
 ## What Makes It Different
 
 - Quality-gated pipeline, not "one-shot" agent code generation
