@@ -1,3 +1,8 @@
+---
+name: hf.enforce-migrations
+description: hf.enforce-migrations
+---
+
 # hf.enforce-migrations
 
 ```bash

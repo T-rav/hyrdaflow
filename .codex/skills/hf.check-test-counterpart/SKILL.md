@@ -1,3 +1,8 @@
+---
+name: hf.check-test-counterpart
+description: hf.check-test-counterpart
+---
+
 # hf.check-test-counterpart
 
 ```bash

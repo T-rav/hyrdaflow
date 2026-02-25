@@ -1,3 +1,8 @@
+---
+name: hf.audit-integration-tests
+description: Integration Test Audit
+---
+
 # Integration Test Audit
 
 Run a comprehensive integration test audit across the entire repo. Dynamically discovers external dependencies in source code, inventories existing integration tests, identifies coverage gaps, flags ugly/outdated tests, and creates GitHub issues for findings.

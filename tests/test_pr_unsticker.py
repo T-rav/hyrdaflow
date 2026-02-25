@@ -384,10 +384,10 @@ class TestCIFailureResolution:
         captured_prompt = None
         original_execute = AsyncMock(return_value="fixed transcript")
 
-        async def capture_execute(cmd, prompt, wt_arg, issue_num):
+        async def capture_execute(cmd, prompt, wt_arg, issue_num, **kwargs):
             nonlocal captured_prompt
             captured_prompt = prompt
-            return await original_execute(cmd, prompt, wt_arg, issue_num)
+            return await original_execute(cmd, prompt, wt_arg, issue_num, **kwargs)
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = capture_execute
@@ -663,6 +663,34 @@ class TestParallelWorkers:
         await unsticker.unstick(items)
 
         assert max_concurrent <= max_workers
+
+
+class TestPromptTelemetry:
+    """Verify unsticker prompt telemetry is attached to agent calls."""
+
+    @pytest.mark.asyncio
+    async def test_ci_fix_telemetry_includes_pruned_chars(self, tmp_path: Path) -> None:
+        unsticker, state, _prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
+            _make_unsticker(tmp_path)
+        )
+        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        state.set_hitl_cause(42, "x" * 6000)
+
+        wt.start_merge_main = AsyncMock(return_value=True)
+        agents._build_command = MagicMock(return_value=["cmd"])
+        agents._execute = AsyncMock(return_value="done")
+        agents._verify_result = AsyncMock(return_value=(True, ""))
+
+        ok = await unsticker._resolve_ci_or_quality(
+            42,
+            issue,
+            tmp_path / "worktrees" / "issue-42",
+            "agent/issue-42",
+            "https://example.com/pull/1",
+        )
+        assert ok is True
+        telemetry = agents._execute.await_args.kwargs["telemetry_stats"]
+        assert telemetry["pruned_chars_total"] > 0
 
 
 class TestGoalDrivenLoop:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -158,9 +158,9 @@ class TestHostRunnerRunSimple:
 
     @pytest.mark.asyncio
     async def test_timeout_kills_process_and_raises(self) -> None:
-        mock_proc = AsyncMock()
+        mock_proc = MagicMock()
         mock_proc.communicate = AsyncMock(side_effect=TimeoutError)
-        mock_proc.kill = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.wait = AsyncMock()
 
         runner = HostRunner()

@@ -1,3 +1,8 @@
+---
+name: hf.issue
+description: Create a GitHub Issue
+---
+
 # Create a GitHub Issue
 
 Take a rough description from the user, research the relevant codebase, and create a well-structured GitHub issue with full context, file references, and acceptance criteria.

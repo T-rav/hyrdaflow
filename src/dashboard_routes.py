@@ -1,0 +1,1606 @@
+"""Route handlers for the HydraFlow dashboard API."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections import Counter
+from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from pydantic import BaseModel, ValidationError
+
+from config import HydraFlowConfig, save_config_file
+from events import EventBus, EventType, HydraFlowEvent
+from issue_fetcher import IssueFetcher
+from issue_store import IssueStoreStage
+from metrics_manager import get_metrics_cache_dir
+from models import (
+    BackgroundWorkersResponse,
+    BackgroundWorkerStatus,
+    BGWorkerHealth,
+    ControlStatusConfig,
+    ControlStatusResponse,
+    IntentRequest,
+    IntentResponse,
+    IssueHistoryEntry,
+    IssueHistoryPR,
+    IssueHistoryResponse,
+    MetricsHistoryResponse,
+    MetricsResponse,
+    MetricsSnapshot,
+    PipelineIssue,
+    PipelineSnapshot,
+    PipelineSnapshotEntry,
+    QueueStats,
+    parse_task_links,
+)
+from pr_manager import PRManager
+from prompt_telemetry import PromptTelemetry
+from state import StateTracker
+from timeline import TimelineBuilder
+
+if TYPE_CHECKING:
+    from orchestrator import HydraFlowOrchestrator
+
+logger = logging.getLogger("hydraflow.dashboard")
+
+# Backend stage keys → frontend stage names
+_STAGE_NAME_MAP: dict[str, str] = {
+    IssueStoreStage.FIND: "triage",
+    IssueStoreStage.PLAN: "plan",
+    IssueStoreStage.READY: "implement",
+    IssueStoreStage.REVIEW: "review",
+    IssueStoreStage.HITL: "hitl",
+}
+
+# Frontend stage key → config label field name (for request-changes)
+_FRONTEND_STAGE_TO_LABEL_FIELD = {
+    "triage": "find_label",
+    "plan": "planner_label",
+    "implement": "ready_label",
+    "review": "review_label",
+}
+
+
+_INFERENCE_COUNTER_KEYS: tuple[str, ...] = (
+    "inference_calls",
+    "prompt_est_tokens",
+    "total_est_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+    "history_chars_saved",
+    "context_chars_saved",
+    "pruned_chars_total",
+    "cache_hits",
+    "cache_misses",
+)
+
+
+def _parse_iso_or_none(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _event_issue_number(data: dict[str, Any]) -> int | None:
+    value = data.get("issue")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str | None:
+    status = str(data.get("status", "")).lower()
+    result: str | None = None
+    if event_type == EventType.MERGE_UPDATE:
+        result = "merged" if status == "merged" else None
+    elif event_type == EventType.HITL_ESCALATION:
+        result = "hitl"
+    elif event_type == EventType.HITL_UPDATE:
+        result = "reviewed" if status == "resolved" else "hitl"
+    elif event_type == EventType.REVIEW_UPDATE:
+        if status == "done":
+            result = "reviewed"
+        elif status == "failed":
+            result = "failed"
+        else:
+            result = "active"
+    elif event_type in {
+        EventType.WORKER_UPDATE,
+        EventType.PLANNER_UPDATE,
+        EventType.TRIAGE_UPDATE,
+    }:
+        if status == "done":
+            done_map = {
+                EventType.WORKER_UPDATE: "implemented",
+                EventType.PLANNER_UPDATE: "planned",
+                EventType.TRIAGE_UPDATE: "triaged",
+            }
+            result = done_map.get(event_type, "active")
+        elif status == "failed":
+            result = "failed"
+        else:
+            result = "active"
+    elif event_type == EventType.PR_CREATED:
+        result = "in_review"
+    return result
+
+
+def _status_rank(status: str) -> int:
+    ranks = {
+        "unknown": 0,
+        "triaged": 1,
+        "planned": 2,
+        "implemented": 3,
+        "in_review": 4,
+        "reviewed": 5,
+        "hitl": 6,
+        "active": 7,
+        "failed": 8,
+        "merged": 9,
+    }
+    return ranks.get(status, 0)
+
+
+def _coerce_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _is_timestamp_in_range(
+    raw: str | None, since: datetime | None, until: datetime | None
+) -> bool:
+    if raw is None:
+        return since is None and until is None
+    parsed = _parse_iso_or_none(raw)
+    if parsed is None:
+        return since is None and until is None
+    if since is not None and parsed < since:
+        return False
+    return not (until is not None and parsed > until)
+
+
+def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]:
+    parsed = _parse_iso_or_none(timestamp)
+    if parsed is None:
+        parsed = datetime.min.replace(tzinfo=UTC)
+    return (parsed, _status_rank(status))
+
+
+def create_router(
+    config: HydraFlowConfig,
+    event_bus: EventBus,
+    state: StateTracker,
+    pr_manager: PRManager,
+    get_orchestrator: Callable[[], HydraFlowOrchestrator | None],
+    set_orchestrator: Callable[[HydraFlowOrchestrator], None],
+    set_run_task: Callable[[asyncio.Task[None]], None],
+    ui_dist_dir: Path,
+    template_dir: Path,
+) -> APIRouter:
+    """Create an APIRouter with all dashboard route handlers."""
+    router = APIRouter()
+
+    class RepoAddRequest(BaseModel):
+        slug: str | None = None
+
+    try:
+        from hf_cli import supervisor_client
+    except ImportError:  # pragma: no cover - env missing CLI
+        supervisor_client = None  # type: ignore[assignment]
+
+    def _serve_spa_index() -> HTMLResponse:
+        """Serve the SPA index.html, falling back to template or placeholder."""
+        react_index = ui_dist_dir / "index.html"
+        if react_index.exists():
+            return HTMLResponse(react_index.read_text())
+        template_path = template_dir / "index.html"
+        if template_path.exists():
+            return HTMLResponse(template_path.read_text())
+        return HTMLResponse(
+            "<h1>HydraFlow Dashboard</h1><p>Run 'make ui' to build.</p>"
+        )
+
+    def _load_local_metrics_cache(
+        limit: int = 100,
+    ) -> list[MetricsSnapshot]:
+        """Load metrics snapshots from local disk cache without requiring the orchestrator."""
+        cache_file = get_metrics_cache_dir(config) / "snapshots.jsonl"
+        if not cache_file.exists():
+            return []
+        snapshots: list[MetricsSnapshot] = []
+        try:
+            with open(cache_file) as f:
+                for raw_line in f:
+                    stripped = raw_line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        snapshots.append(MetricsSnapshot.model_validate_json(stripped))
+                    except ValidationError:
+                        logger.debug(
+                            "Skipping corrupt metrics snapshot line",
+                            exc_info=True,
+                        )
+                        continue
+        except OSError:
+            logger.warning(
+                "Could not read metrics cache %s",
+                cache_file,
+                exc_info=True,
+            )
+            return []
+        return snapshots[-limit:]
+
+    def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
+        return {
+            "issue_number": issue_number,
+            "title": f"Issue #{issue_number}",
+            "issue_url": "",
+            "status": "unknown",
+            "epic": "",
+            "linked_issues": set(),
+            "prs": {},
+            "session_ids": set(),
+            "source_calls": {},
+            "model_calls": {},
+            "inference": dict.fromkeys(_INFERENCE_COUNTER_KEYS, 0),
+            "first_seen": None,
+            "last_seen": None,
+            "status_updated_at": None,
+        }
+
+    def _touch_issue_timestamps(row: dict[str, Any], timestamp: str | None) -> None:
+        if not timestamp:
+            return
+        current_first = row.get("first_seen")
+        current_last = row.get("last_seen")
+        if not isinstance(current_first, str) or timestamp < current_first:
+            row["first_seen"] = timestamp
+        if not isinstance(current_last, str) or timestamp > current_last:
+            row["last_seen"] = timestamp
+
+    async def _enrich_issue_history_with_github(
+        entries: dict[int, dict[str, Any]], limit: int = 150
+    ) -> None:
+        if not entries:
+            return
+
+        fetcher = IssueFetcher(config)
+        issue_numbers = sorted(entries.keys(), reverse=True)[:limit]
+        sem = asyncio.Semaphore(6)
+
+        async def _fetch_and_apply(issue_number: int) -> None:
+            async with sem:
+                issue = await fetcher.fetch_issue_by_number(issue_number)
+            if issue is None:
+                return
+            row = entries.get(issue_number)
+            if row is None:
+                return
+            row["title"] = issue.title or row.get("title") or f"Issue #{issue_number}"
+            row["issue_url"] = issue.url or row.get("issue_url", "")
+            labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
+            if not row.get("epic"):
+                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                row["epic"] = epic
+            for link in parse_task_links(issue.body or ""):
+                row["linked_issues"].add(int(link.target_id))
+
+        await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
+
+    @router.get("/", response_class=HTMLResponse)
+    async def index() -> HTMLResponse:
+        return _serve_spa_index()
+
+    @router.get("/api/state")
+    async def get_state() -> JSONResponse:
+        return JSONResponse(state.to_dict())
+
+    @router.get("/api/stats")
+    async def get_stats() -> JSONResponse:
+        data: dict[str, Any] = state.get_lifetime_stats().model_dump()
+        orch = get_orchestrator()
+        if orch:
+            data["queue"] = orch.issue_store.get_queue_stats().model_dump()
+        return JSONResponse(data)
+
+    @router.get("/api/queue")
+    async def get_queue() -> JSONResponse:
+        """Return current queue depths, active counts, and throughput."""
+        orch = get_orchestrator()
+        if orch:
+            return JSONResponse(orch.issue_store.get_queue_stats().model_dump())
+        return JSONResponse(QueueStats().model_dump())
+
+    @router.post("/api/request-changes")
+    async def request_changes(body: dict[str, Any]) -> JSONResponse:
+        """Escalate an issue to HITL with user feedback."""
+        issue_number: int | None = body.get("issue_number")
+        feedback = (body.get("feedback") or "").strip()
+        stage: str = body.get("stage") or ""
+
+        if not isinstance(issue_number, int) or issue_number < 1 or not feedback:
+            return JSONResponse(
+                {"status": "error", "detail": "issue_number and feedback are required"},
+                status_code=400,
+            )
+
+        label_field = _FRONTEND_STAGE_TO_LABEL_FIELD.get(stage)
+        if not label_field:
+            return JSONResponse(
+                {"status": "error", "detail": f"Unknown stage: {stage}"},
+                status_code=400,
+            )
+
+        stage_labels: list[str] = getattr(config, label_field, [])
+        origin_label: str = stage_labels[0]
+
+        for lbl in stage_labels:
+            await pr_manager.remove_label(issue_number, lbl)
+        await pr_manager.add_labels(issue_number, config.hitl_label)
+
+        state.set_hitl_cause(issue_number, feedback)
+        state.set_hitl_origin(issue_number, origin_label)
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_ESCALATION,
+                data={
+                    "issue": issue_number,
+                    "cause": feedback,
+                    "origin": origin_label,
+                },
+            )
+        )
+
+        return JSONResponse({"status": "ok"})
+
+    @router.get("/api/pipeline")
+    async def get_pipeline() -> JSONResponse:
+        """Return current pipeline snapshot with issues per stage."""
+        orch = get_orchestrator()
+        if orch:
+            raw = orch.issue_store.get_pipeline_snapshot()
+            mapped: dict[str, list[PipelineSnapshotEntry]] = {}
+            for backend_stage, issues in raw.items():
+                frontend_stage = _STAGE_NAME_MAP.get(backend_stage, backend_stage)
+                mapped[frontend_stage] = issues
+            snapshot = PipelineSnapshot(
+                stages={
+                    k: [PipelineIssue.model_validate(i) for i in v]
+                    for k, v in mapped.items()
+                }
+            )
+            return JSONResponse(snapshot.model_dump())
+        return JSONResponse(PipelineSnapshot().model_dump())
+
+    @router.get("/api/events")
+    async def get_events(since: str | None = None) -> JSONResponse:
+        if since is not None:
+            from datetime import datetime
+
+            try:
+                since_dt = datetime.fromisoformat(since)
+                if since_dt.tzinfo is None:
+                    since_dt = since_dt.replace(tzinfo=UTC)
+                events = await event_bus.load_events_since(since_dt)
+                if events is not None:
+                    return JSONResponse([e.model_dump() for e in events])
+            except (ValueError, TypeError):
+                pass  # Fall through to in-memory history
+        history = event_bus.get_history()
+        return JSONResponse([e.model_dump() for e in history])
+
+    @router.get("/api/prs")
+    async def get_prs() -> JSONResponse:
+        """Fetch all open HydraFlow PRs from GitHub."""
+        all_labels = list(
+            {
+                *config.ready_label,
+                *config.review_label,
+                *config.fixed_label,
+                *config.hitl_label,
+                *config.hitl_active_label,
+                *config.planner_label,
+                *config.improve_label,
+            }
+        )
+        items = await pr_manager.list_open_prs(all_labels)
+        return JSONResponse([item.model_dump() for item in items])
+
+    @router.get("/api/hitl")
+    async def get_hitl() -> JSONResponse:
+        """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
+        items = await pr_manager.list_hitl_items(config.hitl_label)
+        orch = get_orchestrator()
+        enriched = []
+        for item in items:
+            data = item.model_dump()
+            if orch:
+                data["status"] = orch.get_hitl_status(item.issue)
+            cause = state.get_hitl_cause(item.issue)
+            origin = state.get_hitl_origin(item.issue)
+            if not cause and origin:
+                if origin in config.improve_label:
+                    cause = "Self-improvement proposal"
+                elif origin in config.review_label:
+                    cause = "Review escalation"
+                elif origin in config.find_label:
+                    cause = "Triage escalation"
+                else:
+                    cause = "Escalation (reason not recorded)"
+            if cause:
+                data["cause"] = cause
+            if origin and origin in config.improve_label:
+                data["isMemorySuggestion"] = True
+            enriched.append(data)
+        return JSONResponse(enriched)
+
+    @router.post("/api/hitl/{issue_number}/correct")
+    async def hitl_correct(issue_number: int, body: dict[str, Any]) -> JSONResponse:
+        """Submit a correction for a HITL issue to guide retry."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"status": "no orchestrator"}, status_code=400)
+        correction = body.get("correction") or ""
+        if not correction.strip():
+            return JSONResponse(
+                {"status": "error", "detail": "Correction text must not be empty"},
+                status_code=400,
+            )
+        orch.submit_hitl_correction(issue_number, correction)
+
+        # Swap labels for immediate dashboard feedback
+        await pr_manager.swap_pipeline_labels(issue_number, config.hitl_active_label[0])
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "processing",
+                    "action": "correct",
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
+    @router.post("/api/hitl/{issue_number}/skip")
+    async def hitl_skip(issue_number: int) -> JSONResponse:
+        """Remove a HITL issue from the queue without action."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"status": "no orchestrator"}, status_code=400)
+
+        # Read origin before clearing state
+        origin = state.get_hitl_origin(issue_number)
+
+        orch.skip_hitl_issue(issue_number)
+        state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+
+        # If this was an improve issue, transition to triage for implementation
+        if origin and origin in config.improve_label and config.find_label:
+            await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
+        else:
+            # Just remove all pipeline labels
+            for lbl in config.all_pipeline_labels:
+                await pr_manager.remove_label(issue_number, lbl)
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "resolved",
+                    "action": "skip",
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
+    @router.post("/api/hitl/{issue_number}/close")
+    async def hitl_close(issue_number: int) -> JSONResponse:
+        """Close a HITL issue on GitHub."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"status": "no orchestrator"}, status_code=400)
+        orch.skip_hitl_issue(issue_number)
+        state.remove_hitl_origin(issue_number)
+        await pr_manager.close_issue(issue_number)
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "resolved",
+                    "action": "close",
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
+    @router.post("/api/hitl/{issue_number}/approve-memory")
+    async def hitl_approve_memory(issue_number: int) -> JSONResponse:
+        """Approve a HITL item as a memory suggestion, relabeling for sync."""
+        # Remove all pipeline labels and add memory label
+        for lbl in config.all_pipeline_labels:
+            await pr_manager.remove_label(issue_number, lbl)
+        await pr_manager.add_labels(issue_number, config.memory_label)
+        orch = get_orchestrator()
+        if orch:
+            orch.skip_hitl_issue(issue_number)
+        state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "resolved",
+                    "action": "approved_as_memory",
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
+    @router.get("/api/human-input")
+    async def get_human_input_requests() -> JSONResponse:
+        orch = get_orchestrator()
+        if orch:
+            return JSONResponse(orch.human_input_requests)
+        return JSONResponse({})
+
+    @router.post("/api/human-input/{issue_number}")
+    async def provide_human_input(
+        issue_number: int, body: dict[str, Any]
+    ) -> JSONResponse:
+        orch = get_orchestrator()
+        if orch:
+            answer = body.get("answer", "")
+            orch.provide_human_input(issue_number, answer)
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"status": "no orchestrator"}, status_code=400)
+
+    @router.post("/api/control/start")
+    async def start_orchestrator() -> JSONResponse:
+        orch = get_orchestrator()
+        if orch and orch.running:
+            return JSONResponse({"error": "already running"}, status_code=409)
+
+        from orchestrator import HydraFlowOrchestrator
+
+        new_orch = HydraFlowOrchestrator(
+            config,
+            event_bus=event_bus,
+            state=state,
+        )
+        set_orchestrator(new_orch)
+        set_run_task(asyncio.create_task(new_orch.run()))
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ORCHESTRATOR_STATUS,
+                data={"status": "running", "reset": True},
+            )
+        )
+        return JSONResponse({"status": "started"})
+
+    @router.post("/api/control/stop")
+    async def stop_orchestrator() -> JSONResponse:
+        orch = get_orchestrator()
+        if not orch or not orch.running:
+            return JSONResponse({"error": "not running"}, status_code=400)
+        await orch.request_stop()
+        return JSONResponse({"status": "stopping"})
+
+    @router.get("/api/control/status")
+    async def get_control_status() -> JSONResponse:
+        orch = get_orchestrator()
+        status = "idle"
+        current_session = None
+        if orch:
+            status = orch.run_status
+            current_session = orch.current_session_id
+        response = ControlStatusResponse(
+            status=status,
+            config=ControlStatusConfig(
+                repo=config.repo,
+                ready_label=config.ready_label,
+                find_label=config.find_label,
+                planner_label=config.planner_label,
+                review_label=config.review_label,
+                hitl_label=config.hitl_label,
+                hitl_active_label=config.hitl_active_label,
+                fixed_label=config.fixed_label,
+                improve_label=config.improve_label,
+                memory_label=config.memory_label,
+                max_workers=config.max_workers,
+                max_planners=config.max_planners,
+                max_reviewers=config.max_reviewers,
+                max_hitl_workers=config.max_hitl_workers,
+                batch_size=config.batch_size,
+                model=config.model,
+                memory_auto_approve=config.memory_auto_approve,
+                pr_unstick_batch_size=config.pr_unstick_batch_size,
+            ),
+        )
+        data = response.model_dump()
+        data["current_session_id"] = current_session
+        return JSONResponse(data)
+
+    # Mutable fields that can be changed at runtime via PATCH
+    _MUTABLE_FIELDS = {
+        "max_workers",
+        "max_planners",
+        "max_reviewers",
+        "max_hitl_workers",
+        "model",
+        "review_model",
+        "planner_model",
+        "batch_size",
+        "max_ci_fix_attempts",
+        "max_quality_fix_attempts",
+        "max_review_fix_attempts",
+        "min_review_findings",
+        "max_merge_conflict_fix_attempts",
+        "ci_check_timeout",
+        "ci_poll_interval",
+        "poll_interval",
+        "pr_unstick_interval",
+        "pr_unstick_batch_size",
+        "memory_auto_approve",
+        "unstick_auto_merge",
+        "unstick_all_causes",
+    }
+
+    @router.patch("/api/control/config")
+    async def patch_config(body: dict[str, Any]) -> JSONResponse:
+        """Update runtime config fields. Pass ``persist: true`` to save to disk."""
+        persist = body.pop("persist", False)
+        updates: dict[str, Any] = {}
+
+        for key, value in body.items():
+            if key not in _MUTABLE_FIELDS:
+                continue
+            if not hasattr(config, key):
+                continue
+            updates[key] = value
+
+        if not updates:
+            return JSONResponse({"status": "ok", "updated": {}})
+
+        # Validate updates through Pydantic field constraints
+        test_values = config.model_dump()
+        test_values.update(updates)
+        try:
+            validated = HydraFlowConfig.model_validate(test_values)
+        except ValidationError as exc:
+            errors = exc.errors()
+            msg = "; ".join(
+                f"{e['loc'][-1]}: {e['msg']}" for e in errors if e.get("loc")
+            )
+            return JSONResponse(
+                {"status": "error", "message": msg or str(exc)},
+                status_code=422,
+            )
+
+        # Apply validated values to the live config
+        applied: dict[str, Any] = {}
+        for key in updates:
+            validated_value = getattr(validated, key)
+            object.__setattr__(config, key, validated_value)
+            applied[key] = validated_value
+
+        if persist and applied:
+            save_config_file(config.config_file, applied)
+
+        return JSONResponse({"status": "ok", "updated": applied})
+
+    # Known workers with human-friendly labels (pipeline loops + background)
+    _bg_worker_defs = [
+        ("triage", "Triage"),
+        ("plan", "Plan"),
+        ("implement", "Implement"),
+        ("review", "Review"),
+        ("memory_sync", "Memory Manager"),
+        ("retrospective", "Retrospective"),
+        ("metrics", "Metrics"),
+        ("review_insights", "Review Insights"),
+        ("pipeline_poller", "Pipeline Poller"),
+        ("pr_unsticker", "PR Unsticker"),
+    ]
+
+    # Workers that have independent configurable intervals
+    _INTERVAL_WORKERS = {"memory_sync", "metrics", "pr_unsticker", "pipeline_poller"}
+    # Pipeline loops share poll_interval (read-only display)
+    _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}
+    _WORKER_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
+        "plan": ("planner",),
+        "implement": ("agent",),
+        "review": ("reviewer", "merge_conflict", "fresh_rebuild"),
+    }
+
+    def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
+        telemetry = PromptTelemetry(config)
+        source_totals = telemetry.get_source_totals()
+
+        worker_totals: dict[str, dict[str, int]] = {}
+        for worker_name, _label in _bg_worker_defs:
+            sources = (worker_name, *_WORKER_SOURCE_ALIASES.get(worker_name, ()))
+            totals = {
+                "inference_calls": 0,
+                "total_tokens": 0,
+                "pruned_chars_total": 0,
+            }
+            for source_name in sources:
+                source_entry = source_totals.get(source_name)
+                if not source_entry:
+                    continue
+                totals["inference_calls"] += source_entry["inference_calls"]
+                totals["total_tokens"] += source_entry["total_tokens"]
+                totals["pruned_chars_total"] += source_entry["pruned_chars_total"]
+            if totals["inference_calls"] > 0:
+                saved_tokens_est = round(totals["pruned_chars_total"] / 4)
+                worker_totals[worker_name] = {
+                    "inference_calls": totals["inference_calls"],
+                    "total_tokens": totals["total_tokens"],
+                    "pruned_chars_total": totals["pruned_chars_total"],
+                    "saved_tokens_est": saved_tokens_est,
+                    "unpruned_tokens_est": totals["total_tokens"] + saved_tokens_est,
+                }
+        return worker_totals
+
+    def _compute_next_run(
+        last_run: str | None, interval_seconds: int | None
+    ) -> str | None:
+        """Compute next run ISO timestamp from last_run + interval."""
+        if not last_run or not interval_seconds:
+            return None
+        from datetime import datetime, timedelta
+
+        try:
+            last_dt = datetime.fromisoformat(last_run)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=UTC)
+            next_dt = last_dt + timedelta(seconds=interval_seconds)
+            return next_dt.isoformat()
+        except (ValueError, TypeError):
+            return None
+
+    @router.get("/api/system/workers")
+    async def get_system_workers() -> JSONResponse:
+        """Return last known status of each background worker."""
+        orch = get_orchestrator()
+        bg_states = orch.get_bg_worker_states() if orch else {}
+        inference_by_worker = _build_system_worker_inference_stats()
+        workers = []
+        for name, label in _bg_worker_defs:
+            enabled = orch.is_bg_worker_enabled(name) if orch else True
+
+            # Determine interval for this worker
+            interval: int | None = None
+            if name in _INTERVAL_WORKERS and orch:
+                interval = orch.get_bg_worker_interval(name)
+            elif name in _INTERVAL_WORKERS:
+                if name == "memory_sync":
+                    interval = config.memory_sync_interval
+                elif name == "metrics":
+                    interval = config.metrics_sync_interval
+                elif name == "pr_unsticker":
+                    interval = config.pr_unstick_interval
+                elif name == "pipeline_poller":
+                    interval = 5
+            elif name in _PIPELINE_WORKERS:
+                interval = config.poll_interval
+
+            if name in bg_states:
+                entry = bg_states[name]
+                last_run = entry.get("last_run")
+                raw_details = entry.get("details", {})
+                details: dict[str, Any] = (
+                    dict(raw_details)
+                    if isinstance(raw_details, dict)
+                    else {"raw_details": str(raw_details)}
+                )
+                details.update(inference_by_worker.get(name, {}))
+                workers.append(
+                    BackgroundWorkerStatus(
+                        name=name,
+                        label=label,
+                        status=BGWorkerHealth(
+                            entry.get("status", BGWorkerHealth.DISABLED)
+                        ),
+                        enabled=enabled,
+                        last_run=last_run,
+                        interval_seconds=interval,
+                        next_run=_compute_next_run(last_run, interval),
+                        details=details,
+                    )
+                )
+            else:
+                workers.append(
+                    BackgroundWorkerStatus(
+                        name=name,
+                        label=label,
+                        enabled=enabled,
+                        interval_seconds=interval,
+                        details=inference_by_worker.get(name, {}),
+                    )
+                )
+        return JSONResponse(BackgroundWorkersResponse(workers=workers).model_dump())
+
+    @router.post("/api/control/bg-worker")
+    async def toggle_bg_worker(body: dict[str, Any]) -> JSONResponse:
+        """Enable or disable a background worker."""
+        name = body.get("name")
+        enabled = body.get("enabled")
+        if not name or enabled is None:
+            return JSONResponse(
+                {"error": "name and enabled are required"}, status_code=400
+            )
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        orch.set_bg_worker_enabled(name, bool(enabled))
+        return JSONResponse({"status": "ok", "name": name, "enabled": bool(enabled)})
+
+    # Interval bounds per editable worker.
+    # memory_sync, metrics, pr_unsticker bounds must match config.py Field constraints.
+    # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
+    _INTERVAL_BOUNDS = {
+        "memory_sync": (10, 14400),
+        "metrics": (30, 14400),
+        "pr_unsticker": (60, 86400),
+        "pipeline_poller": (5, 14400),
+    }
+
+    @router.post("/api/control/bg-worker/interval")
+    async def set_bg_worker_interval(body: dict[str, Any]) -> JSONResponse:
+        """Update the polling interval for a background worker."""
+        name = body.get("name")
+        interval = body.get("interval_seconds")
+        if not name or interval is None:
+            return JSONResponse(
+                {"error": "name and interval_seconds are required"}, status_code=400
+            )
+        if name not in _INTERVAL_BOUNDS:
+            return JSONResponse(
+                {"error": f"interval not editable for worker '{name}'"}, status_code=400
+            )
+        try:
+            interval = int(interval)
+        except (TypeError, ValueError):
+            return JSONResponse(
+                {"error": "interval_seconds must be an integer"}, status_code=400
+            )
+        lo, hi = _INTERVAL_BOUNDS[name]
+        if interval < lo or interval > hi:
+            return JSONResponse(
+                {"error": f"interval_seconds must be between {lo} and {hi}"},
+                status_code=422,
+            )
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        orch.set_bg_worker_interval(name, interval)
+        return JSONResponse(
+            {"status": "ok", "name": name, "interval_seconds": interval}
+        )
+
+    @router.get("/api/issues/history")
+    async def get_issue_history(
+        since: str | None = None,
+        until: str | None = None,
+        status: str | None = None,
+        query: str | None = None,
+        limit: int = 300,
+    ) -> JSONResponse:
+        """Return issue lifecycle history with inference rollups."""
+        since_dt = _parse_iso_or_none(since)
+        until_dt = _parse_iso_or_none(until)
+        requested_status = (status or "").strip().lower()
+        query_text = (query or "").strip().lower()
+        clamped_limit = max(1, min(limit, 1000))
+
+        telemetry = PromptTelemetry(config)
+        issue_rows: dict[int, dict[str, Any]] = {}
+        all_events = event_bus.get_history()
+        pr_to_issue: dict[int, int] = {}
+
+        # Build PR→issue mapping from all in-memory events first so merge events
+        # in the selected range still resolve when PR creation happened earlier.
+        for event in all_events:
+            if event.type != EventType.PR_CREATED:
+                continue
+            mapped_issue = _event_issue_number(event.data)
+            mapped_pr = _coerce_int(event.data.get("pr"))
+            if mapped_issue is not None and mapped_issue > 0 and mapped_pr > 0:
+                pr_to_issue[mapped_pr] = mapped_issue
+
+        use_issue_rollups = (
+            since_dt is None
+            and until_dt is None
+            and not query_text
+            and not requested_status
+        )
+        if use_issue_rollups:
+            for issue_number, counters in telemetry.get_issue_totals().items():
+                row = issue_rows.setdefault(
+                    issue_number, _new_issue_history_entry(issue_number)
+                )
+                for key in _INFERENCE_COUNTER_KEYS:
+                    row["inference"][key] = _coerce_int(counters.get(key, 0))
+            # Keep metadata (sessions/model/source/pr links) from recent rows
+            # without re-summing counters that already came from rollups.
+            for record in telemetry.load_inferences(limit=5000):
+                issue_number = _coerce_int(record.get("issue_number"))
+                if issue_number <= 0:
+                    continue
+                row = issue_rows.get(issue_number)
+                if row is None:
+                    continue
+                timestamp = record.get("timestamp")
+                _touch_issue_timestamps(
+                    row, timestamp if isinstance(timestamp, str) else None
+                )
+                session_id = str(record.get("session_id", "")).strip()
+                if session_id:
+                    row["session_ids"].add(session_id)
+                source = str(record.get("source", "")).strip()
+                if source:
+                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
+                model = str(record.get("model", "")).strip()
+                if model:
+                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
+                pr_number = _coerce_int(record.get("pr_number"))
+                if pr_number > 0:
+                    prs: dict[int, dict[str, Any]] = row["prs"]
+                    if pr_number not in prs:
+                        prs[pr_number] = {
+                            "number": pr_number,
+                            "url": "",
+                            "merged": False,
+                        }
+                    pr_to_issue.setdefault(pr_number, issue_number)
+        else:
+            inference_rows = telemetry.load_inferences(limit=50000)
+            for record in inference_rows:
+                timestamp = record.get("timestamp")
+                if not _is_timestamp_in_range(
+                    timestamp if isinstance(timestamp, str) else None,
+                    since_dt,
+                    until_dt,
+                ):
+                    continue
+                issue_number = _coerce_int(record.get("issue_number"))
+                if issue_number <= 0:
+                    continue
+                row = issue_rows.setdefault(
+                    issue_number, _new_issue_history_entry(issue_number)
+                )
+                _touch_issue_timestamps(
+                    row, timestamp if isinstance(timestamp, str) else None
+                )
+
+                session_id = str(record.get("session_id", "")).strip()
+                if session_id:
+                    row["session_ids"].add(session_id)
+
+                source = str(record.get("source", "")).strip()
+                if source:
+                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
+
+                model = str(record.get("model", "")).strip()
+                if model:
+                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
+
+                for key in _INFERENCE_COUNTER_KEYS:
+                    row["inference"][key] += _coerce_int(record.get(key))
+
+                pr_number = _coerce_int(record.get("pr_number"))
+                if pr_number > 0:
+                    prs: dict[int, dict[str, Any]] = row["prs"]
+                    if pr_number not in prs:
+                        prs[pr_number] = {
+                            "number": pr_number,
+                            "url": "",
+                            "merged": False,
+                        }
+                    pr_to_issue.setdefault(pr_number, issue_number)
+
+        for event in all_events:
+            timestamp = event.timestamp
+            if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
+                continue
+
+            issue_number = _event_issue_number(event.data)
+            if issue_number is None and event.type == EventType.MERGE_UPDATE:
+                pr_num = _coerce_int(event.data.get("pr"))
+                issue_number = pr_to_issue.get(pr_num)
+
+            if issue_number is None or issue_number <= 0:
+                continue
+
+            row = issue_rows.setdefault(
+                issue_number, _new_issue_history_entry(issue_number)
+            )
+            _touch_issue_timestamps(row, timestamp)
+
+            maybe_title = str(event.data.get("title", "")).strip()
+            if maybe_title:
+                row["title"] = maybe_title
+
+            maybe_url = str(event.data.get("url", "")).strip()
+            if maybe_url.startswith(("http://", "https://")):
+                row["issue_url"] = maybe_url
+
+            if event.type == EventType.ISSUE_CREATED:
+                labels = event.data.get("labels", [])
+                if isinstance(labels, list) and not row.get("epic"):
+                    for lbl in labels:
+                        s = str(lbl).strip()
+                        if s and "epic" in s.lower():
+                            row["epic"] = s
+                            break
+
+            if event.type == EventType.PR_CREATED:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    pr_to_issue[pr_number] = issue_number
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    url = str(event.data.get("url", "")).strip()
+                    if url.startswith(("http://", "https://")):
+                        payload["url"] = url
+                    prs[pr_number] = payload
+
+            if event.type == EventType.MERGE_UPDATE:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    if str(event.data.get("status", "")).lower() == "merged":
+                        payload["merged"] = True
+                    prs[pr_number] = payload
+
+            normalised = _normalise_event_status(event.type, event.data)
+            if normalised:
+                current = str(row.get("status", "unknown"))
+                current_ts = (
+                    row.get("status_updated_at")
+                    if isinstance(row.get("status_updated_at"), str)
+                    else None
+                )
+                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
+                    current, current_ts
+                ):
+                    row["status"] = normalised
+                    row["status_updated_at"] = timestamp
+
+        items: list[IssueHistoryEntry] = []
+        for row in issue_rows.values():
+            row_status = str(row.get("status", "unknown")).lower()
+            if requested_status and row_status != requested_status:
+                continue
+
+            issue_number = int(row["issue_number"])
+            title = str(row.get("title", f"Issue #{issue_number}"))
+            if (
+                query_text
+                and query_text not in title.lower()
+                and query_text not in str(issue_number)
+            ):
+                continue
+
+            linked_issues = sorted(
+                int(v) for v in row.get("linked_issues", set()) if _coerce_int(v) > 0
+            )
+            prs_map = row.get("prs", {})
+            if not isinstance(prs_map, dict):
+                prs_map = {}
+            pr_rows = sorted(
+                (
+                    IssueHistoryPR(
+                        number=int(pr_data["number"]),
+                        url=str(pr_data.get("url", "")),
+                        merged=bool(pr_data.get("merged", False)),
+                    )
+                    for pr_data in prs_map.values()
+                    if isinstance(pr_data, dict)
+                    and _coerce_int(pr_data.get("number")) > 0
+                ),
+                key=lambda p: p.number,
+                reverse=True,
+            )
+
+            items.append(
+                IssueHistoryEntry(
+                    issue_number=issue_number,
+                    title=title,
+                    issue_url=str(row.get("issue_url", "")),
+                    status=row_status,
+                    epic=str(row.get("epic", "")),
+                    linked_issues=linked_issues,
+                    prs=pr_rows,
+                    session_ids=sorted(
+                        str(s) for s in row.get("session_ids", set()) if str(s)
+                    ),
+                    source_calls=dict(sorted(row.get("source_calls", {}).items())),
+                    model_calls=dict(sorted(row.get("model_calls", {}).items())),
+                    inference={
+                        k: _coerce_int(v) for k, v in row.get("inference", {}).items()
+                    },
+                    first_seen=row.get("first_seen"),
+                    last_seen=row.get("last_seen"),
+                )
+            )
+
+        # Keep API fast by enriching only visible rows and only when needed.
+        issue_lookup = {
+            item.issue_number: issue_rows[item.issue_number] for item in items
+        }
+        enrich_candidates = [
+            item.issue_number
+            for item in items
+            if (
+                not item.issue_url
+                or item.title.startswith("Issue #")
+                or (not item.epic and not item.linked_issues)
+            )
+        ][:40]
+        if enrich_candidates:
+            await _enrich_issue_history_with_github(
+                {k: issue_lookup[k] for k in enrich_candidates}
+            )
+            items = []
+            for row in issue_rows.values():
+                row_status = str(row.get("status", "unknown")).lower()
+                if requested_status and row_status != requested_status:
+                    continue
+                issue_number = int(row["issue_number"])
+                title = str(row.get("title", f"Issue #{issue_number}"))
+                if (
+                    query_text
+                    and query_text not in title.lower()
+                    and query_text not in str(issue_number)
+                ):
+                    continue
+                linked_issues = sorted(
+                    int(v)
+                    for v in row.get("linked_issues", set())
+                    if _coerce_int(v) > 0
+                )
+                prs_map = row.get("prs", {})
+                if not isinstance(prs_map, dict):
+                    prs_map = {}
+                pr_rows = sorted(
+                    (
+                        IssueHistoryPR(
+                            number=int(pr_data["number"]),
+                            url=str(pr_data.get("url", "")),
+                            merged=bool(pr_data.get("merged", False)),
+                        )
+                        for pr_data in prs_map.values()
+                        if isinstance(pr_data, dict)
+                        and _coerce_int(pr_data.get("number")) > 0
+                    ),
+                    key=lambda p: p.number,
+                    reverse=True,
+                )
+                items.append(
+                    IssueHistoryEntry(
+                        issue_number=issue_number,
+                        title=title,
+                        issue_url=str(row.get("issue_url", "")),
+                        status=row_status,
+                        epic=str(row.get("epic", "")),
+                        linked_issues=linked_issues,
+                        prs=pr_rows,
+                        session_ids=sorted(
+                            str(s) for s in row.get("session_ids", set()) if str(s)
+                        ),
+                        source_calls=dict(sorted(row.get("source_calls", {}).items())),
+                        model_calls=dict(sorted(row.get("model_calls", {}).items())),
+                        inference={
+                            k: _coerce_int(v)
+                            for k, v in row.get("inference", {}).items()
+                        },
+                        first_seen=row.get("first_seen"),
+                        last_seen=row.get("last_seen"),
+                    )
+                )
+
+        items.sort(
+            key=lambda item: (
+                item.last_seen or "",
+                item.inference.get("total_tokens", 0),
+                item.issue_number,
+            ),
+            reverse=True,
+        )
+        items = items[:clamped_limit]
+
+        totals = {
+            "issues": len(items),
+            "inference_calls": sum(
+                i.inference.get("inference_calls", 0) for i in items
+            ),
+            "total_tokens": sum(i.inference.get("total_tokens", 0) for i in items),
+        }
+
+        return JSONResponse(
+            IssueHistoryResponse(
+                items=items,
+                totals=totals,
+                since=since_dt.isoformat() if since_dt else None,
+                until=until_dt.isoformat() if until_dt else None,
+            ).model_dump()
+        )
+
+    @router.get("/api/metrics")
+    async def get_metrics() -> JSONResponse:
+        """Return lifetime stats, derived rates, time-to-merge, and thresholds."""
+        lifetime = state.get_lifetime_stats()
+        rates: dict[str, float] = {}
+        total_reviews = (
+            lifetime.total_review_approvals + lifetime.total_review_request_changes
+        )
+        if lifetime.issues_completed > 0:
+            rates["merge_rate"] = lifetime.prs_merged / lifetime.issues_completed
+            rates["quality_fix_rate"] = (
+                lifetime.total_quality_fix_rounds / lifetime.issues_completed
+            )
+            rates["hitl_escalation_rate"] = (
+                lifetime.total_hitl_escalations / lifetime.issues_completed
+            )
+            rates["avg_implementation_seconds"] = (
+                lifetime.total_implementation_seconds / lifetime.issues_completed
+            )
+        if total_reviews > 0:
+            rates["first_pass_approval_rate"] = (
+                lifetime.total_review_approvals / total_reviews
+            )
+            rates["reviewer_fix_rate"] = lifetime.total_reviewer_fixes / total_reviews
+        time_to_merge = state.get_merge_duration_stats()
+        thresholds = state.check_thresholds(
+            config.quality_fix_rate_threshold,
+            config.approval_rate_threshold,
+            config.hitl_rate_threshold,
+        )
+        retries = state.get_retries_summary()
+        if retries:
+            rates["retries_per_stage"] = sum(retries.values())
+
+        telemetry = PromptTelemetry(config)
+        inference_lifetime = telemetry.get_lifetime_totals()
+        orch = get_orchestrator()
+        session_id = orch.current_session_id if orch else ""
+        inference_session = (
+            telemetry.get_session_totals(session_id) if session_id else {}
+        )
+
+        return JSONResponse(
+            MetricsResponse(
+                lifetime=lifetime,
+                rates=rates,
+                time_to_merge=time_to_merge,
+                thresholds=thresholds,
+                inference_lifetime=inference_lifetime,
+                inference_session=inference_session,
+            ).model_dump()
+        )
+
+    @router.get("/api/metrics/github")
+    async def get_github_metrics() -> JSONResponse:
+        """Query GitHub for issue/PR counts by label state."""
+        counts = await pr_manager.get_label_counts(config)
+        return JSONResponse(counts)
+
+    @router.get("/api/metrics/history")
+    async def get_metrics_history() -> JSONResponse:
+        """Historical snapshots from the metrics issue + current in-memory snapshot.
+
+        Falls back to local disk cache when the orchestrator is not running.
+        """
+        orch = get_orchestrator()
+        if orch is None:
+            # Serve from local cache without requiring the orchestrator
+            snapshots = _load_local_metrics_cache()
+            return JSONResponse(
+                MetricsHistoryResponse(snapshots=snapshots).model_dump()
+            )
+        mgr = orch.metrics_manager
+        snapshots = await mgr.fetch_history_from_issue()
+        current = mgr.latest_snapshot
+        return JSONResponse(
+            MetricsHistoryResponse(
+                snapshots=snapshots,
+                current=current,
+            ).model_dump()
+        )
+
+    @router.get("/api/runs")
+    async def list_run_issues() -> JSONResponse:
+        """Return issue numbers that have recorded runs."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse([])
+        return JSONResponse(orch.run_recorder.list_issues())
+
+    @router.get("/api/runs/{issue_number}")
+    async def get_runs(issue_number: int) -> JSONResponse:
+        """Return all recorded runs for an issue."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse([])
+        runs = orch.run_recorder.list_runs(issue_number)
+        return JSONResponse([r.model_dump() for r in runs])
+
+    @router.get("/api/runs/{issue_number}/{timestamp}/{filename}")
+    async def get_run_artifact(
+        issue_number: int, timestamp: str, filename: str
+    ) -> Response:
+        """Return a specific artifact file from a recorded run."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        content = orch.run_recorder.get_run_artifact(issue_number, timestamp, filename)
+        if content is None:
+            return JSONResponse({"error": "artifact not found"}, status_code=404)
+        return Response(content=content, media_type="text/plain")
+
+    @router.get("/api/harness-insights")
+    async def get_harness_insights() -> JSONResponse:
+        """Return recent harness failure patterns and improvement suggestions."""
+        from harness_insights import (
+            HarnessInsightStore,
+            generate_suggestions,
+        )
+
+        memory_dir = config.data_path("memory")
+        store = HarnessInsightStore(memory_dir)
+        records = store.load_recent(config.harness_insight_window)
+        proposed = store.get_proposed_patterns()
+        suggestions = generate_suggestions(
+            records, config.harness_pattern_threshold, proposed
+        )
+
+        # Build category summary
+        cat_counts: Counter[str] = Counter(r.category for r in records)
+        sub_counts: Counter[str] = Counter()
+        for r in records:
+            for sub in r.subcategories:
+                sub_counts[sub] += 1
+
+        return JSONResponse(
+            {
+                "total_failures": len(records),
+                "category_counts": dict(cat_counts.most_common()),
+                "subcategory_counts": dict(sub_counts.most_common()),
+                "suggestions": [s.model_dump() for s in suggestions],
+                "proposed_patterns": sorted(proposed),
+            }
+        )
+
+    @router.get("/api/harness-insights/history")
+    async def get_harness_insights_history() -> JSONResponse:
+        """Return raw failure records for historical analysis."""
+        from harness_insights import HarnessInsightStore
+
+        memory_dir = config.data_path("memory")
+        store = HarnessInsightStore(memory_dir)
+        records = store.load_recent(config.harness_insight_window)
+        return JSONResponse([r.model_dump() for r in records])
+
+    @router.get("/api/timeline")
+    async def get_timeline() -> JSONResponse:
+        builder = TimelineBuilder(event_bus)
+        timelines = builder.build_all()
+        return JSONResponse([t.model_dump() for t in timelines])
+
+    @router.get("/api/timeline/issue/{issue_num}")
+    async def get_timeline_issue(issue_num: int) -> JSONResponse:
+        builder = TimelineBuilder(event_bus)
+        timeline = builder.build_for_issue(issue_num)
+        if timeline is None:
+            return JSONResponse({"error": "Issue not found"}, status_code=404)
+        return JSONResponse(timeline.model_dump())
+
+    # --- Multi-repo supervisor endpoints ---
+
+    async def _call_supervisor(func: Callable, *args, **kwargs) -> Any:
+        if supervisor_client is None:
+            raise RuntimeError("hf supervisor client unavailable in this environment")
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    @router.get("/api/repos")
+    async def list_supervised_repos() -> JSONResponse:
+        if supervisor_client is None:
+            return JSONResponse({"repos": []})
+        try:
+            repos = await _call_supervisor(supervisor_client.list_repos)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supervisor list_repos failed: %s", exc)
+            return JSONResponse({"error": str(exc)}, status_code=503)
+        return JSONResponse({"repos": repos})
+
+    @router.post("/api/repos")
+    async def ensure_repo(req: RepoAddRequest) -> JSONResponse:
+        error_payload: tuple[str, int] | None = None
+        if supervisor_client is None:
+            error_payload = ("supervisor unavailable", 503)
+        else:
+            slug = (req.slug or "").strip()
+            if not slug:
+                error_payload = ("slug required", 400)
+            else:
+                try:
+                    repos = await _call_supervisor(supervisor_client.list_repos)
+                except Exception as exc:  # noqa: BLE001
+                    error_payload = (str(exc), 503)
+                else:
+                    match = next((r for r in repos if r.get("slug") == slug), None)
+                    if not match:
+                        error_payload = (f"slug '{slug}' not registered", 404)
+                    else:
+                        path = match.get("path")
+                        if not path:
+                            error_payload = (f"slug '{slug}' missing path", 500)
+                        else:
+                            try:
+                                info = await _call_supervisor(
+                                    supervisor_client.add_repo,
+                                    Path(path),
+                                    slug,
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("Supervisor add_repo failed: %s", exc)
+                                error_payload = (str(exc), 500)
+                            else:
+                                return JSONResponse(info)
+
+        if error_payload:
+            message, status_code = error_payload
+            return JSONResponse({"error": message}, status_code=status_code)
+        return JSONResponse({"status": "ok"})
+
+    @router.delete("/api/repos/{slug}")
+    async def remove_repo(slug: str) -> JSONResponse:
+        if supervisor_client is None:
+            return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
+        try:
+            await _call_supervisor(supervisor_client.remove_repo, None, slug)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supervisor remove_repo failed: %s", exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse({"status": "ok"})
+
+    @router.post("/api/intent")
+    async def submit_intent(request: IntentRequest) -> JSONResponse:
+        """Create a GitHub issue from a user intent typed in the dashboard."""
+        title = request.text[:120]
+        body = request.text
+        labels = list(config.planner_label)
+
+        issue_number = await pr_manager.create_issue(
+            title=title, body=body, labels=labels
+        )
+
+        if issue_number == 0:
+            return JSONResponse({"error": "Failed to create issue"}, status_code=500)
+
+        url = f"https://github.com/{config.repo}/issues/{issue_number}"
+        response = IntentResponse(issue_number=issue_number, title=title, url=url)
+        return JSONResponse(response.model_dump())
+
+    @router.get("/api/sessions")
+    async def get_sessions(repo: str | None = None) -> JSONResponse:
+        """Return session logs, optionally filtered by repo."""
+        sessions = state.load_sessions(repo=repo)
+        return JSONResponse([s.model_dump() for s in sessions])
+
+    @router.get("/api/sessions/{session_id}")
+    async def get_session_detail(session_id: str) -> JSONResponse:
+        """Return a single session by ID with associated events."""
+        session = state.get_session(session_id)
+        if session is None:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+        # Include events tagged with this session_id
+        all_events = event_bus.get_history()
+        session_events = [
+            e.model_dump() for e in all_events if e.session_id == session_id
+        ]
+        data = session.model_dump()
+        data["events"] = session_events
+        return JSONResponse(data)
+
+    @router.delete("/api/sessions/{session_id}")
+    async def delete_session(session_id: str) -> JSONResponse:
+        """Delete a session by ID. Returns 400 if active, 404 if not found."""
+        try:
+            deleted = state.delete_session(session_id)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        if not deleted:
+            return JSONResponse({"error": "Session not found"}, status_code=404)
+        return JSONResponse({"status": "ok"})
+
+    @router.websocket("/ws")
+    async def websocket_endpoint(ws: WebSocket) -> None:
+        await ws.accept()
+
+        # Snapshot history BEFORE subscribing to avoid duplicates.
+        # Events published between snapshot and subscribe are picked
+        # up by the live queue, never sent twice.
+        history = event_bus.get_history()
+
+        async with event_bus.subscription() as queue:
+            # Send history on connect
+            for event in history:
+                try:
+                    await ws.send_text(event.model_dump_json())
+                except Exception:
+                    logger.warning(
+                        "WebSocket error during history replay", exc_info=True
+                    )
+                    return
+
+            # Stream live events
+            try:
+                while True:
+                    event: HydraFlowEvent = await queue.get()
+                    await ws.send_text(event.model_dump_json())
+            except WebSocketDisconnect:
+                pass
+            except Exception:
+                logger.warning("WebSocket error during live streaming", exc_info=True)
+
+    # SPA catch-all: serve index.html for any path not matched above.
+    # This must be registered LAST so it doesn't shadow API/WS routes.
+    @router.get("/{path:path}", response_model=None)
+    async def spa_catchall(path: str) -> Response:
+        # Don't catch API, WebSocket, or static-asset paths
+        if path.startswith(("api/", "ws/", "assets/", "static/")) or path == "ws":
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+        # Serve root-level static files from ui/dist/ (e.g. logos, favicon)
+        static_file = (ui_dist_dir / path).resolve()
+        if static_file.is_relative_to(ui_dist_dir.resolve()) and static_file.is_file():
+            return FileResponse(static_file)
+
+        return _serve_spa_index()
+
+    return router

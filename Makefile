@@ -2,7 +2,7 @@
 
 HYDRAFLOW_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PROJECT_ROOT := $(abspath $(HYDRAFLOW_DIR))
-HYDRAFLOW_CLI := $(PROJECT_ROOT)/cli.py
+HYDRAFLOW_CLI := $(PROJECT_ROOT)/src/cli.py
 TARGET_REPO_ROOT ?= $(shell python3 -c 'from pathlib import Path; cur=Path.cwd().resolve(); roots=[p for p in [cur,*cur.parents] if (p/".git").exists()]; print((roots[-1] if roots else cur).as_posix())')
 
 # Load .env if present (export all variables)
@@ -56,16 +56,16 @@ help:
 	@echo "  make lint-fix       Auto-repair formatting/lint issues"
 	@echo "  make typecheck      Run Pyright type checks"
 	@echo "  make security       Run Bandit security scan"
-	@echo "  make bundle-assets  Regenerate hf init asset bundle (.claude/.codex/.githooks)"
+	@echo "  make bundle-assets  Generate hf init asset bundle (dist/hf_cli-assets.tar.gz)"
 	@echo "  make quality-lite   Lint + typecheck + security (parallel)"
 	@echo "  make quality        quality-lite + test (parallel)"
 	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
 	@echo "  make prep           Scan + scaffold CI/tests, then run fix/hooks/tests"
 	@echo "  make setup          Install hooks/assets for target repo ($(TARGET_REPO_ROOT))"
 	@echo "  make install        Install dashboard dependencies"
-	@echo "  make ui             Build React dashboard (ui/dist/)"
+	@echo "  make ui             Build React dashboard (src/ui/dist/)"
 	@echo "  make ui-dev         Start React dashboard dev server"
-	@echo "  make ui-clean       Remove ui/dist and node_modules"
+	@echo "  make ui-clean       Remove src/ui/dist and node_modules"
 	@echo "  make hot            Send config update to running instance"
 	@echo "  make docker-build   Build Hydra agent Docker image"
 	@echo "  make docker-test    Build + smoke-test the agent image"
@@ -87,8 +87,8 @@ run:
 	@echo "$(BLUE)Starting HydraFlow — backend :$(PORT) + frontend :5556$(RESET)"
 	@echo "$(GREEN)Open http://localhost:5556 to use the dashboard$(RESET)"
 	@trap 'kill 0' EXIT; \
-	cd $(HYDRAFLOW_DIR)ui && npm install --silent 2>/dev/null && npm run dev 2>&1 | tee $(LOG_DIR)/vite.log & \
-	cd $(HYDRAFLOW_DIR) && $(UV) python cli.py \
+	cd $(HYDRAFLOW_DIR)src/ui && npm install --silent 2>/dev/null && npm run dev 2>&1 | tee $(LOG_DIR)/vite.log & \
+	cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli \
 		--ready-label $(READY_LABEL) \
 		--max-workers $(WORKERS) \
 		--model $(MODEL) \
@@ -105,7 +105,7 @@ dev: run
 
 dry-run:
 	@echo "$(BLUE)HydraFlow dry run — label=$(READY_LABEL)$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && $(UV) python cli.py \
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli \
 		--ready-label $(READY_LABEL) \
 		--max-workers $(WORKERS) \
 		--batch-size $(BATCH_SIZE) \
@@ -114,7 +114,7 @@ dry-run:
 
 clean:
 	@echo "$(YELLOW)Cleaning up HydraFlow worktrees and state...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && $(UV) python cli.py --clean
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli --clean
 	@echo "$(GREEN)Cleanup complete$(RESET)"
 
 status:
@@ -127,8 +127,8 @@ status:
 
 bundle-assets:
 	@echo "$(BLUE)Bundling HydraFlow assets for hf init...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && $(UV) python scripts/bundle_assets.py --output hf_cli/assets.tar.gz --root $(PROJECT_ROOT)
-	@echo "$(GREEN)Updated hf_cli/assets.tar.gz$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && mkdir -p dist && $(UV) python scripts/bundle_assets.py --output dist/hf_cli-assets.tar.gz --root $(PROJECT_ROOT)
+	@echo "$(GREEN)Generated dist/hf_cli-assets.tar.gz$(RESET)"
 
 $(DEPS_STAMP): pyproject.toml
 	@echo "$(BLUE)Syncing dependencies...$(RESET)"
@@ -155,22 +155,22 @@ endif
 
 coverage: deps
 	@echo "$(BLUE)Running HydraFlow unit tests...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ --cov=. --cov-fail-under=$(TEST_COVERAGE_EFFECTIVE) --cov-report=term-missing --cov-report=xml:coverage.xml -p no:xdist
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/ --cov=src --cov-fail-under=$(TEST_COVERAGE_EFFECTIVE) --cov-report=term-missing --cov-report=xml:coverage.xml -p no:xdist
 	@echo "$(GREEN)All tests passed$(RESET)"
 
 cover: coverage
 
 test: deps
 	@echo "$(BLUE)Running HydraFlow unit tests...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x -q
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/ -x -q
 	@echo "$(GREEN)All tests passed$(RESET)"
 
 test-fast: deps
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -x --tb=short
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/ -x --tb=short
 
 test-cov: deps
 	@echo "$(BLUE)Running HydraFlow tests with coverage...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=. $(UV) pytest tests/ -v --cov=. --cov-fail-under=70 --cov-report=term-missing --cov-report=html:htmlcov -p no:xdist
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/ -v --cov=src --cov-fail-under=70 --cov-report=term-missing --cov-report=html:htmlcov -p no:xdist
 	@echo "$(GREEN)All tests passed with coverage$(RESET)"
 
 lint: deps
@@ -202,7 +202,7 @@ quality: deps
 		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \
 		$(UV) pyright && echo "[typecheck OK]" & \
 		$(UV) bandit -c pyproject.toml -r . --severity-level medium && echo "[security OK]" & \
-		PYTHONPATH=. $(UV) pytest tests/ && echo "[tests OK]" & \
+		PYTHONPATH=src $(UV) pytest tests/ && echo "[tests OK]" & \
 		wait_result=0; \
 		for job in $$(jobs -p); do wait $$job || wait_result=1; done; \
 		exit $$wait_result; \
@@ -342,16 +342,16 @@ hot:
 
 ui:
 	@echo "$(BLUE)Building HydraFlow React dashboard...$(RESET)"
-	@cd $(HYDRAFLOW_DIR)ui && npm install && npm run build
-	@echo "$(GREEN)Dashboard built → ui/dist/$(RESET)"
+	@cd $(HYDRAFLOW_DIR)src/ui && npm install && npm run build
+	@echo "$(GREEN)Dashboard built → src/ui/dist/$(RESET)"
 
 ui-dev:
 	@echo "$(BLUE)Starting HydraFlow dashboard dev server...$(RESET)"
-	@cd $(HYDRAFLOW_DIR)ui && npm install && npm run dev
+	@cd $(HYDRAFLOW_DIR)src/ui && npm install && npm run dev
 
 ui-clean:
 	@echo "$(YELLOW)Cleaning dashboard build artifacts...$(RESET)"
-	@rm -rf $(HYDRAFLOW_DIR)ui/dist $(HYDRAFLOW_DIR)ui/node_modules
+	@rm -rf $(HYDRAFLOW_DIR)src/ui/dist $(HYDRAFLOW_DIR)src/ui/node_modules
 	@echo "$(GREEN)Dashboard cleaned$(RESET)"
 
 docker-build:

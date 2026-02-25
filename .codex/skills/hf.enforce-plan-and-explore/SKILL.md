@@ -1,3 +1,8 @@
+---
+name: hf.enforce-plan-and-explore
+description: hf.enforce-plan-and-explore
+---
+
 # hf.enforce-plan-and-explore
 
 ```bash

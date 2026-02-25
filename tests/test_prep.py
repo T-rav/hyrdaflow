@@ -1317,7 +1317,7 @@ def test_run_scaffold_uses_makefile_scaffold() -> None:
     """_run_scaffold should call scaffold_makefile for root Makefile support."""
     from pathlib import Path
 
-    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
     assert "scaffold_makefile" in content
 
@@ -1326,7 +1326,7 @@ def test_run_scaffold_prints_summary_block() -> None:
     """_run_scaffold should print a final prep summary section."""
     from pathlib import Path
 
-    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
     assert "Prep summary:" in content
 
@@ -1335,7 +1335,7 @@ def test_run_scaffold_uses_prep_agent_correction() -> None:
     """_run_scaffold should invoke prep agent correction between retries."""
     from pathlib import Path
 
-    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
     assert "_run_prep_agent_correction(" in content
 

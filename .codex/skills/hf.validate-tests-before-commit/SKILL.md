@@ -1,3 +1,8 @@
+---
+name: hf.validate-tests-before-commit
+description: hf.validate-tests-before-commit
+---
+
 # hf.validate-tests-before-commit
 
 ```bash

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import cli as cli_module
 from cli import (
     _best_model_for_tool,
     _build_prep_agent_prompt,
@@ -27,6 +29,19 @@ from cli import (
     build_config,
     parse_args,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cli_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Prevent host env/config defaults from leaking into CLI tests."""
+    for key in list(os.environ):
+        if key.startswith("HYDRAFLOW_"):
+            monkeypatch.delenv(key, raising=False)
+    # Ensure parse_args/build_config do not read the user's persisted config.
+    monkeypatch.setattr(
+        cli_module, "_DEFAULT_CONFIG_PATH", str(tmp_path / "hydraflow-test-config.json")
+    )
+
 
 # ---------------------------------------------------------------------------
 # _parse_label_arg
@@ -355,9 +370,9 @@ class TestParseArgs:
 _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("ready_label", ["hydraflow-ready"]),
     ("batch_size", 15),
-    ("max_workers", 3),
+    ("max_workers", 2),
     ("max_planners", 1),
-    ("max_reviewers", 5),
+    ("max_reviewers", 2),
     ("max_hitl_workers", 1),
     ("system_tool", "inherit"),
     ("system_model", ""),
@@ -417,7 +432,7 @@ class TestBuildConfig:
 
         assert cfg.batch_size == 10
         # Other fields remain at defaults
-        assert cfg.max_workers == 3
+        assert cfg.max_workers == 2
         assert cfg.model == "opus"
 
     def test_label_arg_parsed_to_list(self) -> None:

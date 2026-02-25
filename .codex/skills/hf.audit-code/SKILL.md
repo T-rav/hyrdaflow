@@ -1,3 +1,8 @@
+---
+name: hf.audit-code
+description: Code Quality Audit
+---
+
 # Code Quality Audit
 
 Run a comprehensive code quality audit across the entire repo. Dynamically analyzes source code for dead code, complexity, duplication, error handling gaps, type safety issues, and architectural problems. Creates GitHub issues for findings so HydraFlow can process them.

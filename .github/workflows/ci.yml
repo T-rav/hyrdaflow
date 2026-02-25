@@ -77,8 +77,10 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: uv sync --all-extras
+      - name: Warning gate (targeted)
+        run: PYTHONPATH=src uv run pytest tests/test_execution.py tests/test_agent.py tests/test_hitl_runner.py tests/test_prompt_telemetry.py tests/test_dashboard_routes.py -W error::RuntimeWarning -W error::pytest.PytestUnraisableExceptionWarning
       - name: Run tests with coverage
-        run: uv run pytest tests/ --cov=. --cov-fail-under=70 --cov-report=term-missing
+        run: PYTHONPATH=src uv run pytest tests/ --cov=src --cov-fail-under=70 --cov-report=term-missing
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -97,13 +99,13 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: src/ui/package-lock.json
       - name: Install dependencies
-        working-directory: ui
+        working-directory: src/ui
         run: npm ci
       - name: Build
-        working-directory: ui
+        working-directory: src/ui
         run: npm run build
       - name: Test
-        working-directory: ui
+        working-directory: src/ui
         run: npm test

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import sys
 import tarfile
 from pathlib import Path
+
+# Ensure hf_cli package is importable from src/ when running from repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from hf_cli.assets_manifest import ASSET_PATHS
 
@@ -56,7 +60,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Bundle HydraFlow assets for hf init")
     parser.add_argument(
         "--output",
-        default=Path("hf_cli/assets.tar.gz"),
+        default=Path("dist/hf_cli-assets.tar.gz"),
         type=Path,
         help="Path to the generated tar.gz",
     )

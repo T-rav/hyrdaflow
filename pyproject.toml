@@ -2,7 +2,11 @@
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
+where = ["src"]
 exclude = ["ui*", "templates*", "tests*"]
 
 [project]
@@ -11,13 +15,11 @@ version = "1.0.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "pydantic>=2.0.0",
+    "docker>=7.0.0",
 ]
 
 [project.scripts]
 hf = "hf_cli.__main__:entrypoint"
-
-[tool.setuptools.package-data]
-hf_cli = ["assets.tar.gz"]
 
 [project.optional-dependencies]
 test = [
@@ -28,16 +30,14 @@ test = [
     "pytest-xdist>=3.5.0",
     "httpx>=0.27.0",
     "hydraflow[dashboard]",
-    "hydraflow[docker]",
 ]
 dev = [
     "ruff==0.15.0",
     "pyright==1.1.408",
     "bandit[toml]==1.8.0",
 ]
-docker = [
-    "docker>=7.0.0",
-]
+# Compatibility extra retained so existing `hydraflow[docker]` installs keep working.
+docker = []
 dashboard = [
     "fastapi>=0.110.0",
     "uvicorn>=0.30.0",
@@ -48,7 +48,7 @@ dashboard = [
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-src = ["."]
+src = ["src", "tests"]
 exclude = [
     ".venv", "venv", "build", "dist", "node_modules",
     "htmlcov", "__pycache__", ".pytest_cache", ".ruff_cache",
@@ -74,7 +74,7 @@ line-ending = "auto"
 # === Pyright ===
 [tool.pyright]
 pythonVersion = "3.11"
-include = ["."]
+include = ["src", "."]
 exclude = [
     "tests",
     "**/__pycache__",
@@ -111,7 +111,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["."]
+source = ["src"]
 omit = ["tests/*", "*/__init__.py", "venv/*", ".venv/*", "templates/*"]
 
 [tool.coverage.report]

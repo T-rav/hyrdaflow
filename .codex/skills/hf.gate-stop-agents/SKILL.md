@@ -1,3 +1,8 @@
+---
+name: hf.gate-stop-agents
+description: hf.gate-stop-agents
+---
+
 # hf.gate-stop-agents
 
 ```bash

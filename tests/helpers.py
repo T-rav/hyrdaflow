@@ -30,7 +30,7 @@ class AsyncLineIter:
 
 def make_proc(
     returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
-) -> AsyncMock:
+) -> MagicMock:
     """Build a minimal mock subprocess object (communicate style).
 
     Unlike ``make_streaming_proc`` (which returns a callable factory mock that
@@ -46,9 +46,12 @@ def make_proc(
     suitable for code paths that call ``await proc.communicate()`` rather than
     iterating ``proc.stdout`` line by line.
     """
-    proc = AsyncMock()
+    proc = MagicMock()
     proc.returncode = returncode
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    # kill/terminate are synchronous on asyncio subprocesses.
+    proc.kill = MagicMock()
+    proc.terminate = MagicMock()
     return proc
 
 
@@ -56,7 +59,7 @@ def make_streaming_proc(
     returncode: int = 0, stdout: str = "", stderr: str = ""
 ) -> AsyncMock:
     """Build a mock for asyncio.create_subprocess_exec with streaming stdout."""
-    mock_proc = AsyncMock()
+    mock_proc = MagicMock()
     mock_proc.returncode = returncode
     # stdin.write and stdin.close are sync on StreamWriter; drain is async
     mock_proc.stdin = MagicMock()

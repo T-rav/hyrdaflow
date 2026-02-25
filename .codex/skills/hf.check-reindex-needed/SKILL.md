@@ -1,3 +1,8 @@
+---
+name: hf.check-reindex-needed
+description: hf.check-reindex-needed
+---
+
 # hf.check-reindex-needed
 
 ```bash

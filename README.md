@@ -10,7 +10,7 @@
 
 Log an issue. Agents handle the rest - triaging, planning, implementing, reviewing, and merging every change.
 
-HydraFlow is built for quality-first scaling: agents execute the work, but guardrails decide what ships.
+HydraFlow is a delivery kernel for GitHub repositories: it accepts intent, compiles it through a staged pipeline, enforces quality gates, and produces merged software changes.
 
 ## What Makes It Different
 
@@ -83,13 +83,13 @@ make quality      # quality-lite + tests
 HydraFlow now exposes an `hf` console script so you can run `hf init`, `hf prep`, `hf run`, etc.
 
 ```bash
-# install locally (inside this repo)
-uv tool run pip install -e .
+# install locally from pyproject.toml (including configured extras)
+uv sync --all-extras
 
 # show available commands
 hf --help
 
-# copy bundled assets (.claude, .codex, githooks) into the current repo
+# copy hf assets (.claude, .codex, .githooks) into the current repo
 hf init
 
 # run the standard prep flow without invoking make
@@ -113,11 +113,11 @@ hf stop /path/to/repo
 > so all of those artifacts move under `~/.hydraflow/<repo-slug>/...` instead of
 > cluttering your working tree.
 
-### Updating bundled assets
+### Generating release assets
 
-If you modify `.claude`, `.codex`, or `.githooks`, run `make bundle-assets` to refresh
-`hf_cli/assets.tar.gz`. The test suite enforces that this archive stays in sync with
-the manifest, so CI will fail if the bundle is stale.
+If you modify `.claude`, `.codex`, or `.githooks`, run `make bundle-assets` to generate
+`dist/hf_cli-assets.tar.gz` for release/build artifact workflows.
+The repository no longer tracks a committed `src/hf_cli/assets.tar.gz`.
 
 ## Issue Flow Labels
 

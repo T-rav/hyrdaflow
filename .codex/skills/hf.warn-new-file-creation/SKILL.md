@@ -1,3 +1,8 @@
+---
+name: hf.warn-new-file-creation
+description: hf.warn-new-file-creation
+---
+
 # hf.warn-new-file-creation
 
 ```bash

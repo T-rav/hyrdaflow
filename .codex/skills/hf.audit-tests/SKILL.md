@@ -1,3 +1,8 @@
+---
+name: hf.audit-tests
+description: Test Audit
+---
+
 # Test Audit
 
 Run a comprehensive test quality audit across the entire repo. Analyzes test naming, structure, factory usage, anti-patterns, coverage gaps, and flaky patterns. Creates GitHub issues for findings so HydraFlow can process them.

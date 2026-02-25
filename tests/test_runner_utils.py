@@ -90,6 +90,29 @@ class TestStreamClaudeProcessOutput:
 
         assert result == ""
 
+    @pytest.mark.asyncio
+    async def test_populates_usage_stats_when_provided(self, event_bus) -> None:
+        """Usage metrics should be extracted from stream events with minimal overhead."""
+        usage_event = json.dumps(
+            {
+                "type": "result",
+                "result": "done",
+                "usage": {"input_tokens": 50, "output_tokens": 10, "total_tokens": 60},
+            }
+        )
+        mock_create = make_streaming_proc(returncode=0, stdout=usage_event)
+        usage_stats: dict[str, int] = {}
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await stream_claude_process(
+                **_default_kwargs(event_bus, usage_stats=usage_stats)
+            )
+
+        assert result == "done"
+        assert usage_stats["input_tokens"] == 50
+        assert usage_stats["output_tokens"] == 10
+        assert usage_stats["total_tokens"] == 60
+
 
 # ---------------------------------------------------------------------------
 # stream_claude_process — event publishing

@@ -1,3 +1,8 @@
+---
+name: hf.memory
+description: Capture Session Learnings as Memory Suggestions
+---
+
 # Capture Session Learnings as Memory Suggestions
 
 Scan the current conversation for architectural decisions, bug root causes, configuration choices, codebase patterns, and workflow preferences. File each as a memory suggestion issue that enters the HITL review pipeline and eventually syncs into the agent memory digest.

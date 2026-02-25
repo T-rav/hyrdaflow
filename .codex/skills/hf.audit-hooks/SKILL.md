@@ -1,3 +1,8 @@
+---
+name: hf.audit-hooks
+description: Hooks & Workflow Audit
+---
+
 # Hooks & Workflow Audit
 
 Audit all Claude Code hooks (`.claude/settings.json` and `.claude/hooks/*.sh`) for correctness, efficiency, and gating opportunities. Launch a single agent that reads everything and reports findings.

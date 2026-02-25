@@ -1,3 +1,8 @@
+---
+name: hf.block-destructive-git
+description: hf.block-destructive-git
+---
+
 # hf.block-destructive-git
 
 ```bash

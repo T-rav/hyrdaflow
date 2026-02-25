@@ -1,3 +1,8 @@
+---
+name: hf.scan-secrets-before-commit
+description: hf.scan-secrets-before-commit
+---
+
 # hf.scan-secrets-before-commit
 
 ```bash
