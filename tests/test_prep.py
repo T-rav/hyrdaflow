@@ -1344,6 +1344,18 @@ def test_run_scaffold_has_quick_success_and_coverage_guidance() -> None:
     assert "make smoke" in content
 
 
+def test_run_scaffold_messages_do_not_use_hardening_term() -> None:
+    """Scaffold path messaging should use prep/scaffold wording, not hardening."""
+    from pathlib import Path
+
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
+    content = cli_file.read_text()
+    start = content.index("async def _run_scaffold")
+    end = content.index("async def _run_clean")
+    scaffold_body = content[start:end].lower()
+    assert "hardening" not in scaffold_body
+
+
 class TestContextSeed:
     """Tests for seeding local manifest/memory assets during prep."""
 

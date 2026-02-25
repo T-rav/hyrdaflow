@@ -746,7 +746,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--scaffold",
         action="store_true",
-        help="Scan and scaffold GitHub CI + test infrastructure, then exit",
+        help="Run quick prep/scaffold for GitHub CI + baseline test infrastructure, then exit",
     )
     parser.add_argument(
         "--replay",

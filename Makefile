@@ -60,7 +60,7 @@ help:
 	@echo "  make quality-lite   Lint + typecheck + security (parallel)"
 	@echo "  make quality        quality-lite + test (parallel)"
 	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
-	@echo "  make prep           Scan + scaffold CI/tests, then run fix/hooks/tests"
+	@echo "  make prep           Quick prep/scaffold of CI + baseline tests"
 	@echo "  make setup          Install hooks/assets for target repo ($(TARGET_REPO_ROOT))"
 	@echo "  make install        Install dashboard dependencies"
 	@echo "  make ui             Build React dashboard (src/ui/dist/)"
