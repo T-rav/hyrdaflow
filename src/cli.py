@@ -1497,6 +1497,29 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     print(
         _prep_stage_line("prep", f"quick prep for stack '{stack}'", "start", use_color)
     )  # noqa: T201
+    selected_tool, selection_mode = _choose_prep_tool(config.implementation_tool)
+    if selected_tool:
+        selected_model = _best_model_for_tool(selected_tool)
+        print(  # noqa: T201
+            _prep_stage_line(
+                "prep",
+                (
+                    f"prep driver selected: {selected_tool} "
+                    f"({selected_model}; mode={selection_mode})"
+                ),
+                "ok",
+                use_color,
+            )
+        )
+    else:
+        print(  # noqa: T201
+            _prep_stage_line(
+                "prep",
+                "no prep driver detected (claude/codex/pi not found in PATH)",
+                "warn",
+                use_color,
+            )
+        )
 
     ci_probe = scaffold_ci(repo_root, dry_run=True)
     tests_probe = scaffold_tests_polyglot(repo_root, dry_run=True)
