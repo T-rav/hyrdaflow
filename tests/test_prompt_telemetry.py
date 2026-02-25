@@ -23,6 +23,13 @@ class TestParseCommandToolModel:
         assert tool == "codex"
         assert model == "gpt-5"
 
+    def test_parses_pi_model(self, tmp_path):
+        tool, model = parse_command_tool_model(
+            ["pi", "-p", "--mode", "json", "--model", "gpt-5.3-codex"]
+        )
+        assert tool == "pi"
+        assert model == "gpt-5.3-codex"
+
 
 class TestPromptTelemetry:
     def test_record_writes_inference_and_pr_rollup(self, tmp_path):

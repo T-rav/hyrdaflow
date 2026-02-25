@@ -1270,6 +1270,8 @@ def _detect_available_prep_tools() -> list[str]:
         tools.append("claude")
     if shutil.which("codex"):
         tools.append("codex")
+    if shutil.which("pi"):
+        tools.append("pi")
     return tools
 
 
@@ -1277,6 +1279,8 @@ def _best_model_for_tool(tool: str) -> str:
     """Return best default model for the selected tool."""
     if tool == "claude":
         return "opus"
+    if tool == "pi":
+        return "gpt-5.3-codex"
     return "gpt-5-codex"
 
 
@@ -1288,19 +1292,22 @@ def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
     if len(available) == 1:
         return available[0], "single"
 
-    # Both tools installed.
+    # Multiple tools installed.
     if sys.stdin.isatty():
-        print("Both Claude and Codex are installed for prep.")  # noqa: T201
-        print("Choose prep driver: [1] claude  [2] codex")  # noqa: T201
+        print(f"Prep tools available: {', '.join(available)}")  # noqa: T201
+        options = "  ".join(f"[{i + 1}] {name}" for i, name in enumerate(available))
+        print(f"Choose prep driver: {options}")  # noqa: T201
         choice = input("Selection (default 1): ").strip()  # noqa: T201
-        if choice == "2":
-            return "codex", "prompt"
-        return "claude", "prompt"
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(available):
+                return available[idx], "prompt"
+        return available[0], "prompt"
 
     # Non-interactive fallback.
-    if configured in ("claude", "codex"):
+    if configured in available:
         return configured, "configured"
-    return "claude", "fallback"
+    return available[0], "fallback"
 
 
 def _build_prep_agent_prompt(

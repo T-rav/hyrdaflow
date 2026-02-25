@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,7 +16,9 @@ from cli import (
     _best_model_for_tool,
     _build_prep_agent_prompt,
     _build_prep_failure_error_message,
+    _choose_prep_tool,
     _coverage_validation_roots,
+    _detect_available_prep_tools,
     _evaluate_coverage_validation,
     _evaluate_coverage_validation_projects,
     _extract_coverage_percent,
@@ -134,7 +137,35 @@ class TestPrepModelSelection:
         assert _best_model_for_tool("codex") == "gpt-5-codex"
 
     def test_pi_default_model_uses_non_claude_fallback(self) -> None:
-        assert _best_model_for_tool("pi") == "gpt-5-codex"
+        assert _best_model_for_tool("pi") == "gpt-5.3-codex"
+
+
+class TestPrepToolSelection:
+    """Tests for prep tool detection/selection helpers."""
+
+    def test_detect_available_prep_tools_includes_pi(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "shutil.which", lambda name: "/bin/ok" if name == "pi" else None
+        )
+        assert _detect_available_prep_tools() == ["pi"]
+
+    def test_choose_prep_tool_noninteractive_prefers_configured_when_available(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            cli_module, "_detect_available_prep_tools", lambda: ["claude", "pi"]
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+        assert _choose_prep_tool("pi") == ("pi", "configured")
+
+    def test_choose_prep_tool_noninteractive_falls_back_to_first_available(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            cli_module, "_detect_available_prep_tools", lambda: ["pi", "codex"]
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+        assert _choose_prep_tool("unknown") == ("pi", "fallback")
 
 
 class TestPrepCoverageRatcheting:
