@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import webbrowser
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -159,6 +160,47 @@ def _handle_view(rest: Sequence[str]) -> None:
             print(f"    logs: {log_file}")
 
 
+def _open_url(url: str) -> None:
+    opened = webbrowser.open(url)
+    if not opened:
+        raise RuntimeError(f"Could not open browser for: {url}")
+
+
+def _handle_open(rest: Sequence[str]) -> None:
+    ensure_running()
+    repo_path, slug = _parse_repo_argument(rest, require_path=False, allow_slug=True)
+    repos = list_repos()
+    match: dict[str, object] | None = None
+    if slug:
+        match = next((repo for repo in repos if repo.get("slug") == slug), None)
+    elif repo_path is not None:
+        repo_resolved = str(repo_path.resolve())
+        match = next(
+            (
+                repo
+                for repo in repos
+                if str(Path(str(repo.get("path", ""))).resolve()) == repo_resolved
+            ),
+            None,
+        )
+    if match is None:
+        if repo_path is None:
+            raise SystemExit("Could not resolve target repo for `hf open`.")
+        info = add_repo(repo_path)
+        url = str(info.get("dashboard_url", "")).strip()
+        if not url:
+            raise SystemExit("Repo registered but dashboard URL is unavailable.")
+        _open_url(url)
+        print(f"Opened dashboard: {url}")
+        return
+
+    url = str(match.get("dashboard_url", "")).strip()
+    if not url:
+        raise SystemExit("Dashboard URL not available for this repo.")
+    _open_url(url)
+    print(f"Opened dashboard: {url}")
+
+
 def _handle_stop(rest: Sequence[str]) -> None:
     repo_path, slug = _parse_repo_argument(rest, require_path=False, allow_slug=True)
     try:
@@ -188,6 +230,7 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         "status": lambda: _handle_view(rest),
         "stop": lambda: _handle_stop(rest),
         "run": lambda: _handle_run(rest),
+        "open": lambda: _handle_open(rest),
         "start": lambda: hydraflow_main(rest),
         "version": _handle_version,
         "check-update": _handle_check_update,
