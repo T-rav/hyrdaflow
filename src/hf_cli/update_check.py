@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from app_version import get_app_version
 
@@ -63,11 +63,13 @@ def _write_cache(payload: dict[str, Any], path: Path = _CACHE_PATH) -> None:
 
 
 def _fetch_latest_pypi_version(timeout_seconds: float) -> str:
-    request = urllib.request.Request(
-        _PYPI_JSON_URL, headers={"Accept": "application/json"}
+    response = httpx.get(
+        _PYPI_JSON_URL,
+        headers={"Accept": "application/json"},
+        timeout=timeout_seconds,
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as resp:  # noqa: S310
-        payload = json.loads(resp.read().decode("utf-8"))
+    response.raise_for_status()
+    payload = response.json()
     info = payload.get("info", {}) if isinstance(payload, dict) else {}
     latest = info.get("version")
     if not isinstance(latest, str) or not latest.strip():
@@ -83,7 +85,7 @@ def check_for_updates(timeout_seconds: float = 2.0) -> UpdateCheckResult:
         latest = _fetch_latest_pypi_version(timeout_seconds)
     except (
         OSError,
-        urllib.error.URLError,
+        httpx.HTTPError,
         RuntimeError,
         TimeoutError,
         ValueError,
