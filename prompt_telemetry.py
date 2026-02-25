@@ -131,19 +131,19 @@ class PromptTelemetry:
 
     def _update_pr_stats(self, record: dict[str, object]) -> None:
         data = self._load_pr_stats()
-        lifetime = data.setdefault("lifetime", _new_counter())
+        lifetime = _get_or_init_dict(data, "lifetime", _new_counter())
         self._accumulate_counter(lifetime, record)
 
-        sessions = data.setdefault("sessions", {})
+        sessions = _get_or_init_dict(data, "sessions", {})
         session_id = str(record.get("session_id", "")).strip()
         if session_id:
-            sess_entry = sessions.setdefault(session_id, _new_counter())
+            sess_entry = _get_or_init_dict(sessions, session_id, _new_counter())
             self._accumulate_counter(sess_entry, record)
 
-        prs = data.setdefault("prs", {})
+        prs = _get_or_init_dict(data, "prs", {})
         pr_number = record.get("pr_number")
         if isinstance(pr_number, int) and pr_number > 0:
-            entry = prs.setdefault(str(pr_number), _new_counter())
+            entry = _get_or_init_dict(prs, str(pr_number), _new_counter())
             self._accumulate_counter(entry, record)
 
         data["updated_at"] = str(record.get("timestamp", ""))
@@ -179,31 +179,31 @@ class PromptTelemetry:
     def _accumulate_counter(
         target: dict[str, object], record: dict[str, object]
     ) -> None:
-        target["inference_calls"] = int(target.get("inference_calls", 0)) + 1
-        target["prompt_est_tokens"] = int(target.get("prompt_est_tokens", 0)) + int(
-            record.get("prompt_est_tokens", 0)
-        )
-        target["total_est_tokens"] = int(target.get("total_est_tokens", 0)) + int(
-            record.get("total_est_tokens", 0)
-        )
-        target["total_tokens"] = int(target.get("total_tokens", 0)) + int(
+        target["inference_calls"] = _as_int(target.get("inference_calls", 0)) + 1
+        target["prompt_est_tokens"] = _as_int(
+            target.get("prompt_est_tokens", 0)
+        ) + _as_int(record.get("prompt_est_tokens", 0))
+        target["total_est_tokens"] = _as_int(
+            target.get("total_est_tokens", 0)
+        ) + _as_int(record.get("total_est_tokens", 0))
+        target["total_tokens"] = _as_int(target.get("total_tokens", 0)) + _as_int(
             record.get("total_tokens", 0)
         )
-        target["history_chars_saved"] = int(target.get("history_chars_saved", 0)) + int(
-            record.get("history_chars_saved", 0)
-        )
-        target["context_chars_saved"] = int(target.get("context_chars_saved", 0)) + int(
-            record.get("context_chars_saved", 0)
-        )
-        target["cache_hits"] = int(target.get("cache_hits", 0)) + int(
+        target["history_chars_saved"] = _as_int(
+            target.get("history_chars_saved", 0)
+        ) + _as_int(record.get("history_chars_saved", 0))
+        target["context_chars_saved"] = _as_int(
+            target.get("context_chars_saved", 0)
+        ) + _as_int(record.get("context_chars_saved", 0))
+        target["cache_hits"] = _as_int(target.get("cache_hits", 0)) + _as_int(
             record.get("cache_hits", 0)
         )
-        target["cache_misses"] = int(target.get("cache_misses", 0)) + int(
+        target["cache_misses"] = _as_int(target.get("cache_misses", 0)) + _as_int(
             record.get("cache_misses", 0)
         )
-        target["actual_usage_calls"] = int(target.get("actual_usage_calls", 0))
+        target["actual_usage_calls"] = _as_int(target.get("actual_usage_calls", 0))
         if record.get("token_source") == "actual":
-            target["actual_usage_calls"] = int(target["actual_usage_calls"]) + 1
+            target["actual_usage_calls"] = _as_int(target["actual_usage_calls"]) + 1
         target["last_updated"] = str(record.get("timestamp", ""))
 
     def get_pr_totals(self, pr_number: int) -> dict[str, int] | None:
@@ -264,3 +264,30 @@ def _new_counter() -> dict[str, object]:
         "actual_usage_calls": 0,
         "last_updated": "",
     }
+
+
+def _as_int(value: object) -> int:
+    """Best-effort integer conversion for telemetry counters."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _get_or_init_dict(
+    parent: dict[str, object], key: str, default: dict[str, object]
+) -> dict[str, object]:
+    """Get a nested dict value or initialize it with *default*."""
+    current = parent.get(key)
+    if isinstance(current, dict):
+        return current
+    parent[key] = default
+    return default
