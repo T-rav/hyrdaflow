@@ -20,8 +20,6 @@ WORKERS ?= 3
 MODEL ?= opus
 REVIEW_MODEL ?= sonnet
 IMPLEMENTATION_TOOL ?= claude
-PREP_TOOL ?= $(IMPLEMENTATION_TOOL)
-PREP_MODEL ?= $(MODEL)
 BATCH_SIZE ?= 15
 PLANNER_LABEL ?= hydraflow-plan
 PLANNER_MODEL ?= opus
@@ -79,8 +77,6 @@ help:
 	@echo "  MODEL            Implementation model (default: sonnet)"
 	@echo "  IMPLEMENTATION_TOOL Implementation backend: claude|codex|pi (default: claude)"
 	@echo "  REVIEW_MODEL     Review model (default: opus)"
-	@echo "  PREP_TOOL        Prep backend: claude|codex|pi (default: IMPLEMENTATION_TOOL)"
-	@echo "  PREP_MODEL       Prep model override (default: MODEL)"
 	@echo "  BATCH_SIZE       Issues per batch (default: 15)"
 	@echo "  PLANNER_LABEL    Planner issue label (default: hydraflow-plan)"
 	@echo "  PLANNER_MODEL    Planner model (default: opus)"
@@ -335,8 +331,7 @@ REPO_SLUG := $(shell git remote get-url origin 2>/dev/null | sed 's|.*github\.co
 prep: deps
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
-	@echo "  prep tool/model: $(PREP_TOOL) / $(PREP_MODEL)"
-	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep --implementation-tool "$(PREP_TOOL)" --model "$(PREP_MODEL)"
+	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep
 	@echo "$(GREEN)Prep complete$(RESET)"
 
 ensure-labels: deps
