@@ -8,12 +8,22 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from config import HydraFlowConfig
 from file_util import atomic_write
 from models import MemoryType
 
 logger = logging.getLogger("hydraflow.manifest_curator")
+
+
+class CuratedPayload(TypedDict):
+    overview: str
+    key_services: list[str]
+    standards: list[str]
+    architecture: list[str]
+    source_count: int
+    updated_at: str | None
 
 
 @dataclass(slots=True)
@@ -85,7 +95,7 @@ class CuratedManifestStore:
 
     def update_from_learnings(
         self, learnings: Sequence[CuratedLearning]
-    ) -> dict[str, object]:
+    ) -> CuratedPayload:
         """Build curated payload from *learnings* and persist to disk."""
         payload = self._build_payload(learnings)
         payload["updated_at"] = datetime.now(UTC).isoformat()
@@ -101,38 +111,38 @@ class CuratedManifestStore:
         )
         return payload
 
-    def load(self) -> dict[str, object]:
+    def load(self) -> CuratedPayload:
         """Load curated payload from disk, returning an empty structure on failure."""
         try:
             data = json.loads(self._path.read_text())
             if isinstance(data, dict):
-                return data
+                return self._coerce_payload(data)
         except (OSError, json.JSONDecodeError):
             logger.debug("No curated manifest payload at %s", self._path)
         return self._empty_payload()
 
-    def render_markdown(self, payload: dict[str, object] | None = None) -> str:
+    def render_markdown(self, payload: CuratedPayload | None = None) -> str:
         """Render curated payload as Markdown sections."""
         payload = payload or self.load()
         if not payload:
             payload = self._empty_payload()
 
         sections: list[str] = []
-        overview = str(payload.get("overview") or "").strip()
+        overview = payload["overview"].strip()
         if overview:
             sections.append("### Project Overview\n" + overview)
 
-        services = payload.get("key_services") or []
+        services = payload["key_services"]
         if services:
             joined = "\n".join(f"- {item}" for item in services)
             sections.append("### Key Services & Projects\n" + joined)
 
-        standards = payload.get("standards") or []
+        standards = payload["standards"]
         if standards:
             joined = "\n".join(f"- {item}" for item in standards)
             sections.append("### Standards & Guidelines\n" + joined)
 
-        architecture = payload.get("architecture") or []
+        architecture = payload["architecture"]
         if architecture:
             joined = "\n".join(f"- {item}" for item in architecture)
             sections.append("### Architecture Notes\n" + joined)
@@ -143,7 +153,7 @@ class CuratedManifestStore:
         header = "## Curated Learnings\n"
         return header + "\n\n".join(sections) + "\n"
 
-    def _build_payload(self, learnings: Sequence[CuratedLearning]) -> dict[str, object]:
+    def _build_payload(self, learnings: Sequence[CuratedLearning]) -> CuratedPayload:
         knowledge = [
             item for item in learnings if item.memory_type == MemoryType.KNOWLEDGE
         ]
@@ -209,7 +219,7 @@ class CuratedManifestStore:
         return f"{snippet} (#{learning.number} — {title})"
 
     @staticmethod
-    def _empty_payload() -> dict[str, object]:
+    def _empty_payload() -> CuratedPayload:
         return {
             "overview": "",
             "key_services": [],
@@ -218,3 +228,14 @@ class CuratedManifestStore:
             "source_count": 0,
             "updated_at": None,
         }
+
+    def _coerce_payload(self, raw: dict[str, object]) -> CuratedPayload:
+        payload = self._empty_payload()
+        payload["overview"] = str(raw.get("overview") or "")
+        payload["key_services"] = [str(item) for item in raw.get("key_services") or []]
+        payload["standards"] = [str(item) for item in raw.get("standards") or []]
+        payload["architecture"] = [str(item) for item in raw.get("architecture") or []]
+        payload["source_count"] = int(raw.get("source_count") or 0)
+        updated = raw.get("updated_at")
+        payload["updated_at"] = str(updated) if updated else None
+        return payload
