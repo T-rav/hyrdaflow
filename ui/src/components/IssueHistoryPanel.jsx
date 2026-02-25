@@ -46,6 +46,12 @@ function formatNumber(n) {
   return (Number.isFinite(n) ? n : 0).toLocaleString()
 }
 
+function estimateSavedTokens(prunedChars) {
+  const chars = Number(prunedChars || 0)
+  if (!Number.isFinite(chars) || chars <= 0) return 0
+  return Math.round(chars / 4)
+}
+
 function formatTs(ts) {
   if (!ts) return '-'
   const d = new Date(ts)
@@ -132,9 +138,13 @@ export function IssueHistoryPanel() {
     return filtered.reduce((acc, item) => {
       acc.total_tokens += Number(item.inference?.total_tokens || 0)
       acc.inference_calls += Number(item.inference?.inference_calls || 0)
+      acc.pruned_chars_total += Number(item.inference?.pruned_chars_total || 0)
       return acc
-    }, { total_tokens: 0, inference_calls: 0 })
+    }, { total_tokens: 0, inference_calls: 0, pruned_chars_total: 0 })
   }, [filtered])
+
+  const visibleSavedTokens = estimateSavedTokens(visibleTotals.pruned_chars_total)
+  const visibleUnprunedTokens = visibleTotals.total_tokens + visibleSavedTokens
 
   const toggleExpanded = (issueNumber) => {
     setExpanded(prev => ({ ...prev, [issueNumber]: !prev[issueNumber] }))
@@ -198,7 +208,9 @@ export function IssueHistoryPanel() {
       <div style={styles.summaryRow}>
         <span>{filtered.length} issues</span>
         <span>{formatNumber(visibleTotals.inference_calls)} calls</span>
-        <span>{formatNumber(visibleTotals.total_tokens)} tokens</span>
+        <span>{formatNumber(visibleTotals.total_tokens)} tokens (actual)</span>
+        <span>{formatNumber(visibleSavedTokens)} tokens saved (est)</span>
+        <span>{formatNumber(visibleUnprunedTokens)} tokens w/o pruning (est)</span>
       </div>
 
       {loading && <div style={styles.info}>Loading issue history...</div>}
@@ -208,6 +220,9 @@ export function IssueHistoryPanel() {
         {filtered.map(item => {
           const issueNum = item.issue_number
           const isExpanded = !!expanded[issueNum]
+          const issueActualTokens = Number(item.inference?.total_tokens || 0)
+          const issueSavedTokens = estimateSavedTokens(item.inference?.pruned_chars_total || 0)
+          const issueUnprunedTokens = issueActualTokens + issueSavedTokens
           return (
             <div key={issueNum} style={styles.rowWrap}>
               <div style={styles.row}>
@@ -228,7 +243,11 @@ export function IssueHistoryPanel() {
                 <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
                 <span style={styles.metaCell}>{item.prs?.length || 0} PRs</span>
                 <span style={styles.metaCell}>{item.epic || '-'}</span>
-                <span style={styles.metaCell}>{formatNumber(item.inference?.total_tokens || 0)} tok</span>
+                <span style={styles.metaCell}>
+                  {formatNumber(issueActualTokens)} tok
+                  {' · '}
+                  {formatNumber(issueSavedTokens)} saved
+                </span>
                 <span style={styles.metaCell}>{formatTs(item.last_seen)}</span>
               </div>
 
@@ -257,7 +276,13 @@ export function IssueHistoryPanel() {
                   <div style={styles.expRow}>
                     <span style={styles.expLabel}>Inference</span>
                     <span>
-                      {formatNumber(item.inference?.inference_calls || 0)} calls · {formatNumber(item.inference?.total_tokens || 0)} tokens
+                      {formatNumber(item.inference?.inference_calls || 0)} calls
+                      {' · '}
+                      {formatNumber(issueActualTokens)} tokens (actual)
+                      {' · '}
+                      {formatNumber(issueSavedTokens)} tokens saved (est)
+                      {' · '}
+                      {formatNumber(issueUnprunedTokens)} tokens w/o pruning (est)
                       {' · '}in: {formatNumber(item.inference?.input_tokens || 0)} / out: {formatNumber(item.inference?.output_tokens || 0)}
                       {' · '}pruned chars: {formatNumber(item.inference?.pruned_chars_total || 0)}
                     </span>

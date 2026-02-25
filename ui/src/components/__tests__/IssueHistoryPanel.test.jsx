@@ -16,7 +16,7 @@ function makePayload() {
         session_ids: ['sess-1'],
         source_calls: { implementer: 2 },
         model_calls: { 'gpt-5': 2 },
-        inference: { inference_calls: 2, total_tokens: 1200, input_tokens: 800, output_tokens: 400 },
+        inference: { inference_calls: 2, total_tokens: 1200, input_tokens: 800, output_tokens: 400, pruned_chars_total: 1600 },
         first_seen: '2026-02-20T00:00:00+00:00',
         last_seen: '2026-02-21T00:00:00+00:00',
       },
@@ -31,12 +31,12 @@ function makePayload() {
         session_ids: ['sess-2'],
         source_calls: { reviewer: 1 },
         model_calls: { sonnet: 1 },
-        inference: { inference_calls: 1, total_tokens: 100, input_tokens: 70, output_tokens: 30 },
+        inference: { inference_calls: 1, total_tokens: 100, input_tokens: 70, output_tokens: 30, pruned_chars_total: 400 },
         first_seen: '2026-02-19T00:00:00+00:00',
         last_seen: '2026-02-22T00:00:00+00:00',
       },
     ],
-    totals: { issues: 2, inference_calls: 3, total_tokens: 1300 },
+    totals: { issues: 2, inference_calls: 3, total_tokens: 1300, pruned_chars_total: 2000 },
   }
 }
 
@@ -56,6 +56,9 @@ describe('IssueHistoryPanel', () => {
     render(<IssueHistoryPanel />)
     await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
+    expect(screen.getByText('1,300 tokens (actual)')).toBeInTheDocument()
+    expect(screen.getByText('500 tokens saved (est)')).toBeInTheDocument()
+    expect(screen.getByText('1,800 tokens w/o pruning (est)')).toBeInTheDocument()
     expect(global.fetch).toHaveBeenCalledTimes(1)
     const [url] = global.fetch.mock.calls[0]
     expect(url).toContain('/api/issues/history?')
@@ -83,5 +86,7 @@ describe('IssueHistoryPanel', () => {
     expect(screen.getByText('#3')).toBeInTheDocument()
     expect(screen.getByText('#4')).toBeInTheDocument()
     expect(screen.getByText(/2 calls/)).toBeInTheDocument()
+    expect(screen.getByText(/400 tokens saved \(est\)/)).toBeInTheDocument()
+    expect(screen.getByText(/1,600 tokens w\/o pruning \(est\)/)).toBeInTheDocument()
   })
 })
