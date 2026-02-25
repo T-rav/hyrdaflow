@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from collections import Counter
 from collections.abc import Callable
@@ -211,7 +212,7 @@ def create_router(
         slug: str | None = None
 
     try:
-        from hf_cli import supervisor_client
+        supervisor_client = importlib.import_module("hf_cli.supervisor_client")
     except ImportError:  # pragma: no cover - env missing CLI
         supervisor_client = None  # type: ignore[assignment]
 

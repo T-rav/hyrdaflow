@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,9 @@ from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
 from file_util import atomic_write
+from manifest import ProjectManifestManager
+from manifest_curator import CuratedLearning, CuratedManifestStore
+from manifest_issue_syncer import ManifestIssueSyncer
 from models import (
     MEMORY_TYPE_DISPLAY_ORDER,
     MemoryIssueData,
@@ -183,15 +187,38 @@ class MemorySyncWorker:
         state: StateTracker,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        *,
+        manifest_store: CuratedManifestStore | None = None,
+        manifest_manager: ProjectManifestManager | None = None,
+        manifest_syncer: ManifestIssueSyncer | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._bus = event_bus
         self._runner = runner or get_default_runner()
+        self._manifest_store = manifest_store or CuratedManifestStore(config)
+        self._manifest_manager = manifest_manager or ProjectManifestManager(
+            config, curator=self._manifest_store
+        )
+        self._manifest_syncer = manifest_syncer
 
-    # Type alias for typed learning tuples:
-    # (issue_number, learning_text, created_at, memory_type)
     _TypedLearning = tuple[int, str, str, MemoryType]
+    _LearningRecord = CuratedLearning | _TypedLearning
+
+    @staticmethod
+    def _coerce_learning_tuple(
+        record: _LearningRecord,
+    ) -> tuple[int, str, str, MemoryType]:
+        """Normalize curated objects and legacy tuple records to a single shape."""
+        if isinstance(record, tuple):
+            num, learning, created, memory_type = record
+            return num, learning, created, memory_type
+        return (
+            record.number,
+            record.learning,
+            record.created_at,
+            record.memory_type,
+        )
 
     async def sync(self, issues: list[MemoryIssueData]) -> MemorySyncResult:
         """Main sync entry point.
@@ -206,6 +233,8 @@ class MemorySyncWorker:
 
         if not issues:
             self._state.update_memory_state([], prev_hash)
+            self._manifest_store.update_from_learnings([])
+            await self._refresh_manifest("memory-sync-empty")
             return {
                 "action": "synced",
                 "item_count": 0,
@@ -213,31 +242,27 @@ class MemorySyncWorker:
                 "digest_chars": 0,
             }
 
-        # Check if issue set changed
-        if current_ids == sorted(prev_ids):
-            # No change — just update timestamp
-            self._state.update_memory_state(current_ids, prev_hash)
-            digest_path = self._config.data_path("memory", "digest.md")
-            digest_chars = len(digest_path.read_text()) if digest_path.is_file() else 0
-            return {
-                "action": "synced",
-                "item_count": len(issues),
-                "compacted": False,
-                "digest_chars": digest_chars,
-            }
-
         # Extract learnings (now typed) and build digest
-        learnings: list[MemorySyncWorker._TypedLearning] = []
+        learnings: list[CuratedLearning] = []
         for issue in issues:
             body = issue.get("body", "")
             learning = self._extract_learning(body)
             created = issue.get("createdAt", "")
             memory_type = self._extract_memory_type(body)
             if learning:
-                learnings.append((issue["number"], learning, created, memory_type))
+                learnings.append(
+                    CuratedLearning(
+                        number=issue["number"],
+                        title=issue.get("title", ""),
+                        learning=learning,
+                        created_at=created,
+                        memory_type=memory_type,
+                        body=body,
+                    )
+                )
 
         # Sort newest first
-        learnings.sort(key=lambda x: x[2], reverse=True)
+        learnings.sort(key=lambda item: item.created_at, reverse=True)
 
         # Build digest
         compacted = False
@@ -250,7 +275,8 @@ class MemorySyncWorker:
         # Write individual items
         items_dir = self._config.data_path("memory", "items")
         items_dir.mkdir(parents=True, exist_ok=True)
-        for num, learning, _, _ in learnings:
+        for record in learnings:
+            num, learning, _, _ = self._coerce_learning_tuple(record)
             item_path = items_dir / f"{num}.md"
             item_path.write_text(learning)
 
@@ -260,6 +286,8 @@ class MemorySyncWorker:
         # Update state
         digest_hash = hashlib.sha256(digest.encode()).hexdigest()[:16]
         self._state.update_memory_state(current_ids, digest_hash)
+        self._manifest_store.update_from_learnings(learnings)
+        await self._refresh_manifest("memory-sync")
 
         return {
             "action": "synced",
@@ -267,6 +295,25 @@ class MemorySyncWorker:
             "compacted": compacted,
             "digest_chars": len(digest),
         }
+
+    async def _refresh_manifest(self, source: str) -> None:
+        """Regenerate the manifest and optionally sync it upstream."""
+        if self._manifest_manager is None:
+            return
+        result = self._manifest_manager.refresh()
+        self._state.update_manifest_state(result.digest_hash)
+        logger.info(
+            "Manifest refreshed via %s (hash=%s, chars=%d)",
+            source,
+            result.digest_hash,
+            len(result.content),
+        )
+        if self._manifest_syncer is not None:
+            await self._manifest_syncer.sync(
+                result.content,
+                result.digest_hash,
+                source=source,
+            )
 
     @staticmethod
     def _extract_learning(body: str) -> str:
@@ -310,7 +357,7 @@ class MemorySyncWorker:
         return MemoryType.KNOWLEDGE
 
     @staticmethod
-    def _build_digest(learnings: list[_TypedLearning]) -> str:
+    def _build_digest(learnings: Sequence[_LearningRecord]) -> str:
         """Build the digest markdown grouped by memory type.
 
         Learnings are organised into sections by type (actionable types
@@ -324,8 +371,11 @@ class MemorySyncWorker:
 
         # Group learnings by type
         by_type: dict[MemoryType, list[tuple[int, str]]] = {}
-        for num, learning, _, mtype in learnings:
-            by_type.setdefault(mtype, []).append((num, learning))
+        for record in learnings:
+            num, learning, _, memory_type = MemorySyncWorker._coerce_learning_tuple(
+                record
+            )
+            by_type.setdefault(memory_type, []).append((num, learning))
 
         sections: list[str] = []
         for mtype in MEMORY_TYPE_DISPLAY_ORDER:
@@ -339,7 +389,7 @@ class MemorySyncWorker:
         return header + "\n" + "\n---\n".join(sections) + "\n"
 
     async def _compact_digest(
-        self, learnings: list[_TypedLearning], max_chars: int
+        self, learnings: Sequence[_LearningRecord], max_chars: int
     ) -> str:
         """Deduplicate and optionally summarise learnings to fit within *max_chars*.
 
@@ -353,7 +403,8 @@ class MemorySyncWorker:
         seen_keywords: list[set[str]] = []
         unique: list[MemorySyncWorker._TypedLearning] = []
 
-        for num, learning, created, mtype in learnings:
+        for record in learnings:
+            num, learning, created, mtype = self._coerce_learning_tuple(record)
             words = {
                 w.lower() for w in re.findall(r"[a-zA-Z]+", learning) if len(w) >= 4
             }

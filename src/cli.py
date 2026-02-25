@@ -326,6 +326,9 @@ def _seed_context_assets(config: HydraFlowConfig) -> list[str]:
         f"- Manifest seed: {manifest_rel} "
         f"(hash={manifest_result.digest_hash}, chars={len(manifest_result.content)})"
     )
+    legacy_manifest_path = config.data_path("memory", "manifest.md")
+    if not legacy_manifest_path.exists():
+        atomic_write(legacy_manifest_path, manifest_result.content)
 
     digest_path = config.data_path("memory", "digest.md")
     digest_rel = config.format_path_for_display(digest_path)

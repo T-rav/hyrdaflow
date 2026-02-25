@@ -2,7 +2,7 @@
 
 Scans a repository root for language markers, build systems, test frameworks,
 sub-projects/workspaces, and CI/CD configuration. Persists the result to
-``.hydraflow/memory/manifest.md`` so agents have grounded project context
+``.hydraflow/manifest/manifest.md`` so agents have grounded project context
 from the start of each run.
 
 Consolidates the scattered ``_PYTHON_MARKERS`` / ``_JS_MARKERS`` constants
@@ -17,14 +17,17 @@ value.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
 from config import HydraFlowConfig
 from file_util import atomic_write
+from manifest_curator import CuratedManifestStore
 from models import ManifestRefreshResult
 
 logger = logging.getLogger("hydraflow.manifest")
@@ -343,6 +346,21 @@ def build_manifest_markdown(repo_root: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _migrate_legacy_manifest(config: HydraFlowConfig) -> None:
+    """Move legacy memory-based manifest into the dedicated manifest folder."""
+    new_path = config.data_path("manifest", "manifest.md")
+    if new_path.is_file():
+        return
+    legacy_path = config.data_path("memory", "manifest.md")
+    if not legacy_path.is_file():
+        return
+    new_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(legacy_path, new_path)
+    with contextlib.suppress(OSError):
+        legacy_path.unlink()
+    logger.info("Migrated legacy manifest from %s to %s", legacy_path, new_path)
+
+
 class ProjectManifestManager:
     """Detects and persists project-level metadata alongside the memory digest.
 
@@ -350,13 +368,18 @@ class ProjectManifestManager:
     and file persistence.
     """
 
-    def __init__(self, config: HydraFlowConfig) -> None:
+    def __init__(
+        self,
+        config: HydraFlowConfig,
+        curator: CuratedManifestStore | None = None,
+    ) -> None:
         self._config = config
+        self._curator = curator or CuratedManifestStore(config)
 
     @property
     def manifest_path(self) -> Path:
         """Return the path to the persisted manifest file."""
-        return self._config.data_path("memory", "manifest.md")
+        return self._config.data_path("manifest", "manifest.md")
 
     def scan(self) -> str:
         """Scan the repo and return the manifest markdown content."""
@@ -364,7 +387,9 @@ class ProjectManifestManager:
 
     def write(self, content: str) -> str:
         """Write *content* to the manifest file atomically. Returns the content hash."""
-        atomic_write(self.manifest_path, content)
+        path = self.manifest_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, content)
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
     def needs_refresh(self, current_hash: str) -> bool:
@@ -382,10 +407,21 @@ class ProjectManifestManager:
         return on_disk_hash != current_hash
 
     def refresh(self) -> ManifestRefreshResult:
-        """Scan, write, and return the content and hash."""
-        content = self.scan()
+        """Scan, merge curated data, write, and return the content and hash."""
+        content = self._merge_curated_sections(self.scan())
         digest_hash = self.write(content)
         return ManifestRefreshResult(content=content, digest_hash=digest_hash)
+
+    def _merge_curated_sections(self, base_content: str) -> str:
+        """Append curated manifest sections when available."""
+        curated_markdown = self._curator.render_markdown()
+        curated = curated_markdown.strip()
+        base = base_content.strip()
+        # Curated sections come first so prompt truncation keeps them intact.
+        sections = [section for section in (curated, base) if section]
+        if not sections:
+            return ""
+        return "\n\n".join(sections) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +435,8 @@ def load_project_manifest(config: HydraFlowConfig) -> str:
     Returns an empty string if the file is missing or empty.
     Content is capped at ``config.max_manifest_prompt_chars``.
     """
-    manifest_path = config.data_path("memory", "manifest.md")
+    _migrate_legacy_manifest(config)
+    manifest_path = config.data_path("manifest", "manifest.md")
     if not manifest_path.is_file():
         return ""
     try:

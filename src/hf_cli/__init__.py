@@ -2,4 +2,6 @@
 
 from __future__ import annotations
 
-__all__ = []
+from . import supervisor_client
+
+__all__ = ["supervisor_client"]

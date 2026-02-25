@@ -9,7 +9,7 @@ TARGET_REPO_ROOT ?= $(shell python3 -c 'from pathlib import Path; cur=Path.cwd()
 -include $(PROJECT_ROOT)/.env
 export
 VENV := $(PROJECT_ROOT)/.venv
-UV := VIRTUAL_ENV=$(VENV) uv run --active
+UV := VIRTUAL_ENV=$(VENV) UV_CACHE_DIR=$(PROJECT_ROOT)/.uv-cache uv run --active
 
 # Stamp file to track when deps were last synced
 DEPS_STAMP := $(VENV)/.deps-synced
@@ -224,12 +224,13 @@ quality: deps
 quality-lite: deps
 	@echo "$(BLUE)Running lightweight quality checks...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && ( \
-		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \
-		$(UV) pyright && echo "[typecheck OK]" & \
-		$(UV) bandit -c pyproject.toml -r . --severity-level medium && echo "[security OK]" & \
-		wait_result=0; \
-		for job in $$(jobs -p); do wait $$job || wait_result=1; done; \
-		exit $$wait_result; \
+		$(VENV)/bin/ruff check . && \
+		$(VENV)/bin/ruff format . --check && \
+		echo "[lint OK]" && \
+		$(VENV)/bin/pyright && \
+		echo "[typecheck OK]" && \
+		$(VENV)/bin/bandit -c pyproject.toml -r . --severity-level medium && \
+		echo "[security OK]" \
 	)
 	@echo "$(GREEN)HydraFlow lightweight quality checks passed$(RESET)"
 
