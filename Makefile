@@ -326,6 +326,29 @@ setup: deps
 		echo "  Pi CLI: $$(pi --version | head -1)"; \
 		echo "  Pi config: ensure provider credentials are set (for example OPENAI_API_KEY or provider-specific key)"; \
 		echo "  Pi usage: set HYDRAFLOW_*_TOOL=pi in .env to enable per-stage Pi backends"; \
+		if [ -d "$(PROJECT_ROOT)/.pi" ]; then \
+			PI_HOME_DIR="$${PI_CODING_AGENT_DIR:-$$HOME/.pi/agent}"; \
+			INSTALLED=0; \
+			for KIND in extensions skills prompt-templates themes; do \
+				SRC_DIR="$(PROJECT_ROOT)/.pi/$$KIND"; \
+				DEST_DIR="$$PI_HOME_DIR/$$KIND"; \
+				[ -d "$$SRC_DIR" ] || continue; \
+				mkdir -p "$$DEST_DIR"; \
+				for ENTRY in "$$SRC_DIR"/*; do \
+					[ -e "$$ENTRY" ] || continue; \
+					NAME="$$(basename "$$ENTRY")"; \
+					rm -rf "$$DEST_DIR/$$NAME"; \
+					cp -R "$$ENTRY" "$$DEST_DIR/$$NAME"; \
+					INSTALLED=$$((INSTALLED + 1)); \
+					echo "  Pi $$KIND installed: $$NAME"; \
+				done; \
+			done; \
+			if [ "$$INSTALLED" -eq 0 ]; then \
+				echo "  Pi assets: .pi/ exists but no installable entries found under extensions/skills/prompt-templates/themes"; \
+			else \
+				echo "  Pi assets destination: $$PI_HOME_DIR"; \
+			fi; \
+		fi; \
 	else \
 		echo "  Pi CLI: not found (install from https://pi.dev/ if you want Pi backend support)"; \
 	fi
