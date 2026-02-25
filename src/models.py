@@ -686,6 +686,7 @@ class HITLItem(BaseModel):
 class ControlStatusConfig(BaseModel):
     """Config subset returned by GET /api/control/status."""
 
+    app_version: str = ""
     repo: str = ""
     ready_label: list[str] = Field(default_factory=list)
     find_label: list[str] = Field(default_factory=list)

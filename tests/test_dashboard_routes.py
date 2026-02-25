@@ -483,6 +483,48 @@ class TestControlStatusImproveLabel:
         assert data["config"]["improve_label"] == config.improve_label
 
 
+class TestControlStatusAppVersion:
+    """Tests that /api/control/status includes app_version."""
+
+    @pytest.mark.asyncio
+    async def test_control_status_includes_app_version(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from app_version import get_app_version
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        get_control_status = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/control/status"
+                and hasattr(route, "endpoint")
+            ):
+                get_control_status = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_control_status is not None
+        response = await get_control_status()
+        data = json.loads(response.body)
+        assert data["config"]["app_version"] == get_app_version()
+
+
 class TestControlStatusMemoryAutoApprove:
     """Tests that /api/control/status includes memory_auto_approve."""
 

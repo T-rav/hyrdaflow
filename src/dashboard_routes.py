@@ -15,6 +15,7 @@ from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
+from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
 from issue_fetcher import IssueFetcher
@@ -632,6 +633,7 @@ def create_router(
         response = ControlStatusResponse(
             status=status,
             config=ControlStatusConfig(
+                app_version=get_app_version(),
                 repo=config.repo,
                 ready_label=config.ready_label,
                 find_label=config.find_label,

@@ -6,9 +6,10 @@ export function Header({
   connected, orchestratorStatus,
   onStart, onStop,
 }) {
-  const { stageStatus } = useHydraFlow()
+  const { stageStatus, config } = useHydraFlow()
   const workload = stageStatus.workload
   const hasActiveWorkers = workload.active > 0
+  const appVersion = config?.app_version || ''
 
   // Track minimum stopping duration to prevent flicker
   const [stoppingHeld, setStoppingHeld] = useState(false)
@@ -50,6 +51,7 @@ export function Header({
           <span style={styles.logo}>HYDRAFLOW</span>
           <span style={styles.subtitle}>Intent in.</span>
           <span style={styles.subtitle}>Software out.</span>
+          {appVersion && <span style={styles.version}>v{appVersion}</span>}
         </div>
         <span style={connected ? dotConnected : dotDisconnected} />
       </div>
@@ -115,6 +117,7 @@ const styles = {
   logoGroup: { display: 'flex', flexDirection: 'column' },
   logo: { fontSize: 18, fontWeight: 700, color: theme.accent },
   subtitle: { color: theme.textMuted, fontWeight: 400, fontSize: 12 },
+  version: { color: theme.textMuted, fontWeight: 500, fontSize: 11 },
   dot: { width: 8, height: 8, borderRadius: '50%', display: 'inline-block' },
   center: {
     display: 'flex',

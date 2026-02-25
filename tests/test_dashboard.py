@@ -1087,6 +1087,24 @@ class TestControlStatusEndpoint:
         assert response.status_code == 200
         assert response.json()["status"] == "running"
 
+    def test_status_includes_app_version(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from app_version import get_app_version
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/control/status")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["config"]["app_version"] == get_app_version()
+
     _STATUS_CONFIG_FIELDS = [
         "repo",
         "ready_label",

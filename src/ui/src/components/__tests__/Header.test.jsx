@@ -19,7 +19,7 @@ function mockStageStatus(workers = {}, sessionCounters = {}) {
 }
 
 beforeEach(() => {
-  mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus() })
+  mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(), config: null })
 })
 
 describe('Header pre-computed styles', () => {
@@ -134,6 +134,15 @@ describe('Header component', () => {
     render(<Header {...defaultProps} />)
     expect(screen.getByText('Intent in.')).toBeInTheDocument()
     expect(screen.getByText('Software out.')).toBeInTheDocument()
+  })
+
+  it('renders app version when available in config', () => {
+    mockUseHydraFlow.mockReturnValue({
+      stageStatus: mockStageStatus(),
+      config: { app_version: '0.9.0' },
+    })
+    render(<Header {...defaultProps} />)
+    expect(screen.getByText('v0.9.0')).toBeInTheDocument()
   })
 
   it('controls section has marginLeft for spacing from center content', () => {

@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app_version import get_app_version
 from config import HydraFlowConfig
 from events import EventBus
 from pr_manager import PRManager
@@ -63,7 +64,7 @@ class HydraFlowDashboard:
 
         from dashboard_routes import create_router
 
-        app = FastAPI(title="HydraFlow Dashboard", version="1.0.0")
+        app = FastAPI(title="HydraFlow Dashboard", version=get_app_version())
 
         # Serve React build if available
         if _UI_DIST_DIR.exists() and (_UI_DIST_DIR / "index.html").exists():

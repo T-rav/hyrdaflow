@@ -6,11 +6,13 @@ import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from app_version import get_app_version
 from cli import main as hydraflow_main
 
 from .init_cmd import run_init
 from .supervisor_client import add_repo, list_repos, remove_repo
 from .supervisor_manager import ensure_running
+from .update_check import check_for_updates, check_for_updates_cached
 
 _FLAG_COMMANDS = {
     "prep": "--prep",
@@ -62,6 +64,39 @@ def _handle_run(rest: Sequence[str]) -> None:
         print(f"Dashboard: {url}")
     if info.get("log_file"):
         print(f"Logs: {info['log_file']}")
+    if "--no-update-check" not in rest:
+        _print_update_notice()
+
+
+def _handle_version() -> None:
+    print(f"hydraflow {get_app_version()}")
+
+
+def _handle_check_update() -> None:
+    result = check_for_updates()
+    if result.error:
+        print(f"Update check failed: {result.error}")
+        return
+    if result.latest_version and result.update_available:
+        print(
+            "Update available: "
+            f"{result.current_version} -> {result.latest_version}. "
+            "Run `uv tool upgrade hydraflow` or `uv pip install -U hydraflow`."
+        )
+        return
+    print(f"Up to date: {result.current_version}")
+
+
+def _print_update_notice() -> None:
+    if str(Path.home()) == "/":
+        return
+    result = check_for_updates_cached()
+    if result.error or not result.latest_version or not result.update_available:
+        return
+    print(
+        "Notice: hydraflow "
+        f"{result.latest_version} is available (current {result.current_version})."
+    )
 
 
 def _handle_view(rest: Sequence[str]) -> None:
@@ -126,6 +161,8 @@ def entrypoint(argv: Sequence[str] | None = None) -> None:
         "stop": lambda: _handle_stop(rest),
         "run": lambda: _handle_run(rest),
         "start": lambda: hydraflow_main(rest),
+        "version": _handle_version,
+        "check-update": _handle_check_update,
     }
     if cmd in command_map:
         command_map[cmd]()

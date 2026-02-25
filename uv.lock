@@ -214,39 +214,35 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "docker" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-dashboard = [
     { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
     { name = "uvicorn" },
     { name = "websockets" },
 ]
+
+[package.optional-dependencies]
 dev = [
     { name = "bandit" },
     { name = "pyright" },
     { name = "ruff" },
 ]
 test = [
-    { name = "fastapi" },
     { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
     { name = "pytest-xdist" },
-    { name = "uvicorn" },
-    { name = "websockets" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = "==1.8.0" },
     { name = "docker", specifier = ">=7.0.0" },
-    { name = "fastapi", marker = "extra == 'dashboard'", specifier = ">=0.110.0" },
+    { name = "fastapi", specifier = ">=0.110.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
-    { name = "hydraflow", extras = ["dashboard"], marker = "extra == 'test'" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = "==1.1.408" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.4.0" },
@@ -255,10 +251,10 @@ requires-dist = [
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.12.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
-    { name = "uvicorn", marker = "extra == 'dashboard'", specifier = ">=0.30.0" },
-    { name = "websockets", marker = "extra == 'dashboard'", specifier = ">=12.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
+    { name = "websockets", specifier = ">=12.0" },
 ]
-provides-extras = ["test", "dev", "docker", "dashboard"]
+provides-extras = ["test", "dev", "docker"]
 
 [[package]]
 name = "idna"
