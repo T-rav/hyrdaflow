@@ -185,6 +185,13 @@ def _is_timestamp_in_range(
     return not (until is not None and parsed > until)
 
 
+def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]:
+    parsed = _parse_iso_or_none(timestamp)
+    if parsed is None:
+        parsed = datetime.min.replace(tzinfo=UTC)
+    return (parsed, _status_rank(status))
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -265,6 +272,7 @@ def create_router(
             "inference": dict.fromkeys(_INFERENCE_COUNTER_KEYS, 0),
             "first_seen": None,
             "last_seen": None,
+            "status_updated_at": None,
         }
 
     def _touch_issue_timestamps(row: dict[str, Any], timestamp: str | None) -> None:
@@ -878,8 +886,21 @@ def create_router(
 
         telemetry = PromptTelemetry(config)
         issue_rows: dict[int, dict[str, Any]] = {}
+        all_events = event_bus.get_history()
+        pr_to_issue: dict[int, int] = {}
 
-        for record in telemetry.load_inferences(limit=50000):
+        # Build PR→issue mapping from all in-memory events first so merge events
+        # in the selected range still resolve when PR creation happened earlier.
+        for event in all_events:
+            if event.type != EventType.PR_CREATED:
+                continue
+            mapped_issue = _event_issue_number(event.data)
+            mapped_pr = _coerce_int(event.data.get("pr"))
+            if mapped_issue is not None and mapped_issue > 0 and mapped_pr > 0:
+                pr_to_issue[mapped_pr] = mapped_issue
+
+        inference_rows = telemetry.load_inferences(limit=50000)
+        for record in inference_rows:
             timestamp = record.get("timestamp")
             if not _is_timestamp_in_range(
                 timestamp if isinstance(timestamp, str) else None,
@@ -917,9 +938,9 @@ def create_router(
                 prs: dict[int, dict[str, Any]] = row["prs"]
                 if pr_number not in prs:
                     prs[pr_number] = {"number": pr_number, "url": "", "merged": False}
+                pr_to_issue.setdefault(pr_number, issue_number)
 
-        pr_to_issue: dict[int, int] = {}
-        for event in event_bus.get_history():
+        for event in all_events:
             timestamp = event.timestamp
             if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
                 continue
@@ -983,10 +1004,16 @@ def create_router(
             normalised = _normalise_event_status(event.type, event.data)
             if normalised:
                 current = str(row.get("status", "unknown"))
-                if _status_rank(normalised) >= _status_rank(current):
+                current_ts = (
+                    row.get("status_updated_at")
+                    if isinstance(row.get("status_updated_at"), str)
+                    else None
+                )
+                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
+                    current, current_ts
+                ):
                     row["status"] = normalised
-
-        await _enrich_issue_history_with_github(issue_rows)
+                    row["status_updated_at"] = timestamp
 
         items: list[IssueHistoryEntry] = []
         for row in issue_rows.values():
@@ -1045,6 +1072,81 @@ def create_router(
                     last_seen=row.get("last_seen"),
                 )
             )
+
+        # Keep API fast by enriching only visible rows and only when needed.
+        issue_lookup = {
+            item.issue_number: issue_rows[item.issue_number] for item in items
+        }
+        enrich_candidates = [
+            item.issue_number
+            for item in items
+            if (
+                not item.issue_url
+                or item.title.startswith("Issue #")
+                or (not item.epic and not item.linked_issues)
+            )
+        ][:40]
+        if enrich_candidates:
+            await _enrich_issue_history_with_github(
+                {k: issue_lookup[k] for k in enrich_candidates}
+            )
+            items = []
+            for row in issue_rows.values():
+                row_status = str(row.get("status", "unknown")).lower()
+                if requested_status and row_status != requested_status:
+                    continue
+                issue_number = int(row["issue_number"])
+                title = str(row.get("title", f"Issue #{issue_number}"))
+                if (
+                    query_text
+                    and query_text not in title.lower()
+                    and query_text not in str(issue_number)
+                ):
+                    continue
+                linked_issues = sorted(
+                    int(v)
+                    for v in row.get("linked_issues", set())
+                    if _coerce_int(v) > 0
+                )
+                prs_map = row.get("prs", {})
+                if not isinstance(prs_map, dict):
+                    prs_map = {}
+                pr_rows = sorted(
+                    (
+                        IssueHistoryPR(
+                            number=int(pr_data["number"]),
+                            url=str(pr_data.get("url", "")),
+                            merged=bool(pr_data.get("merged", False)),
+                        )
+                        for pr_data in prs_map.values()
+                        if isinstance(pr_data, dict)
+                        and _coerce_int(pr_data.get("number")) > 0
+                    ),
+                    key=lambda p: p.number,
+                    reverse=True,
+                )
+                items.append(
+                    IssueHistoryEntry(
+                        issue_number=issue_number,
+                        title=title,
+                        issue_url=str(row.get("issue_url", "")),
+                        status=row_status,
+                        epic=str(row.get("epic", "")),
+                        linked_issues=linked_issues,
+                        prs=pr_rows,
+                        session_ids=sorted(
+                            str(s) for s in row.get("session_ids", set()) if str(s)
+                        ),
+                        source_calls=dict(sorted(row.get("source_calls", {}).items())),
+                        model_calls=dict(sorted(row.get("model_calls", {}).items())),
+                        inference={
+                            k: _coerce_int(v)
+                            for k, v in row.get("inference", {}).items()
+                        },
+                        first_seen=row.get("first_seen"),
+                        last_seen=row.get("last_seen"),
+                    )
+                )
 
         items.sort(
             key=lambda item: (

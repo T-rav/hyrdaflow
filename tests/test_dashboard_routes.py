@@ -267,6 +267,176 @@ class TestIssueHistoryEndpoint:
         assert issue["prs"][0]["number"] == 501
         assert issue["prs"][0]["merged"] is True
 
+    @pytest.mark.asyncio
+    async def test_issue_history_uses_latest_status_not_highest_rank(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.WORKER_UPDATE,
+                timestamp="2026-02-25T00:00:00+00:00",
+                data={"issue": 88, "status": "failed", "worker": 1},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.WORKER_UPDATE,
+                timestamp="2026-02-25T00:05:00+00:00",
+                data={"issue": 88, "status": "running", "worker": 1},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 88), None)
+        assert issue is not None
+        assert issue["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_issue_history_merges_with_pr_created_outside_range(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                timestamp="2026-02-01T00:00:00+00:00",
+                data={"issue": 99, "pr": 9001},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                timestamp="2026-02-20T00:00:00+00:00",
+                data={"pr": 9001, "status": "merged"},
+            )
+        )
+
+        response = await endpoint(
+            since="2026-02-10T00:00:00+00:00", until="2026-02-28T00:00:00+00:00"
+        )
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 99), None)
+        assert issue is not None
+        assert issue["status"] == "merged"
+        assert issue["prs"][0]["number"] == 9001
+        assert issue["prs"][0]["merged"] is True
+
+    @pytest.mark.asyncio
+    async def test_issue_history_filters_by_status_and_query(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={"issue": 101, "title": "Fix auth cache"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.WORKER_UPDATE,
+                timestamp="2026-02-21T00:01:00+00:00",
+                data={"issue": 101, "status": "running", "worker": 1},
+            )
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={"issue": 102, "title": "Merge docs"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                timestamp="2026-02-21T00:02:00+00:00",
+                data={"issue": 102, "pr": 3002},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                timestamp="2026-02-21T00:03:00+00:00",
+                data={"pr": 3002, "status": "merged"},
+            )
+        )
+
+        response = await endpoint(status="merged", query="docs")
+        payload = json.loads(response.body)
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["issue_number"] == 102
+
 
 class TestControlStatusImproveLabel:
     """Tests that /api/control/status includes improve_label."""
