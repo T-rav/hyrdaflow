@@ -289,6 +289,8 @@ setup: deps
 	else \
 		echo "  .env.sample not found: skipping .env bootstrap"; \
 	fi
+	@echo "$(BLUE)Bootstrapping agent assets into target repo (.claude/.codex/.pi/.githooks)...$(RESET)"
+	@cd $(PROJECT_ROOT) && $(UV) python -m hf_cli init --target "$(TARGET_REPO_ROOT)"
 	@echo "$(BLUE)Setting up git hooks...$(RESET)"
 	@if [ "$(TARGET_REPO_ROOT)" != "$(PROJECT_ROOT)" ]; then \
 		mkdir -p "$(TARGET_REPO_ROOT)/.githooks"; \
@@ -378,6 +380,8 @@ setup: deps
 REPO_SLUG := $(shell git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]||;s|\.git$$||')
 
 prep: deps
+	@echo "$(BLUE)Ensuring target repo has latest agent assets first...$(RESET)"
+	@$(MAKE) setup TARGET_REPO_ROOT="$(TARGET_REPO_ROOT)"
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
 	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep

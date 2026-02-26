@@ -21,6 +21,15 @@ except ImportError:  # pragma: no cover - optional module
 _GITIGNORE_ENTRY = ".hydraflow/prep"
 
 
+def _detect_repo_root() -> Path:
+    module_path = Path(__file__).resolve()
+    for candidate in module_path.parents:
+        if all((candidate / rel).exists() for rel in ASSET_PATHS):
+            return candidate
+    # Conservative fallback for standard src/hf_cli layout.
+    return module_path.parents[2]
+
+
 def _extract_assets_from_fileobj(
     target: Path, force: bool, fileobj: BinaryIO
 ) -> tuple[int, int]:
@@ -62,7 +71,7 @@ def _extract_assets_from_embedded_data(target: Path, force: bool) -> tuple[int, 
 
 
 def _extract_assets_from_source_tree(target: Path, force: bool) -> tuple[int, int]:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = _detect_repo_root()
     created = 0
     skipped = 0
     for rel_path in ASSET_PATHS:

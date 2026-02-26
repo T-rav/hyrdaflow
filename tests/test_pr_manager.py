@@ -1575,6 +1575,9 @@ def test_makefile_prep_runs_cli_scaffold() -> None:
 
     match = re.search(r"^prep:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "prep target block not found in Makefile"
+    assert "$(MAKE) setup" in match.group(1), (
+        "prep target must run setup first to bootstrap agent assets"
+    )
     assert "--prep" in match.group(1), "prep target must call cli.py --prep"
 
 
@@ -1591,6 +1594,9 @@ def test_makefile_setup_runs_label_bootstrap() -> None:
     assert match is not None, "setup target block not found in Makefile"
     assert "--ensure-labels" in match.group(1), (
         "setup target must ensure labels via cli.py --ensure-labels"
+    )
+    assert "python -m hf_cli init --target" in match.group(1), (
+        "setup target must bootstrap .claude/.codex/.pi/.githooks via hf init"
     )
 
 

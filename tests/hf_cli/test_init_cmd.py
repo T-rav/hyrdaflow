@@ -10,9 +10,11 @@ from hf_cli import embedded_assets, init_cmd
 def _write_asset_tree(root: Path) -> None:
     (root / ".claude").mkdir(parents=True, exist_ok=True)
     (root / ".codex").mkdir(parents=True, exist_ok=True)
+    (root / ".pi").mkdir(parents=True, exist_ok=True)
     (root / ".githooks").mkdir(parents=True, exist_ok=True)
     (root / ".claude" / "settings.json").write_text('{"ok": true}')
     (root / ".codex" / "README.md").write_text("codex")
+    (root / ".pi" / "README.md").write_text("pi")
     (root / ".githooks" / "pre-commit").write_text("#!/bin/sh\necho ok\n")
 
 
@@ -44,6 +46,7 @@ def test_run_init_falls_back_to_source_tree_when_archive_missing(
     assert rc == 0
     assert (target / ".claude" / "settings.json").exists()
     assert (target / ".codex" / "README.md").exists()
+    assert (target / ".pi" / "README.md").exists()
     assert (target / ".githooks" / "pre-commit").exists()
     assert ".hydraflow/prep" in (target / ".gitignore").read_text()
 
