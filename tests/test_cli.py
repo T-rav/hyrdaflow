@@ -637,6 +637,12 @@ class TestBuildConfig:
         assert cfg.ac_tool == "codex"
         assert cfg.verification_judge_tool == "codex"
 
+    def test_implementation_tool_codex_uses_codex_model_default(self) -> None:
+        args = parse_args(["--implementation-tool", "codex"])
+        cfg = build_config(args)
+        assert cfg.implementation_tool == "codex"
+        assert cfg.model == "gpt-5-codex"
+
     def test_tool_fields_support_pi(self) -> None:
         args = parse_args(
             [

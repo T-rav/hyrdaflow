@@ -4,7 +4,7 @@ description: >
   Use this agent to guarantee code meets strict quality, security, testing, and maintainability standards.
   It enforces linting (ruff), types (pyright), security (bandit), tests (pytest/coverage), dead-code removal (vulture),
   duplication/centralization (jscpd + radon + import-graph checks), and test-name⇄target mapping.
-model: opus
+model: gpt-5-codex
 color: purple
 ---
 

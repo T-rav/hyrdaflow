@@ -3825,6 +3825,7 @@ class TestAgentToolFields:
             state_file=tmp_path / "s.json",
         )
         assert cfg.implementation_tool == "codex"
+        assert cfg.model == "gpt-5-codex"
         assert cfg.review_tool == "codex"
         assert cfg.planner_tool == "codex"
         assert cfg.triage_tool == "codex"
@@ -3875,6 +3876,7 @@ class TestAgentToolFields:
             background_tool="codex",
         )
         assert cfg.implementation_tool == "codex"
+        assert cfg.model == "gpt-5-codex"
         assert cfg.review_tool == "codex"
         assert cfg.planner_tool == "codex"
         assert cfg.ac_tool == "codex"

@@ -81,6 +81,8 @@ exclude = [
     "**/__pycache__",
     "**/node_modules",
     "templates",
+    ".uv-cache",
+    ".uv-cache/**",
     ".venv",
     "venv",
     "**/venv",
@@ -95,7 +97,14 @@ reportMissingTypeStubs = false
 
 # === Bandit ===
 [tool.bandit]
-exclude_dirs = ["tests", "venv", ".venv", ".claude/worktrees", ".codex/worktrees"]
+exclude_dirs = [
+    "tests",
+    "venv",
+    ".venv",
+    ".uv-cache",
+    ".claude/worktrees",
+    ".codex/worktrees",
+]
 skips = ["B101"]
 
 # === Pytest ===
