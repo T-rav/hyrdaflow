@@ -139,16 +139,15 @@ class IssueFetcher:
         try:
             raw = await run_subprocess(
                 "gh",
-                "issue",
-                "view",
-                str(issue_number),
-                "--repo",
-                self._config.repo,
-                "--json",
-                "number,title,body,labels,comments,url,createdAt",
+                "api",
+                f"repos/{self._config.repo}/issues/{issue_number}",
+                "--jq",
+                "{number, title, body, labels, url: .html_url, createdAt: .created_at}",
                 gh_token=self._config.gh_token,
             )
             data = json.loads(raw)
+            if isinstance(data, dict):
+                data["comments"] = await self.fetch_issue_comments(issue_number)
             return GitHubIssue.model_validate(data)
         except (RuntimeError, json.JSONDecodeError) as exc:
             logger.error("Could not fetch issue #%d: %s", issue_number, exc)
@@ -258,20 +257,16 @@ class IssueFetcher:
         try:
             raw = await run_subprocess(
                 "gh",
-                "issue",
-                "view",
-                str(issue_number),
-                "--repo",
-                self._config.repo,
-                "--json",
-                "comments",
+                "api",
+                f"repos/{self._config.repo}/issues/{issue_number}/comments",
+                "--jq",
+                "[.[] | .body]",
                 gh_token=self._config.gh_token,
             )
             data = json.loads(raw)
-            comments = data.get("comments", [])
-            return [
-                c.get("body", "") if isinstance(c, dict) else str(c) for c in comments
-            ]
+            if not isinstance(data, list):
+                return []
+            return [str(c) for c in data]
         except (RuntimeError, json.JSONDecodeError) as exc:
             logger.error(
                 "Could not fetch comments for issue #%d: %s", issue_number, exc

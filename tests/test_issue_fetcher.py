@@ -621,7 +621,7 @@ SINGLE_ISSUE_JSON = json.dumps(
         "title": "Fix bug",
         "body": "Details",
         "labels": [{"name": "ready"}],
-        "comments": [{"body": "first comment"}],
+        "comments": [],
         "url": "https://github.com/test-org/test-repo/issues/42",
         "createdAt": "2026-01-01T00:00:00Z",
     }
@@ -638,8 +638,12 @@ class TestFetchIssueByNumber:
         fetcher = IssueFetcher(config)
         mock_proc = AsyncMock()
         mock_proc.returncode = 0
+        comments_json = json.dumps(["first comment"])
         mock_proc.communicate = AsyncMock(
-            return_value=(SINGLE_ISSUE_JSON.encode(), b"")
+            side_effect=[
+                (SINGLE_ISSUE_JSON.encode(), b""),
+                (comments_json.encode(), b""),
+            ]
         )
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
@@ -649,6 +653,7 @@ class TestFetchIssueByNumber:
         assert issue.number == 42
         assert issue.title == "Fix bug"
         assert issue.body == "Details"
+        assert issue.comments == ["first comment"]
 
     @pytest.mark.asyncio
     async def test_returns_none_on_gh_failure(self, config: HydraFlowConfig) -> None:
@@ -698,7 +703,7 @@ class TestFetchIssueComments:
     @pytest.mark.asyncio
     async def test_returns_comment_bodies(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
-        comments_json = json.dumps({"comments": [{"body": "c1"}, {"body": "c2"}]})
+        comments_json = json.dumps(["c1", "c2"])
         mock_proc = AsyncMock()
         mock_proc.returncode = 0
         mock_proc.communicate = AsyncMock(return_value=(comments_json.encode(), b""))
@@ -711,9 +716,7 @@ class TestFetchIssueComments:
     @pytest.mark.asyncio
     async def test_handles_string_comments(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
-        comments_json = json.dumps(
-            {"comments": [{"body": "dict comment"}, "plain string"]}
-        )
+        comments_json = json.dumps(["dict comment", "plain string"])
         mock_proc = AsyncMock()
         mock_proc.returncode = 0
         mock_proc.communicate = AsyncMock(return_value=(comments_json.encode(), b""))
@@ -786,6 +789,35 @@ class TestFetchIssuesByLabels:
         # Same issue returned for both labels → deduplicated to 1
         assert len(issues) == 1
         assert issues[0].number == 42
+
+    @pytest.mark.asyncio
+    async def test_rest_comments_count_payload_normalizes_to_empty_comments(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+        raw = json.dumps(
+            [
+                {
+                    "number": 7,
+                    "title": "REST issue",
+                    "body": "Details",
+                    "labels": [{"name": "ready"}],
+                    "comments": 3,
+                    "html_url": "https://github.com/test-org/test-repo/issues/7",
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ]
+        )
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            issues = await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert len(issues) == 1
+        assert issues[0].number == 7
+        assert issues[0].comments == []
 
     @pytest.mark.asyncio
     async def test_exclude_labels_filter_correctly(
