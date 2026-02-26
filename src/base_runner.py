@@ -67,7 +67,7 @@ class BaseRunner:
         start = time.monotonic()
         transcript = ""
         succeeded = False
-        usage_stats: dict[str, int] = {}
+        usage_stats: dict[str, object] = {}
         try:
             transcript = await stream_claude_process(
                 cmd=cmd,

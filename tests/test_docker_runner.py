@@ -1184,3 +1184,24 @@ class TestBuildMounts:
         assert str(custom_pi) in mounts
         assert mounts[str(custom_pi)] == {"bind": "/root/.pi/agent", "mode": "rw"}
         assert str(home / ".pi") not in mounts
+
+    def test_mounts_custom_claude_config_dir_when_configured(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        custom_claude = tmp_path / "custom" / "claude-config"
+        custom_claude.mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("docker_runner.Path.home", return_value=home),
+            patch.dict(
+                "os.environ", {"CLAUDE_CONFIG_DIR": str(custom_claude)}, clear=True
+            ),
+        ):
+            mounts = runner._build_mounts(None)
+
+        assert str(custom_claude) in mounts
+        assert mounts[str(custom_claude)] == {"bind": "/root/.claude", "mode": "rw"}
+        assert str(home / ".claude") not in mounts

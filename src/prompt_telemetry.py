@@ -75,6 +75,10 @@ class PromptTelemetry:
         )
         actual_cache_read_tokens = max(0, _as_int(st.get("cache_read_input_tokens", 0)))
         actual_total_tokens = max(0, _as_int(st.get("total_tokens", 0)))
+        usage_available = bool(st.get("usage_available", actual_total_tokens > 0))
+        usage_status = str(st.get("usage_status", "")).strip().lower()
+        if usage_status not in {"available", "unavailable"}:
+            usage_status = "available" if usage_available else "unavailable"
 
         history_saved = max(0, history_before - history_after)
         context_saved = max(0, context_before - context_after)
@@ -116,6 +120,8 @@ class PromptTelemetry:
             "cache_read_input_tokens": actual_cache_read_tokens,
             "total_tokens": effective_total_tokens,
             "token_source": token_source,
+            "usage_status": usage_status,
+            "usage_available": usage_available,
             "duration_seconds": round(duration_seconds, 3),
             "status": "success" if success else "failed",
             "token_estimation_mode": "model-aware-chars-per-token",
@@ -158,6 +164,24 @@ class PromptTelemetry:
                 clean_sections[key] = max(0, _as_int(v))
             if clean_sections:
                 record["section_chars"] = clean_sections
+        raw_usage = st.get("raw_usage")
+        if isinstance(raw_usage, list):
+            cleaned_raw: list[dict[str, object]] = []
+            for item in raw_usage[:20]:
+                if not isinstance(item, dict):
+                    continue
+                cleaned: dict[str, object] = {}
+                for key in ("backend", "event_type", "path"):
+                    value = item.get(key)
+                    if isinstance(value, str):
+                        cleaned[key] = value
+                payload = item.get("payload")
+                if isinstance(payload, dict):
+                    cleaned["payload"] = payload
+                if cleaned:
+                    cleaned_raw.append(cleaned)
+            if cleaned_raw:
+                record["raw_usage"] = cleaned_raw
 
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
@@ -299,6 +323,13 @@ class PromptTelemetry:
         target["actual_usage_calls"] = _as_int(target.get("actual_usage_calls", 0))
         if record.get("token_source") == "actual":
             target["actual_usage_calls"] = _as_int(target["actual_usage_calls"]) + 1
+        target["usage_unavailable_calls"] = _as_int(
+            target.get("usage_unavailable_calls", 0)
+        )
+        if record.get("usage_status") == "unavailable":
+            target["usage_unavailable_calls"] = (
+                _as_int(target["usage_unavailable_calls"]) + 1
+            )
         target["pruned_chars_total"] = _as_int(
             target.get("pruned_chars_total", 0)
         ) + _as_int(record.get("pruned_chars_total", 0))
@@ -395,6 +426,7 @@ def _new_counter() -> dict[str, object]:
         "cache_hits": 0,
         "cache_misses": 0,
         "actual_usage_calls": 0,
+        "usage_unavailable_calls": 0,
         "pruned_chars_total": 0,
         "last_updated": "",
     }

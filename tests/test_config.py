@@ -3833,6 +3833,39 @@ class TestAgentToolFields:
         assert cfg.ac_tool == "codex"
         assert cfg.verification_judge_tool == "codex"
 
+    def test_tool_env_overrides_accept_pi(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_IMPLEMENTATION_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_SUBSKILL_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_DEBUG_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_SYSTEM_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_BACKGROUND_TOOL", "pi")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.implementation_tool == "pi"
+        assert cfg.review_tool == "pi"
+        assert cfg.planner_tool == "pi"
+        assert cfg.triage_tool == "pi"
+        assert cfg.transcript_summary_tool == "pi"
+        assert cfg.memory_compaction_tool == "pi"
+        assert cfg.ac_tool == "pi"
+        assert cfg.verification_judge_tool == "pi"
+        assert cfg.subskill_tool == "pi"
+        assert cfg.debug_tool == "pi"
+        assert cfg.system_tool == "pi"
+        assert cfg.background_tool == "pi"
+
     def test_profile_tool_overrides_apply_to_defaults(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,

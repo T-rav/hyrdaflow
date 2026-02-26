@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from cli import _seed_context_assets
+from cli import _run_scaffold, _seed_context_assets
 from models import AuditCheckStatus
 from prep import HYDRAFLOW_LABELS, PrepResult, _list_existing_labels, ensure_labels
 from tests.conftest import SubprocessMockBuilder
@@ -1401,6 +1402,61 @@ def test_prep_output_tracker_uses_scaffold_stage_label() -> None:
     cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
     assert '_prep_stage_line(\n                    "scaffold"' in content
+
+
+@pytest.mark.asyncio
+async def test_run_scaffold_reports_prompt_selection_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Interactive selection mode should be reflected in prep stage output."""
+    config = ConfigFactory.create(repo_root=tmp_path, dry_run=True)
+
+    monkeypatch.setattr("cli._choose_prep_tool", lambda _configured: ("pi", "prompt"))
+    monkeypatch.setattr("polyglot_prep.detect_prep_stack", lambda _repo_root: "python")
+    monkeypatch.setattr(
+        "ci_scaffold.scaffold_ci",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "polyglot_prep.scaffold_tests_polyglot",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "cli._extract_coverage_percent", lambda _repo_root: (75.0, "coverage.xml")
+    )
+
+    ok = await _run_scaffold(config)
+    out = capsys.readouterr().out
+    assert ok is True
+    assert "prep driver selected: pi" in out
+    assert "mode=prompt" in out
+
+
+@pytest.mark.asyncio
+async def test_run_scaffold_warns_when_no_prep_driver_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No detected prep tools should surface a clear warning."""
+    config = ConfigFactory.create(repo_root=tmp_path, dry_run=True)
+
+    monkeypatch.setattr("cli._choose_prep_tool", lambda _configured: (None, "none"))
+    monkeypatch.setattr("polyglot_prep.detect_prep_stack", lambda _repo_root: "python")
+    monkeypatch.setattr(
+        "ci_scaffold.scaffold_ci",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "polyglot_prep.scaffold_tests_polyglot",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "cli._extract_coverage_percent", lambda _repo_root: (75.0, "coverage.xml")
+    )
+
+    ok = await _run_scaffold(config)
+    out = capsys.readouterr().out
+    assert ok is True
+    assert "no prep driver detected" in out
 
 
 class TestContextSeed:

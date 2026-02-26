@@ -23,6 +23,13 @@ class TestParseCommandToolModel:
         assert tool == "codex"
         assert model == "gpt-5"
 
+    def test_parses_pi_model(self, tmp_path):
+        tool, model = parse_command_tool_model(
+            ["pi", "-p", "--mode", "json", "--model", "gpt-5.3-codex"]
+        )
+        assert tool == "pi"
+        assert model == "gpt-5.3-codex"
+
 
 class TestPromptTelemetry:
     def test_record_writes_inference_and_pr_rollup(self, tmp_path):
@@ -115,8 +122,44 @@ class TestPromptTelemetry:
         pr = rollup["prs"]["202"]
         assert pr["total_tokens"] == 200
         assert pr["actual_usage_calls"] == 1
+        assert pr["usage_unavailable_calls"] == 0
         assert rollup["lifetime"]["total_tokens"] == 200
         assert rollup["sessions"]["sess-2"]["total_tokens"] == 200
+
+    def test_record_marks_usage_unavailable_when_backend_reports_none(self, tmp_path):
+        config = ConfigFactory.create(repo_root=tmp_path)
+        telemetry = PromptTelemetry(config)
+
+        telemetry.record(
+            source="triage",
+            tool="pi",
+            model="gpt-5.3-codex",
+            issue_number=9,
+            pr_number=0,
+            session_id="sess-none",
+            prompt_chars=100,
+            transcript_chars=50,
+            duration_seconds=0.3,
+            success=True,
+            stats={
+                "usage_status": "unavailable",
+                "usage_available": False,
+                "raw_usage": [
+                    {"backend": "pi", "event_type": "agent_end", "payload": {}}
+                ],
+            },
+        )
+
+        inf_file = config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(inf_file.read_text().strip())
+        assert row["usage_status"] == "unavailable"
+        assert row["usage_available"] is False
+        assert isinstance(row["raw_usage"], list)
+
+        rollup = json.loads(
+            config.data_path("metrics", "prompt", "pr_stats.json").read_text()
+        )
+        assert rollup["lifetime"]["usage_unavailable_calls"] == 1
 
     def test_get_session_and_lifetime_totals(self, tmp_path):
         config = ConfigFactory.create(repo_root=tmp_path)

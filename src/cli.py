@@ -405,7 +405,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--system-tool",
         default=None,
-        choices=["inherit", "claude", "codex"],
+        choices=["inherit", "claude", "codex", "pi"],
         help="Global default tool for system agents; per-agent explicit settings still win (default: inherit)",
     )
     parser.add_argument(
@@ -416,7 +416,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--background-tool",
         default=None,
-        choices=["inherit", "claude", "codex"],
+        choices=["inherit", "claude", "codex", "pi"],
         help="Global default tool for background workers; per-worker explicit settings still win (default: inherit)",
     )
     parser.add_argument(
@@ -427,7 +427,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--implementation-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for implementation agents (default: claude)",
     )
     parser.add_argument(
@@ -438,7 +438,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--review-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for review agents (default: claude)",
     )
     parser.add_argument(
@@ -543,7 +543,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--memory-compaction-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for memory digest compaction (default: claude)",
     )
     parser.add_argument(
@@ -575,13 +575,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--planner-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for planning agents (default: claude)",
     )
     parser.add_argument(
         "--triage-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for triage agents (default: claude)",
     )
     parser.add_argument(
@@ -613,19 +613,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--ac-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for acceptance criteria generation (default: claude)",
     )
     parser.add_argument(
         "--verification-judge-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for verification judge (default: claude)",
     )
     parser.add_argument(
         "--transcript-summary-tool",
         default=None,
-        choices=["claude", "codex"],
+        choices=["claude", "codex", "pi"],
         help="CLI backend for transcript summarization (default: claude)",
     )
     parser.add_argument(
@@ -1270,6 +1270,8 @@ def _detect_available_prep_tools() -> list[str]:
         tools.append("claude")
     if shutil.which("codex"):
         tools.append("codex")
+    if shutil.which("pi"):
+        tools.append("pi")
     return tools
 
 
@@ -1277,6 +1279,8 @@ def _best_model_for_tool(tool: str) -> str:
     """Return best default model for the selected tool."""
     if tool == "claude":
         return "opus"
+    if tool == "pi":
+        return "gpt-5.3-codex"
     return "gpt-5-codex"
 
 
@@ -1288,19 +1292,26 @@ def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
     if len(available) == 1:
         return available[0], "single"
 
-    # Both tools installed.
-    if sys.stdin.isatty():
-        print("Both Claude and Codex are installed for prep.")  # noqa: T201
-        print("Choose prep driver: [1] claude  [2] codex")  # noqa: T201
-        choice = input("Selection (default 1): ").strip()  # noqa: T201
-        if choice == "2":
-            return "codex", "prompt"
-        return "claude", "prompt"
+    selected = available[0]
+    mode = "fallback"
 
-    # Non-interactive fallback.
-    if configured in ("claude", "codex"):
-        return configured, "configured"
-    return "claude", "fallback"
+    # Multiple tools installed.
+    if sys.stdin.isatty():
+        default_idx = available.index(configured) if configured in available else 0
+        print(f"Prep tools available: {', '.join(available)}")  # noqa: T201
+        options = "  ".join(f"[{i + 1}] {name}" for i, name in enumerate(available))
+        print(f"Choose prep driver: {options}")  # noqa: T201
+        choice = input(f"Selection (default {default_idx + 1}): ").strip()  # noqa: T201
+        selected = available[default_idx]
+        mode = "prompt"
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(available):
+                selected = available[idx]
+    elif configured in available:
+        selected = configured
+        mode = "configured"
+    return selected, mode
 
 
 def _build_prep_agent_prompt(
@@ -1357,7 +1368,7 @@ async def _run_prep_agent_correction(
     issue_filenames: list[str],
     on_output: Callable[[str], bool] | None = None,
 ) -> bool:
-    """Run Claude/Codex as a prep correction agent for one attempt."""
+    """Run Claude/Codex/Pi as a prep correction agent for one attempt."""
     from agent_cli import build_agent_command  # noqa: PLC0415
     from events import EventBus  # noqa: PLC0415
     from runner_utils import stream_claude_process  # noqa: PLC0415
@@ -1405,7 +1416,7 @@ async def _run_prep_agent_workflow(
     project_paths: list[str],
     on_output: Callable[[str], bool] | None = None,
 ) -> tuple[bool, str]:
-    """Run an end-to-end prep workflow via Claude/Codex."""
+    """Run an end-to-end prep workflow via Claude/Codex/Pi."""
     from agent_cli import build_agent_command  # noqa: PLC0415
     from events import EventBus  # noqa: PLC0415
     from runner_utils import stream_claude_process  # noqa: PLC0415
@@ -1490,6 +1501,29 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
     print(
         _prep_stage_line("prep", f"quick prep for stack '{stack}'", "start", use_color)
     )  # noqa: T201
+    selected_tool, selection_mode = _choose_prep_tool(config.implementation_tool)
+    if selected_tool:
+        selected_model = _best_model_for_tool(selected_tool)
+        print(  # noqa: T201
+            _prep_stage_line(
+                "prep",
+                (
+                    f"prep driver selected: {selected_tool} "
+                    f"({selected_model}; mode={selection_mode})"
+                ),
+                "ok",
+                use_color,
+            )
+        )
+    else:
+        print(  # noqa: T201
+            _prep_stage_line(
+                "prep",
+                "no prep driver detected (claude/codex/pi not found in PATH)",
+                "warn",
+                use_color,
+            )
+        )
 
     ci_probe = scaffold_ci(repo_root, dry_run=True)
     tests_probe = scaffold_tests_polyglot(repo_root, dry_run=True)

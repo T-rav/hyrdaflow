@@ -227,6 +227,9 @@ dev = [
     { name = "pyright" },
     { name = "ruff" },
 ]
+docker = [
+    { name = "docker" },
+]
 test = [
     { name = "httpx" },
     { name = "pytest" },
@@ -240,6 +243,7 @@ test = [
 requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = "==1.8.0" },
     { name = "docker", specifier = ">=7.0.0" },
+    { name = "docker", marker = "extra == 'docker'", specifier = ">=7.0.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },

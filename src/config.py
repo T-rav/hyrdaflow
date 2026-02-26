@@ -175,7 +175,7 @@ class HydraFlowConfig(BaseModel):
     max_hitl_workers: int = Field(
         default=1, ge=1, le=5, description="Concurrent HITL correction agents"
     )
-    system_tool: Literal["inherit", "claude", "codex"] = Field(
+    system_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for system agents; 'inherit' keeps per-agent defaults",
     )
@@ -183,7 +183,7 @@ class HydraFlowConfig(BaseModel):
         default="",
         description="Optional global default model for system agents; empty keeps per-agent defaults",
     )
-    background_tool: Literal["inherit", "claude", "codex"] = Field(
+    background_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for background workers; 'inherit' keeps per-worker defaults",
     )
@@ -191,14 +191,14 @@ class HydraFlowConfig(BaseModel):
         default="",
         description="Optional global default model for background workers; empty keeps per-worker defaults",
     )
-    implementation_tool: Literal["claude", "codex"] = Field(
+    implementation_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for implementation agents",
     )
     model: str = Field(default="opus", description="Model for implementation agents")
 
     # Review configuration
-    review_tool: Literal["claude", "codex"] = Field(
+    review_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for review agents",
     )
@@ -317,12 +317,12 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-plan"],
         description="Labels for issues needing plans (OR logic)",
     )
-    planner_tool: Literal["claude", "codex"] = Field(
+    planner_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for planning agents",
     )
     planner_model: str = Field(default="opus", description="Model for planning agents")
-    triage_tool: Literal["claude", "codex"] = Field(
+    triage_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for triage agents",
     )
@@ -394,7 +394,7 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Agent prompt configuration
-    subskill_tool: Literal["claude", "codex"] = Field(
+    subskill_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for low-tier subskill/tool-chain passes",
     )
@@ -412,7 +412,7 @@ class HydraFlowConfig(BaseModel):
         default=True,
         description="Enable automatic escalation to debug model when low-tier prechecks signal risk/ambiguity",
     )
-    debug_tool: Literal["claude", "codex"] = Field(
+    debug_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for debug escalation passes",
     )
@@ -486,7 +486,7 @@ class HydraFlowConfig(BaseModel):
         le=50_000,
         description="Max characters for memory digest injected into agent prompts",
     )
-    memory_compaction_tool: Literal["claude", "codex"] = Field(
+    memory_compaction_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for memory digest compaction",
     )
@@ -542,7 +542,7 @@ class HydraFlowConfig(BaseModel):
         default="haiku",
         description="Cheap model for summarising agent transcripts into structured learnings",
     )
-    transcript_summary_tool: Literal["claude", "codex"] = Field(
+    transcript_summary_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for transcript summarization",
     )
@@ -672,11 +672,11 @@ class HydraFlowConfig(BaseModel):
         default="sonnet",
         description="Model for acceptance criteria generation (post-merge)",
     )
-    ac_tool: Literal["claude", "codex"] = Field(
+    ac_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for acceptance criteria generation",
     )
-    verification_judge_tool: Literal["claude", "codex"] = Field(
+    verification_judge_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for verification judge agents",
     )

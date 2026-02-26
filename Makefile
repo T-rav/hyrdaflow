@@ -19,6 +19,7 @@ READY_LABEL ?= hydraflow-ready
 WORKERS ?= 3
 MODEL ?= opus
 REVIEW_MODEL ?= sonnet
+IMPLEMENTATION_TOOL ?= claude
 BATCH_SIZE ?= 15
 PLANNER_LABEL ?= hydraflow-plan
 PLANNER_MODEL ?= opus
@@ -73,8 +74,9 @@ help:
 	@echo "$(GREEN)Options (override with make run LABEL=bug WORKERS=3):$(RESET)"
 	@echo "  READY_LABEL      GitHub issue label (default: hydraflow-ready)"
 	@echo "  WORKERS          Max concurrent agents (default: 2)"
-	@echo "  MODEL            Implementation model (default: sonnet)"
-	@echo "  REVIEW_MODEL     Review model (default: opus)"
+	@echo "  MODEL            Implementation model (default: opus)"
+	@echo "  IMPLEMENTATION_TOOL Implementation backend: claude|codex|pi (default: claude)"
+	@echo "  REVIEW_MODEL     Review model (default: sonnet)"
 	@echo "  BATCH_SIZE       Issues per batch (default: 15)"
 	@echo "  PLANNER_LABEL    Planner issue label (default: hydraflow-plan)"
 	@echo "  PLANNER_MODEL    Planner model (default: opus)"
@@ -91,6 +93,7 @@ run:
 	cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli \
 		--ready-label $(READY_LABEL) \
 		--max-workers $(WORKERS) \
+		--implementation-tool $(IMPLEMENTATION_TOOL) \
 		--model $(MODEL) \
 		--review-model $(REVIEW_MODEL) \
 		--batch-size $(BATCH_SIZE) \
@@ -287,7 +290,7 @@ setup: deps
 	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
 	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --ensure-labels
-	@echo "$(BLUE)Detecting local agent assets (Claude/Codex)...$(RESET)"
+	@echo "$(BLUE)Detecting local agent assets (Claude/Codex/Pi)...$(RESET)"
 	@if [ -d "$(PROJECT_ROOT)/.claude/hooks" ]; then \
 		for HOOK in "$(PROJECT_ROOT)"/.claude/hooks/*.sh; do \
 			[ -f "$$HOOK" ] || continue; \
@@ -318,6 +321,36 @@ setup: deps
 			echo "  Codex skills destination: $$DEST"; \
 			echo "  Restart Codex to load updated skills"; \
 		fi; \
+	fi
+	@if command -v pi >/dev/null 2>&1; then \
+		echo "  Pi CLI: $$(pi --version | head -1)"; \
+		echo "  Pi config: ensure provider credentials are set (for example OPENAI_API_KEY or provider-specific key)"; \
+		echo "  Pi usage: set HYDRAFLOW_*_TOOL=pi in .env to enable per-stage Pi backends"; \
+		if [ -d "$(PROJECT_ROOT)/.pi" ]; then \
+			PI_HOME_DIR="$${PI_CODING_AGENT_DIR:-$$HOME/.pi/agent}"; \
+			INSTALLED=0; \
+			for KIND in extensions skills prompt-templates themes; do \
+				SRC_DIR="$(PROJECT_ROOT)/.pi/$$KIND"; \
+				DEST_DIR="$$PI_HOME_DIR/$$KIND"; \
+				[ -d "$$SRC_DIR" ] || continue; \
+				mkdir -p "$$DEST_DIR"; \
+				for ENTRY in "$$SRC_DIR"/*; do \
+					[ -e "$$ENTRY" ] || continue; \
+					NAME="$$(basename "$$ENTRY")"; \
+					rm -rf "$$DEST_DIR/$$NAME"; \
+					cp -R "$$ENTRY" "$$DEST_DIR/$$NAME"; \
+					INSTALLED=$$((INSTALLED + 1)); \
+					echo "  Pi $$KIND installed: $$NAME"; \
+				done; \
+			done; \
+			if [ "$$INSTALLED" -eq 0 ]; then \
+				echo "  Pi assets: .pi/ exists but no installable entries found under extensions/skills/prompt-templates/themes"; \
+			else \
+				echo "  Pi assets destination: $$PI_HOME_DIR"; \
+			fi; \
+		fi; \
+	else \
+		echo "  Pi CLI: not found (install from https://pi.dev/ if you want Pi backend support)"; \
 	fi
 	@echo "$(GREEN)Setup complete$(RESET)"
 	@echo "  pre-commit: make lint-check (when staged Python files exist)"

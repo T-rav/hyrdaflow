@@ -34,7 +34,7 @@ async def stream_claude_process(
     on_output: Callable[[str], bool] | None = None,
     timeout: float = 3600.0,
     runner: SubprocessRunner | None = None,
-    usage_stats: dict[str, int] | None = None,
+    usage_stats: dict[str, object] | None = None,
 ) -> str:
     """Run an agent subprocess and stream its output.
 
@@ -60,8 +60,8 @@ async def stream_claude_process(
         Optional callback receiving accumulated display text.
         Return ``True`` to kill the process early.
     usage_stats:
-        Optional dict populated with exact token-usage metrics when present in
-        stream events (input/output/cache/total tokens). Omitted when unavailable.
+        Optional dict populated with normalized usage totals and metadata
+        (availability status, backend, and raw usage blobs when emitted).
 
     Returns
     -------
@@ -74,9 +74,11 @@ async def stream_claude_process(
     if runner is None:
         runner = get_default_runner()
     use_codex_exec = len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec"
-    cmd_to_run = [*cmd, prompt] if use_codex_exec else cmd
+    use_pi_print = cmd and cmd[0] == "pi" and ("-p" in cmd or "--print" in cmd)
+    use_prompt_arg = use_codex_exec or use_pi_print
+    cmd_to_run = [*cmd, prompt] if use_prompt_arg else cmd
     stdin_mode = (
-        asyncio.subprocess.DEVNULL if use_codex_exec else asyncio.subprocess.PIPE
+        asyncio.subprocess.DEVNULL if use_prompt_arg else asyncio.subprocess.PIPE
     )
 
     proc = await runner.create_streaming_process(
@@ -98,7 +100,7 @@ async def stream_claude_process(
 
         stdout_stream = proc.stdout  # capture for nested function
 
-        if not use_codex_exec:
+        if not use_prompt_arg:
             assert proc.stdin is not None
             proc.stdin.write(prompt.encode())
             await proc.stdin.drain()
@@ -168,7 +170,7 @@ async def stream_claude_process(
                 )
 
             if usage_stats is not None:
-                usage_stats.update(parser.usage_totals)
+                usage_stats.update(parser.usage_snapshot)
 
             return result_text or accumulated_text.rstrip("\n") or "\n".join(raw_lines)
 

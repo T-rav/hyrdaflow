@@ -101,7 +101,7 @@ class TestStreamClaudeProcessOutput:
             }
         )
         mock_create = make_streaming_proc(returncode=0, stdout=usage_event)
-        usage_stats: dict[str, int] = {}
+        usage_stats: dict[str, object] = {}
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await stream_claude_process(
@@ -112,6 +112,10 @@ class TestStreamClaudeProcessOutput:
         assert usage_stats["input_tokens"] == 50
         assert usage_stats["output_tokens"] == 10
         assert usage_stats["total_tokens"] == 60
+        assert usage_stats["usage_status"] == "available"
+        assert usage_stats["usage_available"] is True
+        assert usage_stats["usage_backend"] == "claude"
+        assert isinstance(usage_stats["raw_usage"], list)
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +218,23 @@ class TestStreamClaudeProcessConfig:
         """Codex exec should receive prompt as CLI arg, not stdin pipe."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
         cmd = ["codex", "exec", "--json", "--model", "gpt-5.3"]
+        prompt = "do the thing"
+
+        with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
+            await stream_claude_process(
+                **_default_kwargs(event_bus, cmd=cmd, prompt=prompt)
+            )
+
+        args = list(mock_exec.call_args[0])
+        kwargs = mock_exec.call_args[1]
+        assert args[-1] == prompt
+        assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
+    @pytest.mark.asyncio
+    async def test_pi_print_passes_prompt_as_argument(self, event_bus) -> None:
+        """Pi print mode should receive prompt as CLI arg, not stdin pipe."""
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+        cmd = ["pi", "-p", "--mode", "json", "--model", "openai/gpt-4o-mini"]
         prompt = "do the thing"
 
         with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:

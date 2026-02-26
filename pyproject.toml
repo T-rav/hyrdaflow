@@ -39,8 +39,10 @@ dev = [
     "pyright==1.1.408",
     "bandit[toml]==1.8.0",
 ]
-# Compatibility extra retained so existing `hydraflow[docker]` installs keep working.
-docker = []
+# Explicit docker extra so `hydraflow[docker]` remains TOML-installable.
+docker = [
+    "docker>=7.0.0",
+]
 
 # === Ruff ===
 [tool.ruff]
