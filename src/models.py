@@ -838,6 +838,7 @@ class HITLUpdatePayload(TypedDict, total=False):
     issue: int
     status: str
     action: str
+    source: str
     worker: int
     duration: float
 

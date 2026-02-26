@@ -84,6 +84,13 @@ class TestEventPayloadTypes:
         }
         assert payload["ci_fix_attempts"] == 3
 
+    def test_hitl_update_payload_includes_source(self) -> None:
+        from models import HITLUpdatePayload
+
+        assert "source" in HITLUpdatePayload.__annotations__, (
+            "HITL_UPDATE schema missing source"
+        )
+
     def test_review_update_optional_verdict(self) -> None:
         from models import ReviewUpdatePayload
 
