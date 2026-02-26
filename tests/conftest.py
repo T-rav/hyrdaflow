@@ -46,6 +46,9 @@ def setup_test_environment():
         "GH_TOKEN": "test-token",
     }
     with patch.dict(os.environ, test_env, clear=False):
+        # Ensure host HYDRAFLOW_* overrides don't leak into tests
+        for key in [k for k in os.environ if k.startswith("HYDRAFLOW_")]:
+            os.environ.pop(key, None)
         yield
 
 
@@ -151,6 +154,10 @@ class PlanResultFactory:
         error: str | None = None,
         transcript: str = "PLAN_START\n## Plan\n\n1. Do the thing\nPLAN_END\nSUMMARY: Plan to implement the feature",
         duration_seconds: float = 10.0,
+        new_issues: list[Any] | None = None,
+        validation_errors: list[str] | None = None,
+        retry_attempted: bool = False,
+        already_satisfied: bool = False,
     ):
         from models import PlanResult
 
@@ -162,6 +169,10 @@ class PlanResultFactory:
             error=error,
             transcript=transcript,
             duration_seconds=duration_seconds,
+            new_issues=new_issues or [],
+            validation_errors=validation_errors or [],
+            retry_attempted=retry_attempted,
+            already_satisfied=already_satisfied,
         )
 
 
@@ -422,11 +433,18 @@ def make_state(tmp_path: Path) -> StateTracker:
 # --- Event Bus Fixture ---
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def event_bus():
     from events import EventBus
 
     return EventBus()
+
+
+@pytest.fixture(autouse=True)
+def reset_event_bus(event_bus):
+    """Ensure each test sees a clean EventBus history/subscribers list."""
+    event_bus.clear()
+    yield
 
 
 # --- Lint Scaffold Result Factory ---

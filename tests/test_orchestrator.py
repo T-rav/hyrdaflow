@@ -28,7 +28,7 @@ from models import (
 )
 from orchestrator import HydraFlowOrchestrator
 from subprocess_util import AuthenticationError
-from tests.conftest import IssueFactory
+from tests.conftest import IssueFactory, PRInfoFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,21 +64,6 @@ def make_worker_result(
         transcript=transcript,
         commits=1,
         worktree_path=worktree_path,
-    )
-
-
-def make_pr_info(
-    number: int = 101,
-    issue_number: int = 42,
-    branch: str = "agent/issue-42",
-    draft: bool = False,
-) -> PRInfo:
-    return PRInfo(
-        number=number,
-        issue_number=issue_number,
-        branch=branch,
-        url=f"https://github.com/test-org/test-repo/pull/{number}",
-        draft=draft,
     )
 
 
@@ -1981,7 +1966,7 @@ class TestMemorySuggestionFiling:
         """Reviewer transcripts with MEMORY_SUGGESTION blocks trigger filing."""
         orch = HydraFlowOrchestrator(config)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=MEMORY_TRANSCRIPT
         )
@@ -2022,7 +2007,7 @@ class TestMemorySuggestionFiling:
         """Reviewer results with empty transcripts should not trigger filing."""
         orch = HydraFlowOrchestrator(config)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=""
         )
@@ -2061,8 +2046,8 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         issue_a = IssueFactory.create(number=10)
         issue_b = IssueFactory.create(number=20)
-        pr_a = make_pr_info(number=201, issue_number=10)
-        pr_b = make_pr_info(number=202, issue_number=20)
+        pr_a = PRInfoFactory.create(number=201, issue_number=10)
+        pr_b = PRInfoFactory.create(number=202, issue_number=20)
         r1 = make_review_result(
             pr_number=201, issue_number=10, transcript=MEMORY_TRANSCRIPT
         )
@@ -2131,7 +2116,7 @@ class TestMemorySuggestionFiling:
         """Memory filing failure in reviewer must not crash the loop."""
         orch = HydraFlowOrchestrator(config)
         issue_a = IssueFactory.create(number=10)
-        pr_a = make_pr_info(number=201, issue_number=10)
+        pr_a = PRInfoFactory.create(number=201, issue_number=10)
         r1 = make_review_result(
             pr_number=201, issue_number=10, transcript=MEMORY_TRANSCRIPT
         )
@@ -2260,7 +2245,7 @@ class TestTranscriptSummaryFiling:
         """Reviewer transcripts post summary on the original issue (not the PR)."""
         orch = HydraFlowOrchestrator(config)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=SUMMARY_TRANSCRIPT
         )
@@ -2306,7 +2291,7 @@ class TestTranscriptSummaryFiling:
         """Merged review results post summary with status='success'."""
         orch = HydraFlowOrchestrator(config)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = ReviewResult(
             pr_number=101,
             issue_number=42,
@@ -2354,7 +2339,7 @@ class TestTranscriptSummaryFiling:
         """CI-failed review results post summary with status='failed'."""
         orch = HydraFlowOrchestrator(config)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = ReviewResult(
             pr_number=101,
             issue_number=42,
@@ -2403,7 +2388,7 @@ class TestTranscriptSummaryFiling:
         """Review results with issue_number=0 skip transcript summary posting."""
         orch = HydraFlowOrchestrator(config)
         review_issue = IssueFactory.create(number=0)
-        pr = make_pr_info(number=101, issue_number=0)
+        pr = PRInfoFactory.create(number=101, issue_number=0)
         review_result = ReviewResult(
             pr_number=101,
             issue_number=0,

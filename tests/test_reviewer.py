@@ -19,12 +19,6 @@ from reviewer import ReviewRunner
 from tests.conftest import PRInfoFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
 
-
-@pytest.fixture
-def pr_info():
-    return PRInfoFactory.create()
-
-
 # ---------------------------------------------------------------------------
 # Inheritance
 # ---------------------------------------------------------------------------
@@ -92,14 +86,16 @@ def test_build_command_supports_codex_backend(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_includes_pr_number(config, event_bus, pr_info, issue):
+def test_build_review_prompt_includes_pr_number(config, event_bus, issue):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "some diff")
 
     assert f"#{pr_info.number}" in prompt
 
 
-def test_build_review_prompt_includes_issue_context(config, event_bus, pr_info, issue):
+def test_build_review_prompt_includes_issue_context(config, event_bus, issue):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "some diff")
 
@@ -108,7 +104,8 @@ def test_build_review_prompt_includes_issue_context(config, event_bus, pr_info, 
     assert f"#{issue.number}" in prompt
 
 
-def test_build_review_prompt_includes_diff(config, event_bus, pr_info, issue):
+def test_build_review_prompt_includes_diff(config, event_bus, issue):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     diff = "diff --git a/foo.py b/foo.py\n+added line"
     prompt = runner._build_review_prompt(pr_info, issue, diff)
@@ -116,9 +113,8 @@ def test_build_review_prompt_includes_diff(config, event_bus, pr_info, issue):
     assert diff in prompt
 
 
-def test_build_review_prompt_includes_review_instructions(
-    config, event_bus, pr_info, issue
-):
+def test_build_review_prompt_includes_review_instructions(config, event_bus, issue):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
 
@@ -129,8 +125,9 @@ def test_build_review_prompt_includes_review_instructions(
 
 
 def test_build_review_prompt_includes_ui_criteria_when_diff_has_ui_files(
-    config, event_bus, pr_info, issue
+    config, event_bus, issue
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     diff = (
         "diff --git a/ui/src/components/Foo.jsx b/ui/src/components/Foo.jsx\n"
@@ -147,8 +144,9 @@ def test_build_review_prompt_includes_ui_criteria_when_diff_has_ui_files(
 
 
 def test_build_review_prompt_excludes_ui_criteria_when_no_ui_files(
-    config, event_bus, pr_info, issue
+    config, event_bus, issue
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     diff = "diff --git a/reviewer.py b/reviewer.py\n+# backend-only change\n"
     prompt = runner._build_review_prompt(pr_info, issue, diff)
@@ -157,9 +155,8 @@ def test_build_review_prompt_excludes_ui_criteria_when_no_ui_files(
     assert "theme.js" not in prompt
 
 
-def test_build_review_prompt_skips_local_tests_when_ci_enabled(
-    event_bus, pr_info, issue
-):
+def test_build_review_prompt_skips_local_tests_when_ci_enabled(event_bus, issue):
+    pr_info = PRInfoFactory.create()
     ci_config = ConfigFactory.create(max_ci_fix_attempts=2)
     runner = _make_runner(ci_config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
@@ -169,8 +166,9 @@ def test_build_review_prompt_skips_local_tests_when_ci_enabled(
 
 
 def test_build_review_prompt_runs_local_tests_when_ci_disabled(
-    config, event_bus, pr_info, issue
+    config, event_bus, issue
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
 
@@ -178,9 +176,8 @@ def test_build_review_prompt_runs_local_tests_when_ci_disabled(
     assert "Do NOT run" not in prompt
 
 
-def test_build_review_prompt_fix_section_skips_tests_when_ci_enabled(
-    event_bus, pr_info, issue
-):
+def test_build_review_prompt_fix_section_skips_tests_when_ci_enabled(event_bus, issue):
+    pr_info = PRInfoFactory.create()
     ci_config = ConfigFactory.create(max_ci_fix_attempts=1)
     runner = _make_runner(ci_config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
@@ -189,8 +186,9 @@ def test_build_review_prompt_fix_section_skips_tests_when_ci_enabled(
 
 
 def test_build_review_prompt_fix_section_runs_tests_when_ci_disabled(
-    config, event_bus, pr_info, issue
+    config, event_bus, issue
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
 
@@ -407,7 +405,8 @@ def test_extract_summary_prefers_summary_marker_when_clean(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_review_success_path(config, event_bus, pr_info, issue, tmp_path):
+async def test_review_success_path(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = (
         "All checks pass.\nVERDICT: APPROVE\nSUMMARY: Implementation looks good"
@@ -433,9 +432,8 @@ async def test_review_success_path(config, event_bus, pr_info, issue, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_review_success_path_with_fixes(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_review_success_path_with_fixes(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = (
         "Found issues, fixed them.\nVERDICT: APPROVE\nSUMMARY: Fixed and approved"
@@ -462,9 +460,8 @@ async def test_review_success_path_with_fixes(
 
 
 @pytest.mark.asyncio
-async def test_review_failure_path_on_exception(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_review_failure_path_on_exception(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
 
     mock_execute = AsyncMock(side_effect=RuntimeError("subprocess crashed"))
@@ -487,8 +484,9 @@ async def test_review_failure_path_on_exception(
 
 @pytest.mark.asyncio
 async def test_review_dry_run_returns_auto_approved(
-    dry_config, event_bus, pr_info, issue, tmp_path
+    dry_config, event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(dry_config, event_bus)
     mock_create = make_streaming_proc(returncode=0, stdout="")
 
@@ -546,10 +544,9 @@ def test_save_transcript_handles_oserror(event_bus, tmp_path, caplog):
 
 
 @pytest.mark.asyncio
-async def test_review_events_include_reviewer_role(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_review_events_include_reviewer_role(config, event_bus, issue, tmp_path):
     """REVIEW_UPDATE events should carry role='reviewer'."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "All good.\nVERDICT: APPROVE\nSUMMARY: Looks great"
 
@@ -570,9 +567,10 @@ async def test_review_events_include_reviewer_role(
 
 @pytest.mark.asyncio
 async def test_dry_run_review_events_include_reviewer_role(
-    dry_config, event_bus, pr_info, issue, tmp_path
+    dry_config, event_bus, issue, tmp_path
 ):
     """In dry-run mode, REVIEW_UPDATE events should still carry role='reviewer'."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(dry_config, event_bus)
 
     await runner.review(pr_info, issue, tmp_path, "diff")
@@ -586,8 +584,9 @@ async def test_dry_run_review_events_include_reviewer_role(
 
 @pytest.mark.asyncio
 async def test_review_publishes_review_update_events(
-    config, event_bus, pr_info, issue, tmp_path
+    config, event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "All good.\nVERDICT: APPROVE\nSUMMARY: Looks great"
 
@@ -612,8 +611,9 @@ async def test_review_publishes_review_update_events(
 
 @pytest.mark.asyncio
 async def test_review_start_event_includes_worker_id(
-    config, event_bus, pr_info, issue, tmp_path
+    config, event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "VERDICT: APPROVE\nSUMMARY: ok"
 
@@ -639,8 +639,9 @@ async def test_review_start_event_includes_worker_id(
 
 @pytest.mark.asyncio
 async def test_review_done_event_includes_verdict_and_duration(
-    config, event_bus, pr_info, issue, tmp_path
+    config, event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "VERDICT: REQUEST_CHANGES\nSUMMARY: needs work"
 
@@ -665,8 +666,9 @@ async def test_review_done_event_includes_verdict_and_duration(
 
 @pytest.mark.asyncio
 async def test_review_dry_run_still_publishes_review_update_event(
-    dry_config, event_bus, pr_info, issue, tmp_path
+    dry_config, event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(dry_config, event_bus)
 
     await runner.review(pr_info, issue, tmp_path, "diff")
@@ -877,7 +879,8 @@ def test_terminate_with_no_active_processes(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_execute_returns_transcript(config, event_bus, pr_info, tmp_path):
+async def test_execute_returns_transcript(config, event_bus, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     expected_output = "VERDICT: APPROVE\nSUMMARY: looks good"
     mock_create = make_streaming_proc(returncode=0, stdout=expected_output)
@@ -894,9 +897,8 @@ async def test_execute_returns_transcript(config, event_bus, pr_info, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_execute_publishes_transcript_line_events(
-    config, event_bus, pr_info, tmp_path
-):
+async def test_execute_publishes_transcript_line_events(config, event_bus, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     output = "Line one\nLine two\nLine three"
     mock_create = make_streaming_proc(returncode=0, stdout=output)
@@ -923,8 +925,9 @@ async def test_execute_publishes_transcript_line_events(
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_large_stream_limit(config, event_bus, pr_info, tmp_path):
+async def test_execute_uses_large_stream_limit(config, event_bus, tmp_path):
     """_execute should set limit=1MB to handle large stream-json lines."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
@@ -945,18 +948,16 @@ async def test_execute_uses_large_stream_limit(config, event_bus, pr_info, tmp_p
 # ---------------------------------------------------------------------------
 
 
-def test_build_ci_fix_prompt_includes_failure_summary(
-    config, event_bus, pr_info, issue
-):
+def test_build_ci_fix_prompt_includes_failure_summary(config, event_bus, issue):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_ci_fix_prompt(pr_info, issue, "Failed checks: ci, lint", 1)
 
     assert "Failed checks: ci, lint" in prompt
 
 
-def test_build_ci_fix_prompt_includes_pr_and_issue_context(
-    config, event_bus, pr_info, issue
-):
+def test_build_ci_fix_prompt_includes_pr_and_issue_context(config, event_bus, issue):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_ci_fix_prompt(pr_info, issue, "CI failed", 2)
 
@@ -966,8 +967,9 @@ def test_build_ci_fix_prompt_includes_pr_and_issue_context(
     assert "Attempt 2" in prompt
 
 
-def test_build_ci_fix_prompt_uses_configured_test_command(event_bus, pr_info, issue):
+def test_build_ci_fix_prompt_uses_configured_test_command(event_bus, issue):
     """CI fix prompt should use the configured test_command."""
+    pr_info = PRInfoFactory.create()
     cfg = ConfigFactory.create(test_command="npm test")
     runner = _make_runner(cfg, event_bus)
     prompt = runner._build_ci_fix_prompt(pr_info, issue, "CI failed", 1)
@@ -982,7 +984,8 @@ def test_build_ci_fix_prompt_uses_configured_test_command(event_bus, pr_info, is
 
 
 @pytest.mark.asyncio
-async def test_fix_ci_success_path(config, event_bus, pr_info, issue, tmp_path):
+async def test_fix_ci_success_path(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "Fixed lint.\nVERDICT: APPROVE\nSUMMARY: Fixed CI failures"
 
@@ -1010,7 +1013,8 @@ async def test_fix_ci_success_path(config, event_bus, pr_info, issue, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fix_ci_failure_path(config, event_bus, pr_info, issue, tmp_path):
+async def test_fix_ci_failure_path(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
 
     mock_execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
@@ -1032,8 +1036,9 @@ async def test_fix_ci_failure_path(config, event_bus, pr_info, issue, tmp_path):
 
 @pytest.mark.asyncio
 async def test_fix_ci_dry_run_returns_auto_approved(
-    dry_config, event_bus, pr_info, issue, tmp_path
+    dry_config, event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(dry_config, event_bus)
 
     result = await runner.fix_ci(pr_info, issue, tmp_path, "Failed: ci", attempt=1)
@@ -1048,9 +1053,8 @@ async def test_fix_ci_dry_run_returns_auto_approved(
 
 
 @pytest.mark.asyncio
-async def test_fix_ci_publishes_ci_check_events(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_fix_ci_publishes_ci_check_events(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "VERDICT: APPROVE\nSUMMARY: Fixed"
 
@@ -1076,9 +1080,8 @@ async def test_fix_ci_publishes_ci_check_events(
 
 
 @pytest.mark.asyncio
-async def test_review_success_records_duration(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_review_success_records_duration(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "VERDICT: APPROVE\nSUMMARY: looks good"
 
@@ -1094,9 +1097,8 @@ async def test_review_success_records_duration(
 
 
 @pytest.mark.asyncio
-async def test_review_dry_run_records_duration(
-    dry_config, event_bus, pr_info, issue, tmp_path
-):
+async def test_review_dry_run_records_duration(dry_config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(dry_config, event_bus)
 
     result = await runner.review(pr_info, issue, tmp_path, "diff")
@@ -1105,9 +1107,8 @@ async def test_review_dry_run_records_duration(
 
 
 @pytest.mark.asyncio
-async def test_review_failure_records_duration(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_review_failure_records_duration(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
 
     with (
@@ -1120,7 +1121,8 @@ async def test_review_failure_records_duration(
 
 
 @pytest.mark.asyncio
-async def test_fix_ci_records_duration(config, event_bus, pr_info, issue, tmp_path):
+async def test_fix_ci_records_duration(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     transcript = "VERDICT: APPROVE\nSUMMARY: Fixed"
 
@@ -1136,9 +1138,8 @@ async def test_fix_ci_records_duration(config, event_bus, pr_info, issue, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_fix_ci_dry_run_records_duration(
-    dry_config, event_bus, pr_info, issue, tmp_path
-):
+async def test_fix_ci_dry_run_records_duration(dry_config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(dry_config, event_bus)
 
     result = await runner.fix_ci(pr_info, issue, tmp_path, "Failed: ci", attempt=1)
@@ -1147,9 +1148,8 @@ async def test_fix_ci_dry_run_records_duration(
 
 
 @pytest.mark.asyncio
-async def test_fix_ci_failure_records_duration(
-    config, event_bus, pr_info, issue, tmp_path
-):
+async def test_fix_ci_failure_records_duration(config, event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
 
     with (
@@ -1166,10 +1166,9 @@ async def test_fix_ci_failure_records_duration(
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_truncates_long_diff_with_warning(
-    config, event_bus, pr_info, issue
-):
+def test_build_review_prompt_truncates_long_diff_with_warning(config, event_bus, issue):
     """Diff exceeding max_review_diff_chars should be truncated with a note."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     long_diff = "x" * 20_000
     prompt = runner._build_review_prompt(pr_info, issue, long_diff)
@@ -1180,8 +1179,9 @@ def test_build_review_prompt_truncates_long_diff_with_warning(
     assert "review may be incomplete" in prompt
 
 
-def test_build_review_prompt_preserves_short_diff(config, event_bus, pr_info, issue):
+def test_build_review_prompt_preserves_short_diff(config, event_bus, issue):
     """Diff under max_review_diff_chars should pass through unchanged."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     short_diff = "diff --git a/foo.py\n+added line"
     prompt = runner._build_review_prompt(pr_info, issue, short_diff)
@@ -1190,8 +1190,9 @@ def test_build_review_prompt_preserves_short_diff(config, event_bus, pr_info, is
     assert "Diff truncated" not in prompt
 
 
-def test_build_review_prompt_diff_truncation_configurable(event_bus, pr_info, issue):
+def test_build_review_prompt_diff_truncation_configurable(event_bus, issue):
     """max_review_diff_chars should control the truncation limit."""
+    pr_info = PRInfoFactory.create()
     cfg = ConfigFactory.create(max_review_diff_chars=5_000)
     runner = _make_runner(cfg, event_bus)
     diff = "x" * 10_000
@@ -1202,10 +1203,9 @@ def test_build_review_prompt_diff_truncation_configurable(event_bus, pr_info, is
     assert "5,000 chars" in prompt
 
 
-def test_build_review_prompt_logs_warning_on_truncation(
-    config, event_bus, pr_info, issue
-):
+def test_build_review_prompt_logs_warning_on_truncation(config, event_bus, issue):
     """Should log a warning when diff is truncated."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     long_diff = "x" * 20_000
 
@@ -1220,8 +1220,9 @@ def test_build_review_prompt_logs_warning_on_truncation(
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_uses_configured_test_command(event_bus, pr_info, issue):
+def test_build_review_prompt_uses_configured_test_command(event_bus, issue):
     """Reviewer prompt should use the configured test_command."""
+    pr_info = PRInfoFactory.create()
     cfg = ConfigFactory.create(test_command="npm test", max_ci_fix_attempts=0)
     runner = _make_runner(cfg, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
@@ -1230,8 +1231,9 @@ def test_build_review_prompt_uses_configured_test_command(event_bus, pr_info, is
     assert "make test-fast" not in prompt
 
 
-def test_build_review_prompt_no_make_test_fast(config, event_bus, pr_info, issue):
+def test_build_review_prompt_no_make_test_fast(config, event_bus, issue):
     """Reviewer prompt should not reference make test-fast anywhere."""
+    pr_info = PRInfoFactory.create()
     runner = _make_runner(config, event_bus)
     prompt = runner._build_review_prompt(pr_info, issue, "diff")
 
@@ -1456,9 +1458,8 @@ class TestBuildSubskillAndDebugCommands:
 class TestBuildPrecheckPrompt:
     """Tests for ReviewRunner._build_precheck_prompt."""
 
-    def test_includes_pr_and_issue_info(
-        self, config, event_bus, pr_info, issue
-    ) -> None:
+    def test_includes_pr_and_issue_info(self, config, event_bus, issue) -> None:
+        pr_info = PRInfoFactory.create()
         runner = _make_runner(config, event_bus)
         prompt = runner._build_precheck_prompt(pr_info, issue, "some diff content")
         assert f"#{pr_info.number}" in prompt
@@ -1466,9 +1467,8 @@ class TestBuildPrecheckPrompt:
         assert issue.title in prompt
         assert "some diff content" in prompt
 
-    def test_truncates_diff_to_6000_chars(
-        self, config, event_bus, pr_info, issue
-    ) -> None:
+    def test_truncates_diff_to_6000_chars(self, config, event_bus, issue) -> None:
+        pr_info = PRInfoFactory.create()
         runner = _make_runner(config, event_bus)
         long_diff = "x" * 10_000
         prompt = runner._build_precheck_prompt(pr_info, issue, long_diff)
@@ -1476,7 +1476,8 @@ class TestBuildPrecheckPrompt:
         assert "x" * 6000 in prompt
         assert "x" * 6001 not in prompt
 
-    def test_short_diff_not_truncated(self, config, event_bus, pr_info, issue) -> None:
+    def test_short_diff_not_truncated(self, config, event_bus, issue) -> None:
+        pr_info = PRInfoFactory.create()
         runner = _make_runner(config, event_bus)
         short_diff = "x" * 100
         prompt = runner._build_precheck_prompt(pr_info, issue, short_diff)
@@ -1493,9 +1494,10 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_disabled_when_max_subskill_zero(
-        self, config, event_bus, pr_info, issue, tmp_path
+        self, config, event_bus, issue, tmp_path
     ) -> None:
         """max_subskill_attempts=0 should return disabled message without subprocess calls."""
+        pr_info = PRInfoFactory.create()
         runner = _make_runner(config, event_bus)
         mock_execute = AsyncMock()
         with patch.object(runner, "_execute", mock_execute):
@@ -1506,10 +1508,9 @@ class TestRunPrecheckContext:
         mock_execute.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_success_no_escalation(
-        self, event_bus, pr_info, issue, tmp_path
-    ) -> None:
+    async def test_success_no_escalation(self, event_bus, issue, tmp_path) -> None:
         """Successful precheck with high confidence should not escalate when disabled."""
+        pr_info = PRInfoFactory.create()
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             subskill_confidence_threshold=0.7,
@@ -1537,10 +1538,9 @@ class TestRunPrecheckContext:
         mock_execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_retries_on_parse_failure(
-        self, event_bus, pr_info, issue, tmp_path
-    ) -> None:
+    async def test_retries_on_parse_failure(self, event_bus, issue, tmp_path) -> None:
         """Should retry on parse failure and succeed on final attempt."""
+        pr_info = PRInfoFactory.create()
         cfg = ConfigFactory.create(
             max_subskill_attempts=3,
             debug_escalation_enabled=False,
@@ -1568,10 +1568,9 @@ class TestRunPrecheckContext:
         assert "Precheck summary: Finally parsed." in result
 
     @pytest.mark.asyncio
-    async def test_escalates_to_debug(
-        self, event_bus, pr_info, issue, tmp_path
-    ) -> None:
+    async def test_escalates_to_debug(self, event_bus, issue, tmp_path) -> None:
         """High risk + low confidence should trigger debug escalation."""
+        pr_info = PRInfoFactory.create()
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             debug_escalation_enabled=True,
@@ -1605,9 +1604,10 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_no_debug_when_max_debug_zero(
-        self, event_bus, pr_info, issue, tmp_path
+        self, event_bus, issue, tmp_path
     ) -> None:
         """Escalation decision may say yes but max_debug_attempts=0 prevents debug call."""
+        pr_info = PRInfoFactory.create()
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             debug_escalation_enabled=True,
@@ -1637,10 +1637,9 @@ class TestRunPrecheckContext:
         assert "Debug precheck transcript:" not in result
 
     @pytest.mark.asyncio
-    async def test_exception_returns_fallback(
-        self, event_bus, pr_info, issue, tmp_path
-    ) -> None:
+    async def test_exception_returns_fallback(self, event_bus, issue, tmp_path) -> None:
         """RuntimeError during execution should return fallback message."""
+        pr_info = PRInfoFactory.create()
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             repo_root=tmp_path / "repo",
@@ -1660,9 +1659,10 @@ class TestRunPrecheckContext:
 
     @pytest.mark.asyncio
     async def test_debug_transcript_truncated_to_1000_chars(
-        self, event_bus, pr_info, issue, tmp_path
+        self, event_bus, issue, tmp_path
     ) -> None:
         """Debug transcript should be truncated to 1000 chars in context output."""
+        pr_info = PRInfoFactory.create()
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             debug_escalation_enabled=True,
@@ -1698,9 +1698,8 @@ class TestRunPrecheckContext:
 
 
 @pytest.mark.asyncio
-async def test_precheck_passes_high_risk_true_for_auth_diff(
-    event_bus, pr_info, issue, tmp_path
-):
+async def test_precheck_passes_high_risk_true_for_auth_diff(event_bus, issue, tmp_path):
+    pr_info = PRInfoFactory.create()
     cfg = ConfigFactory.create(max_subskill_attempts=1)
     runner = _make_runner(cfg, event_bus)
 
@@ -1727,8 +1726,9 @@ async def test_precheck_passes_high_risk_true_for_auth_diff(
 
 @pytest.mark.asyncio
 async def test_precheck_passes_high_risk_false_for_safe_diff(
-    event_bus, pr_info, issue, tmp_path
+    event_bus, issue, tmp_path
 ):
+    pr_info = PRInfoFactory.create()
     cfg = ConfigFactory.create(max_subskill_attempts=1)
     runner = _make_runner(cfg, event_bus)
 

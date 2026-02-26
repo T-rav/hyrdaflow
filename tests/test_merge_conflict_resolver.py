@@ -15,25 +15,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-from events import EventBus
-from merge_conflict_resolver import MergeConflictResolver
-from state import StateTracker
 from tests.conftest import IssueFactory, PRInfoFactory
-from tests.helpers import ConfigFactory
-
-
-def _make_resolver(config: HydraFlowConfig, *, agents=None) -> MergeConflictResolver:
-    """Build a MergeConflictResolver with standard mock dependencies."""
-    state = StateTracker(config.state_file)
-    return MergeConflictResolver(
-        config=config,
-        worktrees=AsyncMock(),
-        agents=agents,
-        prs=AsyncMock(),
-        event_bus=EventBus(),
-        state=state,
-        summarizer=None,
-    )
+from tests.helpers import ConfigFactory, make_conflict_resolver
 
 
 class TestMergeConflictResolver:
@@ -42,7 +25,7 @@ class TestMergeConflictResolver:
     @pytest.mark.asyncio
     async def test_merge_with_main_clean_merge(self, config: HydraFlowConfig) -> None:
         """When merge_main succeeds, should push and return True."""
-        resolver = _make_resolver(config)
+        resolver = make_conflict_resolver(config)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -68,7 +51,7 @@ class TestMergeConflictResolver:
         self, config: HydraFlowConfig
     ) -> None:
         """When conflict resolution fails, should escalate and return False."""
-        resolver = _make_resolver(config)
+        resolver = make_conflict_resolver(config)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -93,7 +76,7 @@ class TestMergeConflictResolver:
         self, config: HydraFlowConfig
     ) -> None:
         """Without an agent runner, should return False immediately."""
-        resolver = _make_resolver(config)
+        resolver = make_conflict_resolver(config)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -109,7 +92,7 @@ class TestMergeConflictResolver:
     ) -> None:
         """If start_merge_main returns True (no conflicts), return True."""
         mock_agents = AsyncMock()
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -130,7 +113,7 @@ class TestMergeConflictResolver:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -150,7 +133,7 @@ class TestMergeConflictResolver:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript content")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -175,7 +158,7 @@ class TestSourceParameter:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript content")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -202,7 +185,7 @@ class TestSourceParameter:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -235,7 +218,7 @@ class TestWorkerIdNone:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -271,7 +254,7 @@ class TestWorkerIdNone:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(config, agents=mock_agents)
+        resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -306,7 +289,7 @@ class TestSaveTranscriptOSError:
         self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Verify OSError is caught and logged."""
-        resolver = _make_resolver(config)
+        resolver = make_conflict_resolver(config)
 
         def _raise_oserror(*args, **kwargs):
             raise OSError("No space left on device")
@@ -323,7 +306,7 @@ class TestSaveTranscriptOSError:
         self, config: HydraFlowConfig
     ) -> None:
         """Verify the source parameter is used in the filename."""
-        resolver = _make_resolver(config)
+        resolver = make_conflict_resolver(config)
         resolver.save_conflict_transcript(101, 42, 1, "content", source="my_source")
         log_dir = config.repo_root / ".hydraflow" / "logs"
         assert (log_dir / "my_source-pr-101-attempt-1.txt").exists()
@@ -350,7 +333,7 @@ class TestFreshBranchRebuild:
         mock_agents._verify_result = AsyncMock(
             side_effect=[(False, "quality failed"), (True, "")]
         )
-        resolver = _make_resolver(cfg, agents=mock_agents)
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -384,7 +367,7 @@ class TestFreshBranchRebuild:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="rebuilt transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
-        resolver = _make_resolver(cfg, agents=mock_agents)
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -412,7 +395,7 @@ class TestFreshBranchRebuild:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        resolver = _make_resolver(cfg, agents=mock_agents)
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -430,7 +413,7 @@ class TestFreshBranchRebuild:
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
-        resolver = _make_resolver(cfg, agents=None)
+        resolver = make_conflict_resolver(cfg, agents=None)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -448,7 +431,7 @@ class TestFreshBranchRebuild:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        resolver = _make_resolver(cfg, agents=mock_agents)
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 
@@ -475,7 +458,7 @@ class TestFreshBranchRebuild:
         mock_agents._verify_result = AsyncMock(
             side_effect=[(False, "failed"), (True, "")]
         )
-        resolver = _make_resolver(cfg, agents=mock_agents)
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = IssueFactory.create()
 

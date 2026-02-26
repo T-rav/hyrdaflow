@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,10 +16,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-from implement_phase import ImplementPhase
 from models import (
     GitHubIssue,
-    PRInfo,
     WorkerResult,
 )
 from tests.conftest import (
@@ -28,88 +25,7 @@ from tests.conftest import (
     PRInfoFactory,
     WorkerResultFactory,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_phase(
-    config: HydraFlowConfig,
-    issues: list[GitHubIssue],
-    *,
-    agent_run: Any | None = None,
-    success: bool = True,
-    push_return: bool = True,
-    create_pr_return: PRInfo | None = None,
-) -> tuple[ImplementPhase, AsyncMock, AsyncMock]:
-    """Build an ImplementPhase with standard mocks.
-
-    Returns ``(phase, mock_wt, mock_prs)``.
-    """
-    from issue_store import IssueStore
-    from state import StateTracker
-
-    state = StateTracker(config.state_file)
-    stop_event = asyncio.Event()
-
-    if agent_run is None:
-
-        async def _default_agent_run(
-            issue: GitHubIssue,
-            wt_path: Path,
-            branch: str,
-            worker_id: int = 0,
-            review_feedback: str = "",
-        ) -> WorkerResult:
-            return WorkerResultFactory.create(
-                issue_number=issue.number,
-                success=success,
-                worktree_path=str(wt_path),
-            )
-
-        agent_run = _default_agent_run
-
-    mock_agents = AsyncMock()
-    mock_agents.run = agent_run
-
-    # Mock IssueStore — get_implementable returns the supplied issues
-    mock_store = AsyncMock(spec=IssueStore)
-    mock_store.get_implementable = lambda limit: issues
-    mock_store.mark_active = lambda num, stage: None
-    mock_store.mark_complete = lambda num: None
-    mock_store.is_active = lambda num: False
-
-    mock_wt = AsyncMock()
-    mock_wt.create = AsyncMock(
-        side_effect=lambda num, branch: config.worktree_base / f"issue-{num}"
-    )
-
-    mock_prs = AsyncMock()
-    mock_prs.push_branch = AsyncMock(return_value=push_return)
-    mock_prs.create_pr = AsyncMock(
-        return_value=create_pr_return
-        if create_pr_return is not None
-        else PRInfoFactory.create()
-    )
-    mock_prs.add_labels = AsyncMock()
-    mock_prs.remove_label = AsyncMock()
-    mock_prs.swap_pipeline_labels = AsyncMock()
-    mock_prs.post_comment = AsyncMock()
-    mock_prs.add_pr_labels = AsyncMock()
-
-    phase = ImplementPhase(
-        config=config,
-        state=state,
-        worktrees=mock_wt,
-        agents=mock_agents,
-        prs=mock_prs,
-        store=mock_store,
-        stop_event=stop_event,
-    )
-
-    return phase, mock_wt, mock_prs
-
+from tests.helpers import make_implement_phase
 
 # ---------------------------------------------------------------------------
 # run_batch
@@ -145,7 +61,7 @@ class TestImplementBatch:
         ) -> WorkerResult:
             return next(r for r in expected if r.issue_number == issue.number)
 
-        phase, _, _ = _make_phase(config, issues, agent_run=fake_agent_run)
+        phase, _, _ = make_implement_phase(config, issues, agent_run=fake_agent_run)
 
         returned, fetched = await phase.run_batch()
         assert len(returned) == 2
@@ -178,7 +94,7 @@ class TestImplementBatch:
 
         issues = [IssueFactory.create(number=i) for i in range(1, 6)]
 
-        phase, _, _ = _make_phase(config, issues, agent_run=fake_agent_run)
+        phase, _, _ = make_implement_phase(config, issues, agent_run=fake_agent_run)
 
         await phase.run_batch()
 
@@ -190,7 +106,7 @@ class TestImplementBatch:
     ) -> None:
         issue = IssueFactory.create(number=55)
 
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         await phase.run_batch()
 
@@ -203,7 +119,7 @@ class TestImplementBatch:
     ) -> None:
         issue = IssueFactory.create(number=66)
 
-        phase, _, _ = _make_phase(config, [issue], success=False)
+        phase, _, _ = make_implement_phase(config, [issue], success=False)
 
         await phase.run_batch()
 
@@ -213,7 +129,7 @@ class TestImplementBatch:
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_issues(self, config: HydraFlowConfig) -> None:
         """When fetch_ready_issues returns empty, return ([], [])."""
-        phase, _, _ = _make_phase(config, [])
+        phase, _, _ = make_implement_phase(config, [])
 
         results, issues = await phase.run_batch()
 
@@ -229,7 +145,7 @@ class TestImplementBatch:
         wt_path = config.worktree_base / "issue-77"
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        phase, mock_wt, _ = _make_phase(
+        phase, mock_wt, _ = make_implement_phase(
             config, [issue], create_pr_return=PRInfoFactory.create(issue_number=77)
         )
 
@@ -254,7 +170,7 @@ class TestImplementIncludesPush:
         """After implementation, worker result should contain pr_info."""
         issue = IssueFactory.create()
 
-        phase, _, _ = _make_phase(
+        phase, _, _ = make_implement_phase(
             config, [issue], create_pr_return=PRInfoFactory.create()
         )
 
@@ -271,7 +187,7 @@ class TestImplementIncludesPush:
         """When agent fails, PR should be created as draft and label kept."""
         issue = IssueFactory.create()
 
-        phase, _, mock_prs = _make_phase(
+        phase, _, mock_prs = make_implement_phase(
             config,
             [issue],
             success=False,
@@ -293,7 +209,7 @@ class TestImplementIncludesPush:
         """When push fails, pr_info should remain None."""
         issue = IssueFactory.create()
 
-        phase, _, mock_prs = _make_phase(config, [issue], push_return=False)
+        phase, _, mock_prs = make_implement_phase(config, [issue], push_return=False)
 
         results, _ = await phase.run_batch()
 
@@ -330,7 +246,7 @@ class TestImplementIncludesPush:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(
+        phase, _, mock_prs = make_implement_phase(
             config,
             [issue],
             agent_run=fake_agent_run,
@@ -353,7 +269,7 @@ class TestImplementIncludesPush:
         issue = IssueFactory.create()
         completed: list[int] = []
 
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
         phase._store.mark_complete = completed.append
 
         results, _ = await phase.run_batch()
@@ -387,7 +303,7 @@ class TestWorkerExceptionIsolation:
         ) -> WorkerResult:
             raise RuntimeError("agent crashed")
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=crashing_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=crashing_agent)
 
         results, _ = await phase.run_batch()
 
@@ -412,7 +328,7 @@ class TestWorkerExceptionIsolation:
         ) -> WorkerResult:
             raise RuntimeError("agent crashed")
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=crashing_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=crashing_agent)
 
         await phase.run_batch()
 
@@ -435,7 +351,7 @@ class TestWorkerExceptionIsolation:
         ) -> WorkerResult:
             raise RuntimeError("agent crashed")
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=crashing_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=crashing_agent)
         phase._store.mark_complete = completed.append
 
         await phase.run_batch()
@@ -468,7 +384,9 @@ class TestWorkerExceptionIsolation:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, _ = _make_phase(config, issues, agent_run=sometimes_crashing_agent)
+        phase, _, _ = make_implement_phase(
+            config, issues, agent_run=sometimes_crashing_agent
+        )
 
         results, _ = await phase.run_batch()
 
@@ -498,7 +416,7 @@ class TestWorktreeCreationFailure:
         """When worktrees.create raises, worker should return a failed result."""
         issue = IssueFactory.create(number=42)
 
-        phase, mock_wt, _ = _make_phase(config, [issue])
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
         mock_wt.create = AsyncMock(side_effect=RuntimeError("disk full"))
 
         results, _ = await phase.run_batch()
@@ -520,7 +438,7 @@ class TestWorktreeCreationFailure:
                 raise RuntimeError("disk full")
             return config.worktree_base / f"issue-{num}"
 
-        phase, mock_wt, _ = _make_phase(config, issues)
+        phase, mock_wt, _ = make_implement_phase(config, issues)
         mock_wt.create = AsyncMock(side_effect=create_side_effect)
 
         results, _ = await phase.run_batch()
@@ -557,7 +475,7 @@ class TestWorktreeCreationFailure:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, _ = _make_phase(config, issues, agent_run=slow_agent_run)
+        phase, _, _ = make_implement_phase(config, issues, agent_run=slow_agent_run)
 
         # Set stop event immediately
         phase._stop_event.set()
@@ -600,7 +518,9 @@ class TestImplementLifecycleMetrics:
                 duration_seconds=60.5,
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=agent_with_duration)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=agent_with_duration
+        )
         await phase.run_batch()
 
         stats = phase._state.get_lifetime_stats()
@@ -626,7 +546,9 @@ class TestImplementLifecycleMetrics:
                 duration_seconds=0.0,
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=agent_zero_duration)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=agent_zero_duration
+        )
         await phase.run_batch()
 
         stats = phase._state.get_lifetime_stats()
@@ -652,7 +574,7 @@ class TestImplementLifecycleMetrics:
                 quality_fix_attempts=2,
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=agent_with_qf)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=agent_with_qf)
         await phase.run_batch()
 
         stats = phase._state.get_lifetime_stats()
@@ -665,7 +587,7 @@ class TestImplementLifecycleMetrics:
         """Zero quality fix attempts should not be recorded."""
         issue = IssueFactory.create()
 
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
         await phase.run_batch()
 
         stats = phase._state.get_lifetime_stats()
@@ -694,7 +616,7 @@ class TestImplementLifecycleMetrics:
                 quality_fix_attempts=1,
             )
 
-        phase, _, _ = _make_phase(config, issues, agent_run=agent_with_metrics)
+        phase, _, _ = make_implement_phase(config, issues, agent_run=agent_with_metrics)
         await phase.run_batch()
 
         stats = phase._state.get_lifetime_stats()
@@ -732,7 +654,7 @@ class TestReviewFeedbackPassing:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, _ = _make_phase(
+        phase, _, _ = make_implement_phase(
             config,
             [issue],
             agent_run=capturing_agent,
@@ -766,7 +688,7 @@ class TestReviewFeedbackPassing:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, _ = _make_phase(
+        phase, _, _ = make_implement_phase(
             config,
             [issue],
             agent_run=simple_agent,
@@ -801,7 +723,7 @@ class TestReviewFeedbackPassing:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, _ = _make_phase(
+        phase, _, _ = make_implement_phase(
             config,
             [issue],
             agent_run=capturing_agent,
@@ -832,7 +754,7 @@ class TestReviewFeedbackPassing:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(
+        phase, _, mock_prs = make_implement_phase(
             config,
             [issue],
             agent_run=simple_agent,
@@ -868,7 +790,7 @@ class TestReviewFeedbackPassing:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(
+        phase, _, mock_prs = make_implement_phase(
             config,
             [issue],
             agent_run=simple_agent,
@@ -916,7 +838,9 @@ class TestWorkerResultMetaPersistence:
                 error=None,
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=agent_with_metrics)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=agent_with_metrics
+        )
 
         await phase.run_batch()
 
@@ -949,7 +873,7 @@ class TestWorkerResultMetaPersistence:
                 error="make quality failed",
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=failing_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=failing_agent)
 
         await phase.run_batch()
 
@@ -988,7 +912,9 @@ class TestAlreadySatisfiedZeroCommit:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(config, [issue], agent_run=zero_commit_agent)
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
         mock_prs.close_issue = AsyncMock()
 
         results, _ = await phase.run_batch()
@@ -1027,7 +953,9 @@ class TestAlreadySatisfiedZeroCommit:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(config, [issue], agent_run=zero_commit_agent)
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
         mock_prs.close_issue = AsyncMock()
 
         await phase.run_batch()
@@ -1060,7 +988,9 @@ class TestAlreadySatisfiedZeroCommit:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(config, [issue], agent_run=zero_commit_agent)
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
         mock_prs.close_issue = AsyncMock()
 
         await phase.run_batch()
@@ -1092,7 +1022,7 @@ class TestAlreadySatisfiedZeroCommit:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(
+        phase, _, mock_prs = make_implement_phase(
             config, [issue], agent_run=failing_with_commits
         )
         mock_prs.close_issue = AsyncMock()
@@ -1124,7 +1054,7 @@ class TestRetryCapEscalation:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         # Pre-set 1 attempt (will be incremented to 2, still under cap of 3)
         phase._state.increment_issue_attempts(42)
@@ -1165,7 +1095,9 @@ class TestRetryCapEscalation:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = _make_phase(config, [issue], agent_run=tracking_agent)
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=tracking_agent
+        )
 
         # Pre-set attempts to match cap (2), so next increment = 3 > 2
         phase._state.increment_issue_attempts(42)
@@ -1201,7 +1133,7 @@ class TestRetryCapEscalation:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         # Pre-set 2 attempts; next increment = 3 == max, should proceed
         phase._state.increment_issue_attempts(42)
@@ -1244,7 +1176,9 @@ class TestCommitsPersistedInMeta:
                 duration_seconds=90.0,
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=agent_with_commits)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=agent_with_commits
+        )
 
         await phase.run_batch()
 
@@ -1268,7 +1202,7 @@ class TestActiveIssuePersistence:
     ) -> None:
         """After run_batch, active_issue_numbers should be cleared."""
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         await phase.run_batch()
 
@@ -1297,7 +1231,7 @@ class TestCheckAttemptCap:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         result = await phase._check_attempt_cap(issue, "agent/issue-42")
 
@@ -1315,7 +1249,7 @@ class TestCheckAttemptCap:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         # Pre-set 2 attempts; increment to 3 == max, should proceed
         phase._state.increment_issue_attempts(42)
@@ -1337,7 +1271,7 @@ class TestCheckAttemptCap:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         # Pre-set 2 attempts; increment to 3 > 2 cap
         phase._state.increment_issue_attempts(42)
@@ -1361,7 +1295,7 @@ class TestCheckAttemptCap:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         phase._state.increment_issue_attempts(42)
         phase._state.increment_issue_attempts(42)
@@ -1383,7 +1317,7 @@ class TestCheckAttemptCap:
             state_file=tmp_path / "state.json",
         )
         issue = IssueFactory.create()
-        phase, _, mock_prs = _make_phase(config, [issue])
+        phase, _, mock_prs = make_implement_phase(config, [issue])
 
         phase._state.increment_issue_attempts(42)
         phase._state.increment_issue_attempts(42)
@@ -1400,7 +1334,7 @@ class TestRunImplementation:
     async def test_creates_worktree_when_missing(self, config: HydraFlowConfig) -> None:
         """When worktree dir doesn't exist, should create one."""
         issue = IssueFactory.create()
-        phase, mock_wt, _ = _make_phase(config, [issue])
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
 
         await phase._run_implementation(issue, "agent/issue-42", 0, "")
 
@@ -1414,7 +1348,7 @@ class TestRunImplementation:
         wt_path = config.worktree_base / "issue-42"
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        phase, mock_wt, _ = _make_phase(config, [issue])
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
 
         await phase._run_implementation(issue, "agent/issue-42", 0, "")
 
@@ -1442,7 +1376,7 @@ class TestRunImplementation:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=capturing_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=capturing_agent)
         phase._state.set_review_feedback(42, "Fix error handling")
 
         await phase._run_implementation(
@@ -1457,7 +1391,7 @@ class TestRunImplementation:
     ) -> None:
         """Review feedback should be cleared from state after agent run."""
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
         phase._state.set_review_feedback(42, "Fix it")
 
         await phase._run_implementation(issue, "agent/issue-42", 0, "Fix it")
@@ -1485,7 +1419,9 @@ class TestRunImplementation:
                 quality_fix_attempts=2,
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=agent_with_metrics)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=agent_with_metrics
+        )
 
         await phase._run_implementation(issue, "agent/issue-42", 0, "")
 
@@ -1510,7 +1446,7 @@ class TestHandleImplementationResult:
             worktree_path=str(config.worktree_base / "issue-42"),
         )
 
-        phase, _, mock_prs = _make_phase(config, [issue])
+        phase, _, mock_prs = make_implement_phase(config, [issue])
         mock_prs.close_issue = AsyncMock()
 
         returned = await phase._handle_implementation_result(issue, result, False)
@@ -1534,7 +1470,7 @@ class TestHandleImplementationResult:
             worktree_path=str(config.worktree_base / "issue-42"),
         )
 
-        phase, _, mock_prs = _make_phase(
+        phase, _, mock_prs = make_implement_phase(
             config, [issue], create_pr_return=PRInfoFactory.create()
         )
 
@@ -1558,7 +1494,7 @@ class TestHandleImplementationResult:
             worktree_path=str(config.worktree_base / "issue-42"),
         )
 
-        phase, _, mock_prs = _make_phase(config, [issue])
+        phase, _, mock_prs = make_implement_phase(config, [issue])
 
         returned = await phase._handle_implementation_result(issue, result, True)
 
@@ -1571,7 +1507,7 @@ class TestHandleImplementationResult:
         issue = IssueFactory.create()
         result = WorkerResultFactory.create(issue_number=42, success=False)
 
-        phase, _, _ = _make_phase(config, [issue])
+        phase, _, _ = make_implement_phase(config, [issue])
 
         await phase._handle_implementation_result(issue, result, False)
 
@@ -1590,7 +1526,7 @@ class TestHandleImplementationResult:
             worktree_path="",
         )
 
-        phase, _, mock_prs = _make_phase(config, [issue])
+        phase, _, mock_prs = make_implement_phase(config, [issue])
 
         returned = await phase._handle_implementation_result(issue, result, False)
 
@@ -1631,7 +1567,7 @@ class TestWorkerInner:
                 issue_number=issue.number, worktree_path=str(wt_path)
             )
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=tracking_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=tracking_agent)
 
         # Pre-set attempt to match cap
         phase._state.increment_issue_attempts(42)
@@ -1647,7 +1583,7 @@ class TestWorkerInner:
     ) -> None:
         """Normal flow should run agent and handle result."""
         issue = IssueFactory.create()
-        phase, _, _ = _make_phase(
+        phase, _, _ = make_implement_phase(
             config, [issue], create_pr_return=PRInfoFactory.create()
         )
 
@@ -1670,7 +1606,7 @@ class TestReadPlanForRecording:
         plans_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "issue-42.md").write_text(plan_content)
 
-        phase, _, _ = _make_phase(config, [])
+        phase, _, _ = make_implement_phase(config, [])
         result = phase._read_plan_for_recording(42)
 
         assert result == plan_content
@@ -1678,7 +1614,7 @@ class TestReadPlanForRecording:
     def test_returns_empty_string_when_plan_missing(
         self, config: HydraFlowConfig
     ) -> None:
-        phase, _, _ = _make_phase(config, [])
+        phase, _, _ = make_implement_phase(config, [])
         result = phase._read_plan_for_recording(99)
 
         assert result == ""
@@ -1710,7 +1646,9 @@ class TestCriticalExceptionPropagation:
         ) -> WorkerResult:
             raise AuthenticationError("401 Unauthorized")
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=auth_failing_agent)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=auth_failing_agent
+        )
 
         with pytest.raises(AuthenticationError, match="401"):
             await phase.run_batch()
@@ -1733,7 +1671,9 @@ class TestCriticalExceptionPropagation:
         ) -> WorkerResult:
             raise CreditExhaustedError("limit reached")
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=credit_failing_agent)
+        phase, _, _ = make_implement_phase(
+            config, [issue], agent_run=credit_failing_agent
+        )
 
         with pytest.raises(CreditExhaustedError, match="limit reached"):
             await phase.run_batch()
@@ -1754,7 +1694,7 @@ class TestCriticalExceptionPropagation:
         ) -> WorkerResult:
             raise MemoryError("out of memory")
 
-        phase, _, _ = _make_phase(config, [issue], agent_run=oom_agent)
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=oom_agent)
 
         with pytest.raises(MemoryError, match="out of memory"):
             await phase.run_batch()

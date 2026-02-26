@@ -1726,9 +1726,32 @@ class TestRecordReviewInsight:
         mock_insights.get_proposed_categories.return_value = set()
         phase._insights = mock_insights
 
+        from review_insights import ReviewRecord
+
+        evidence = [
+            ReviewRecord(
+                pr_number=101,
+                issue_number=41,
+                timestamp="2024-01-01T00:00:00Z",
+                verdict="request_changes",
+                summary="Add more tests for authentication edge cases.",
+                fixes_made=False,
+                categories=["missing_tests"],
+            ),
+            ReviewRecord(
+                pr_number=102,
+                issue_number=42,
+                timestamp="2024-01-02T00:00:00Z",
+                verdict="request_changes",
+                summary="Coverage for retry logic is missing.",
+                fixes_made=False,
+                categories=["missing_tests"],
+            ),
+        ]
+
         with patch(
             "review_phase.analyze_patterns",
-            return_value=[("test_coverage", 4, ["pr1", "pr2"])],
+            return_value=[("test_coverage", 4, evidence)],
         ):
             await phase._record_review_insight(result)
 
@@ -1773,9 +1796,23 @@ class TestRecordReviewInsight:
         mock_insights.get_proposed_categories.return_value = set()
         phase._insights = mock_insights
 
+        from review_insights import ReviewRecord
+
+        evidence = [
+            ReviewRecord(
+                pr_number=110,
+                issue_number=42,
+                timestamp="2024-01-03T00:00:00Z",
+                verdict="request_changes",
+                summary="Type errors found in payment flow.",
+                fixes_made=False,
+                categories=["type_annotations"],
+            )
+        ]
+
         with patch(
             "review_phase.analyze_patterns",
-            return_value=[("type_errors", 3, ["pr10"])],
+            return_value=[("type_errors", 3, evidence)],
         ):
             await phase._record_review_insight(result)
 

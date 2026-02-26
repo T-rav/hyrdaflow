@@ -19,9 +19,8 @@ from models import (
     GitHubIssue,
     InstructionsQuality,
     JudgeVerdict,
-    PRInfo,
 )
-from tests.conftest import ReviewResultFactory
+from tests.conftest import PRInfoFactory, ReviewResultFactory
 from tests.helpers import ConfigFactory
 from verification_judge import VerificationJudge
 
@@ -1200,12 +1199,7 @@ class TestReviewPhaseWiring:
             verification_judge=mock_judge,
         )
 
-        pr = PRInfo(
-            number=101,
-            issue_number=42,
-            branch="agent/issue-42",
-            url="https://github.com/test/repo/pull/101",
-        )
+        pr = PRInfoFactory.create()
         issue = GitHubIssue(
             number=42,
             title="Fix bug",
@@ -1268,12 +1262,7 @@ class TestReviewPhaseWiring:
             # No verification_judge
         )
 
-        pr = PRInfo(
-            number=101,
-            issue_number=42,
-            branch="agent/issue-42",
-            url="https://github.com/test/repo/pull/101",
-        )
+        pr = PRInfoFactory.create()
         issue = GitHubIssue(
             number=42,
             title="Fix bug",

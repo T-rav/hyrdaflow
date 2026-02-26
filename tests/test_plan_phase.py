@@ -14,55 +14,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from events import EventBus
-from issue_store import IssueStore
-from models import GitHubIssue, PlanResult
-from plan_phase import PlanPhase
-from state import StateTracker
-from tests.conftest import IssueFactory
+from models import GitHubIssue
+from tests.conftest import IssueFactory, PlanResultFactory
+from tests.helpers import make_plan_phase
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_phase(
-    config: HydraFlowConfig,
-    *,
-    summarizer: AsyncMock | None = None,
-) -> tuple[PlanPhase, StateTracker, AsyncMock, AsyncMock, IssueStore, asyncio.Event]:
-    """Build a PlanPhase with mock dependencies.
-
-    Returns (phase, state, planners_mock, prs_mock, store, stop_event).
-    """
-    state = StateTracker(config.state_file)
-    bus = EventBus()
-    fetcher = AsyncMock()
-    store = IssueStore(config, fetcher, bus)
-    planners = AsyncMock()
-    prs = AsyncMock()
-    prs.post_comment = AsyncMock()
-    prs.remove_label = AsyncMock()
-    prs.add_labels = AsyncMock()
-    prs.swap_pipeline_labels = AsyncMock()
-    prs.create_issue = AsyncMock(return_value=99)
-    prs.close_issue = AsyncMock()
-    stop_event = asyncio.Event()
-    phase = PlanPhase(
-        config,
-        state,
-        store,
-        planners,
-        prs,
-        bus,
-        stop_event,
-        transcript_summarizer=summarizer,
-    )
-    return phase, state, planners, prs, store, stop_event
-
+    from models import PlanResult
 
 # ---------------------------------------------------------------------------
 # Plan phase
@@ -77,11 +35,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """On successful plan, post_comment should be called."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="Step 1: Do the thing",
             summary="Plan done",
         )
@@ -103,11 +59,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """On success, planner_label should be removed and config.ready_label added."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
         )
@@ -124,10 +78,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """On failure, no label changes should be made."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
+        plan_result = PlanResultFactory.create(
             success=False,
             error="Agent crashed",
         )
@@ -146,7 +99,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """When no issues have the planner label, return empty list."""
-        phase, _state, _planners, _prs, store, _stop = _make_phase(config)
+        phase, _state, _planners, _prs, store, _stop = make_plan_phase(config)
         store.get_plannable = lambda _max_count: []  # type: ignore[method-assign]
 
         results = await phase.plan_issues()
@@ -160,11 +113,9 @@ class TestPlanPhase:
         """record_issue_created should be called for each new issue filed by planner."""
         from models import NewIssueSpec
 
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
             new_issues=[
@@ -196,11 +147,9 @@ class TestPlanPhase:
         """When planner discovers new issues, they should be filed via create_issue."""
         from models import NewIssueSpec
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
             new_issues=[
@@ -239,16 +188,15 @@ class TestPlanPhase:
             )
             await asyncio.sleep(0)  # yield to allow other tasks to start
             concurrency_counter["current"] -= 1
-            return PlanResult(
+            return PlanResultFactory.create(
                 issue_number=issue.number,
-                success=True,
                 plan="The plan",
                 summary="Done",
             )
 
         issues = [IssueFactory.create(number=i) for i in range(1, 6)]
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         planners.plan = fake_plan
         store.get_plannable = lambda _max_count: issues  # type: ignore[method-assign]
 
@@ -261,7 +209,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Plan should mark issues active to prevent re-queuing by refresh."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
 
         was_active_during_plan = False
@@ -271,9 +219,7 @@ class TestPlanPhase:
         ) -> PlanResult:
             nonlocal was_active_during_plan
             was_active_during_plan = store.is_active(42)
-            return PlanResult(
-                issue_number=42, success=True, plan="Plan", summary="Done"
-            )
+            return PlanResultFactory.create(plan="Plan", summary="Done")
 
         planners.plan = AsyncMock(side_effect=check_active_plan)
         store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
@@ -288,10 +234,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Plan failure (success=False) should still return the result."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
+        plan_result = PlanResultFactory.create(
             success=False,
             error="Agent crashed",
         )
@@ -312,11 +257,9 @@ class TestPlanPhase:
         """New issues with empty labels should fall back to planner_label."""
         from models import NewIssueSpec
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
             new_issues=[
@@ -347,11 +290,9 @@ class TestPlanPhase:
         """New issues with body < 50 chars should be skipped, not filed."""
         from models import NewIssueSpec
 
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
             new_issues=[
@@ -372,7 +313,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Setting stop_event after first plan should cancel remaining."""
-        phase, _state, planners, prs, store, stop_event = _make_phase(config)
+        phase, _state, planners, prs, store, stop_event = make_plan_phase(config)
         issues = [
             IssueFactory.create(number=1),
             IssueFactory.create(number=2),
@@ -384,7 +325,7 @@ class TestPlanPhase:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 stop_event.set()
-            return PlanResult(
+            return PlanResultFactory.create(
                 issue_number=issue.number,
                 success=False,
                 error="stopped",
@@ -403,10 +344,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Failed retry triggers HITL label swap and comment."""
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
+        plan_result = PlanResultFactory.create(
             success=False,
             plan="Bad plan",
             summary="Failed",
@@ -440,10 +380,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Normal failure (no retry) should NOT escalate to HITL."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
+        plan_result = PlanResultFactory.create(
             success=False,
             error="Agent crashed",
             retry_attempted=False,
@@ -463,11 +402,9 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Analysis comment should be posted after the plan comment."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="## Files to Modify\n\n- `models.py`: change\n\n## Testing Strategy\n\nUse pytest.",
             summary="Plan done",
         )
@@ -497,11 +434,9 @@ class TestPlanPhase:
         from analysis import PlanAnalyzer
         from models import AnalysisResult, AnalysisSection, AnalysisVerdict
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
         )
@@ -534,11 +469,9 @@ class TestPlanPhase:
         from analysis import PlanAnalyzer
         from models import AnalysisResult, AnalysisSection, AnalysisVerdict
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
         )
@@ -577,11 +510,9 @@ class TestPlanPhaseAlreadySatisfied:
         self, config: HydraFlowConfig
     ) -> None:
         """When planner returns already_satisfied, issue should be closed with dup label."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             already_satisfied=True,
             summary="The feature is already implemented in src/models.py",
         )
@@ -608,11 +539,9 @@ class TestPlanPhaseAlreadySatisfied:
         self, config: HydraFlowConfig
     ) -> None:
         """When already_satisfied, issue should NOT get hydraflow-ready label."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             already_satisfied=True,
             summary="Already met",
         )
@@ -643,13 +572,11 @@ class TestPlanPhaseTranscriptSummary:
         """After successful plan, summarize_and_comment is called with phase=plan."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = IssueFactory.create(number=42, title="Fix bug")
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="Step 1: Do the thing",
             summary="Plan done",
             transcript="x" * 1000,
@@ -676,12 +603,11 @@ class TestPlanPhaseTranscriptSummary:
         """After HITL escalation, status should be 'escalated'."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
+        plan_result = PlanResultFactory.create(
             success=False,
             retry_attempted=True,
             transcript="x" * 1000,
@@ -706,12 +632,11 @@ class TestPlanPhaseTranscriptSummary:
         """After plan failure (no retry), status should be 'failed'."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
+        plan_result = PlanResultFactory.create(
             success=False,
             transcript="x" * 1000,
             error="Agent crashed",
@@ -734,13 +659,11 @@ class TestPlanPhaseTranscriptSummary:
         """When transcript is empty, summarize_and_comment is NOT called."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
             transcript="",
@@ -760,17 +683,14 @@ class TestPlanPhaseTranscriptSummary:
         """When plan closes issue as already_satisfied, transcript summary is still posted."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = IssueFactory.create(number=42, title="Add feature")
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             already_satisfied=True,
             summary="Already implemented.",
             transcript="x" * 1000,
-            duration_seconds=10.0,
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
@@ -787,11 +707,9 @@ class TestPlanPhaseTranscriptSummary:
     @pytest.mark.asyncio
     async def test_no_summarizer_does_not_crash(self, config: HydraFlowConfig) -> None:
         """When transcript_summarizer is None, no crash occurs."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = IssueFactory.create(number=42)
-        plan_result = PlanResult(
-            issue_number=42,
-            success=True,
+        plan_result = PlanResultFactory.create(
             plan="The plan",
             summary="Done",
             transcript="x" * 1000,
