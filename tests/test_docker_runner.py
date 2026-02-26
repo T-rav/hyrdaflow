@@ -515,6 +515,30 @@ class TestDockerRunnerCreateStreamingProcess:
         assert env["GIT_COMMITTER_EMAIL"] == "bot@test.com"
 
     @pytest.mark.asyncio
+    async def test_maps_host_tool_env_paths_to_container_paths(
+        self, tmp_path: Path
+    ) -> None:
+        runner, client = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "PI_CODING_AGENT_DIR": "/Users/dev/.pi/agent",
+                "CODEX_HOME": "/Users/dev/.codex",
+                "CLAUDE_CONFIG_DIR": "/Users/dev/.claude",
+            },
+            clear=True,
+        ):
+            await runner.create_streaming_process(["pi", "--help"])
+
+        create_call = client.containers.create.call_args
+        env = create_call.kwargs.get("environment", {})
+        assert env["PI_CODING_AGENT_DIR"] == "/root/.pi/agent"
+        assert env["CODEX_HOME"] == "/root/.codex"
+        assert env["CLAUDE_CONFIG_DIR"] == "/root/.claude"
+
+    @pytest.mark.asyncio
     async def test_no_host_path_or_python_vars_leaked(self, tmp_path: Path) -> None:
         runner, client = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
@@ -1123,3 +1147,40 @@ class TestBuildMounts:
         mounts = runner._build_mounts(None)
 
         assert "invalid-no-colon" not in mounts
+
+    def test_mounts_default_user_tool_dirs_when_present(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        (home / ".pi").mkdir(parents=True, exist_ok=True)
+        (home / ".codex").mkdir(parents=True, exist_ok=True)
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch("docker_runner.Path.home", return_value=home):
+            mounts = runner._build_mounts(None)
+
+        assert str(home / ".pi") in mounts
+        assert mounts[str(home / ".pi")] == {"bind": "/root/.pi", "mode": "rw"}
+        assert str(home / ".codex") in mounts
+        assert mounts[str(home / ".codex")] == {"bind": "/root/.codex", "mode": "rw"}
+        assert str(home / ".claude") in mounts
+        assert mounts[str(home / ".claude")] == {"bind": "/root/.claude", "mode": "rw"}
+
+    def test_mounts_custom_pi_agent_dir_when_configured(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        custom_pi = tmp_path / "custom" / "pi-agent"
+        custom_pi.mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("docker_runner.Path.home", return_value=home),
+            patch.dict(
+                "os.environ", {"PI_CODING_AGENT_DIR": str(custom_pi)}, clear=True
+            ),
+        ):
+            mounts = runner._build_mounts(None)
+
+        assert str(custom_pi) in mounts
+        assert mounts[str(custom_pi)] == {"bind": "/root/.pi/agent", "mode": "rw"}
+        assert str(home / ".pi") not in mounts
