@@ -143,6 +143,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
     "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
     "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
+    "HYDRAFLOW_LABEL_TRANSCRIPT": ("transcript_label", ["hydraflow-transcript"]),
     "HYDRAFLOW_LABEL_MANIFEST": ("manifest_label", ["hydraflow-manifest"]),
     "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
@@ -290,6 +291,10 @@ class HydraFlowConfig(BaseModel):
     memory_label: list[str] = Field(
         default=["hydraflow-memory"],
         description="Labels for accepted agent learnings (OR logic)",
+    )
+    transcript_label: list[str] = Field(
+        default=["hydraflow-transcript"],
+        description="Labels for transcript-summary issues queued for memory sync (OR logic)",
     )
     manifest_label: list[str] = Field(
         default=["hydraflow-manifest"],
@@ -804,6 +809,7 @@ class HydraFlowConfig(BaseModel):
         "fixed_label",
         "improve_label",
         "memory_label",
+        "transcript_label",
         "manifest_label",
         "metrics_label",
         "dup_label",
@@ -842,8 +848,18 @@ class HydraFlowConfig(BaseModel):
             self.hitl_active_label,
             self.fixed_label,
             self.improve_label,
+            self.transcript_label,
         ):
             result.extend(labels)
+        return result
+
+    @property
+    def memory_sync_labels(self) -> list[str]:
+        """Return labels fetched by memory sync (memory + transcript summaries)."""
+        result: list[str] = []
+        for label in [*self.memory_label, *self.transcript_label]:
+            if label not in result:
+                result.append(label)
         return result
 
     @property

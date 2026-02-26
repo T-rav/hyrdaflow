@@ -301,13 +301,20 @@ class MemorySyncWorker:
         }
 
     def _should_auto_close_issue(self, issue: MemoryIssueData) -> bool:
-        """Return True only for canonical memory suggestion issues."""
+        """Return True only for canonical memory/transcript sync issues."""
         title = str(issue.get("title", "")).strip()
         labels = issue.get("labels", [])
         if not isinstance(labels, list):
             return False
         has_memory_label = any(lbl in self._config.memory_label for lbl in labels)
-        return title.startswith("[Memory]") and has_memory_label
+        has_transcript_label = any(
+            lbl in self._config.transcript_label for lbl in labels
+        )
+        is_memory = title.startswith("[Memory]") and has_memory_label
+        is_transcript = (
+            title.startswith("[Transcript Summary]") and has_transcript_label
+        )
+        return is_memory or is_transcript
 
     async def _close_synced_issues(self, issues: list[MemoryIssueData]) -> None:
         """Close synced memory issues when a PR port is available."""

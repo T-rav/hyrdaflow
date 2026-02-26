@@ -818,6 +818,31 @@ class TestMemorySyncWorkerSync:
         prs.close_issue.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_sync_auto_closes_transcript_summary_issues(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 11,
+                "title": "[Transcript Summary] Issue #42 — review phase",
+                "body": "## Transcript Summary\n\n- Insight",
+                "createdAt": "",
+                "labels": ["hydraflow-transcript"],
+            },
+        ]
+        await worker.sync(issues)
+
+        prs.close_issue.assert_awaited_once_with(11)
+
+    @pytest.mark.asyncio
     async def test_sync_refreshes_manifest_and_syncer(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
         state = MagicMock()

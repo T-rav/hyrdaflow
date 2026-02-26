@@ -171,6 +171,7 @@ class ConfigFactory:
         fixed_label: list[str] | None = None,
         improve_label: list[str] | None = None,
         memory_label: list[str] | None = None,
+        transcript_label: list[str] | None = None,
         manifest_label: list[str] | None = None,
         metrics_label: list[str] | None = None,
         dup_label: list[str] | None = None,
@@ -305,6 +306,9 @@ class ConfigFactory:
             memory_label=memory_label
             if memory_label is not None
             else ["hydraflow-memory"],
+            transcript_label=transcript_label
+            if transcript_label is not None
+            else ["hydraflow-transcript"],
             manifest_label=manifest_label
             if manifest_label is not None
             else ["hydraflow-manifest"],

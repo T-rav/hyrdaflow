@@ -364,6 +364,7 @@ class TestParseArgs:
             "find_label",
             "planner_label",
             "improve_label",
+            "transcript_label",
             "triage_tool",
             "planner_model",
             "planner_tool",
@@ -447,6 +448,7 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("find_label", ["hydraflow-find"]),
     ("planner_label", ["hydraflow-plan"]),
     ("improve_label", ["hydraflow-improve"]),
+    ("transcript_label", ["hydraflow-transcript"]),
     ("triage_tool", "claude"),
     ("planner_tool", "claude"),
     ("planner_model", "opus"),
@@ -570,6 +572,8 @@ class TestBuildConfig:
                 "i",
                 "--improve-label",
                 "j,k",
+                "--transcript-label",
+                "t1,t2",
             ]
         )
         cfg = build_config(args)
@@ -582,6 +586,7 @@ class TestBuildConfig:
         assert cfg.find_label == ["g", "h"]
         assert cfg.planner_label == ["i"]
         assert cfg.improve_label == ["j", "k"]
+        assert cfg.transcript_label == ["t1", "t2"]
 
     def test_planner_model_passed_through(self) -> None:
         args = parse_args(["--planner-model", "sonnet"])
@@ -738,6 +743,11 @@ class TestBuildConfig:
         args = parse_args(["--improve-label", "my-improve"])
         cfg = build_config(args)
         assert cfg.improve_label == ["my-improve"]
+
+    def test_transcript_label_passed_through(self) -> None:
+        args = parse_args(["--transcript-label", "my-transcript"])
+        cfg = build_config(args)
+        assert cfg.transcript_label == ["my-transcript"]
 
     def test_git_identity_defaults_to_none_in_parse_args(self) -> None:
         args = parse_args([])

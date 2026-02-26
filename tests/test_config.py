@@ -1716,12 +1716,12 @@ class TestHydraFlowConfigLitePlanLabels:
 
 
 # ---------------------------------------------------------------------------
-# HydraFlowConfig – improve_label / memory_label env var overrides
+# HydraFlowConfig – improve_label / memory/transcript label env var overrides
 # ---------------------------------------------------------------------------
 
 
 class TestHydraFlowConfigImproveLabelAndMemoryLabel:
-    """Tests for improve_label and memory_label fields and env var overrides."""
+    """Tests for improve_label, memory_label, and transcript_label."""
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1738,6 +1738,14 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["hydraflow-memory"]
+
+    def test_transcript_label_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["hydraflow-transcript"]
 
     def test_improve_label_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1760,6 +1768,17 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["custom-memory"]
+
+    def test_transcript_label_env_var_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "custom-transcript")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["custom-transcript"]
 
     def test_improve_label_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1784,6 +1803,18 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["explicit-memory"]
+
+    def test_transcript_label_explicit_overrides_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "env-transcript")
+        cfg = HydraFlowConfig(
+            transcript_label=["explicit-transcript"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["explicit-transcript"]
 
     def test_metrics_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -3964,6 +3995,7 @@ class TestLabelValidation:
             "fixed_label",
             "improve_label",
             "memory_label",
+            "transcript_label",
             "metrics_label",
             "dup_label",
             "epic_label",
@@ -4360,6 +4392,7 @@ class TestAllPipelineLabels:
         assert cfg.hitl_active_label[0] in labels
         assert cfg.fixed_label[0] in labels
         assert cfg.improve_label[0] in labels
+        assert cfg.transcript_label[0] in labels
 
     def test_returns_flat_list(self, tmp_path: Path) -> None:
         from tests.helpers import ConfigFactory

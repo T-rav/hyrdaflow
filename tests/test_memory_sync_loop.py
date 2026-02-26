@@ -149,7 +149,7 @@ class TestMemorySyncLoopRun:
         assert call_count >= 2
 
     @pytest.mark.asyncio
-    async def test_run__fetches_memory_issues_with_high_limit(
+    async def test_run__fetches_memory_sync_labels_with_high_limit(
         self, tmp_path: Path
     ) -> None:
         loop, _ = _make_loop(tmp_path)
@@ -160,7 +160,7 @@ class TestMemorySyncLoopRun:
         for call in loop._fetcher.fetch_issues_by_labels.await_args_list:
             args = call.args
             kwargs = call.kwargs
-            assert args[0] == loop._config.memory_label
+            assert args[0] == loop._config.memory_sync_labels
             assert kwargs["limit"] == 500
 
 

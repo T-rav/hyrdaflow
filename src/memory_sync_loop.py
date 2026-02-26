@@ -51,7 +51,7 @@ class MemorySyncLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         issues = await self._fetcher.fetch_issues_by_labels(
-            self._config.memory_label, limit=_MEMORY_SYNC_FETCH_LIMIT
+            self._config.memory_sync_labels, limit=_MEMORY_SYNC_FETCH_LIMIT
         )
         issue_dicts: list[MemoryIssueData] = [
             MemoryIssueData(

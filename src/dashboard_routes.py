@@ -653,6 +653,7 @@ def create_router(
                 fixed_label=config.fixed_label,
                 improve_label=config.improve_label,
                 memory_label=config.memory_label,
+                transcript_label=config.transcript_label,
                 max_workers=config.max_workers,
                 max_planners=config.max_planners,
                 max_reviewers=config.max_reviewers,
