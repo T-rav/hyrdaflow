@@ -906,6 +906,7 @@ class HydraFlowConfig(BaseModel):
         _resolve_repo_and_identity(self)
         _apply_env_overrides(self)
         _apply_profile_overrides(self)
+        _harmonize_tool_model_defaults(self)
         _validate_docker(self)
         return self
 
@@ -959,6 +960,16 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "memory_compaction_model",
         ):
             _apply_if_default(field, config.background_model)
+
+
+def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
+    """Align tool/model defaults when model remains implicit.
+
+    Prevent Codex runs from inheriting the Claude-oriented implementation model
+    default (`opus`) when no explicit implementation model was provided.
+    """
+    if config.implementation_tool == "codex" and config.model == "opus":
+        object.__setattr__(config, "model", "gpt-5-codex")
 
 
 def _resolve_paths(config: HydraFlowConfig) -> None:
