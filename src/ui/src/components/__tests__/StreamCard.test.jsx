@@ -66,6 +66,23 @@ describe('StatusDot component', () => {
   })
 })
 
+describe('StreamCard pulse animation — regression #1080', () => {
+  it('does not inject an inline <style> tag (animation must live in index.html)', () => {
+    const issue = makeIssue({ overallStatus: 'active' })
+    const { container } = render(<StreamCard issue={issue} />)
+    expect(container.querySelector('style')).toBeNull()
+  })
+
+  it('active stage node carries the stream-pulse animation when expanded', () => {
+    const issue = makeIssue({ overallStatus: 'active' })
+    const { container } = render(<StreamCard issue={issue} defaultExpanded />)
+    const animatedNodes = Array.from(container.querySelectorAll('span, div')).filter(
+      el => el.style.animation && el.style.animation.includes('stream-pulse')
+    )
+    expect(animatedNodes.length).toBeGreaterThan(0)
+  })
+})
+
 describe('dotStyles', () => {
   it('has entries for all supported statuses', () => {
     const expectedStatuses = ['active', 'done', 'failed', 'hitl', 'queued', 'pending']
