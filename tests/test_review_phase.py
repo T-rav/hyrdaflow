@@ -4415,7 +4415,7 @@ class TestRunPostMergeHooks:
                 ),
             ],
             summary="1/1 criteria passed, instructions: ready",
-            verification_instructions="1. Check it",
+            verification_instructions="1. Open the UI page\n2. Click Save",
         )
         mock_judge.judge = AsyncMock(return_value=verdict)
         phase = make_review_phase(config)
@@ -4425,12 +4425,17 @@ class TestRunPostMergeHooks:
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create()
 
-        await phase._run_post_merge_hooks(pr, issue, result, "diff")
+        await phase._run_post_merge_hooks(
+            pr,
+            issue,
+            result,
+            "+++ b/src/ui/App.tsx\n@@\n+<button>Save</button>",
+        )
 
         mock_judge.judge.assert_awaited_once()
         phase._prs.create_issue.assert_awaited_once()
         body = phase._prs.create_issue.call_args[0][1]
-        assert "Check it" in body
+        assert "Click Save" in body
         assert phase._state.get_verification_issue(issue.id) == 500
 
     @pytest.mark.asyncio

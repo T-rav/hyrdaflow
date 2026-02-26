@@ -229,7 +229,7 @@ class TestPostMergeHandler:
                 ),
             ],
             summary="1/1 passed",
-            verification_instructions="Run the tests",
+            verification_instructions="Open the app in browser and click Save button",
         )
         mock_judge = AsyncMock()
         mock_judge.judge = AsyncMock(return_value=verdict)
@@ -248,7 +248,7 @@ class TestPostMergeHandler:
             pr,
             issue,
             result,
-            "diff",
+            "+++ b/src/ui/App.tsx\n@@\n+<button>Save</button>",
             0,
             ci_gate_fn=ci_gate_fn,
             escalate_fn=escalate_fn,
@@ -256,6 +256,52 @@ class TestPostMergeHandler:
         )
 
         handler._prs.create_issue.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_verification_issue_skipped_for_refactor_and_test_only_work(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Refactor/test-only changes should not generate Verify issues."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="Looks good",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Run unit tests and lint",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        handler = _make_handler(config, verification_judge=mock_judge)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create(
+            title="Refactor test helpers",
+            body="Cleanup test fixtures and typing in unit tests.",
+        )
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(return_value=42)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "+++ b/tests/test_helpers.py\n@@\n+assert value == expected",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        handler._prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_epic_runs_when_verification_issue_creation_fails(
