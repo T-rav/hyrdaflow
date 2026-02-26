@@ -944,6 +944,40 @@ class TestFetchIssuesByLabels:
         # Second fetch should be skipped while backoff is active.
         assert len(issue_calls) <= 2
 
+    @pytest.mark.asyncio
+    async def test_rate_limit_recovery_uses_exponential_jittered_backoff(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+
+        with (
+            patch.object(
+                fetcher, "_fetch_rate_limit_reset_time", AsyncMock(return_value=None)
+            ),
+            patch("issue_fetcher.random.uniform", return_value=1.0),
+        ):
+            await fetcher._set_rate_limit_backoff(RuntimeError("rate limit"))
+            first_until = fetcher._rate_limited_until
+            first_attempts = fetcher._rate_limit_recovery_attempts
+
+            # Expire first window to allow next recovery backoff to compute.
+            fetcher._rate_limited_until = datetime.now(UTC) - timedelta(seconds=1)
+
+            await fetcher._set_rate_limit_backoff(RuntimeError("rate limit"))
+            second_until = fetcher._rate_limited_until
+            second_attempts = fetcher._rate_limit_recovery_attempts
+
+        assert first_until is not None
+        assert second_until is not None
+        assert first_attempts == 1
+        assert second_attempts == 2
+
+        first_delay = (first_until - datetime.now(UTC)).total_seconds()
+        second_delay = (second_until - datetime.now(UTC)).total_seconds()
+        # attempt1 => ~2s, attempt2 => ~4s when jitter=1.0
+        assert first_delay <= 3.0
+        assert second_delay >= 3.0
+
 
 # ---------------------------------------------------------------------------
 # fetch_all_hydraflow_issues

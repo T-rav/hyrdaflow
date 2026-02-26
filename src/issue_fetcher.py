@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from datetime import UTC, datetime, timedelta
 
 from config import HydraFlowConfig
@@ -21,6 +22,7 @@ class IssueFetcher:
         self._config = config
         self._repo_owner = config.repo.split("/", 1)[0] if "/" in config.repo else ""
         self._rate_limited_until: datetime | None = None
+        self._rate_limit_recovery_attempts = 0
         self._rate_limit_lock = asyncio.Lock()
 
     @staticmethod
@@ -81,6 +83,7 @@ class IssueFetcher:
                 cmd += ["--field", f"labels={label}"]
             try:
                 raw = await run_subprocess(*cmd, gh_token=self._config.gh_token)
+                self._note_success_after_rate_limit()
                 for item in json.loads(raw):
                     if not isinstance(item, dict):
                         continue
@@ -122,7 +125,14 @@ class IssueFetcher:
         until = self._rate_limited_until
         if until is None:
             return False
-        return datetime.now(UTC) < until
+        now = datetime.now(UTC)
+        if now >= until:
+            self._rate_limited_until = None
+            return False
+        return True
+
+    def _note_success_after_rate_limit(self) -> None:
+        self._rate_limit_recovery_attempts = 0
 
     @staticmethod
     def _is_rate_limit_error(exc: RuntimeError) -> bool:
@@ -133,15 +143,25 @@ class IssueFetcher:
             if self._is_rate_limited_now():
                 return
 
-            fallback = datetime.now(UTC) + timedelta(minutes=5)
-            until = await self._fetch_rate_limit_reset_time()
-            if until is None or until <= datetime.now(UTC):
-                until = fallback
+            now = datetime.now(UTC)
+            reset_until = await self._fetch_rate_limit_reset_time()
+            if reset_until is not None and reset_until > now:
+                # Hard pause until the GitHub core reset boundary (+small buffer).
+                until = reset_until + timedelta(seconds=5)
+                self._rate_limit_recovery_attempts = 0
+            else:
+                # Post-reset recovery: exponentially back off with jitter.
+                self._rate_limit_recovery_attempts += 1
+                exp = min(self._rate_limit_recovery_attempts, 8)
+                base_seconds = 2**exp
+                jitter = random.uniform(0.75, 1.25)
+                delay_seconds = min(300, max(1, int(base_seconds * jitter)))
+                until = now + timedelta(seconds=delay_seconds)
 
             self._rate_limited_until = until
             seconds = max(1, int((until - datetime.now(UTC)).total_seconds()))
             logger.error(
-                "GitHub API rate limit hit; pausing issue fetches for ~%ds (until %s). Cause: %s",
+                "GitHub API rate limit hit; backing off issue fetches for ~%ds (until %s). Cause: %s",
                 seconds,
                 until.isoformat(),
                 exc,
