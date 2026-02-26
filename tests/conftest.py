@@ -43,11 +43,14 @@ if TYPE_CHECKING:
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
     """Set minimal env vars and prevent real subprocess calls."""
+    hydra_keys = [key for key in os.environ if key.startswith("HYDRAFLOW_")]
     test_env = {
         "HOME": "/tmp/hydraflow-test",
         "GH_TOKEN": "test-token",
     }
     with patch.dict(os.environ, test_env, clear=False):
+        for key in hydra_keys:
+            os.environ.pop(key, None)
         yield
 
 
