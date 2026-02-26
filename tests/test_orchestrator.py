@@ -2828,7 +2828,9 @@ class TestHandleLoopException:
         orch._pause_for_credits.assert_awaited_once_with(exc, "plan", tasks, factories)
 
     @pytest.mark.asyncio
-    async def test_generic_error_restarts_loop(self, config: HydraFlowConfig) -> None:
+    async def test_orchestrator_restarts_loop_on_generic_error(
+        self, config: HydraFlowConfig
+    ) -> None:
         """Generic exception should restart the crashed loop task."""
         bus = EventBus()
         orch = HydraFlowOrchestrator(config, event_bus=bus)
@@ -2873,7 +2875,7 @@ class TestMemoryErrorPropagation:
             await orch._polling_loop("test", oom_work, 10)
 
     @pytest.mark.asyncio
-    async def test_generic_error_is_caught_by_polling_loop(
+    async def test_orchestrator_catches_generic_error_in_polling_loop(
         self, config: HydraFlowConfig
     ) -> None:
         """Non-critical exceptions should be caught and not propagate."""

@@ -148,7 +148,7 @@ class TestReviewStageHarnessRecording:
             pr_number=200,
         )
 
-    def test_ci_failure_recording(self, config: HydraFlowConfig) -> None:
+    def test_harness_records_ci_failure_results(self, config: HydraFlowConfig) -> None:
         memory_dir = config.repo_root / ".hydraflow" / "memory"
         store = HarnessInsightStore(memory_dir)
 

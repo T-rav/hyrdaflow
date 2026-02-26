@@ -140,7 +140,7 @@ class TestLifecycleMetricRecording:
         assert stats.total_review_seconds == pytest.approx(0.0)
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_records_hitl_escalation(
+    async def test_review_metrics_log_hitl_escalation_for_merge_conflict(
         self, config: HydraFlowConfig
     ) -> None:
         """Merge conflict HITL escalation should increment the hitl counter."""
@@ -181,7 +181,7 @@ class TestLifecycleMetricRecording:
         assert stats.total_hitl_escalations == 1
 
     @pytest.mark.asyncio
-    async def test_ci_failure_records_ci_fix_rounds_and_hitl(
+    async def test_review_metrics_track_ci_fix_rounds_for_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure escalation should record ci fix rounds and hitl escalation."""
@@ -1293,7 +1293,9 @@ class TestGetJudgeResult:
         assert result.issue_number == 99
         assert result.pr_number == 200
 
-    def test_empty_criteria(self, config: HydraFlowConfig) -> None:
+    def test_review_metrics_handle_empty_acceptance_criteria(
+        self, config: HydraFlowConfig
+    ) -> None:
         """Verdict with no criteria produces result with empty criteria list."""
         phase = make_review_phase(config)
         issue = TaskFactory.create()

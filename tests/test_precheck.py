@@ -37,7 +37,7 @@ class TestPrecheckResult:
         assert result.summary == ""
         assert result.parse_failed is True
 
-    def test_custom_values(self) -> None:
+    def test_precheck_result_accepts_custom_values(self) -> None:
         result = PrecheckResult(
             risk="high",
             confidence=0.85,

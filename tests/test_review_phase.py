@@ -1114,7 +1114,7 @@ class TestWaitAndFixCI:
         phase._reviewers.fix_ci.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_ci_failure_posts_comment_and_labels_hitl(
+    async def test_review_phase_posts_hitl_comment_for_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure should post a comment and swap label to hydraflow-hitl."""
@@ -1162,7 +1162,9 @@ class TestWaitAndFixCI:
         phase._prs.transition.assert_any_await(42, "hitl", pr_number=101)
 
     @pytest.mark.asyncio
-    async def test_ci_failure_sets_hitl_cause(self, config: HydraFlowConfig) -> None:
+    async def test_review_phase_records_hitl_cause_for_ci_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
         """CI failure escalation should record cause with attempt count in state."""
         from tests.helpers import ConfigFactory
 
@@ -1201,7 +1203,7 @@ class TestWaitAndFixCI:
         assert phase._state.get_hitl_cause(42) == "CI failed after 1 fix attempt(s)"
 
     @pytest.mark.asyncio
-    async def test_ci_failure_escalation_records_hitl_origin(
+    async def test_review_phase_records_hitl_origin_for_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure escalation should record review_label as HITL origin."""
@@ -2036,7 +2038,7 @@ class TestLifecycleMetricRecording:
         assert stats.total_review_seconds == pytest.approx(0.0)
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_records_hitl_escalation(
+    async def test_review_phase_logs_hitl_escalation_for_merge_conflict(
         self, config: HydraFlowConfig
     ) -> None:
         """Merge conflict HITL escalation should increment the hitl counter."""
@@ -2092,7 +2094,7 @@ class TestLifecycleMetricRecording:
         assert stats.total_hitl_escalations == 1
 
     @pytest.mark.asyncio
-    async def test_ci_failure_records_ci_fix_rounds_and_hitl(
+    async def test_review_phase_logs_ci_fix_rounds_for_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure escalation should record ci fix rounds and hitl escalation."""
@@ -2837,7 +2839,7 @@ class TestHITLEscalationEvents:
     """Tests that HITL escalation points emit HITL_ESCALATION events."""
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_escalation_emits_hitl_event(
+    async def test_review_phase_emits_hitl_event_for_merge_conflict(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Merge conflict escalation should emit HITL_ESCALATION with cause merge_conflict."""
@@ -2910,7 +2912,7 @@ class TestHITLEscalationEvents:
         assert data["cause"] == "merge_failed"
 
     @pytest.mark.asyncio
-    async def test_ci_failure_escalation_emits_hitl_event(
+    async def test_review_phase_emits_hitl_event_for_ci_failure(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """CI failure escalation should emit HITL_ESCALATION with cause ci_failed."""
@@ -2991,7 +2993,7 @@ class TestHITLEscalationEvents:
         assert len(escalation_events) == 0
 
     @pytest.mark.asyncio
-    async def test_review_fix_cap_exceeded_emits_hitl_event(
+    async def test_review_phase_emits_hitl_event_for_review_fix_cap(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Review fix cap exceeded should emit HITL_ESCALATION with cause review_fix_cap_exceeded."""
@@ -3896,7 +3898,9 @@ class TestGetJudgeResult:
         assert result.issue_number == 99
         assert result.pr_number == 200
 
-    def test_empty_criteria(self, config: HydraFlowConfig) -> None:
+    def test_review_phase_handles_empty_acceptance_criteria(
+        self, config: HydraFlowConfig
+    ) -> None:
         """Verdict with no criteria produces result with empty criteria list."""
         phase = make_review_phase(config)
         issue = TaskFactory.create()

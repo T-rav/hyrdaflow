@@ -100,7 +100,7 @@ class TestRouting:
         assert store._queue_members[STAGE_REVIEW] == {7}
         assert 7 not in store._queue_members[STAGE_FIND]
 
-    def test_multiple_issues_routed_to_different_queues(self) -> None:
+    def test_issue_store_routes_each_issue_to_matching_queue(self) -> None:
         store = _make_store()
         issues = [
             TaskFactory.create(id=10, tags=["hydraflow-find"]),

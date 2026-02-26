@@ -64,7 +64,7 @@ class TestExtractCategories:
         cats = extract_categories("Potential SQL injection vulnerability found")
         assert "security" in cats
 
-    def test_extracts_naming(self) -> None:
+    def test_review_insights_extracts_naming_patterns(self) -> None:
         cats = extract_categories("Poor naming convention for variables")
         assert "naming" in cats
 

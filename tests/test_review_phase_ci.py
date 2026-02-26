@@ -219,7 +219,7 @@ class TestWaitAndFixCI:
         phase._reviewers.fix_ci.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_ci_failure_posts_comment_and_labels_hitl(
+    async def test_ci_phase_posts_hitl_comment_for_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure should post a comment and swap label to hydraflow-hitl."""
@@ -255,7 +255,9 @@ class TestWaitAndFixCI:
         phase._prs.transition.assert_any_call(42, "hitl", pr_number=101)
 
     @pytest.mark.asyncio
-    async def test_ci_failure_sets_hitl_cause(self, config: HydraFlowConfig) -> None:
+    async def test_ci_phase_records_hitl_cause_for_ci_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
         """CI failure escalation should record cause with attempt count in state."""
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
@@ -282,7 +284,7 @@ class TestWaitAndFixCI:
         assert phase._state.get_hitl_cause(42) == "CI failed after 1 fix attempt(s)"
 
     @pytest.mark.asyncio
-    async def test_ci_failure_escalation_records_hitl_origin(
+    async def test_ci_phase_records_hitl_origin_for_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
         """CI failure escalation should record review_label as HITL origin."""

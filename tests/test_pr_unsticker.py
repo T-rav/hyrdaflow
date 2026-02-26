@@ -361,7 +361,7 @@ class TestCIFailureResolution:
     """Mock agent, verify rebase + quality fix flow for CI failures."""
 
     @pytest.mark.asyncio
-    async def test_ci_failure_runs_agent_with_quality_prompt(
+    async def test_pr_unsticker_runs_quality_prompt_for_ci_failure(
         self, tmp_path: Path
     ) -> None:
         issue = GitHubIssue(
@@ -413,7 +413,9 @@ class TestGenericResolution:
     """Mock HITLRunner, verify delegation for generic causes."""
 
     @pytest.mark.asyncio
-    async def test_generic_cause_delegates_to_hitl_runner(self, tmp_path: Path) -> None:
+    async def test_pr_unsticker_generic_cause_delegates_to_hitl(
+        self, tmp_path: Path
+    ) -> None:
         from models import HITLResult
 
         issue = GitHubIssue(
@@ -449,7 +451,9 @@ class TestGenericResolution:
         hitl_runner.run.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_generic_fails_without_hitl_runner(self, tmp_path: Path) -> None:
+    async def test_pr_unsticker_generic_cause_requires_hitl_runner(
+        self, tmp_path: Path
+    ) -> None:
         issue = GitHubIssue(
             number=42,
             title="Fix widget",
@@ -588,7 +592,9 @@ class TestPriorityOrdering:
     """Verify merge conflicts processed before CI failures."""
 
     @pytest.mark.asyncio
-    async def test_merge_conflicts_sorted_first(self, tmp_path: Path) -> None:
+    async def test_pr_unsticker_prioritizes_merge_conflicts(
+        self, tmp_path: Path
+    ) -> None:
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
@@ -748,7 +754,7 @@ class TestMergeConflictDelegation:
     """Verify that merge conflict resolution delegates to the resolver with correct args."""
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_delegates_to_resolver_with_correct_pr_info(
+    async def test_pr_unsticker_passes_pr_details_to_resolver(
         self, tmp_path: Path
     ) -> None:
         issue = GitHubIssue(
@@ -788,7 +794,7 @@ class TestMergeConflictDelegation:
         assert pr_info.branch == "agent/issue-42"
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_uses_pr_unsticker_source(
+    async def test_pr_unsticker_sets_source_for_merge_conflicts(
         self, tmp_path: Path
     ) -> None:
         issue = GitHubIssue(
@@ -894,7 +900,7 @@ class TestResolverNoneEdgeCases:
     """Tests for edge cases when the resolver is not configured (resolver=None)."""
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_without_resolver_fails_and_releases_to_hitl(
+    async def test_pr_unsticker_without_resolver_releases_conflicts_to_hitl(
         self, tmp_path: Path
     ) -> None:
         """When resolver is None and cause is MERGE_CONFLICT, return failure and release to HITL."""

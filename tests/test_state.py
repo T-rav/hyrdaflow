@@ -155,7 +155,7 @@ class TestIssueTracking:
         # File must exist after mark_issue
         assert state_file.exists()
 
-    def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
+    def test_mark_issue_tracks_multiple_statuses(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(1, "success")
         tracker.mark_issue(2, "failed")
@@ -826,7 +826,7 @@ class TestReviewAttemptTracking:
         tracker.reset_review_attempts(999)
         assert tracker.get_review_attempts(999) == 0
 
-    def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
+    def test_review_attempt_counters_per_issue(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.increment_review_attempts(1)
         tracker.increment_review_attempts(1)
@@ -1005,7 +1005,7 @@ class TestWorkerResultMeta:
         tracker2 = StateTracker(state_file)
         assert tracker2.get_worker_result_meta(42) == meta
 
-    def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
+    def test_worker_result_meta_per_issue(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.set_worker_result_meta(1, {"quality_fix_attempts": 0})
         tracker.set_worker_result_meta(2, {"quality_fix_attempts": 3})
@@ -1411,7 +1411,9 @@ class TestVerificationIssueTracking:
         tracker2 = make_tracker(tmp_path)
         assert tracker2.get_verification_issue(42) == 500
 
-    def test_multiple_issues_tracked(self, tmp_path: Path) -> None:
+    def test_verification_issue_mapping_handles_multiple_entries(
+        self, tmp_path: Path
+    ) -> None:
         """Multiple original issues can each have verification issues."""
         tracker = make_tracker(tmp_path)
         tracker.set_verification_issue(42, 500)
@@ -1448,7 +1450,7 @@ class TestIssueAttemptTracking:
         tracker.reset_issue_attempts(999)
         assert tracker.get_issue_attempts(999) == 0
 
-    def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
+    def test_issue_attempt_counters_per_issue(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.increment_issue_attempts(1)
         tracker.increment_issue_attempts(1)
@@ -1696,7 +1698,7 @@ class TestLastReviewedSha:
         tracker.set_last_reviewed_sha(42, "sha-v2")
         assert tracker.get_last_reviewed_sha(42) == "sha-v2"
 
-    def test_multiple_issues_independent(self, tmp_path: Path) -> None:
+    def test_last_reviewed_sha_stores_each_issue(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.set_last_reviewed_sha(1, "sha-issue-1")
         tracker.set_last_reviewed_sha(2, "sha-issue-2")

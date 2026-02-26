@@ -146,7 +146,7 @@ class TestHasRuffConfig:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         assert _has_ruff_config(tmp_path) is False
 
-    def test_has_ruff_config_returns_false_without_pyproject(
+    def test_has_ruff_config_returns_false_no_pyproject_present(
         self, tmp_path: Path
     ) -> None:
         assert _has_ruff_config(tmp_path) is False
@@ -179,7 +179,7 @@ class TestHasPyrightConfig:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         assert _has_pyright_config(tmp_path) is False
 
-    def test_has_pyright_config_returns_false_without_pyproject(
+    def test_has_pyright_config_returns_false_no_pyproject_present(
         self, tmp_path: Path
     ) -> None:
         assert _has_pyright_config(tmp_path) is False
@@ -343,7 +343,7 @@ class TestEnsurePythonDevDeps:
         result = _ensure_python_dev_deps(tmp_path)
         assert result == []
 
-    def test_skips_if_no_pyproject(self, tmp_path: Path) -> None:
+    def test_skips_when_pyproject_missing(self, tmp_path: Path) -> None:
         result = _ensure_python_dev_deps(tmp_path)
         assert result == []
 

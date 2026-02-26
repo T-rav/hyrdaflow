@@ -45,7 +45,7 @@ class TestHITLRunnerInheritance:
 class TestClassifyCause:
     """Tests for _classify_cause helper function."""
 
-    def test_ci_failure_maps_to_ci(self) -> None:
+    def test_hitl_runner_maps_ci_failure_cause(self) -> None:
         assert _classify_cause("CI failed after 2 fix attempt(s)") == "ci"
 
     def test_check_keyword_maps_to_ci(self) -> None:
@@ -54,7 +54,7 @@ class TestClassifyCause:
     def test_test_fail_keyword_maps_to_ci(self) -> None:
         assert _classify_cause("test fail in module") == "ci"
 
-    def test_merge_conflict_maps_correctly(self) -> None:
+    def test_hitl_runner_maps_merge_conflict_cause(self) -> None:
         assert _classify_cause("Merge conflict with main branch") == "merge_conflict"
 
     def test_insufficient_detail_maps_to_needs_info(self) -> None:

@@ -35,7 +35,7 @@ class TestHITLEscalationEvents:
     """Tests that HITL escalation points emit HITL_ESCALATION events."""
 
     @pytest.mark.asyncio
-    async def test_merge_conflict_escalation_emits_hitl_event(
+    async def test_review_phase_hitl_emits_event_for_merge_conflict(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Merge conflict escalation should emit HITL_ESCALATION with cause merge_conflict."""
@@ -108,7 +108,7 @@ class TestHITLEscalationEvents:
         assert data["cause"] == "merge_failed"
 
     @pytest.mark.asyncio
-    async def test_ci_failure_escalation_emits_hitl_event(
+    async def test_review_phase_hitl_emits_event_for_ci_failure(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """CI failure escalation should emit HITL_ESCALATION with cause ci_failed."""
@@ -187,7 +187,7 @@ class TestHITLEscalationEvents:
         assert len(escalation_events) == 0
 
     @pytest.mark.asyncio
-    async def test_review_fix_cap_exceeded_emits_hitl_event(
+    async def test_review_phase_hitl_emits_event_for_review_fix_cap(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Review fix cap exceeded should emit HITL_ESCALATION with cause review_fix_cap_exceeded."""

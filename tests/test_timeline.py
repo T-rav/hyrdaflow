@@ -47,7 +47,7 @@ class TestGroupEventsByIssue:
         assert 42 in grouped
         assert len(grouped[42]) == 2
 
-    def test_multiple_issues(self, event_bus: EventBus) -> None:
+    def test_timeline_tracks_multiple_issues(self, event_bus: EventBus) -> None:
         builder = TimelineBuilder(event_bus)
         events = [
             _event(EventType.TRIAGE_UPDATE, 0, issue=42, status="evaluating"),
@@ -148,7 +148,7 @@ class TestBuildStage:
         assert stage.metadata["verdict"] == "approve"
         assert stage.metadata["duration"] == 30.0
 
-    def test_merge_stage(self, event_bus: EventBus) -> None:
+    def test_timeline_records_merge_stage_status(self, event_bus: EventBus) -> None:
         builder = TimelineBuilder(event_bus)
         events = [
             _event(EventType.MERGE_UPDATE, 0, pr=101, status="merged"),
@@ -157,7 +157,7 @@ class TestBuildStage:
         assert stage.stage == "merge"
         assert stage.status == "done"
 
-    def test_failed_stage(self, event_bus: EventBus) -> None:
+    def test_timeline_records_failed_stage_status(self, event_bus: EventBus) -> None:
         builder = TimelineBuilder(event_bus)
         events = [
             _event(EventType.WORKER_UPDATE, 0, issue=42, status="running"),

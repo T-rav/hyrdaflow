@@ -120,7 +120,7 @@ class TestSaveTranscript:
         assert (log_dir / "issue-1.txt").read_text() == "agent transcript"
         assert (log_dir / "review-pr-1.txt").read_text() == "review transcript"
 
-    def test_handles_oserror(
+    def test_base_runner_handles_oserror_gracefully(
         self, config, event_bus: EventBus, caplog: pytest.LogCaptureFixture
     ) -> None:
         config.repo_root.mkdir(parents=True, exist_ok=True)

@@ -126,7 +126,9 @@ class TestBuildPrompt:
         prompt = gen._build_prompt(issue, "", "", [])
         assert "## Implementation Plan" not in prompt
 
-    def test_includes_diff_summary(self, config: HydraFlowConfig, event_bus) -> None:
+    def test_acceptance_report_includes_diff_summary(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
         gen, _ = _make_generator(config, event_bus)
         issue = IssueFactory.create()
         prompt = gen._build_prompt(issue, "", "some diff content", [])

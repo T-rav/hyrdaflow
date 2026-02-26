@@ -109,7 +109,7 @@ class TestExtractSubcategories:
         subs = extract_subcategories("No test file found for new module")
         assert "missing_tests" in subs
 
-    def test_extracts_naming_violations(self) -> None:
+    def test_detects_naming_convention_violations(self) -> None:
         subs = extract_subcategories(
             "Naming convention violation: rename to snake_case"
         )
@@ -316,7 +316,7 @@ class TestAnalyzeCategoryPatterns:
         assert patterns[1][0] == FailureCategory.CI_FAILURE
         assert patterns[1][1] == 3
 
-    def test_empty_records(self) -> None:
+    def test_category_patterns_empty_input_returns_empty(self) -> None:
         assert analyze_category_patterns([], threshold=1) == []
 
 
@@ -357,7 +357,7 @@ class TestAnalyzeSubcategoryPatterns:
         patterns = analyze_subcategory_patterns(records, threshold=3)
         assert patterns == []
 
-    def test_empty_records(self) -> None:
+    def test_subcategory_patterns_empty_input_returns_empty(self) -> None:
         assert analyze_subcategory_patterns([], threshold=1) == []
 
     def test_records_with_no_subcategories(self) -> None:
@@ -475,7 +475,7 @@ class TestGenerateSuggestions:
         suggestions = generate_suggestions(records, threshold=3)
         assert suggestions == []
 
-    def test_empty_records_no_suggestions(self) -> None:
+    def test_generate_suggestions_returns_no_results_for_empty_input(self) -> None:
         suggestions = generate_suggestions([], threshold=1)
         assert suggestions == []
 
