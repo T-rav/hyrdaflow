@@ -37,6 +37,7 @@ beforeEach(() => {
 
 // All stages open by default for test visibility
 const allExpanded = Object.fromEntries(PIPELINE_STAGES.map(s => [s.key, true]))
+const allCollapsed = Object.fromEntries(PIPELINE_STAGES.map(s => [s.key, false]))
 
 const defaultProps = {
   intents: [],
@@ -549,6 +550,21 @@ describe('PipelineFlow visualization', () => {
     const queuedDot = screen.getByTestId('flow-dot-11')
     expect(activeDot.style.animation).toContain('stream-pulse')
     expect(queuedDot.style.animation).toBe('')
+  })
+
+  it('keeps Pipeline Flow animation even when all stage sections are collapsed', () => {
+    mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
+      pipelineIssues: {
+        triage: [],
+        plan: [],
+        implement: [{ issue_number: 17, title: 'Implement feature', status: 'active' }],
+        review: [],
+      },
+    }))
+    render(<StreamView {...defaultProps} expandedStages={allCollapsed} />)
+    expect(screen.queryByText('#17')).not.toBeInTheDocument()
+    const activeDot = screen.getByTestId('flow-dot-17')
+    expect(activeDot.style.animation).toContain('stream-pulse')
   })
 })
 
