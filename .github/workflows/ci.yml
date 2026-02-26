@@ -89,6 +89,31 @@ jobs:
           path: htmlcov/
           retention-days: 7
 
+  smoke:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/ui/package-lock.json
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+      - name: Install UI dependencies
+        working-directory: src/ui
+        run: npm ci
+      - name: Run smoke tests
+        run: make smoke
+
   ui-build:
     name: Dashboard Build
     runs-on: ubuntu-latest
