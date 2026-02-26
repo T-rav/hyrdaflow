@@ -58,6 +58,30 @@ _RESET_TIME_RE = re.compile(
 )
 
 
+_DOCKER_ENV_PASSTHROUGH_KEYS = (
+    # Primary provider auth keys
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "XAI_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "MISTRAL_API_KEY",
+    "TOGETHER_API_KEY",
+    "GROQ_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_API_KEY",
+    # Local agent config locations
+    "PI_CODING_AGENT_DIR",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+)
+
+
 def is_credit_exhaustion(text: str) -> bool:
     """Check if *text* indicates an API credit exhaustion condition."""
     text_lower = text.lower()
@@ -147,9 +171,10 @@ def make_docker_env(
     if gh_token:
         env["GH_TOKEN"] = gh_token
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if api_key:
-        env["ANTHROPIC_API_KEY"] = api_key
+    for key in _DOCKER_ENV_PASSTHROUGH_KEYS:
+        value = os.environ.get(key, "")
+        if value:
+            env[key] = value
 
     if git_user_name:
         env["GIT_AUTHOR_NAME"] = git_user_name

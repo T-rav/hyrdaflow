@@ -598,6 +598,23 @@ class TestMakeDockerEnv:
             env = make_docker_env()
         assert "ANTHROPIC_API_KEY" not in env
 
+    def test_injects_multiple_provider_keys_from_environ(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENAI_API_KEY": "sk-openai",
+                "OPENROUTER_API_KEY": "sk-openrouter",
+                "PI_CODING_AGENT_DIR": "/Users/dev/.pi/agent",
+                "CODEX_HOME": "/Users/dev/.codex",
+            },
+            clear=True,
+        ):
+            env = make_docker_env()
+        assert env["OPENAI_API_KEY"] == "sk-openai"
+        assert env["OPENROUTER_API_KEY"] == "sk-openrouter"
+        assert env["PI_CODING_AGENT_DIR"] == "/Users/dev/.pi/agent"
+        assert env["CODEX_HOME"] == "/Users/dev/.codex"
+
     def test_sets_git_identity(self) -> None:
         env = make_docker_env(git_user_name="Bot", git_user_email="bot@test.com")
         assert env["GIT_AUTHOR_NAME"] == "Bot"
@@ -637,7 +654,11 @@ class TestMakeDockerEnv:
     def test_all_vars_combined(self) -> None:
         with patch.dict(
             "os.environ",
-            {"ANTHROPIC_API_KEY": "sk-test", "PATH": "/usr/bin"},
+            {
+                "ANTHROPIC_API_KEY": "sk-test",
+                "OPENAI_API_KEY": "sk-openai",
+                "PATH": "/usr/bin",
+            },
             clear=True,
         ):
             env = make_docker_env(
@@ -649,6 +670,7 @@ class TestMakeDockerEnv:
             "HOME",
             "GH_TOKEN",
             "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
             "GIT_AUTHOR_NAME",
             "GIT_COMMITTER_NAME",
             "GIT_AUTHOR_EMAIL",
