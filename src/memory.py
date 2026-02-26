@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
@@ -30,6 +32,18 @@ if TYPE_CHECKING:
     from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.memory")
+_ADR_ARCH_KEYWORDS: tuple[str, ...] = (
+    "architecture",
+    "architectural",
+    "design",
+    "decision",
+    "adr",
+    "topology",
+    "service boundary",
+    "module boundary",
+    "workflow shift",
+    "pipeline shift",
+)
 
 
 def _parse_memory_type(raw: str) -> MemoryType:
@@ -291,6 +305,7 @@ class MemorySyncWorker:
         self._state.update_memory_state(current_ids, digest_hash)
         self._manifest_store.update_from_learnings(learnings)
         await self._refresh_manifest("memory-sync")
+        await self._route_adr_candidates(issues)
         await self._close_synced_issues(issues)
 
         return {
@@ -343,6 +358,110 @@ class MemorySyncWorker:
             closed,
             failed,
         )
+
+    async def _route_adr_candidates(self, issues: list[MemoryIssueData]) -> None:
+        """Create ADR draft tasks from architecture-shift memory issues."""
+        if self._prs is None:
+            return
+
+        seen = self._load_adr_source_ids()
+        created = 0
+        for issue in issues:
+            if not self._is_memory_issue(issue):
+                continue
+            source_id = int(issue.get("number", 0))
+            if source_id <= 0 or source_id in seen:
+                continue
+            title = str(issue.get("title", "")).strip()
+            body = str(issue.get("body", ""))
+            learning = self._extract_learning(body)
+            if not self._is_architecture_candidate(title, learning, body):
+                continue
+            adr_title, adr_body = self._build_adr_task(issue, learning)
+            issue_num = await self._prs.create_issue(
+                adr_title,
+                adr_body,
+                list(self._config.find_label[:1]),
+            )
+            if issue_num:
+                seen.add(source_id)
+                created += 1
+
+        if created:
+            self._save_adr_source_ids(seen)
+        logger.info(
+            "ADR routing summary: created=%d tracked_sources=%d",
+            created,
+            len(seen),
+        )
+
+    def _is_memory_issue(self, issue: MemoryIssueData) -> bool:
+        title = str(issue.get("title", "")).strip()
+        labels = issue.get("labels", [])
+        if not isinstance(labels, list):
+            return False
+        has_memory_label = any(lbl in self._config.memory_label for lbl in labels)
+        return title.startswith("[Memory]") and has_memory_label
+
+    @staticmethod
+    def _is_architecture_candidate(title: str, learning: str, body: str) -> bool:
+        haystack = " ".join([title.lower(), learning.lower(), body.lower()])
+        return any(keyword in haystack for keyword in _ADR_ARCH_KEYWORDS)
+
+    def _build_adr_task(
+        self, source_issue: MemoryIssueData, learning: str
+    ) -> tuple[str, str]:
+        raw_title = str(source_issue.get("title", "")).strip()
+        cleaned = re.sub(r"^\[Memory\]\s*", "", raw_title, flags=re.IGNORECASE).strip()
+        adr_title = (
+            f"[ADR] Draft decision from memory #{source_issue['number']}: {cleaned}"
+        )
+        body = (
+            "## ADR Draft Task\n\n"
+            "Create or update an ADR under `docs/adr/` that captures this architectural shift.\n\n"
+            "### Verification Gate\n"
+            "- Validate decision scope and tradeoffs against current code and workflow\n"
+            "- Ensure ADR format follows `docs/adr/README.md`\n"
+            "- Include links back to source memory and related issues/PRs\n\n"
+            "### Source Memory\n"
+            f"- Issue: #{source_issue['number']}\n"
+            f"- Title: {raw_title}\n"
+            f"- Learning: {learning}\n\n"
+            "### Draft Template\n"
+            "```\n"
+            "# ADR-XXXX: <Title>\n\n"
+            "- Status: Proposed\n"
+            "- Date: <YYYY-MM-DD>\n\n"
+            "## Context\n"
+            "<What changed and why now>\n\n"
+            "## Decision\n"
+            "<Chosen architecture/workflow shift>\n\n"
+            "## Consequences\n"
+            "<Tradeoffs and follow-ups>\n"
+            "```\n\n"
+            "After implementation and validation, continue normal pipeline flow to review."
+        )
+        return adr_title, body
+
+    def _adr_sources_path(self) -> Path:
+        return self._config.data_path("memory", "adr_sources.json")
+
+    def _load_adr_source_ids(self) -> set[int]:
+        path = self._adr_sources_path()
+        if not path.exists():
+            return set()
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return set()
+        if not isinstance(data, list):
+            return set()
+        return {int(x) for x in data if isinstance(x, int)}
+
+    def _save_adr_source_ids(self, issue_ids: set[int]) -> None:
+        path = self._adr_sources_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, json.dumps(sorted(issue_ids)) + "\n")
 
     async def _refresh_manifest(self, source: str) -> None:
         """Regenerate the manifest and optionally sync it upstream."""
