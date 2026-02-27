@@ -1179,11 +1179,10 @@ class TestHITLEndpointCause:
         self, event_bus: EventBus, tmp_path: Path
     ) -> None:
         """With memory_auto_approve=True, memory items excluded from response."""
-        from tests.helpers import ConfigFactory
-
         from dashboard_routes import create_router
         from pr_manager import PRManager
         from state import StateTracker
+        from tests.helpers import ConfigFactory
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
