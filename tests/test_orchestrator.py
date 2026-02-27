@@ -1064,7 +1064,7 @@ class TestManifestRefreshIntegration:
             orch._stop_event.set()
 
         orch._manifest_refresh_bg_loop = tracking_manifest_loop  # type: ignore[method-assign]
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
@@ -1451,7 +1451,7 @@ class TestSupervisorLoops:
             orch._stop_event.set()
             return [], []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = failing_implement  # type: ignore[method-assign]
         orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
@@ -1493,7 +1493,7 @@ class TestSupervisorLoops:
         # supervised task completes normally from _supervise_loops' perspective.
         orch._implement_loop = completing_then_stopping  # type: ignore[method-assign]
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
         orch._store.start = AsyncMock()  # type: ignore[method-assign]
@@ -1625,7 +1625,7 @@ class TestHITLLoop:
             orch._stop_event.set()
 
         orch._hitl_loop = tracking_hitl_loop  # type: ignore[method-assign]
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
@@ -1751,7 +1751,7 @@ class TestAuthFailure:
         async def auth_failing_plan() -> list[PlanResult]:
             raise AuthenticationError("401 Unauthorized")
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = auth_failing_plan  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -1781,7 +1781,7 @@ class TestAuthFailure:
         async def auth_failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             raise AuthenticationError("401 Unauthorized")
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = auth_failing_implement  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
