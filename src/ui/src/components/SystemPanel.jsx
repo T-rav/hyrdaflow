@@ -344,7 +344,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
           </div>
         ))}
       </div>
-      <div style={styles.subTabContent}>
+      <div style={styles.subTabContent} data-testid="system-subtab-content">
         {activeSubTab === 'workers' && (
           <div style={styles.workersContent}>
             <h3 style={styles.heading}>Background Workers</h3>
@@ -395,9 +395,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
           <PipelineControlPanel onToggleBgWorker={onToggleBgWorker} />
         )}
         {activeSubTab === 'metrics' && (
-          <div style={styles.metricsContent}>
-            <MetricsPanel />
-          </div>
+          <MetricsPanel />
         )}
         {activeSubTab === 'livestream' && <Livestream events={events} />}
       </div>
@@ -443,11 +441,6 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: 20,
-  },
-  metricsContent: {
-    flex: 1,
-    height: '100%',
-    overflow: 'hidden',
   },
   heading: {
     fontSize: 16,

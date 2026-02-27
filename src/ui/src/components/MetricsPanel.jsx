@@ -150,7 +150,7 @@ export function MetricsPanel() {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} data-testid="metrics-panel-root">
       <h3 style={styles.heading}>Lifetime</h3>
       <div style={styles.row}>
         <StatCard
