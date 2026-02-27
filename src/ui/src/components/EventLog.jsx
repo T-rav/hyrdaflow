@@ -8,8 +8,6 @@ export const typeColors = {
   review_update: theme.orange,
   merge_update: theme.green,
   error: theme.red,
-  batch_start: theme.accent,
-  batch_complete: theme.green,
   transcript_line: theme.textMuted,
   triage_update: theme.triageGreen,
   planner_update: theme.purple,
@@ -23,14 +21,12 @@ export const typeColors = {
 
 export function eventSummary(type, data) {
   switch (type) {
-    case 'batch_start': return `Batch ${data.batch} started`
     case 'phase_change': return data.phase
     case 'worker_update': return `#${data.issue} \u2192 ${data.status}`
     case 'transcript_line': return `#${data.issue || data.pr} ${data.line || ''}`
     case 'pr_created': return `PR #${data.pr} for #${data.issue}${data.draft ? ' (draft)' : ''}`
     case 'review_update': return `PR #${data.pr} \u2192 ${data.verdict || data.status}`
     case 'merge_update': return `PR #${data.pr} ${data.status}`
-    case 'batch_complete': return `${data.merged} merged, ${data.implemented} implemented`
     case 'error': return data.message || 'Error'
     case 'triage_update': return `#${data.issue} → ${data.status}`
     case 'planner_update': return `#${data.issue} → ${data.status}`

@@ -53,7 +53,6 @@ def _log_persist_failure(task: asyncio.Future[None]) -> None:
 class EventType(StrEnum):
     """Categories of events published by the orchestrator."""
 
-    BATCH_START = "batch_start"
     PHASE_CHANGE = "phase_change"
     WORKER_UPDATE = "worker_update"
     TRANSCRIPT_LINE = "transcript_line"
@@ -65,15 +64,11 @@ class EventType(StrEnum):
     CI_CHECK = "ci_check"
     HITL_ESCALATION = "hitl_escalation"
     ISSUE_CREATED = "issue_created"
-    BATCH_COMPLETE = "batch_complete"
     HITL_UPDATE = "hitl_update"
     ORCHESTRATOR_STATUS = "orchestrator_status"
     ERROR = "error"
     MEMORY_SYNC = "memory_sync"
-    RETROSPECTIVE = "retrospective"
     METRICS_UPDATE = "metrics_update"
-    REVIEW_INSIGHT = "review_insight"
-    HARNESS_INSIGHT = "harness_insight"
     BACKGROUND_WORKER_STATUS = "background_worker_status"
     QUEUE_UPDATE = "queue_update"
     SYSTEM_ALERT = "system_alert"

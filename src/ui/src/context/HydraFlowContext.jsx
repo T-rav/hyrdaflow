@@ -14,7 +14,6 @@ const emptyPipeline = {
 export const initialState = {
   connected: false,
   lastSeenId: -1,  // Monotonic event ID for deduplication on reconnect
-  batchNum: 0,
   phase: 'idle',
   orchestratorStatus: 'idle',
   workers: {},
@@ -69,9 +68,6 @@ export function reducer(state, action) {
       return { ...state, connected: true }
     case 'DISCONNECTED':
       return { ...state, connected: false }
-
-    case 'batch_start':
-      return { ...state, batchNum: action.data.batch }
 
     case 'phase_change': {
       const newPhase = action.data.phase
@@ -314,12 +310,6 @@ export function reducer(state, action) {
       delete next[action.data.issueNumber]
       return { ...state, humanInputRequests: next }
     }
-
-    case 'batch_complete':
-      return {
-        ...addEvent(state, action),
-        mergedCount: action.data.merged || state.mergedCount,
-      }
 
     case 'hitl_escalation': {
       // Automated escalation: worker is keyed by `review-<pr>`
@@ -922,7 +912,7 @@ export function HydraFlowProvider({ children }) {
           }
         }
 
-        if (event.type === 'batch_complete' || event.type === 'metrics_update') {
+        if (event.type === 'metrics_update') {
           fetchLifetimeStats()
           fetch('/api/metrics').then(r => r.json()).then(data => dispatch({ type: 'METRICS', data })).catch(() => {})
           fetchGithubMetrics()

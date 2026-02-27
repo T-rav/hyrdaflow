@@ -184,7 +184,7 @@ class TestEventBusPublishSafeDuringUnsubscribe:
 
         # Unsubscribe q1 while iterating (simulated by removing it before
         # publish completes — the snapshot ensures this is safe)
-        event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
 
         # Patch put_nowait on q1 to unsubscribe itself mid-iteration
         original_put = q1.put_nowait
@@ -220,7 +220,7 @@ class TestEventBusPublishSafeDuringUnsubscribe:
 
         q1.put_nowait = subscribe_on_put  # type: ignore[assignment]
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
         await bus.publish(event)
 
         # The new subscriber was added after the snapshot, so it should not
