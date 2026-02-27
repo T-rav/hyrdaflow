@@ -2157,9 +2157,7 @@ class TestRequestChangesEndpoint:
             {"issue_number": 42, "feedback": "Fix the tests", "stage": "review"}
         )
 
-        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(
-            42, config.hitl_label[0]
-        )
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(42, config.hitl_label[0])
 
     @pytest.mark.asyncio
     async def test_request_changes_emits_escalation_event(

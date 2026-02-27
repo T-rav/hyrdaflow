@@ -334,7 +334,9 @@ class TestSwapPipelineLabelsAsync:
         await mgr.swap_pipeline_labels(42, new_label)
 
         # Every pipeline label except new_label must have a remove call
-        expected_removed = set(ALL_PIPELINE_LABELS) - {new_label}
+        hitl_pair = {"hydraflow-hitl", "hydraflow-hitl-active"}
+        expected_target = hitl_pair if new_label in hitl_pair else {new_label}
+        expected_removed = set(ALL_PIPELINE_LABELS) - expected_target
         assert set(removed) == expected_removed, (
             f"Expected to remove {expected_removed}, actually removed {set(removed)}"
         )

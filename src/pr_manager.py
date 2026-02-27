@@ -622,7 +622,7 @@ class PRManager:
         label set (``hitl_label`` + ``hitl_active_label``) so operations can
         reliably find items regardless of whether they are pending or active.
         """
-        hitl_labels = list(
+        hitl_labels: list[str] = list(
             dict.fromkeys(
                 [
                     *(self._config.hitl_label or []),
