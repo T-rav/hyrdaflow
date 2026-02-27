@@ -577,28 +577,46 @@ PR URL: {pr_url}
         return False
 
     async def _isolate_hanging_tests(self, wt_path: Path) -> str:
-        """Run pytest with a short subprocess timeout to identify hanging tests.
+        """Run the project's test command with a short subprocess timeout.
 
-        Returns a string describing which test was running when the timeout hit,
+        Uses the configured ``test_command`` so it works for any language.
+        Sets ``PYTHONPATH`` for Python projects (harmless for others).
+
+        Returns a string describing test output before the timeout hit,
         or an error message if isolation itself failed.
         """
+        import os
+        import shlex
+
+        src_dir = str(wt_path / "src")
+        existing = os.environ.get("PYTHONPATH", "")
+        env = {
+            **os.environ,
+            "PYTHONPATH": f"{src_dir}{os.pathsep}{existing}" if existing else src_dir,
+        }
+
+        test_cmd = self._config.test_command
+        cmd = shlex.split(test_cmd) if test_cmd else ["make", "test"]
+
         try:
             result = await self._agents._runner.run_simple(
-                ["python", "-m", "pytest", "-x", "--tb=line", "-q"],
+                cmd,
                 cwd=str(wt_path),
                 timeout=120.0,
+                env=env,
             )
-            # If pytest completed within the timeout, it didn't hang — return output
             return (
-                f"pytest completed (rc={result.returncode}):\n{result.stdout[-2000:]}"
+                f"Test command `{test_cmd}` completed (rc={result.returncode}):\n"
+                f"{result.stdout[-2000:]}"
             )
         except TimeoutError:
             return (
-                "pytest timed out after 120s — a test is hanging. "
-                "The last test being collected/run was likely the culprit."
+                f"Test command `{test_cmd}` timed out after 120s — "
+                "tests are hanging. Check the test output for the last test "
+                "that started running before the timeout."
             )
         except Exception as exc:
-            return f"Test isolation failed: {exc}"
+            return f"Test isolation failed ({test_cmd}): {exc}"
 
     def _build_ci_timeout_fix_prompt(
         self,
@@ -630,20 +648,33 @@ PR URL: {pr_url}
 
 ## Common Causes of Hanging Tests
 
-1. **Truthy AsyncMock**: `AsyncMock()` without `return_value` returns a truthy MagicMock, \
-causing `while await work_fn()` loops to spin forever. Fix: set `return_value=0` or a falsy value.
-2. **Missing event.set()**: Tests that wait on `asyncio.Event` objects that never get set.
-3. **Infinite loops**: Code that loops without a break condition being met.
-4. **Deadlocks**: Multiple async tasks waiting on each other.
-5. **Unresolved futures**: `await` on futures/tasks that never complete.
+**General (any language):**
+- **Infinite polling loops**: Test mocks return a truthy "work available" value on every call, \
+so a loop that skips sleep when work is done never yields. Fix: ensure mocks return "no work" \
+(falsy/empty) by default.
+- **Unresolved async waits**: Tests await on events, futures, promises, or channels that \
+never complete. Fix: ensure the mock or test setup triggers the completion signal.
+- **Deadlocks**: Multiple concurrent tasks/threads waiting on each other's locks or results.
+- **Missing teardown**: Servers, listeners, or background threads started in tests that \
+never get shut down, preventing the test process from exiting.
+
+**Python-specific:**
+- **Truthy AsyncMock**: `AsyncMock()` without `return_value` returns a truthy MagicMock, \
+causing `while await work_fn()` or `did_work = bool(await fn())` loops to spin forever. \
+Fix: set `return_value` to a falsy value matching the function's return type — \
+`return_value=0` for int, `return_value=[]` for list, `return_value=False` for bool.
+- **Missing event.set()**: Tests that wait on `asyncio.Event` objects that never get set.
 
 ## Instructions
 
-1. Identify which test is hanging from the isolation output above.
+1. Identify which test is hanging from the test output above (the last test that started running).
 2. Read the hanging test and the code it exercises.
-3. Fix the **root cause** — do NOT mask the problem with timeouts or pytest-timeout markers.
-4. Run `make quality` to verify all tests pass and no new issues are introduced.
-5. Commit fixes with a descriptive message.
+3. Fix the **root cause** — do NOT mask the problem with timeouts or skip markers.
+4. **Search the same file for other occurrences of the same pattern** (e.g., other mocks \
+with the same issue). Fix ALL instances, not just the one that hangs — unfixed siblings \
+will hang on the next CI run.
+5. Run `make quality` to verify all tests pass and no new issues are introduced.
+6. Commit fixes with a descriptive message.
 
 ## Rules
 

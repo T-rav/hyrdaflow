@@ -1077,6 +1077,10 @@ class TestCITimeoutResolution:
         assert "120s" in prompt
         assert "timed out" in prompt
         assert "make quality" in prompt.lower()
+        # Language-agnostic guidance
+        assert "polling loop" in prompt.lower()
+        # "Fix ALL instances" guidance
+        assert "all instances" in prompt.lower()
 
     @pytest.mark.asyncio
     async def test_ci_timeout_isolation_failure_still_runs_agent(
