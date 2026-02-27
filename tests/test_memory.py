@@ -852,7 +852,44 @@ class TestMemorySyncWorkerSync:
         prs.create_issue.assert_awaited_once()
         args = prs.create_issue.call_args[0]
         assert args[0].startswith("[ADR] Draft decision from memory #5:")
+        assert "## Decision" in args[1]
+        assert "<Chosen architecture/workflow shift>" not in args[1]
         assert args[2] == [config.find_label[0]]
+
+    @pytest.mark.asyncio
+    async def test_sync_rejects_invalid_adr_candidate_and_deduplicates(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=101)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker._build_adr_task = MagicMock(  # type: ignore[method-assign]
+            return_value=(
+                "[ADR] Draft decision from memory #5: bad",
+                "## ADR Draft Task\n\n## Context\nShort.\n\n## Decision\nNope.\n",
+            )
+        )
+        issue = {
+            "number": 5,
+            "title": "[Memory] Architecture update",
+            "body": (
+                "## Memory Suggestion\n\n"
+                "**Learning:** Architecture decision changed worker topology.\n"
+            ),
+            "createdAt": "",
+            "labels": ["hydraflow-memory"],
+        }
+
+        await worker.sync([issue])
+        await worker.sync([issue])
+
+        prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sync_adr_routing_deduplicates_by_source_issue(

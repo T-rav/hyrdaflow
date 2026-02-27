@@ -44,6 +44,11 @@ _ADR_ARCH_KEYWORDS: tuple[str, ...] = (
     "workflow shift",
     "pipeline shift",
 )
+_ADR_REQUIRED_HEADINGS: tuple[str, ...] = (
+    "## Context",
+    "## Decision",
+    "## Consequences",
+)
 
 
 def _parse_memory_type(raw: str) -> MemoryType:
@@ -365,6 +370,7 @@ class MemorySyncWorker:
 
         seen = self._load_adr_source_ids()
         created = 0
+        rejected = 0
         for issue in issues:
             if not self._is_memory_issue(issue):
                 continue
@@ -376,7 +382,27 @@ class MemorySyncWorker:
             learning = self._extract_learning(body)
             if not self._is_architecture_candidate(title, learning, body):
                 continue
-            adr_title, adr_body = self._build_adr_task(issue, learning)
+
+            adr_title = ""
+            adr_body = ""
+            reasons: list[str] = ["uninitialized"]
+            for attempt in (1, 2):
+                adr_title, adr_body = self._build_adr_task(
+                    issue, learning, refine=(attempt > 1)
+                )
+                reasons = self._validate_adr_task(adr_body)
+                if not reasons:
+                    break
+            if reasons:
+                rejected += 1
+                seen.add(source_id)
+                logger.warning(
+                    "Rejected ADR candidate from memory #%d after validation: %s",
+                    source_id,
+                    "; ".join(reasons),
+                )
+                continue
+
             issue_num = await self._prs.create_issue(
                 adr_title,
                 adr_body,
@@ -389,8 +415,9 @@ class MemorySyncWorker:
         if created:
             self._save_adr_source_ids(seen)
         logger.info(
-            "ADR routing summary: created=%d tracked_sources=%d",
+            "ADR routing summary: created=%d rejected=%d tracked_sources=%d",
             created,
+            rejected,
             len(seen),
         )
 
@@ -408,13 +435,23 @@ class MemorySyncWorker:
         return any(keyword in haystack for keyword in _ADR_ARCH_KEYWORDS)
 
     def _build_adr_task(
-        self, source_issue: MemoryIssueData, learning: str
+        self, source_issue: MemoryIssueData, learning: str, *, refine: bool = False
     ) -> tuple[str, str]:
         raw_title = str(source_issue.get("title", "")).strip()
         cleaned = re.sub(r"^\[Memory\]\s*", "", raw_title, flags=re.IGNORECASE).strip()
         adr_title = (
             f"[ADR] Draft decision from memory #{source_issue['number']}: {cleaned}"
         )
+        decision = (
+            "Adopt the architectural shift captured in this memory by recording a "
+            "concrete ADR under `docs/adr/`, including boundaries, tradeoffs, and "
+            "operational impact on HydraFlow workers."
+        )
+        if refine:
+            decision += (
+                " Tie this explicitly to the current implementation and call out "
+                "what changes now versus what remains unchanged."
+            )
         body = (
             "## ADR Draft Task\n\n"
             "Create or update an ADR under `docs/adr/` that captures this architectural shift.\n\n"
@@ -426,21 +463,48 @@ class MemorySyncWorker:
             f"- Issue: #{source_issue['number']}\n"
             f"- Title: {raw_title}\n"
             f"- Learning: {learning}\n\n"
-            "### Draft Template\n"
-            "```\n"
-            "# ADR-XXXX: <Title>\n\n"
+            "## Context\n"
+            f"This ADR was seeded from memory issue #{source_issue['number']} and "
+            "captures an architecture/workflow change that should be recorded as a "
+            "durable decision.\n\n"
+            "## Decision\n"
+            f"{decision}\n\n"
+            "## Consequences\n"
+            "- Creates a durable architecture record linked to the source memory.\n"
+            "- Makes tradeoffs explicit for future implementation/review cycles.\n"
+            "- May require follow-up tasks if gaps are identified during ADR write-up.\n\n"
+            "### ADR Metadata Template\n"
+            "```md\n"
             "- Status: Proposed\n"
             "- Date: <YYYY-MM-DD>\n\n"
-            "## Context\n"
-            "<What changed and why now>\n\n"
-            "## Decision\n"
-            "<Chosen architecture/workflow shift>\n\n"
-            "## Consequences\n"
-            "<Tradeoffs and follow-ups>\n"
             "```\n\n"
             "After implementation and validation, continue normal pipeline flow to review."
         )
         return adr_title, body
+
+    @staticmethod
+    def _extract_markdown_section(body: str, heading: str) -> str:
+        pattern = (
+            r"(?ims)^##\s+" + re.escape(heading) + r"\s*\n(?P<section>.*?)(?=^##\s+|\Z)"
+        )
+        match = re.search(pattern, body)
+        return match.group("section").strip() if match else ""
+
+    def _validate_adr_task(self, body: str) -> list[str]:
+        reasons: list[str] = []
+        text = body.strip()
+        if len(text) < 120:
+            reasons.append("ADR body is too short (minimum 120 characters)")
+        lower = text.lower()
+        missing = [h for h in _ADR_REQUIRED_HEADINGS if h.lower() not in lower]
+        if missing:
+            reasons.append("Missing required ADR sections: " + ", ".join(missing))
+        decision = self._extract_markdown_section(text, "decision")
+        if len(decision.strip()) < 60:
+            reasons.append(
+                "Decision section lacks actionable detail (minimum 60 chars)"
+            )
+        return reasons
 
     def _adr_sources_path(self) -> Path:
         return self._config.data_path("memory", "adr_sources.json")
