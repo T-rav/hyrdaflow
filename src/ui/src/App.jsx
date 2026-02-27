@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { HydraFlowProvider, useHydraFlow } from './context/HydraFlowContext'
 import { Header } from './components/Header'
 import { TranscriptView } from './components/TranscriptView'
@@ -32,10 +32,12 @@ function SystemAlertBanner({ alert }) {
   )
 }
 
-function SessionFilterBanner({ session, onClear }) {
+function SessionFilterBanner({ session, onClear, liveStats }) {
   if (!session) return null
   const startDate = new Date(session.started_at).toLocaleString()
-  const issueCount = session.issues_processed?.length ?? 0
+  const succeeded = liveStats?.issues_succeeded ?? session.issues_succeeded ?? 0
+  const failed = liveStats?.issues_failed ?? session.issues_failed ?? 0
+  const issueCount = liveStats?.issues_processed_count ?? (session.issues_processed?.length ?? 0)
   return (
     <div style={styles.sessionBanner}>
       <span style={session.status === 'active' ? styles.sessionDotActive : styles.sessionDotCompleted} />
@@ -44,8 +46,8 @@ function SessionFilterBanner({ session, onClear }) {
       </span>
       <span style={styles.sessionBannerMeta}>
         {issueCount} {issueCount === 1 ? 'issue' : 'issues'}
-        {session.issues_succeeded > 0 && ` · ${session.issues_succeeded} passed`}
-        {session.issues_failed > 0 && ` · ${session.issues_failed} failed`}
+        {succeeded > 0 && ` · ${succeeded} passed`}
+        {failed > 0 && ` · ${failed} failed`}
       </span>
       <span onClick={onClear} style={styles.sessionBannerClear}>Clear filter</span>
     </div>
@@ -58,6 +60,8 @@ function AppContent() {
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
     backgroundWorkers, systemAlert, intents, toggleBgWorker, updateBgWorkerInterval,
     selectedSession, selectSession,
+    currentSessionId,
+    stageStatus,
     requestChanges, resetSession,
   } = useHydraFlow()
   const [selectedWorker, setSelectedWorker] = useState(null)
@@ -110,7 +114,11 @@ function AppContent() {
       <SessionSidebar />
 
       <div style={styles.main}>
-        <SessionFilterBanner session={selectedSession} onClear={() => selectSession(null)} />
+        <SessionFilterBanner
+          session={selectedSession}
+          onClear={() => selectSession(null)}
+          liveStats={selectedSessionLiveStats}
+        />
         <SystemAlertBanner alert={systemAlert} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
 
@@ -297,3 +305,14 @@ const styles = {
 export const tabInactiveStyle = styles.tab
 export const tabActiveStyle = { ...styles.tab, ...styles.tabActive }
 export const hitlBadgeStyle = styles.hitlBadge
+  const selectedSessionLiveStats = useMemo(() => {
+    if (!selectedSession || selectedSession.status !== 'active') return null
+    if (selectedSession.id !== currentSessionId) return null
+    const done = stageStatus?.workload?.done ?? 0
+    const failed = stageStatus?.workload?.failed ?? 0
+    return {
+      issues_processed_count: done + failed,
+      issues_succeeded: done,
+      issues_failed: failed,
+    }
+  }, [selectedSession, currentSessionId, stageStatus])

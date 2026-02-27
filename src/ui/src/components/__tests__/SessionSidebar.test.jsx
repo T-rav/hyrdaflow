@@ -14,6 +14,7 @@ function defaultContext(overrides = {}) {
     sessions: [],
     currentSessionId: null,
     selectedSessionId: null,
+    stageStatus: { workload: { total: 0, active: 0, done: 0, failed: 0 } },
     selectSession: vi.fn(),
     deleteSession: vi.fn(),
     addRepoShortcut: vi.fn(),
@@ -289,6 +290,21 @@ describe('SessionSidebar active session state', () => {
     // Active session has status 'active' — no issue pill since issues_processed is empty
     // The repo header should be visible
     expect(screen.getByText('org/repo')).toBeDefined()
+  })
+
+  it('shows live success/fail counts for current active session', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        sessions: [SESSION_B],
+        currentSessionId: SESSION_B.id,
+        stageStatus: { workload: { total: 9, active: 2, done: 4, failed: 1 } },
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByText('4✓')).toBeDefined()
+    expect(screen.getByText('1✗')).toBeDefined()
+    // issue pill uses done+failed for live active session
+    expect(screen.getByText('5')).toBeDefined()
   })
 })
 
