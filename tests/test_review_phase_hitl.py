@@ -863,3 +863,25 @@ class TestEscalateToHitl:
         )
 
         phase._store.enqueue_transition.assert_called_once_with(issue, "hitl")
+
+    @pytest.mark.asyncio
+    async def test_enqueue_transition_not_called_when_no_task(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Omitting task (default None) should not call enqueue_transition."""
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="Test",
+            origin_label="hydraflow-review",
+            comment="Escalation!",
+        )
+
+        phase._store.enqueue_transition.assert_not_called()
