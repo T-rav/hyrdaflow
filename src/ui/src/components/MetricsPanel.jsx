@@ -78,34 +78,6 @@ function TimeToMerge({ data }) {
   )
 }
 
-function SnapshotTimeline({ snapshots }) {
-  if (!snapshots || snapshots.length === 0) return null
-  // Show last 10
-  const recent = snapshots.slice(-10)
-
-  return (
-    <div style={styles.timelineSection}>
-      <h3 style={styles.heading}>Snapshot History</h3>
-      <div style={styles.timelineStrip}>
-        {recent.map((s, i) => {
-          const ts = new Date(s.timestamp)
-          const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          const dateStr = ts.toLocaleDateString([], { month: 'short', day: 'numeric' })
-          return (
-            <div key={i} style={styles.timelineItem} title={s.timestamp}>
-              <div style={styles.timelineDot} />
-              <div style={styles.timelineDate}>{dateStr}</div>
-              <div style={styles.timelineTime}>{timeStr}</div>
-              <div style={styles.timelineStat}>{s.issues_completed} done</div>
-              <div style={styles.timelineStat}>{s.prs_merged} merged</div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function formatTokens(n) {
   const value = Number.isFinite(n) ? n : 0
   return value.toLocaleString()
@@ -266,8 +238,6 @@ export function MetricsPanel() {
         />
       </div>
 
-      <SnapshotTimeline snapshots={snapshots} />
-
       <h3 style={styles.heading}>Harness Insights</h3>
       <HarnessInsightsPanel />
 
@@ -354,45 +324,6 @@ const styles = {
     fontSize: 11,
     color: theme.textMuted,
     marginBottom: 4,
-  },
-  timelineSection: {
-    marginTop: 8,
-  },
-  timelineStrip: {
-    display: 'flex',
-    gap: 12,
-    overflowX: 'auto',
-    paddingBottom: 8,
-  },
-  timelineItem: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 4,
-    minWidth: 80,
-    padding: '8px 12px',
-    background: theme.surfaceInset,
-    borderRadius: 8,
-    border: `1px solid ${theme.border}`,
-  },
-  timelineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.accent,
-  },
-  timelineDate: {
-    fontSize: 10,
-    fontWeight: 600,
-    color: theme.textMuted,
-  },
-  timelineTime: {
-    fontSize: 10,
-    color: theme.textInactive,
-  },
-  timelineStat: {
-    fontSize: 10,
-    color: theme.textMuted,
   },
   thresholdSection: {
     display: 'flex',

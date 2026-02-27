@@ -1,3 +1,4 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
@@ -152,6 +153,30 @@ describe('MetricsPanel', () => {
     expect(screen.getByText('Rates')).toBeInTheDocument()
     expect(screen.getByText('Merge Rate')).toBeInTheDocument()
     expect(screen.getByText('First-Pass Approval')).toBeInTheDocument()
+  })
+
+  it('does not render Snapshot History even when snapshots exist', () => {
+    mockUseHydraFlow.mockReturnValue(defaultContext({
+      metricsHistory: {
+        current: {
+          merge_rate: 0.5,
+          first_pass_approval_rate: 0.5,
+          quality_fix_rate: 0.2,
+          hitl_escalation_rate: 0.1,
+          issues_completed: 5,
+          prs_merged: 4,
+        },
+        snapshots: [
+          {
+            timestamp: '2024-01-01T00:00:00Z',
+            issues_completed: 4,
+            prs_merged: 3,
+          },
+        ],
+      },
+    }))
+    render(<MetricsPanel />)
+    expect(screen.queryByText('Snapshot History')).not.toBeInTheDocument()
   })
 
   it('renders inference lifetime and session totals when provided', () => {
