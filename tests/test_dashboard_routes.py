@@ -1294,6 +1294,8 @@ class TestHITLEndpointCause:
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",
             memory_auto_approve=True,
+            transcript_summarization_enabled=False,
+            gh_token="",
         )
         st = StateTracker(cfg.state_file)
         pr_mgr = PRManager(cfg, event_bus)
