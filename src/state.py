@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from file_util import atomic_write
 from models import (
     HITLSummaryCacheEntry,
+    HITLSummaryFailureEntry,
     LifetimeStats,
     SessionLog,
     SessionStatus,
@@ -143,6 +144,7 @@ class StateTracker:
             summary=summary,
             updated_at=datetime.now(UTC).isoformat(),
         )
+        self._data.hitl_summary_failures.pop(str(issue_number), None)
         self.save()
 
     def get_hitl_summary(self, issue_number: int) -> str | None:
@@ -164,6 +166,27 @@ class StateTracker:
     def remove_hitl_summary(self, issue_number: int) -> None:
         """Delete cached summary for *issue_number*."""
         self._data.hitl_summaries.pop(str(issue_number), None)
+        self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self.save()
+
+    def set_hitl_summary_failure(self, issue_number: int, error: str) -> None:
+        """Persist failure metadata for summary generation attempts."""
+        self._data.hitl_summary_failures[str(issue_number)] = HITLSummaryFailureEntry(
+            last_failed_at=datetime.now(UTC).isoformat(),
+            error=error[:300],
+        )
+        self.save()
+
+    def get_hitl_summary_failure(self, issue_number: int) -> tuple[str | None, str]:
+        """Return ``(last_failed_at, error)`` for summary generation failures."""
+        entry = self._data.hitl_summary_failures.get(str(issue_number))
+        if not entry:
+            return None, ""
+        return getattr(entry, "last_failed_at", None), getattr(entry, "error", "")
+
+    def clear_hitl_summary_failure(self, issue_number: int) -> None:
+        """Clear summary-generation failure metadata for *issue_number*."""
+        self._data.hitl_summary_failures.pop(str(issue_number), None)
         self.save()
 
     # --- review attempt tracking ---

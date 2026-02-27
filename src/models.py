@@ -592,6 +592,13 @@ class HITLSummaryCacheEntry(BaseModel):
     updated_at: str | None = None
 
 
+class HITLSummaryFailureEntry(BaseModel):
+    """Cached failure metadata for HITL summary generation."""
+
+    last_failed_at: str | None = None
+    error: str = ""
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
@@ -602,6 +609,9 @@ class StateData(BaseModel):
     hitl_origins: dict[str, str] = Field(default_factory=dict)
     hitl_causes: dict[str, str] = Field(default_factory=dict)
     hitl_summaries: dict[str, HITLSummaryCacheEntry] = Field(default_factory=dict)
+    hitl_summary_failures: dict[str, HITLSummaryFailureEntry] = Field(
+        default_factory=dict
+    )
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)

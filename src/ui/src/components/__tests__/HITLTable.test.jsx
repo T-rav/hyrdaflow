@@ -109,6 +109,38 @@ describe('HITLTable component', () => {
     expect(screen.getByTestId('hitl-summary-toggle-42')).toHaveTextContent('Show less')
   })
 
+  it('fetches summary on expand when not preloaded', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ summary: 'Blocking CI check.\nNeed branch rebase.' }),
+    })
+    global.fetch = fetchMock
+    const items = [{ ...mockItems[1], llmSummary: '' }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+
+    fireEvent.click(screen.getByTestId('hitl-row-10'))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/hitl/10/summary')
+      expect(screen.getByTestId('hitl-summary-10').textContent).toContain(
+        'Blocking CI check.'
+      )
+    })
+  })
+
+  it('shows fallback message when summary fetch fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 })
+    global.fetch = fetchMock
+    const items = [{ ...mockItems[1], llmSummary: '' }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+
+    fireEvent.click(screen.getByTestId('hitl-row-10'))
+    await waitFor(() => {
+      expect(screen.getByTestId('hitl-summary-10').textContent).toContain(
+        'Could not generate context summary yet.'
+      )
+    })
+  })
+
   it('collapses row on second click', () => {
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
     fireEvent.click(screen.getByTestId('hitl-row-42'))

@@ -210,6 +210,7 @@ def create_router(
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers."""
     router = APIRouter()
+    hitl_summary_cooldown_seconds = 300
 
     class RepoAddRequest(BaseModel):
         slug: str | None = None
@@ -221,6 +222,7 @@ def create_router(
     issue_fetcher = IssueFetcher(config)
     hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
     hitl_summary_inflight: set[int] = set()
+    hitl_summary_slots = asyncio.Semaphore(3)
 
     def _serve_spa_index() -> HTMLResponse:
         """Serve the SPA index.html, falling back to template or placeholder."""
@@ -340,6 +342,14 @@ def create_router(
         lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
         return "\n".join(lines[:8]).strip()
 
+    def _hitl_summary_retry_due(issue_number: int) -> bool:
+        failed_at, _ = state.get_hitl_summary_failure(issue_number)
+        failed_dt = _parse_iso_or_none(failed_at)
+        if failed_dt is None:
+            return True
+        age = (datetime.now(UTC) - failed_dt).total_seconds()
+        return age >= hitl_summary_cooldown_seconds
+
     async def _compute_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> str | None:
@@ -351,15 +361,21 @@ def create_router(
             return None
         issue = await issue_fetcher.fetch_issue_by_number(issue_number)
         if issue is None:
+            state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
             return None
         context = _build_hitl_context(issue, cause=cause, origin=origin)
         generated = await hitl_summarizer.summarize_hitl_context(context)
         if not generated:
+            state.set_hitl_summary_failure(issue_number, "Summary model returned empty")
             return None
         summary = _normalise_summary_lines(generated)
         if not summary:
+            state.set_hitl_summary_failure(
+                issue_number, "Summary normalization produced empty output"
+            )
             return None
         state.set_hitl_summary(issue_number, summary)
+        state.clear_hitl_summary_failure(issue_number)
         return summary
 
     async def _warm_hitl_summary(
@@ -369,8 +385,12 @@ def create_router(
             return
         hitl_summary_inflight.add(issue_number)
         try:
-            await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
+            async with hitl_summary_slots:
+                await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
         except Exception:
+            state.set_hitl_summary_failure(
+                issue_number, "Unexpected summary warm error"
+            )
             logger.exception(
                 "Failed to warm HITL summary for issue #%d",
                 issue_number,
@@ -532,6 +552,7 @@ def create_router(
                 and config.transcript_summarization_enabled
                 and not config.dry_run
                 and bool(config.gh_token)
+                and _hitl_summary_retry_due(item.issue)
             ):
                 asyncio.create_task(
                     _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
