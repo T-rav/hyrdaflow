@@ -266,11 +266,18 @@ class PostMergeHandler:
                     exc_info=True,
                 )
             if self._update_bg_worker_status:
-                self._update_bg_worker_status(
-                    "retrospective",
-                    retro_status,
-                    {"issue_number": pr.issue_number, "pr_number": pr.number},
-                )
+                try:
+                    self._update_bg_worker_status(
+                        "retrospective",
+                        retro_status,
+                        {"issue_number": pr.issue_number, "pr_number": pr.number},
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "retrospective status callback failed for issue #%d",
+                        pr.issue_number,
+                        exc_info=True,
+                    )
 
         verdict: JudgeVerdict | None = None
         if self._verification_judge:

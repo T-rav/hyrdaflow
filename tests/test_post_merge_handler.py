@@ -252,6 +252,73 @@ class TestPostMergeHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_updates_retrospective_bg_status_error_when_retro_fails(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Retrospective failure should still publish error worker status."""
+        mock_retro = AsyncMock()
+        mock_retro.record.side_effect = RuntimeError("retro boom")
+        status_cb = MagicMock()
+        handler = _make_handler(
+            config,
+            retrospective=mock_retro,
+            update_bg_worker_status=status_cb,
+        )
+        pr = PRInfoFactory.create(number=55, issue_number=66)
+        issue = TaskFactory.create(id=66)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        status_cb.assert_called_with(
+            "retrospective",
+            "error",
+            {"issue_number": 66, "pr_number": 55},
+        )
+
+    @pytest.mark.asyncio
+    async def test_retrospective_status_callback_failure_is_swallowed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Status callback errors must not break post-merge hooks."""
+        mock_retro = AsyncMock()
+        status_cb = MagicMock(side_effect=RuntimeError("status boom"))
+        handler = _make_handler(
+            config,
+            retrospective=mock_retro,
+            update_bg_worker_status=status_cb,
+        )
+        pr = PRInfoFactory.create(number=55, issue_number=66)
+        issue = TaskFactory.create(id=66)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        assert result.merged is True
+
+    @pytest.mark.asyncio
     async def test_verification_issue_created_when_judge_returns_verdict(
         self, config: HydraFlowConfig
     ) -> None:

@@ -1644,3 +1644,23 @@ class TestRecordReviewInsight:
                 "error": "review insight recording failed",
             },
         )
+
+    @pytest.mark.asyncio
+    async def test_status_callback_error_is_swallowed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Status callback failures must not break review insight recording."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(issue_number=42, pr_number=101)
+        status_cb = MagicMock(side_effect=RuntimeError("status boom"))
+        phase._update_bg_worker_status = status_cb
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = []
+        mock_insights.get_proposed_categories.return_value = set()
+        phase._insights = mock_insights
+
+        with patch("review_phase.analyze_patterns", return_value=[]):
+            await phase._record_review_insight(result)
+
+        mock_insights.append_review.assert_called_once()

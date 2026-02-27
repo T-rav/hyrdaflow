@@ -663,7 +663,14 @@ class ReviewPhase:
             )
         finally:
             if self._update_bg_worker_status:
-                self._update_bg_worker_status("review_insights", status, details)
+                try:
+                    self._update_bg_worker_status("review_insights", status, details)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "review_insights status callback failed for PR #%d",
+                        result.pr_number,
+                        exc_info=True,
+                    )
 
     async def _publish_review_status(
         self, pr: PRInfo, worker_id: int, status: str
