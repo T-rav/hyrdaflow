@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from file_util import atomic_write
 from models import (
+    HITLSummaryCacheEntry,
     LifetimeStats,
     SessionLog,
     SessionStatus,
@@ -132,6 +133,37 @@ class StateTracker:
     def remove_hitl_cause(self, issue_number: int) -> None:
         """Clear the escalation reason for *issue_number*."""
         self._data.hitl_causes.pop(str(issue_number), None)
+        self.save()
+
+    # --- HITL summary cache ---
+
+    def set_hitl_summary(self, issue_number: int, summary: str) -> None:
+        """Persist cached LLM summary text for *issue_number*."""
+        self._data.hitl_summaries[str(issue_number)] = HITLSummaryCacheEntry(
+            summary=summary,
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+        self.save()
+
+    def get_hitl_summary(self, issue_number: int) -> str | None:
+        """Return cached summary for *issue_number*, or ``None`` if absent."""
+        entry = self._data.hitl_summaries.get(str(issue_number))
+        if not entry:
+            return None
+        summary = str(getattr(entry, "summary", "")).strip()
+        return summary or None
+
+    def get_hitl_summary_updated_at(self, issue_number: int) -> str | None:
+        """Return cached summary update timestamp for *issue_number*."""
+        entry = self._data.hitl_summaries.get(str(issue_number))
+        if not entry:
+            return None
+        updated = getattr(entry, "updated_at", None)
+        return updated if isinstance(updated, str) and updated else None
+
+    def remove_hitl_summary(self, issue_number: int) -> None:
+        """Delete cached summary for *issue_number*."""
+        self._data.hitl_summaries.pop(str(issue_number), None)
         self.save()
 
     # --- review attempt tracking ---

@@ -585,6 +585,13 @@ class LifetimeStats(BaseModel):
     fired_thresholds: list[str] = Field(default_factory=list)
 
 
+class HITLSummaryCacheEntry(BaseModel):
+    """Cached LLM summary for a HITL issue."""
+
+    summary: str = ""
+    updated_at: str | None = None
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
@@ -594,6 +601,7 @@ class StateData(BaseModel):
     reviewed_prs: dict[str, str] = Field(default_factory=dict)
     hitl_origins: dict[str, str] = Field(default_factory=dict)
     hitl_causes: dict[str, str] = Field(default_factory=dict)
+    hitl_summaries: dict[str, HITLSummaryCacheEntry] = Field(default_factory=dict)
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
@@ -685,6 +693,8 @@ class HITLItem(BaseModel):
     cause: str = ""  # escalation reason (populated by #113)
     status: str = "pending"  # pending | processing | resolved
     isMemorySuggestion: bool = False  # camelCase to match frontend contract
+    llmSummary: str = ""  # cached, operator-focused context summary
+    llmSummaryUpdatedAt: str | None = None
 
 
 class ControlStatusConfig(BaseModel):

@@ -11,7 +11,7 @@
  *
  * @typedef {{ pr: number, verdict: string, summary: string, duration?: number }} ReviewData
  *
- * @typedef {{ issue: number, title: string, issueUrl: string, pr: number, prUrl: string, branch: string, cause: string, status: 'pending'|'processing'|'resolved'|'approval'|string, isMemorySuggestion: boolean }} HITLItem
+ * @typedef {{ issue: number, title: string, issueUrl: string, pr: number, prUrl: string, branch: string, cause: string, status: 'pending'|'processing'|'resolved'|'approval'|string, isMemorySuggestion: boolean, llmSummary?: string, llmSummaryUpdatedAt?: string|null }} HITLItem
  *
  * @typedef {Record<string, string>} HumanInputRequests
  *

@@ -793,6 +793,56 @@ class TestHITLEndpointCause:
         }
 
     @pytest.mark.asyncio
+    async def test_hitl_endpoint_includes_cached_llm_summary(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Cached HITL summary should be included in /api/hitl payload."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        state.set_hitl_summary(42, "Line one\nLine two\nLine three")
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = None
+        get_hitl_summary = None
+        for route in router.routes:
+            if hasattr(route, "path") and hasattr(route, "endpoint"):
+                if route.path == "/api/hitl":
+                    get_hitl = route.endpoint  # type: ignore[union-attr]
+                if route.path == "/api/hitl/{issue_number}/summary":
+                    get_hitl_summary = route.endpoint  # type: ignore[union-attr]
+
+        assert get_hitl is not None
+        assert get_hitl_summary is not None
+
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert items[0]["llmSummary"].startswith("Line one")
+        assert items[0]["llmSummaryUpdatedAt"] is not None
+
+        summary_response = await get_hitl_summary(42)
+        summary_payload = json.loads(summary_response.body)
+        assert summary_payload["cached"] is True
+        assert summary_payload["summary"].startswith("Line one")
+
+    @pytest.mark.asyncio
     async def test_hitl_endpoint_includes_items_from_hitl_active_label(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:

@@ -46,6 +46,7 @@ from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from state import StateTracker
 from timeline import TimelineBuilder
+from transcript_summarizer import TranscriptSummarizer
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
@@ -217,6 +218,9 @@ def create_router(
         supervisor_client = importlib.import_module("hf_cli.supervisor_client")
     except ImportError:  # pragma: no cover - env missing CLI
         supervisor_client = None  # type: ignore[assignment]
+    issue_fetcher = IssueFetcher(config)
+    hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
+    hitl_summary_inflight: set[int] = set()
 
     def _serve_spa_index() -> HTMLResponse:
         """Serve the SPA index.html, falling back to template or placeholder."""
@@ -317,6 +321,62 @@ def create_router(
                 row["linked_issues"].add(int(link.target_id))
 
         await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
+
+    def _build_hitl_context(issue: Any, *, cause: str, origin: str | None) -> str:
+        body = str(getattr(issue, "body", "") or "").strip()
+        comments = list(getattr(issue, "comments", []) or [])
+        recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
+        comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
+        origin_text = origin or "unknown"
+        return (
+            f"Issue #{issue.number}: {issue.title}\n"
+            f"Escalation cause: {cause or 'not recorded'}\n"
+            f"Escalation origin: {origin_text}\n\n"
+            f"Issue body:\n{body[:6000]}\n\n"
+            f"Recent comments:\n{comments_block[:3000]}"
+        )
+
+    def _normalise_summary_lines(raw: str) -> str:
+        lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
+        return "\n".join(lines[:8]).strip()
+
+    async def _compute_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> str | None:
+        if (
+            not config.transcript_summarization_enabled
+            or config.dry_run
+            or not config.gh_token
+        ):
+            return None
+        issue = await issue_fetcher.fetch_issue_by_number(issue_number)
+        if issue is None:
+            return None
+        context = _build_hitl_context(issue, cause=cause, origin=origin)
+        generated = await hitl_summarizer.summarize_hitl_context(context)
+        if not generated:
+            return None
+        summary = _normalise_summary_lines(generated)
+        if not summary:
+            return None
+        state.set_hitl_summary(issue_number, summary)
+        return summary
+
+    async def _warm_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> None:
+        if issue_number in hitl_summary_inflight:
+            return
+        hitl_summary_inflight.add(issue_number)
+        try:
+            await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
+        except Exception:
+            logger.exception(
+                "Failed to warm HITL summary for issue #%d",
+                issue_number,
+            )
+        finally:
+            hitl_summary_inflight.discard(issue_number)
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -464,8 +524,50 @@ def create_router(
                 data["cause"] = cause
             if origin and origin in config.improve_label:
                 data["isMemorySuggestion"] = True
+            cached_summary = state.get_hitl_summary(item.issue)
+            data["llmSummary"] = cached_summary or ""
+            data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
+            if (
+                not cached_summary
+                and config.transcript_summarization_enabled
+                and not config.dry_run
+                and bool(config.gh_token)
+            ):
+                asyncio.create_task(
+                    _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
+                )
             enriched.append(data)
         return JSONResponse(enriched)
+
+    @router.get("/api/hitl/{issue_number}/summary")
+    async def get_hitl_summary(issue_number: int) -> JSONResponse:
+        """Return cached HITL summary, generating one if missing."""
+        cached = state.get_hitl_summary(issue_number)
+        if cached:
+            return JSONResponse(
+                {
+                    "issue": issue_number,
+                    "summary": cached,
+                    "updated_at": state.get_hitl_summary_updated_at(issue_number),
+                    "cached": True,
+                }
+            )
+
+        cause = state.get_hitl_cause(issue_number) or ""
+        origin = state.get_hitl_origin(issue_number)
+        summary = await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
+        if summary:
+            return JSONResponse(
+                {
+                    "issue": issue_number,
+                    "summary": summary,
+                    "updated_at": state.get_hitl_summary_updated_at(issue_number),
+                    "cached": False,
+                }
+            )
+        return JSONResponse(
+            {"issue": issue_number, "summary": "", "updated_at": None, "cached": False}
+        )
 
     @router.post("/api/hitl/{issue_number}/correct")
     async def hitl_correct(issue_number: int, body: dict[str, Any]) -> JSONResponse:
@@ -509,6 +611,7 @@ def create_router(
         orch.skip_hitl_issue(issue_number)
         state.remove_hitl_origin(issue_number)
         state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
 
         # If this was an improve issue, transition to triage for implementation
         if origin and origin in config.improve_label and config.find_label:
@@ -538,6 +641,8 @@ def create_router(
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
         orch.skip_hitl_issue(issue_number)
         state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
         await pr_manager.close_issue(issue_number)
         await event_bus.publish(
             HydraFlowEvent(
@@ -563,6 +668,7 @@ def create_router(
             orch.skip_hitl_issue(issue_number)
         state.remove_hitl_origin(issue_number)
         state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,

@@ -1,19 +1,99 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { theme } from '../theme'
 import { PIPELINE_STAGES } from '../constants'
 import { useHITLCorrection } from '../hooks/useHITLCorrection'
 
 export function HITLTable({ items, onRefresh }) {
   const [expandedIssue, setExpandedIssue] = useState(null)
+  const [summaryExpandedIssue, setSummaryExpandedIssue] = useState(null)
+  const [summaries, setSummaries] = useState(() =>
+    Object.fromEntries(
+      (items || []).map(item => [
+        item.issue,
+        {
+          text: item.llmSummary || '',
+          updatedAt: item.llmSummaryUpdatedAt || null,
+          loading: false,
+          error: '',
+        },
+      ])
+    )
+  )
   const [corrections, setCorrections] = useState({})
   const [actionLoading, setActionLoading] = useState(null)
   const [closedIssues, setClosedIssues] = useState(() => new Set())
   const { submitCorrection, skipIssue, closeIssue, approveAsMemory } = useHITLCorrection()
 
+  useEffect(() => {
+    setSummaries(prev => {
+      const next = { ...prev }
+      for (const item of items || []) {
+        if (item.llmSummary) {
+          next[item.issue] = {
+            text: item.llmSummary,
+            updatedAt: item.llmSummaryUpdatedAt || null,
+            loading: false,
+            error: '',
+          }
+        } else if (!next[item.issue]) {
+          next[item.issue] = {
+            text: '',
+            updatedAt: null,
+            loading: false,
+            error: '',
+          }
+        }
+      }
+      return next
+    })
+  }, [items])
+
   const visibleItems = items.filter(item => !closedIssues.has(item.issue))
 
   const toggleExpand = (issueNum) => {
     setExpandedIssue(prev => prev === issueNum ? null : issueNum)
+  }
+
+  const toggleSummaryExpand = (issueNum) => {
+    setSummaryExpandedIssue(prev => prev === issueNum ? null : issueNum)
+  }
+
+  const ensureSummary = async (issueNum) => {
+    const existing = summaries[issueNum]
+    if (existing?.text || existing?.loading) return
+    setSummaries(prev => ({
+      ...prev,
+      [issueNum]: { ...(prev[issueNum] || {}), loading: true, error: '' },
+    }))
+    try {
+      const resp = await fetch(`/api/hitl/${issueNum}/summary`)
+      if (!resp.ok) throw new Error(`status ${resp.status}`)
+      const payload = await resp.json()
+      setSummaries(prev => ({
+        ...prev,
+        [issueNum]: {
+          text: payload.summary || '',
+          updatedAt: payload.updated_at || null,
+          loading: false,
+          error: '',
+        },
+      }))
+    } catch {
+      setSummaries(prev => ({
+        ...prev,
+        [issueNum]: {
+          ...(prev[issueNum] || {}),
+          loading: false,
+          error: 'Could not generate context summary yet.',
+        },
+      }))
+    }
+  }
+
+  const toggleExpandAndLoadSummary = (issueNum) => {
+    toggleExpand(issueNum)
+    setSummaryExpandedIssue(null)
+    void ensureSummary(issueNum)
   }
 
   const handleCorrectionChange = (issueNum, value) => {
@@ -100,7 +180,7 @@ export function HITLTable({ items, onRefresh }) {
             return (
               <React.Fragment key={item.issue}>
                 <tr
-                  onClick={() => toggleExpand(item.issue)}
+                  onClick={() => toggleExpandAndLoadSummary(item.issue)}
                   style={{ ...styles.row, ...(isExpanded ? styles.rowExpanded : {}) }}
                   data-testid={`hitl-row-${item.issue}`}
                 >
@@ -135,6 +215,31 @@ export function HITLTable({ items, onRefresh }) {
                   <tr data-testid={`hitl-detail-${item.issue}`}>
                     <td colSpan={6} style={styles.detailCell}>
                       <div style={styles.detailPanel}>
+                        <div style={styles.summarySection}>
+                          <div style={styles.summaryHeader}>
+                            <span style={styles.summaryTitle}>LLM Context Summary</span>
+                            <button
+                              style={styles.summaryToggle}
+                              onClick={e => { e.stopPropagation(); toggleSummaryExpand(item.issue) }}
+                              disabled={!summaries[item.issue]?.text}
+                              data-testid={`hitl-summary-toggle-${item.issue}`}
+                            >
+                              {summaryExpandedIssue === item.issue ? 'Show less' : 'Show more'}
+                            </button>
+                          </div>
+                          <div
+                            style={
+                              summaryExpandedIssue === item.issue
+                                ? styles.summaryExpanded
+                                : styles.summaryCollapsed
+                            }
+                            data-testid={`hitl-summary-${item.issue}`}
+                          >
+                            {summaries[item.issue]?.loading
+                              ? 'Generating summary...'
+                              : summaries[item.issue]?.text || summaries[item.issue]?.error || 'Summary pending. Refresh in a few seconds.'}
+                          </div>
+                        </div>
                         {item.cause && (
                           <div style={causeBadgeStyle(item)} data-testid={`hitl-cause-${item.issue}`}>
                             Cause: {item.cause}
@@ -278,6 +383,52 @@ const styles = {
   detailPanel: {
     padding: '12px 16px', background: theme.surface,
     borderTop: `1px solid ${theme.border}`,
+  },
+  summarySection: {
+    marginBottom: 10,
+    padding: '8px 10px',
+    border: `1px solid ${theme.border}`,
+    borderRadius: 6,
+    background: theme.surfaceInset,
+  },
+  summaryHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  summaryTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: theme.textMuted,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  summaryToggle: {
+    border: `1px solid ${theme.border}`,
+    background: theme.surface,
+    color: theme.accent,
+    borderRadius: 6,
+    padding: '2px 8px',
+    fontSize: 11,
+    cursor: 'pointer',
+  },
+  summaryCollapsed: {
+    whiteSpace: 'pre-wrap',
+    lineHeight: '18px',
+    maxHeight: '36px',
+    overflow: 'hidden',
+    color: theme.text,
+    fontSize: 12,
+  },
+  summaryExpanded: {
+    whiteSpace: 'pre-wrap',
+    lineHeight: '18px',
+    maxHeight: '90px',
+    overflowY: 'auto',
+    color: theme.text,
+    fontSize: 12,
+    paddingRight: 4,
   },
   causeBadge: { ...badgeBase, background: theme.orangeSubtle, color: theme.orange },
   textarea: {
