@@ -786,9 +786,80 @@ class TestHITLEndpointCause:
         items = json.loads(data)
         assert len(items) == 1
         assert items[0]["cause"] == "CI failed after 2 fix attempt(s)"
-        pr_mgr.list_hitl_items.assert_awaited_once_with(  # type: ignore[union-attr]
-            [*config.hitl_label, *config.hitl_active_label]
+        called_labels = pr_mgr.list_hitl_items.await_args.args[0]  # type: ignore[union-attr]
+        assert set(called_labels) == {
+            *config.hitl_label,
+            *config.hitl_active_label,
+        }
+
+    @pytest.mark.asyncio
+    async def test_hitl_endpoint_includes_items_from_hitl_active_label(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """`/api/hitl` should return items tagged with either HITL label."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        async def fake_run_gh(*args: str, **_kwargs: object) -> str:
+            # list_hitl_items -> _fetch_hitl_raw_issues
+            if args[0] == "gh" and args[1] == "api" and "issues" in args[2]:
+                label_arg = next(
+                    (
+                        arg
+                        for arg in args
+                        if isinstance(arg, str) and arg.startswith("labels=")
+                    ),
+                    "",
+                )
+                if label_arg == f"labels={config.hitl_label[0]}":
+                    return (
+                        '[{"number": 42, "title": "Issue from hitl", '
+                        '"url": "https://github.com/T-rav/hyrda/issues/42"}]'
+                    )
+                if label_arg == f"labels={config.hitl_active_label[0]}":
+                    return (
+                        '[{"number": 77, "title": "Issue from hitl-active", '
+                        '"url": "https://github.com/T-rav/hyrda/issues/77"}]'
+                    )
+                return "[]"
+            # list_hitl_items -> _build_hitl_item PR lookup
+            if args[0] == "gh" and args[1] == "api" and "/pulls" in args[2]:
+                return "[]"
+            raise AssertionError(f"Unexpected gh invocation: {args}")
+
+        pr_mgr._run_gh = fake_run_gh  # type: ignore[method-assign]
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
         )
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        issue_numbers = {item["issue"] for item in items}
+        assert {42, 77}.issubset(issue_numbers)
 
     @pytest.mark.asyncio
     async def test_hitl_endpoint_omits_cause_when_not_set(
