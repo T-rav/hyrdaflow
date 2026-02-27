@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { theme } from '../theme'
-import { eventSummary, typeSpanStyles, defaultTypeStyle } from './EventLog'
+import { eventMessage, typeSpanStyles, defaultTypeStyle } from './EventLog'
 
 function issueNumberForEvent(event) {
   const data = event?.data || {}
@@ -45,6 +45,12 @@ export function Livestream({ events }) {
       )}
       {events.map((e, i) => {
         const issueNumber = issueNumberForEvent(e)
+        const issueLabel = issueNumber != null ? issueNumber : 'n/a'
+        const message = eventMessage(e.type, e.data) || ''
+        const hasMessage = message.trim().length > 0
+        const lineText = hasMessage
+          ? `issue: ${issueLabel} line ${message}`
+          : `issue: ${issueLabel} line`
         return (
           <div key={i} style={styles.item}>
             <span style={styles.time}>
@@ -53,10 +59,7 @@ export function Livestream({ events }) {
             <span style={typeSpanStyles[e.type] || defaultTypeStyle}>
               {e.type.replace(/_/g, ' ')}
             </span>
-            <span>
-              {issueNumber != null ? `#${issueNumber} ` : ''}
-              {eventSummary(e.type, e.data)}
-            </span>
+            <span>{lineText}</span>
           </div>
         )
       })}

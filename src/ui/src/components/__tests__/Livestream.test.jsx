@@ -17,9 +17,9 @@ describe('Livestream component', () => {
     render(<Livestream events={events} />)
 
     expect(screen.getByText('phase change')).toBeInTheDocument()
-    expect(screen.getByText('plan')).toBeInTheDocument()
+    expect(screen.getByText('issue: n/a line plan')).toBeInTheDocument()
     expect(screen.getByText('pr created')).toBeInTheDocument()
-    expect(screen.getByText('#10 PR #42 for #10')).toBeInTheDocument()
+    expect(screen.getByText('issue: 10 line PR #42 for #10')).toBeInTheDocument()
   })
 
   it('shows transcript_line events (no filter)', () => {
@@ -31,8 +31,8 @@ describe('Livestream component', () => {
 
     expect(screen.getByText('transcript line')).toBeInTheDocument()
     expect(screen.getByText('error')).toBeInTheDocument()
-    expect(screen.getByText('something broke')).toBeInTheDocument()
-    expect(screen.getByText('#1 #1')).toBeInTheDocument()
+    expect(screen.getByText('issue: 1 line')).toBeInTheDocument()
+    expect(screen.getByText('issue: n/a line something broke')).toBeInTheDocument()
   })
 
   it('applies typeSpanStyles for known event types', () => {
@@ -78,7 +78,7 @@ describe('Livestream component', () => {
     render(<Livestream events={events} />)
 
     expect(screen.getByText('implement')).toBeInTheDocument()
-    expect(screen.getByText('#5 #5 → running')).toBeInTheDocument()
+    expect(screen.getByText('issue: 5 line → running')).toBeInTheDocument()
     expect(screen.getByText('PR #20 → approved')).toBeInTheDocument()
     expect(screen.getByText('PR #20 merged')).toBeInTheDocument()
   })

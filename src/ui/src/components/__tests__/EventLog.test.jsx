@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { EventLog, typeSpanStyles, defaultTypeStyle, eventSummary, typeColors } from '../EventLog'
+import { EventLog, typeSpanStyles, defaultTypeStyle, eventSummary, eventMessage, typeColors } from '../EventLog'
 
 describe('EventLog pre-computed styles', () => {
   it('has an entry for every typeColors key', () => {
@@ -137,6 +137,79 @@ describe('eventSummary', () => {
 
   it('falls back to truncated JSON for unknown types', () => {
     const result = eventSummary('unknown_type', { foo: 'bar' })
+    expect(result).toBe('{"foo":"bar"}')
+  })
+})
+
+describe('eventMessage', () => {
+  it('returns phase_change text as-is', () => {
+    expect(eventMessage('phase_change', { phase: 'implement' })).toBe('implement')
+  })
+
+  it('drops issue prefix for worker_update', () => {
+    expect(eventMessage('worker_update', { issue: 10, status: 'running' })).toBe('→ running')
+  })
+
+  it('returns transcript lines without issue prefix', () => {
+    expect(eventMessage('transcript_line', { issue: 3, line: 'Writing tests...' })).toBe('Writing tests...')
+    expect(eventMessage('transcript_line', { pr: 7 })).toBe('')
+  })
+
+  it('keeps pr_created contextual text', () => {
+    expect(eventMessage('pr_created', { pr: 42, issue: 10, draft: false })).toBe('PR #42 for #10')
+    expect(eventMessage('pr_created', { pr: 42, issue: 10, draft: true })).toBe('PR #42 for #10 (draft)')
+  })
+
+  it('keeps review_update text', () => {
+    expect(eventMessage('review_update', { pr: 20, verdict: 'approved' })).toBe('PR #20 → approved')
+    expect(eventMessage('review_update', { pr: 20, status: 'running' })).toBe('PR #20 → running')
+  })
+
+  it('keeps merge_update text', () => {
+    expect(eventMessage('merge_update', { pr: 20, status: 'merged' })).toBe('PR #20 merged')
+  })
+
+  it('passes through error message', () => {
+    expect(eventMessage('error', { message: 'something broke' })).toBe('something broke')
+    expect(eventMessage('error', {})).toBe('Error')
+  })
+
+  it('drops issue prefix for triage updates', () => {
+    expect(eventMessage('triage_update', { issue: 5, status: 'evaluating' })).toBe('→ evaluating')
+  })
+
+  it('drops issue prefix for planner updates', () => {
+    expect(eventMessage('planner_update', { issue: 7, status: 'planning' })).toBe('→ planning')
+  })
+
+  it('keeps orchestrator status text', () => {
+    expect(eventMessage('orchestrator_status', { status: 'running' })).toBe('running')
+  })
+
+  it('leaves hitl_escalation untouched', () => {
+    expect(eventMessage('hitl_escalation', { pr: 42 })).toBe('PR #42 escalated to HITL')
+    expect(eventMessage('hitl_escalation', { issue: 99 })).toBe('Issue #99 escalated to HITL')
+  })
+
+  it('drops issue prefix for hitl_update', () => {
+    expect(eventMessage('hitl_update', { issue: 10, action: 'resolved' })).toBe('resolved')
+    expect(eventMessage('hitl_update', { issue: 10, status: 'pending' })).toBe('pending')
+  })
+
+  it('keeps ci_check text', () => {
+    expect(eventMessage('ci_check', { pr: 20, status: 'passed' })).toBe('PR #20 CI passed')
+  })
+
+  it('drops issue prefix for issue_created', () => {
+    expect(eventMessage('issue_created', { issue: 99 })).toBe('created')
+  })
+
+  it('keeps background_worker_status text', () => {
+    expect(eventMessage('background_worker_status', { worker: 'memory_sync', status: 'ok' })).toBe('memory_sync → ok')
+  })
+
+  it('falls back to truncated JSON for unknown types', () => {
+    const result = eventMessage('unknown_type', { foo: 'bar' })
     expect(result).toBe('{"foo":"bar"}')
   })
 })
