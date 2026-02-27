@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-from issue_fetcher import IssueFetcher
+from issue_fetcher import IncompleteIssueFetchError, IssueFetcher
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1068,3 +1068,21 @@ class TestFetchAllHydraFlowIssues:
 
         assert issues == []
         mock_exec.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_raises_incomplete_error_when_rate_limited(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+        reset_epoch = int((datetime.now(UTC) + timedelta(minutes=10)).timestamp())
+
+        async def fake_run_subprocess(*cmd, **_kwargs):
+            if len(cmd) >= 3 and cmd[2] == "rate_limit":
+                return str(reset_epoch)
+            raise RuntimeError("gh: API rate limit exceeded (HTTP 403)")
+
+        with (
+            patch("issue_fetcher.run_subprocess", side_effect=fake_run_subprocess),
+            pytest.raises(IncompleteIssueFetchError),
+        ):
+            await fetcher.fetch_all_hydraflow_issues()

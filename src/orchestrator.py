@@ -19,7 +19,7 @@ from models import (
     SessionStatus,
     WorkFn,
 )
-from phase_utils import safe_file_memory_suggestion
+from phase_utils import is_adr_issue_title, safe_file_memory_suggestion
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
@@ -820,15 +820,31 @@ class HydraFlowOrchestrator:
             review_issues = self._store.get_reviewable(self._config.batch_size)
             if not review_issues:
                 break
+            adr_issues = [
+                issue for issue in review_issues if is_adr_issue_title(issue.title)
+            ]
+            normal_review_issues = [
+                issue
+                for issue in review_issues
+                if issue.id not in {a.id for a in adr_issues}
+            ]
+
+            if adr_issues:
+                did_work = True
+                await self._reviewer.review_adrs(adr_issues)
+
+            if not normal_review_issues:
+                continue
+
             did_work = True
             active_in_store = set(self._store.get_active_issues().keys())
-            gh_review_issues = [GitHubIssue.from_task(t) for t in review_issues]
+            gh_review_issues = [GitHubIssue.from_task(t) for t in normal_review_issues]
             prs, gh_issues = await self._fetcher.fetch_reviewable_prs(
                 active_in_store, prefetched_issues=gh_review_issues
             )
             if not prs:
                 # Keep review tasks in queue memory when PR visibility lags labels.
-                for issue in review_issues:
+                for issue in normal_review_issues:
                     self._store.enqueue_transition(issue, "review")
                 # Treat as idle so the polling loop applies its normal backoff.
                 did_work = False
@@ -837,7 +853,7 @@ class HydraFlowOrchestrator:
                 prs, [i.to_task() for i in gh_issues]
             )
             reviewed_issue_numbers = {pr.issue_number for pr in prs}
-            for issue in review_issues:
+            for issue in normal_review_issues:
                 if issue.id not in reviewed_issue_numbers:
                     self._store.enqueue_transition(issue, "review")
             for result in review_results:

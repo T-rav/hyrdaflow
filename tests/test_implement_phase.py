@@ -1816,3 +1816,36 @@ class TestCriticalExceptionPropagation:
 
         with pytest.raises(MemoryError, match="out of memory"):
             await phase.run_batch()
+
+
+class TestADRSequence:
+    """Tests for ADR-specific implementation sequencing."""
+
+    def test_prepare_adr_plan_writes_fallback_plan_for_adr_issue(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(
+            id=500,
+            title="[ADR] Event pipeline architecture",
+            body="## Context\nA\n\n## Decision\nB\n\n## Consequences\nC",
+        )
+        phase, _, _ = _make_phase(config, [issue])
+
+        phase._prepare_adr_plan(issue)
+
+        plan_path = config.plans_dir / "issue-500.md"
+        assert plan_path.exists()
+        content = plan_path.read_text()
+        assert "## Implementation Plan" in content
+        assert "docs/adr/" in content
+
+    def test_prepare_adr_plan_skips_non_adr_issue(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=501, title="Regular issue", body="body")
+        phase, _, _ = _make_phase(config, [issue])
+
+        phase._prepare_adr_plan(issue)
+
+        plan_path = config.plans_dir / "issue-501.md"
+        assert not plan_path.exists()

@@ -15,6 +15,10 @@ from subprocess_util import run_subprocess
 logger = logging.getLogger("hydraflow.issue_fetcher")
 
 
+class IncompleteIssueFetchError(RuntimeError):
+    """Raised when a label-scoped issue fetch could not complete reliably."""
+
+
 class IssueFetcher:
     """Fetches GitHub issues and PRs via the ``gh`` CLI."""
 
@@ -45,11 +49,15 @@ class IssueFetcher:
         labels: list[str],
         limit: int,
         exclude_labels: list[str] | None = None,
+        require_complete: bool = False,
     ) -> list[GitHubIssue]:
         """Fetch open issues matching *any* of *labels*, deduplicated.
 
         If *labels* is empty but *exclude_labels* is provided, fetch all
         open issues and filter out those carrying any of the exclude labels.
+        When *require_complete* is ``True``, rate-limited/incomplete fetches
+        raise :class:`IncompleteIssueFetchError` instead of returning partial
+        data.
         """
         if self._config.dry_run:
             logger.info(
@@ -60,9 +68,12 @@ class IssueFetcher:
             return []
 
         seen: dict[int, dict] = {}
+        rate_limited = False
 
         async def _query_label(label: str | None) -> None:
+            nonlocal rate_limited
             if self._is_rate_limited_now():
+                rate_limited = True
                 return
             page = 1
             remaining = max(0, limit)
@@ -109,6 +120,7 @@ class IssueFetcher:
                 except (RuntimeError, json.JSONDecodeError, FileNotFoundError) as exc:
                     if isinstance(exc, RuntimeError) and self._is_rate_limit_error(exc):
                         await self._set_rate_limit_backoff(exc)
+                        rate_limited = True
                         return
                     logger.error("gh issue list failed for label=%r: %s", label, exc)
                     return
@@ -131,6 +143,11 @@ class IssueFetcher:
                 del seen[num]
         else:
             return []
+
+        if require_complete and rate_limited:
+            raise IncompleteIssueFetchError(
+                "GitHub issue fetch incomplete due to rate limiting"
+            )
 
         issues = [GitHubIssue.model_validate(raw) for raw in seen.values()]
         return issues[:limit]
@@ -214,7 +231,11 @@ class IssueFetcher:
         )
         if not all_labels:
             return []
-        return await self.fetch_issues_by_labels(all_labels, limit=100)
+        return await self.fetch_issues_by_labels(
+            all_labels,
+            limit=100,
+            require_complete=True,
+        )
 
     async def fetch_issue_by_number(self, issue_number: int) -> GitHubIssue | None:
         """Fetch a single issue by its number.

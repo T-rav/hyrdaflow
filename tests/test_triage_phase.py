@@ -215,7 +215,7 @@ class TestTriagePhase:
         assert not store.is_active(1), "Issue should be released after triage"
 
     @pytest.mark.asyncio
-    async def test_adr_issue_routes_directly_to_review_when_shape_is_valid(
+    async def test_adr_issue_routes_to_ready_when_shape_is_valid(
         self, config: HydraFlowConfig
     ) -> None:
         phase, _state, triage, prs, store, _stop = _make_phase(config)
@@ -236,7 +236,7 @@ class TestTriagePhase:
         await phase.triage_issues()
 
         triage.evaluate.assert_not_awaited()
-        prs.transition.assert_called_once_with(77, "review")
+        prs.transition.assert_called_once_with(77, "ready")
         prs.post_comment.assert_not_called()
 
     @pytest.mark.asyncio

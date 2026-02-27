@@ -13,6 +13,7 @@ from issue_store import IssueStore
 from models import GitHubIssue, PipelineStage, Task, WorkerResult, WorkerResultMeta
 from phase_utils import (
     escalate_to_hitl,
+    is_adr_issue_title,
     record_harness_failure,
     run_concurrent_batch,
     store_lifecycle,
@@ -147,6 +148,7 @@ class ImplementPhase:
 
     async def _worker_inner(self, idx: int, issue: Task, branch: str) -> WorkerResult:
         """Core implementation logic — called inside the semaphore."""
+        self._prepare_adr_plan(issue)
         cap_result = await self._check_attempt_cap(issue, branch)
         if cap_result is not None:
             return cap_result
@@ -388,3 +390,40 @@ class ImplementPhase:
             details,
             stage=PipelineStage.IMPLEMENT,
         )
+
+    def _prepare_adr_plan(self, issue: Task) -> None:
+        """Seed a deterministic ADR execution plan when an ADR issue lacks one."""
+        if not is_adr_issue_title(issue.title):
+            return
+
+        plan_path = self._config.plans_dir / f"issue-{issue.id}.md"
+        if plan_path.exists():
+            return
+
+        body = issue.body.strip() or "No ADR draft body provided."
+        plan_text = (
+            "## Implementation Plan\n\n"
+            "1. Create or update a single ADR markdown file under `docs/adr/` "
+            "for this issue.\n"
+            "2. Preserve and refine the ADR sections (`Context`, `Decision`, "
+            "`Consequences`) using the issue draft as source material.\n"
+            "3. Ensure the ADR content is actionable and concrete enough for "
+            "review (explicit decision, tradeoffs, and impact).\n"
+            "4. Add/update references so the ADR links back to this issue.\n\n"
+            "## ADR Draft From Issue\n\n"
+            f"{body}\n"
+        )
+        try:
+            plan_path.parent.mkdir(parents=True, exist_ok=True)
+            plan_path.write_text(plan_text)
+            logger.info(
+                "Prepared ADR implementation plan fallback for issue #%d at %s",
+                issue.id,
+                plan_path,
+            )
+        except OSError:
+            logger.warning(
+                "Failed to prepare ADR plan fallback for issue #%d",
+                issue.id,
+                exc_info=True,
+            )

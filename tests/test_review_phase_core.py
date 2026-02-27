@@ -2174,3 +2174,50 @@ class TestConstructorDefaultHelpers:
         assert phase._post_merge._retrospective is None
         assert phase._post_merge._verification_judge is None
         assert phase._post_merge._epic_checker is None
+
+
+class TestADRReviewPath:
+    """Tests for ADR review path without PRs."""
+
+    @pytest.mark.asyncio
+    async def test_review_adrs_approves_and_closes_valid_adr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=710,
+            title="[ADR] Stream rendering architecture",
+            body=(
+                "## Context\nCurrent rendering logic is split across hooks and cards.\n\n"
+                "## Decision\nAdopt a single-stage snapshot model with normalized events "
+                "to ensure deterministic rendering and simpler queue-state reconciliation.\n\n"
+                "## Consequences\nRequires state migration but removes drift and duplicate "
+                "count paths."
+            ),
+        )
+
+        results = await phase.review_adrs([issue])
+
+        assert len(results) == 1
+        assert results[0].verdict == ReviewVerdict.APPROVE
+        phase._prs.swap_pipeline_labels.assert_awaited_once_with(
+            710, config.fixed_label[0]
+        )
+        phase._prs.close_task.assert_awaited_once_with(710)
+
+    @pytest.mark.asyncio
+    async def test_review_adrs_escalates_invalid_adr_to_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=711,
+            title="[ADR] Bad draft",
+            body="## Context\nShort.\n\n## Decision\nTiny.\n\n## Consequences\nTiny.",
+        )
+
+        results = await phase.review_adrs([issue])
+
+        assert len(results) == 1
+        assert results[0].verdict == ReviewVerdict.REQUEST_CHANGES
+        phase._prs.transition.assert_awaited_once_with(711, "hitl", pr_number=0)
