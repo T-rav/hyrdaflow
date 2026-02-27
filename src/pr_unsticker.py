@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from models import GitHubIssue, HITLItem, UnstickResult
     from pr_manager import PRManager
     from state import StateTracker
+    from troubleshooting_store import (
+        TroubleshootingPattern,
+        TroubleshootingPatternStore,
+    )
     from worktree import WorktreeManager
 
 logger = logging.getLogger("hydraflow.pr_unsticker")
@@ -106,6 +110,7 @@ class PRUnsticker:
         hitl_runner: HITLRunner | None = None,
         stop_event: asyncio.Event | None = None,
         resolver: MergeConflictResolver | None = None,
+        troubleshooting_store: TroubleshootingPatternStore | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -117,6 +122,7 @@ class PRUnsticker:
         self._hitl_runner = hitl_runner
         self._stop_event = stop_event or asyncio.Event()
         self._resolver = resolver
+        self._troubleshooting_store = troubleshooting_store
 
     async def unstick(self, hitl_items: list[HITLItem]) -> UnstickResult:
         """Process HITL items and return stats.
@@ -518,6 +524,23 @@ PR URL: {pr_url}
         """
         max_attempts = self._config.max_ci_timeout_fix_attempts
 
+        # Read path: load learned patterns from store
+        learned_section = ""
+        language = "general"
+        if self._troubleshooting_store is not None:
+            language = self._detect_language(wt_path)
+            patterns = self._troubleshooting_store.load_patterns(
+                language=language,
+                limit=10,
+            )
+            if patterns:
+                from troubleshooting_store import format_patterns_for_prompt
+
+                learned_section = format_patterns_for_prompt(
+                    patterns,
+                    max_chars=self._config.max_troubleshooting_prompt_chars,
+                )
+
         for attempt in range(1, max_attempts + 1):
             # Rebase on main
             clean = await self._worktrees.start_merge_main(wt_path, branch)
@@ -529,7 +552,11 @@ PR URL: {pr_url}
 
             cause_str = self._state.get_hitl_cause(issue_number) or ""
             prompt, prompt_stats = self._build_ci_timeout_fix_prompt(
-                issue, pr_url, cause_str, isolation_output
+                issue,
+                pr_url,
+                cause_str,
+                isolation_output,
+                learned_patterns_section=learned_section,
             )
 
             try:
@@ -557,6 +584,10 @@ PR URL: {pr_url}
 
                 success, error_msg = await self._agents._verify_result(wt_path, branch)
                 if success:
+                    # Write path: persist pattern from transcript
+                    await self._persist_troubleshooting_pattern(
+                        transcript, issue_number, language
+                    )
                     return True
 
                 logger.warning(
@@ -575,6 +606,168 @@ PR URL: {pr_url}
                 )
 
         return False
+
+    def _detect_language(self, wt_path: Path) -> str:
+        """Detect the project language from the worktree path."""
+        try:
+            from polyglot_prep import detect_prep_stack
+
+            return detect_prep_stack(wt_path)
+        except Exception:  # noqa: BLE001
+            return "general"
+
+    async def _persist_troubleshooting_pattern(
+        self, transcript: str, issue_number: int, language: str
+    ) -> None:
+        """Extract and persist a troubleshooting pattern from a successful fix.
+
+        Two-stage approach:
+        1. Check for an explicit ``TROUBLESHOOTING_PATTERN`` block (free, instant).
+        2. If none found, run a cheap model reflection to extract the insight
+           and check novelty against the existing store.
+        """
+        if self._troubleshooting_store is None:
+            return
+        try:
+            from troubleshooting_store import extract_troubleshooting_pattern
+
+            # Stage 1: explicit block from agent
+            pattern = extract_troubleshooting_pattern(
+                transcript, issue_number, language
+            )
+            if pattern is not None:
+                self._troubleshooting_store.append_pattern(pattern)
+                logger.info(
+                    "Persisted troubleshooting pattern '%s' from issue #%d (explicit)",
+                    pattern.pattern_name,
+                    issue_number,
+                )
+                return
+
+            # Stage 2: self-reflection via cheap model
+            pattern = await self._reflect_on_fix(transcript, issue_number, language)
+            if pattern is not None:
+                self._troubleshooting_store.append_pattern(pattern)
+                logger.info(
+                    "Persisted troubleshooting pattern '%s' from issue #%d (reflection)",
+                    pattern.pattern_name,
+                    issue_number,
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to persist troubleshooting pattern for issue #%d",
+                issue_number,
+                exc_info=True,
+            )
+
+    async def _reflect_on_fix(
+        self,
+        transcript: str,
+        issue_number: int,
+        language: str,
+    ) -> TroubleshootingPattern | None:
+        """Run a cheap model to extract a troubleshooting pattern from the transcript.
+
+        Compares against known patterns in the store and only returns a pattern
+        if it identifies something novel.  Returns ``None`` if the model call
+        fails or nothing new is found.
+        """
+        from troubleshooting_store import extract_troubleshooting_pattern
+
+        store = self._troubleshooting_store
+        if store is None:
+            return None
+
+        known = store.load_patterns(limit=50)
+        known_block = "\n".join(f"- {p.pattern_name}: {p.description}" for p in known)
+
+        # Truncate transcript to keep the prompt small
+        max_transcript = 6000
+        trimmed = (
+            transcript[-max_transcript:]
+            if len(transcript) > max_transcript
+            else transcript
+        )
+
+        prompt = f"""You are analyzing a successful CI timeout fix to extract reusable troubleshooting knowledge.
+
+## Transcript (tail)
+
+{trimmed}
+
+## Already-known patterns
+
+{known_block or "(none)"}
+
+## Task
+
+If the fix above addresses a hang pattern that is NOT already covered by the known patterns,
+emit a structured block. If the fix is just a variant of an existing pattern, output NOTHING.
+
+Only emit a block if the root cause is genuinely distinct from every known pattern above.
+
+```
+TROUBLESHOOTING_PATTERN_START
+pattern_name: <short_snake_case_key>
+description: <what causes the hang — one sentence>
+fix_strategy: <how to fix it — one sentence>
+TROUBLESHOOTING_PATTERN_END
+```
+
+If nothing novel, output exactly: NO_NEW_PATTERN"""
+
+        from subprocess_util import make_clean_env
+
+        tool = self._config.background_tool
+        if tool == "inherit":
+            tool = "claude"
+        model = self._config.background_model or "haiku"
+
+        if tool == "codex":
+            cmd = [
+                "codex",
+                "exec",
+                "--json",
+                "--model",
+                model,
+                "--sandbox",
+                "danger-full-access",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+                prompt,
+            ]
+            cmd_input = None
+        else:
+            cmd = [tool, "-p", "--model", model]
+            cmd_input = prompt.encode()
+
+        env = make_clean_env(self._config.gh_token)
+
+        try:
+            result = await self._agents._runner.run_simple(
+                cmd,
+                env=env,
+                input=cmd_input,
+                timeout=60.0,
+            )
+            if result.returncode != 0:
+                logger.debug(
+                    "Troubleshooting reflection model failed (rc=%d)",
+                    result.returncode,
+                )
+                return None
+
+            output = result.stdout or ""
+            if "NO_NEW_PATTERN" in output:
+                logger.debug(
+                    "Reflection found no novel pattern for issue #%d", issue_number
+                )
+                return None
+
+            return extract_troubleshooting_pattern(output, issue_number, language)
+        except (TimeoutError, OSError, FileNotFoundError) as exc:
+            logger.debug("Troubleshooting reflection unavailable: %s", exc)
+            return None
 
     async def _isolate_hanging_tests(self, wt_path: Path) -> str:
         """Run the project's test command with a short subprocess timeout.
@@ -624,6 +817,8 @@ PR URL: {pr_url}
         pr_url: str,
         cause: str,
         isolation_output: str,
+        *,
+        learned_patterns_section: str = "",
     ) -> tuple[str, dict[str, object]]:
         """Build a targeted prompt for fixing hanging tests."""
         cause_text, cause_before, cause_after = truncate_with_notice(
@@ -632,6 +827,11 @@ PR URL: {pr_url}
         isolation_text, iso_before, iso_after = truncate_with_notice(
             isolation_output or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Test isolation"
         )
+
+        learned_block = (
+            f"\n{learned_patterns_section}\n" if learned_patterns_section else ""
+        )
+
         prompt = f"""You are fixing a CI timeout caused by hanging tests in a pull request.
 
 ## Issue: {issue.title}
@@ -664,7 +864,7 @@ causing `while await work_fn()` or `did_work = bool(await fn())` loops to spin f
 Fix: set `return_value` to a falsy value matching the function's return type — \
 `return_value=0` for int, `return_value=[]` for list, `return_value=False` for bool.
 - **Missing event.set()**: Tests that wait on `asyncio.Event` objects that never get set.
-
+{learned_block}
 ## Instructions
 
 1. Identify which test is hanging from the test output above (the last test that started running).
@@ -675,6 +875,19 @@ with the same issue). Fix ALL instances, not just the one that hangs — unfixed
 will hang on the next CI run.
 5. Run `make quality` to verify all tests pass and no new issues are introduced.
 6. Commit fixes with a descriptive message.
+
+## Pattern Reporting
+
+If you identify a new hang pattern not already listed above, emit a structured block so it \
+can be learned for future fixes:
+
+```
+TROUBLESHOOTING_PATTERN_START
+pattern_name: <short_key, e.g. truthy_asyncmock>
+description: <what causes the hang>
+fix_strategy: <how to fix it>
+TROUBLESHOOTING_PATTERN_END
+```
 
 ## Rules
 

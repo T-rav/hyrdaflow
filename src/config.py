@@ -53,6 +53,11 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
     ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
     ("error_output_max_chars", "HYDRAFLOW_ERROR_OUTPUT_MAX_CHARS", 3000),
+    (
+        "max_troubleshooting_prompt_chars",
+        "HYDRAFLOW_MAX_TROUBLESHOOTING_PROMPT_CHARS",
+        3000,
+    ),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -497,6 +502,12 @@ class HydraFlowConfig(BaseModel):
         ge=500,
         le=50_000,
         description="Max characters for memory digest injected into agent prompts",
+    )
+    max_troubleshooting_prompt_chars: int = Field(
+        default=3000,
+        ge=500,
+        le=10_000,
+        description="Max characters for learned troubleshooting patterns in CI timeout prompts",
     )
     memory_compaction_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",

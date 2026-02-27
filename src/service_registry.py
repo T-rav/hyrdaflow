@@ -41,6 +41,7 @@ from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
+from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
 from worktree import WorktreeManager
 
@@ -134,6 +135,9 @@ def build_services(
     # Harness insight store (shared across phases)
     harness_insights = HarnessInsightStore(config.data_path("memory"))
 
+    # Troubleshooting pattern store (CI timeout feedback loop)
+    troubleshooting_store = TroubleshootingPatternStore(config.data_path("memory"))
+
     # Phase coordinators
     triager = TriagePhase(config, state, store, triage, prs, event_bus, stop_event)
     planner_phase = PlanPhase(
@@ -195,6 +199,7 @@ def build_services(
         hitl_runner=hitl_runner,
         stop_event=stop_event,
         resolver=conflict_resolver,
+        troubleshooting_store=troubleshooting_store,
     )
     memory_sync = MemorySyncWorker(
         config,
