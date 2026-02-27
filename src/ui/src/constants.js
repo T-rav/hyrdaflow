@@ -52,6 +52,10 @@ export const INTERVAL_PRESETS = [
   { label: '4h', seconds: 14400 },
 ]
 
+/**
+ * Preset interval options for the pipeline_poller worker.
+ * Short-duration only — long-duration presets (30m, 1h) are intentionally excluded.
+ */
 export const PIPELINE_POLLER_PRESETS = [
   { label: '5s', seconds: 5 },
   { label: '10s', seconds: 10 },

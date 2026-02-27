@@ -69,7 +69,7 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
   const isSystem = def.system === true
   const orchRunning = orchestratorStatus === 'running'
   const isEditable = EDITABLE_INTERVAL_WORKERS.has(def.key)
-  const presets = def.key === 'pipeline_poller' ? PIPELINE_POLLER_PRESETS : INTERVAL_PRESETS
+  const presets = isPipelinePoller ? PIPELINE_POLLER_PRESETS : INTERVAL_PRESETS
 
   let dotColor, statusText, lastRun, details
 
