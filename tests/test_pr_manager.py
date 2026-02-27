@@ -3918,6 +3918,24 @@ class TestSwapPipelineLabels:
             [config.hitl_label[0], config.hitl_active_label[0]],
         )
 
+    @pytest.mark.asyncio
+    async def test_hitl_transition_adds_hitl_pair_to_pr_when_pr_number_given(
+        self, config, event_bus
+    ) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(
+            42,
+            config.hitl_active_label[0],
+            pr_number=101,
+        )
+
+        expected = [config.hitl_label[0], config.hitl_active_label[0]]
+        mgr._add_labels.assert_any_call("issue", 42, expected)
+        mgr._add_labels.assert_any_call("pr", 101, expected)
+
 
 # --- update_issue_body ---
 

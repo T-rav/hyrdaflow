@@ -2322,6 +2322,43 @@ class TestRequestChangesEndpoint:
 
         pr_mgr.swap_pipeline_labels.assert_awaited_once_with(7, config.hitl_label[0])
 
+    @pytest.mark.asyncio
+    async def test_request_changes_applies_hitl_and_hitl_active_labels(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Request changes should result in both HITL labels being added."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        pr_mgr._remove_label = AsyncMock()
+        pr_mgr._add_labels = AsyncMock()
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = self._find_endpoint(router, "/api/request-changes")
+        assert endpoint is not None
+
+        response = await endpoint(
+            {"issue_number": 42, "feedback": "Fix the tests", "stage": "review"}
+        )
+        assert response.status_code == 200
+
+        pr_mgr._add_labels.assert_any_call(
+            "issue",
+            42,
+            [config.hitl_label[0], config.hitl_active_label[0]],
+        )
+
 
 class TestDeleteSessionEndpoint:
     """Tests for DELETE /api/sessions/{session_id}."""
