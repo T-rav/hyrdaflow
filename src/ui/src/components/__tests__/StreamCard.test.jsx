@@ -212,7 +212,7 @@ describe('phase-specific style maps', () => {
       const meta = STAGE_META[key]
       expect(cardActiveStyleMap[key].border).toBe(`1px solid ${meta.color}`)
       expect(cardActiveStyleMap[key].borderLeft).toBe(`3px solid ${meta.color}`)
-      expect(cardInactiveStyleMap[key].border).toBe(`1px solid ${meta.color}33`)
+      expect(cardInactiveStyleMap[key].border).toBe(`1px solid color-mix(in srgb, ${meta.color} 20%, transparent)`)
       expect(cardInactiveStyleMap[key].borderLeft).toBe(`3px solid ${meta.color}`)
       expect(activeDotStyleMap[key].background).toBe(meta.color)
       expect(activeDotStyleMap[key].animation).toContain('stream-pulse')

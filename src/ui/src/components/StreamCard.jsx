@@ -312,6 +312,8 @@ const queuedBadgeStyleMap = Object.fromEntries(
 )
 
 // Phase-aware card and dot styling — exported for test assertions.
+const subtleBorder = (color) => `color-mix(in srgb, ${color} 20%, transparent)`
+
 export const cardActiveStyleMap = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.key, {
     border: `1px solid ${s.color}`,
@@ -319,13 +321,9 @@ export const cardActiveStyleMap = Object.fromEntries(
   }])
 )
 
-// Note: `${s.color}33` appends a hex alpha suffix to the CSS variable reference string
-// (e.g. `var(--orange)33`). This produces a valid 8-digit hex color after CSS variable
-// substitution only because all stage color variables in index.html use 6-digit hex values.
-// If any variable is changed to rgb()/hsl() format this border will silently break.
 export const cardInactiveStyleMap = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.key, {
-    border: `1px solid ${s.color}33`,
+    border: `1px solid ${subtleBorder(s.color)}`,
     borderLeft: `3px solid ${s.color}`,
   }])
 )

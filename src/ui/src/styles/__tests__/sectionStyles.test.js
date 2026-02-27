@@ -35,8 +35,7 @@ describe('sectionStyles shared module', () => {
       for (const stage of PIPELINE_STAGES) {
         const style = sectionHeaderStyles[stage.key]
         expect(style.background).toBe(stage.subtleColor)
-        // border uses color+33 (20% alpha) to remain visible against the subtleColor background (15% alpha)
-        expect(style.border).toBe(`1px solid ${stage.color}33`)
+        expect(style.border).toBe(`1px solid color-mix(in srgb, ${stage.color} 20%, transparent)`)
         expect(style.borderLeft).toBe(`3px solid ${stage.color}`)
       }
     })
