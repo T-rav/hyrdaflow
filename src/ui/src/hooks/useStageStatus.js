@@ -15,6 +15,18 @@ const SESSION_COUNTER_KEYS = {
  * Set of pipeline loop keys for quick lookup of which stages have toggleable loops.
  */
 const LOOP_KEYS = new Set(PIPELINE_LOOPS.map(l => l.key))
+const DEFAULT_STAGE_WORKER_CAPS = {
+  triage: 1,
+  plan: 1,
+  implement: 2,
+  review: 2,
+}
+
+function normalizeWorkerCap(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(fallback, Math.floor(n))
+}
 
 /**
  * Pure function that derives a unified stageStatus model from raw state slices.
@@ -29,13 +41,21 @@ const LOOP_KEYS = new Set(PIPELINE_LOOPS.map(l => l.key))
  *   workload is pipeline-centric (same source as Stream/System pipeline views):
  *   open issue counts come from pipelineIssues; merged comes from session counters.
  */
-export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, sessionCounters) {
+export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, sessionCounters, config) {
   const issues = pipelineIssues || {}
   const workerValues = Object.values(workers || {})
   const bgMap = new Map((backgroundWorkers || []).map(w => [w.name, w]))
   const counters = sessionCounters || {}
+  const cfg = config || {}
 
   const stageStatus = {}
+
+  const workerCaps = {
+    triage: DEFAULT_STAGE_WORKER_CAPS.triage,
+    plan: normalizeWorkerCap(cfg.max_planners, DEFAULT_STAGE_WORKER_CAPS.plan),
+    implement: normalizeWorkerCap(cfg.max_workers, DEFAULT_STAGE_WORKER_CAPS.implement),
+    review: normalizeWorkerCap(cfg.max_reviewers, DEFAULT_STAGE_WORKER_CAPS.review),
+  }
 
   for (const stage of PIPELINE_STAGES) {
     const stageIssues = issues[stage.key] || []
@@ -91,6 +111,7 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, se
   }
 
   stageStatus.workload = workload
+  stageStatus.workerCaps = workerCaps
 
   return stageStatus
 }

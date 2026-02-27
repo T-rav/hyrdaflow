@@ -981,8 +981,9 @@ export function HydraFlowProvider({ children }) {
         sessionReviewed: state.sessionReviewed,
         mergedCount: state.mergedCount,
       },
+      state.config,
     ),
-    [state.pipelineIssues, state.workers, state.backgroundWorkers, state.sessionTriaged, state.sessionPlanned, state.sessionImplemented, state.sessionReviewed, state.mergedCount],
+    [state.pipelineIssues, state.workers, state.backgroundWorkers, state.sessionTriaged, state.sessionPlanned, state.sessionImplemented, state.sessionReviewed, state.mergedCount, state.config],
   )
 
   const selectedSession = useMemo(() => {

@@ -74,7 +74,7 @@ function PipelineFlow({ stageGroups }) {
   )
 }
 
-function StageSection({ stage, issues, workerCount, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
+function StageSection({ stage, issues, workerCount, workerCap, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
   const activeCount = issues.filter(i => i.overallStatus === 'active').length
   const failedCount = issues.filter(i => i.overallStatus === 'failed').length
   const hitlCount = issues.filter(i => i.overallStatus === 'hitl').length
@@ -103,7 +103,7 @@ function StageSection({ stage, issues, workerCount, intentMap, onRequestChanges,
               <span> · {queuedCount} queued</span>
               {failedCount > 0 && <span style={styles.failedBadge}> · {failedCount} failed</span>}
               {hitlCount > 0 && <span style={styles.hitlBadge}> · {hitlCount} hitl</span>}
-              <span> · {workerCount} {workerCount === 1 ? 'worker' : 'workers'}</span>
+              <span> · {workerCount}/{workerCap || 0} workers</span>
             </>
           ) : (
             <span>{issues.length} merged</span>
@@ -281,6 +281,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
         const status = stageStatus[stage.key] || {}
         const enabled = status.enabled !== false
         const workerCount = status.workerCount || 0
+        const workerCap = stage.role ? (stageStatus.workerCaps?.[stage.key] || 0) : 0
         let dotColor
         if (!stage.role) {
           dotColor = theme.green
@@ -297,6 +298,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
             stage={stage}
             issues={stageIssues}
             workerCount={workerCount}
+            workerCap={workerCap}
             intentMap={intentMap}
             onRequestChanges={stage.role ? onRequestChanges : undefined}
             open={!!expandedStages[stage.key]}
