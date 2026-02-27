@@ -15,7 +15,10 @@ function defaultMockContext(overrides = {}) {
   const pipelineIssues = overrides.pipelineIssues || {}
   const workers = overrides.workers || {}
   const backgroundWorkers = overrides.backgroundWorkers || []
-  const config = overrides.config || { max_planners: 2, max_workers: 3, max_reviewers: 2 }
+  const hasConfigOverride = Object.prototype.hasOwnProperty.call(overrides, 'config')
+  const config = hasConfigOverride
+    ? overrides.config
+    : { max_planners: 2, max_workers: 3, max_reviewers: 2 }
   return {
     workers,
     hitlItems: [],

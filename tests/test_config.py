@@ -777,16 +777,16 @@ class TestHydraFlowConfigValidationConstraints:
                 state_file=tmp_path / "s.json",
             )
 
-    # max_workers: ge=2, le=10
+    # max_workers: ge=1, le=10
 
     def test_max_workers_minimum_boundary(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
-            max_workers=2,
+            max_workers=1,
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_workers == 2
+        assert cfg.max_workers == 1
 
     def test_max_workers_maximum_boundary(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -800,7 +800,7 @@ class TestHydraFlowConfigValidationConstraints:
     def test_max_workers_below_minimum_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError):
             HydraFlowConfig(
-                max_workers=1,
+                max_workers=0,
                 repo_root=tmp_path,
                 worktree_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
@@ -853,16 +853,16 @@ class TestHydraFlowConfigValidationConstraints:
                 state_file=tmp_path / "s.json",
             )
 
-    # max_reviewers: ge=2, le=10
+    # max_reviewers: ge=1, le=10
 
     def test_max_reviewers_minimum_boundary(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
-            max_reviewers=2,
+            max_reviewers=1,
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_reviewers == 2
+        assert cfg.max_reviewers == 1
 
     def test_max_reviewers_maximum_boundary(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -876,7 +876,7 @@ class TestHydraFlowConfigValidationConstraints:
     def test_max_reviewers_below_minimum_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError):
             HydraFlowConfig(
-                max_reviewers=1,
+                max_reviewers=0,
                 repo_root=tmp_path,
                 worktree_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
