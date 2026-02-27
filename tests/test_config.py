@@ -1263,6 +1263,8 @@ class TestHydraFlowConfigGhToken:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1301,6 +1303,20 @@ class TestHydraFlowConfigGhToken:
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_explicit"
+
+    def test_gh_token_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        (tmp_path / ".env").write_text("HYDRAFLOW_GH_TOKEN=ghp_from_dotenv\n")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.gh_token == "ghp_from_dotenv"
 
 
 # ---------------------------------------------------------------------------
@@ -1396,6 +1412,23 @@ class TestHydraFlowConfigGitIdentity:
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == "explicit@example.com"
+
+    def test_git_identity_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_user_name == "Dotenv Bot"
+        assert cfg.git_user_email == "dotenv-bot@example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -3315,6 +3348,53 @@ class TestDockerConfigValidation:
             state_file=tmp_path / "s.json",
         )
         assert cfg.execution_mode == "host"
+
+    def test_docker_mode_warns_when_identity_missing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="hydraflow.config"):
+            HydraFlowConfig(
+                execution_mode="docker",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        warnings = "\n".join(rec.getMessage() for rec in caplog.records)
+        assert "without GH token configured" in warnings
+        assert "git identity not configured" in warnings
+
+    def test_docker_mode_warns_on_partial_git_identity(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="hydraflow.config"):
+            HydraFlowConfig(
+                execution_mode="docker",
+                gh_token="ghp_bot",
+                git_user_name="Bot Name",
+                git_user_email="",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        warnings = "\n".join(rec.getMessage() for rec in caplog.records)
+        assert "git identity is incomplete" in warnings
 
 
 # ---------------------------------------------------------------------------

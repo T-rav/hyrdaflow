@@ -170,6 +170,12 @@ def make_docker_env(
 
     if gh_token:
         env["GH_TOKEN"] = gh_token
+    else:
+        inherited_token = os.environ.get("GH_TOKEN", "") or os.environ.get(
+            "GITHUB_TOKEN", ""
+        )
+        if inherited_token:
+            env["GH_TOKEN"] = inherited_token
 
     for key in _DOCKER_ENV_PASSTHROUGH_KEYS:
         value = os.environ.get(key, "")

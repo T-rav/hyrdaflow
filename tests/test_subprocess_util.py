@@ -588,6 +588,25 @@ class TestMakeDockerEnv:
             env = make_docker_env(gh_token="")
         assert "GH_TOKEN" not in env
 
+    def test_uses_env_gh_token_when_arg_empty(self) -> None:
+        with patch.dict("os.environ", {"GH_TOKEN": "ghp_env_token"}, clear=True):
+            env = make_docker_env(gh_token="")
+        assert env["GH_TOKEN"] == "ghp_env_token"
+
+    def test_uses_env_github_token_when_arg_empty(self) -> None:
+        with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_github_token"}, clear=True):
+            env = make_docker_env(gh_token="")
+        assert env["GH_TOKEN"] == "ghp_github_token"
+
+    def test_prefers_explicit_gh_token_over_env_tokens(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"GH_TOKEN": "ghp_env_token", "GITHUB_TOKEN": "ghp_other"},
+            clear=True,
+        ):
+            env = make_docker_env(gh_token="ghp_explicit")
+        assert env["GH_TOKEN"] == "ghp_explicit"
+
     def test_injects_anthropic_key_from_environ(self) -> None:
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-ant-test"}, clear=True):
             env = make_docker_env()

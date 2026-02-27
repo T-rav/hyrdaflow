@@ -1031,21 +1031,91 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
             config.repo_root
         )
 
-    # GitHub token: explicit value → HYDRAFLOW_GH_TOKEN env var → inherited GH_TOKEN
+    # GitHub token:
+    # explicit value → HYDRAFLOW_GH_TOKEN env var → GH_TOKEN/GITHUB_TOKEN env vars
+    # → .env fallback
     if not config.gh_token:
-        env_token = os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+        env_token = (
+            os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+            or os.environ.get("GH_TOKEN", "")
+            or os.environ.get("GITHUB_TOKEN", "")
+            or _dotenv_lookup(
+                config.repo_root, "HYDRAFLOW_GH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
+            )
+        )
         if env_token:
             object.__setattr__(config, "gh_token", env_token)
 
-    # Git identity: explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env var
+    # Git identity:
+    # explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env vars
+    # → GIT_* author/committer env vars → .env fallback
     if not config.git_user_name:
-        env_name = os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
+        env_name = (
+            os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
+            or os.environ.get("GIT_AUTHOR_NAME", "")
+            or os.environ.get("GIT_COMMITTER_NAME", "")
+            or _dotenv_lookup(
+                config.repo_root,
+                "HYDRAFLOW_GIT_USER_NAME",
+                "GIT_AUTHOR_NAME",
+                "GIT_COMMITTER_NAME",
+            )
+        )
         if env_name:
             object.__setattr__(config, "git_user_name", env_name)
     if not config.git_user_email:
-        env_email = os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
+        env_email = (
+            os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
+            or os.environ.get("GIT_AUTHOR_EMAIL", "")
+            or os.environ.get("GIT_COMMITTER_EMAIL", "")
+            or _dotenv_lookup(
+                config.repo_root,
+                "HYDRAFLOW_GIT_USER_EMAIL",
+                "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_EMAIL",
+            )
+        )
         if env_email:
             object.__setattr__(config, "git_user_email", env_email)
+
+
+def _dotenv_lookup(repo_root: Path, *keys: str) -> str:
+    """Read first matching non-empty value from ``repo_root/.env``."""
+    env_file = repo_root / ".env"
+    if not env_file.exists():
+        return ""
+    try:
+        text = env_file.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    parsed = _parse_dotenv_text(text)
+    for key in keys:
+        val = parsed.get(key, "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _parse_dotenv_text(text: str) -> dict[str, str]:
+    """Parse minimal .env key/value content for local config fallbacks."""
+    result: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        result[key] = value
+    return result
 
 
 def _get_env(key: str) -> str | None:
@@ -1188,15 +1258,33 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
-    if config.execution_mode == "docker":
+    docker_active = config.execution_mode == "docker" or config.docker_enabled
+    if docker_active:
         import shutil  # noqa: PLC0415
 
-        if shutil.which("docker") is None:
+        if config.execution_mode == "docker" and shutil.which("docker") is None:
             msg = (
                 "execution_mode is 'docker' but the 'docker' command "
                 "was not found on PATH"
             )
             raise ValueError(msg)
+
+        if not config.gh_token:
+            logger.warning(
+                "Docker mode without GH token configured; container actions may use the local gh auth context "
+                "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
+            )
+        if bool(config.git_user_name) ^ bool(config.git_user_email):
+            logger.warning(
+                "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",
+                config.git_user_name,
+                config.git_user_email,
+            )
+        elif not config.git_user_name and not config.git_user_email:
+            logger.warning(
+                "Docker mode git identity not configured; commits may use fallback host/global git identity "
+                "(set HYDRAFLOW_GIT_USER_NAME and HYDRAFLOW_GIT_USER_EMAIL, e.g. in .env)."
+            )
 
 
 def _find_repo_root() -> Path:
