@@ -45,8 +45,7 @@ describe('EventLog component', () => {
       { type: 'phase_change', timestamp: Date.now(), data: { phase: 'plan' } },
       { type: 'error', timestamp: Date.now(), data: { message: 'fail' } },
     ]
-    const { container } = render(<EventLog events={events} />)
-    const spans = container.querySelectorAll('span')
+    render(<EventLog events={events} />)
     // Should render without crashing and contain the event types
     expect(screen.getByText('phase change')).toBeInTheDocument()
     expect(screen.getByText('error')).toBeInTheDocument()
