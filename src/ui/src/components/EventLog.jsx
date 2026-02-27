@@ -40,13 +40,15 @@ export function eventSummary(type, data) {
   }
 }
 
-const ISSUE_PREFIX_PATTERN = /^#[^\s]+\s*/
+const ISSUE_PREFIX_PATTERN = /^#\d+\s*/
+const ISSUE_WORD_PREFIX_PATTERN = /^Issue #\d+\s*/
 
 export function eventMessage(type, data) {
   const summary = eventSummary(type, data)
   if (typeof summary !== 'string') return summary
-  if (!summary.startsWith('#')) return summary
-  return summary.replace(ISSUE_PREFIX_PATTERN, '')
+  if (summary.startsWith('#')) return summary.replace(ISSUE_PREFIX_PATTERN, '')
+  if (type === 'hitl_escalation' && data?.issue != null) return summary.replace(ISSUE_WORD_PREFIX_PATTERN, '')
+  return summary
 }
 
 export function EventLog({ events }) {

@@ -186,9 +186,9 @@ describe('eventMessage', () => {
     expect(eventMessage('orchestrator_status', { status: 'running' })).toBe('running')
   })
 
-  it('leaves hitl_escalation untouched', () => {
+  it('leaves pr-scoped hitl_escalation untouched; strips issue prefix from issue-scoped hitl_escalation', () => {
     expect(eventMessage('hitl_escalation', { pr: 42 })).toBe('PR #42 escalated to HITL')
-    expect(eventMessage('hitl_escalation', { issue: 99 })).toBe('Issue #99 escalated to HITL')
+    expect(eventMessage('hitl_escalation', { issue: 99 })).toBe('escalated to HITL')
   })
 
   it('drops issue prefix for hitl_update', () => {
