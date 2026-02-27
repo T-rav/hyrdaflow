@@ -807,7 +807,9 @@ class HydraFlowOrchestrator:
                         phase="implement",
                         status="success" if result.success else "failed",
                         duration_seconds=result.duration_seconds,
-                        log_file=self._log_reference(f"issue-{result.issue_number}.txt"),
+                        log_file=self._log_reference(
+                            f"issue-{result.issue_number}.txt"
+                        ),
                     )
         return did_work
 
@@ -854,7 +856,9 @@ class HydraFlowOrchestrator:
                         phase="review",
                         status=review_status,
                         duration_seconds=result.duration_seconds,
-                        log_file=self._log_reference(f"review-pr-{result.pr_number}.txt"),
+                        log_file=self._log_reference(
+                            f"review-pr-{result.pr_number}.txt"
+                        ),
                     )
             if any(r.merged for r in review_results):
                 await asyncio.sleep(_POST_MERGE_DELAY)

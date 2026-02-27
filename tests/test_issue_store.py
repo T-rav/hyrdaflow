@@ -603,7 +603,9 @@ class TestEventPublishing:
         issue = TaskFactory.create(id=101, tags=["hydraflow-find"])
         store._route_issues([issue])
 
-        before = len([e for e in event_bus.get_history() if e.type == EventType.QUEUE_UPDATE])
+        before = len(
+            [e for e in event_bus.get_history() if e.type == EventType.QUEUE_UPDATE]
+        )
         store.enqueue_transition(issue, "plan")
         await asyncio.sleep(0)
 
