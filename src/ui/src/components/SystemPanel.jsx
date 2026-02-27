@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { theme } from '../theme'
-import { BACKGROUND_WORKERS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS, UNSTICK_BATCH_OPTIONS } from '../constants'
+import { BACKGROUND_WORKERS, INTERVAL_PRESETS, PIPELINE_POLLER_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS, UNSTICK_BATCH_OPTIONS } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { Livestream } from './Livestream'
 import { PipelineControlPanel } from './PipelineControlPanel'
@@ -69,6 +69,7 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
   const isSystem = def.system === true
   const orchRunning = orchestratorStatus === 'running'
   const isEditable = EDITABLE_INTERVAL_WORKERS.has(def.key)
+  const presets = def.key === 'pipeline_poller' ? PIPELINE_POLLER_PRESETS : INTERVAL_PRESETS
 
   let dotColor, statusText, lastRun, details
 
@@ -203,7 +204,7 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
       )}
       {showIntervalEditor && isEditable && onUpdateInterval && (
         <div style={styles.intervalEditor} data-testid={`interval-editor-${def.key}`}>
-          {INTERVAL_PRESETS.map((preset) => (
+          {presets.map((preset) => (
             <button
               key={preset.seconds}
               style={state?.interval_seconds === preset.seconds ? styles.presetActive : styles.presetButton}

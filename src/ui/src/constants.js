@@ -52,6 +52,12 @@ export const INTERVAL_PRESETS = [
   { label: '4h', seconds: 14400 },
 ]
 
+export const PIPELINE_POLLER_PRESETS = [
+  { label: '5s', seconds: 5 },
+  { label: '10s', seconds: 10 },
+  { label: '15s', seconds: 15 },
+]
+
 /**
  * Workers whose interval can be edited from the UI.
  */
