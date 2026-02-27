@@ -4,12 +4,18 @@ import { PIPELINE_STAGES, PULSE_ANIMATION } from '../constants'
 import { formatDuration, STAGE_META, STAGE_KEYS } from '../hooks/useTimeline'
 import { TranscriptPreview } from './TranscriptPreview'
 
-export function StatusDot({ status }) {
+export function StatusDot({ status, stageKey }) {
   if (status === 'active') return <span style={dotStyles.active} />
   if (status === 'done') return <span style={dotStyles.done}>&#10003;</span>
   if (status === 'failed') return <span style={dotStyles.failed}>&#10007;</span>
   if (status === 'hitl') return <span style={dotStyles.hitl}>!</span>
-  if (status === 'queued') return <span style={dotStyles.queued} />
+  if (status === 'queued') {
+    const meta = stageKey ? STAGE_META[stageKey] : null
+    if (meta) {
+      return <span style={{ ...dotStyles.queued, background: meta.subtleColor, border: `1px solid ${meta.color}` }} />
+    }
+    return <span style={dotStyles.queued} />
+  }
   return <span style={dotStyles.pending} />
 }
 
@@ -32,7 +38,7 @@ function StageRow({ stageKey, stageData, isLast }) {
         : stageData.status === 'hitl'
           ? { ...stageNodeBase, background: theme.yellow, borderColor: theme.yellow }
           : stageData.status === 'queued'
-            ? { ...stageNodeBase, background: theme.yellow, borderColor: theme.yellow }
+            ? { ...stageNodeBase, background: meta.subtleColor, borderColor: meta.color }
             : { ...stageNodeBase, background: meta.color, borderColor: meta.color }
 
   const connectorColor = stageData.status !== 'pending' ? meta.color : theme.border
@@ -41,7 +47,7 @@ function StageRow({ stageKey, stageData, isLast }) {
   return (
     <div style={styles.stageRow}>
       <div style={styles.stageLeft}>
-        <div style={nodeStyle} />
+        <div style={nodeStyle} data-testid={`stage-node-${stageKey}`} />
         {!isLast && (
           <div style={{
             ...styles.connector,
@@ -53,7 +59,14 @@ function StageRow({ stageKey, stageData, isLast }) {
       </div>
       <div style={styles.stageContent}>
         <span style={styles.stageLabel}>{meta.label}</span>
-        <span style={badgeStyleMap[stageData.status] || badgeStyleMap.pending}>
+        <span
+          data-testid={`stage-badge-${stageKey}`}
+          style={
+            stageData.status === 'queued'
+              ? { ...badgeBase, background: meta.subtleColor, color: meta.color }
+              : badgeStyleMap[stageData.status] || badgeStyleMap.pending
+          }
+        >
           {stageData.status}
         </span>
         {duration && <span style={styles.duration}>{duration}</span>}
@@ -128,7 +141,7 @@ export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, t
             </span>
           )}
           {totalDuration && <span style={styles.duration}>{totalDuration}</span>}
-          <StatusDot status={issue.overallStatus} />
+          <StatusDot status={issue.overallStatus} stageKey={issue.currentStage} />
           {issue.pr && (
             <a
               style={styles.prLink}
@@ -260,7 +273,7 @@ export const dotStyles = {
     width: 8,
     height: 8,
     borderRadius: '50%',
-    background: theme.yellow,
+    background: theme.border,
   },
   pending: {
     display: 'inline-block',

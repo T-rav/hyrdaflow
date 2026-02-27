@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { StreamCard, StatusDot, dotStyles, badgeStyleMap } from '../StreamCard'
 import { theme } from '../../theme'
-import { STAGE_KEYS } from '../../hooks/useTimeline'
+import { STAGE_KEYS, STAGE_META } from '../../hooks/useTimeline'
 
 function makeIssue(overrides = {}) {
   const stages = {}
@@ -49,11 +49,19 @@ describe('StatusDot component', () => {
     expect(container.textContent).toBe('!')
   })
 
-  it('renders a static yellow dot for queued status', () => {
+  it('uses the stage subtle color for queued status when stageKey is provided', () => {
+    const { container } = render(<StatusDot status="queued" stageKey="plan" />)
+    const el = container.firstChild
+    expect(el.tagName).toBe('SPAN')
+    expect(el.style.background).toBe(STAGE_META.plan.subtleColor)
+    expect(el.style.animation).toBe('')
+  })
+
+  it('falls back to the neutral queued style when no stageKey is provided', () => {
     const { container } = render(<StatusDot status="queued" />)
     const el = container.firstChild
     expect(el.tagName).toBe('SPAN')
-    expect(el.style.background).toBe(theme.yellow)
+    expect(el.style.background).toBe(theme.border)
     expect(el.style.animation).toBe('')
   })
 
@@ -95,8 +103,8 @@ describe('dotStyles', () => {
     expect(dotStyles.active.animation).toContain('stream-pulse')
   })
 
-  it('queued style has yellow background and no animation', () => {
-    expect(dotStyles.queued.background).toBe(theme.yellow)
+  it('queued style falls back to neutral background and has no animation', () => {
+    expect(dotStyles.queued.background).toBe(theme.border)
     expect(dotStyles.queued).not.toHaveProperty('animation')
   })
 
@@ -117,6 +125,22 @@ describe('badgeStyleMap', () => {
   it('queued badge uses yellow theme colors', () => {
     expect(badgeStyleMap.queued.background).toBe(theme.yellowSubtle)
     expect(badgeStyleMap.queued.color).toBe(theme.yellow)
+  })
+})
+
+describe('StageRow queued presentation', () => {
+  it('uses stage-specific subtle colors for queued nodes and badges', () => {
+    const issue = makeIssue({ overallStatus: 'queued', currentStage: 'plan' })
+    issue.stages.plan = { ...issue.stages.plan, status: 'queued' }
+
+    const { getByTestId } = render(<StreamCard issue={issue} defaultExpanded />)
+    const node = getByTestId('stage-node-plan')
+    const badge = getByTestId('stage-badge-plan')
+
+    expect(node.style.background).toBe(STAGE_META.plan.subtleColor)
+    expect(node.style.borderColor).toBe(STAGE_META.plan.color)
+    expect(badge.style.background).toBe(STAGE_META.plan.subtleColor)
+    expect(badge.style.color).toBe(STAGE_META.plan.color)
   })
 })
 
@@ -485,4 +509,3 @@ describe('StreamCard transcript rendering', () => {
     expect(screen.queryByText('View Transcript')).not.toBeInTheDocument()
   })
 })
-
