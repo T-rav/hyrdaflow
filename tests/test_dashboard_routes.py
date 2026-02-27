@@ -14,6 +14,13 @@ from events import EventBus, EventType, HydraFlowEvent
 from models import HITLItem, SessionStatus
 
 
+@pytest.fixture(autouse=True)
+def _disable_hitl_summary_autowarm(config) -> None:
+    """Keep route tests deterministic unless a test explicitly opts in."""
+    config.transcript_summarization_enabled = False
+    config.gh_token = ""
+
+
 class TestCreateRouter:
     """Tests for create_router factory function."""
 
