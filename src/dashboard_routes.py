@@ -199,8 +199,8 @@ def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]
 
 def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
     """Return True for the expected local-dev supervisor-down condition."""
-    text = str(exc).lower()
-    return "hf supervisor is not running" in text
+    text = str(exc).strip().lower()
+    return text.startswith("hf supervisor is not running.")
 
 
 def create_router(
