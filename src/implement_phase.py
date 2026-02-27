@@ -333,6 +333,33 @@ class ImplementPhase:
                     gh_issue = GitHubIssue.from_task(issue)
                     pr = await self._prs.create_pr(gh_issue, result.branch, draft=draft)
                     result.pr_info = pr
+                else:
+                    pr = await self._prs.find_open_pr_for_branch(
+                        result.branch, issue_number=issue.id
+                    )
+                    result.pr_info = pr
+
+                if result.success and (pr is None or pr.number <= 0):
+                    has_diff = await self._prs.branch_has_diff_from_main(result.branch)
+                    if not has_diff:
+                        await self._close_as_already_satisfied(issue)
+                        self._state.mark_issue(issue.id, "already_satisfied")
+                        return result
+                    logger.warning(
+                        "Implementation succeeded for issue #%d but no open PR exists for branch %s",
+                        issue.id,
+                        result.branch,
+                    )
+                    await self._transitioner.post_comment(
+                        issue.id,
+                        "PR creation/recovery failed after successful implementation. "
+                        "Keeping issue in ready queue for retry.",
+                    )
+                    self._state.mark_issue(issue.id, "failed")
+                    result.success = False
+                    if not result.error:
+                        result.error = "PR creation failed"
+                    return result
 
                 if result.success:
                     await self._transitioner.transition(

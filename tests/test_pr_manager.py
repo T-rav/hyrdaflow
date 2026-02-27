@@ -17,7 +17,7 @@ import pytest
 from events import EventType
 from models import ReviewVerdict
 from pr_manager import PRManager
-from tests.conftest import SubprocessMockBuilder
+from tests.conftest import PRInfoFactory, SubprocessMockBuilder
 from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -796,6 +796,52 @@ async def test_create_pr_failure_returns_pr_info_with_number_zero(
     assert pr_info.number == 0
     assert pr_info.issue_number == issue.number
     assert pr_info.branch == "agent/issue-42"
+
+
+@pytest.mark.asyncio
+async def test_create_pr_failure_recovers_existing_open_pr(config, event_bus, issue):
+    manager = _make_manager(config, event_bus)
+    manager.find_open_pr_for_branch = AsyncMock(
+        return_value=PRInfoFactory.create(
+            number=222,
+            issue_number=issue.number,
+            branch="agent/issue-42",
+            url="https://github.com/test-org/test-repo/pull/222",
+        )
+    )
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+    )
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        pr_info = await manager.create_pr(issue, "agent/issue-42")
+
+    assert pr_info.number == 222
+    manager.find_open_pr_for_branch.assert_awaited_once_with(
+        "agent/issue-42", issue_number=issue.number
+    )
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_false_when_not_ahead(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":0}').build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is False
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_true_when_ahead(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":3}').build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is True
 
 
 @pytest.mark.asyncio

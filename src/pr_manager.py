@@ -272,12 +272,87 @@ class PRManager:
 
         except (RuntimeError, ValueError) as exc:
             logger.error("PR creation failed for issue #%d: %s", issue.number, exc)
+            existing = await self.find_open_pr_for_branch(
+                branch, issue_number=issue.number
+            )
+            if existing is not None:
+                logger.info(
+                    "Using existing PR #%d for issue #%d on branch %s after create failure",
+                    existing.number,
+                    issue.number,
+                    branch,
+                )
+                return existing
             return PRInfo(
                 number=0,
                 issue_number=issue.number,
                 branch=branch,
                 draft=draft,
             )
+
+    async def find_open_pr_for_branch(
+        self, branch: str, *, issue_number: int = 0
+    ) -> PRInfo | None:
+        """Return the open PR for *branch*, or ``None`` when absent/unreadable."""
+        if self._config.dry_run:
+            return None
+        head_filter = f"{self._repo_owner}:{branch}" if self._repo_owner else branch
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/pulls",
+                "--method",
+                "GET",
+                "--field",
+                "state=open",
+                "--field",
+                f"head={head_filter}",
+                "--field",
+                "per_page=1",
+                "--jq",
+                "[.[] | {number, url: .html_url, isDraft: .draft}]",
+            )
+            prs = json.loads(raw)
+            if not prs:
+                return None
+            pr_data = prs[0]
+            return PRInfo(
+                number=int(pr_data["number"]),
+                issue_number=issue_number,
+                branch=branch,
+                url=str(pr_data.get("url", "")),
+                draft=bool(pr_data.get("isDraft", False)),
+            )
+        except (RuntimeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            logger.debug(
+                "Could not resolve open PR for branch %s", branch, exc_info=True
+            )
+            return None
+
+    async def branch_has_diff_from_main(self, branch: str) -> bool:
+        """Return whether *branch* has commits ahead of configured main branch."""
+        if self._config.dry_run:
+            return True
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/compare/{self._config.main_branch}...{branch}",
+                "--jq",
+                "{ahead_by}",
+            )
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                ahead_by = int(data.get("ahead_by", 0) or 0)
+                return ahead_by > 0
+        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError):
+            logger.warning(
+                "Could not determine branch diff for %s; assuming diff exists",
+                branch,
+                exc_info=True,
+            )
+        return True
 
     async def merge_pr(self, pr_number: int) -> bool:
         """Merge PR immediately via squash merge with branch deletion.

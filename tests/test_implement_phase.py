@@ -92,6 +92,8 @@ def _make_phase(
         if create_pr_return is not None
         else PRInfoFactory.create()
     )
+    mock_prs.find_open_pr_for_branch = AsyncMock(return_value=PRInfoFactory.create())
+    mock_prs.branch_has_diff_from_main = AsyncMock(return_value=True)
     mock_prs.add_labels = AsyncMock()
     mock_prs.remove_label = AsyncMock()
     mock_prs.swap_pipeline_labels = AsyncMock()
@@ -849,8 +851,9 @@ class TestReviewFeedbackPassing:
         mock_prs.create_pr.assert_not_awaited()
         # But result should still be successful
         assert results[0].success is True
-        # pr_info should be None since PR creation was skipped
-        assert results[0].pr_info is None
+        # Existing PR should be recovered from branch lookup
+        assert results[0].pr_info is not None
+        assert results[0].pr_info.number == 101
 
     @pytest.mark.asyncio
     async def test_creates_pr_on_first_run(self, config: HydraFlowConfig) -> None:
@@ -1563,7 +1566,62 @@ class TestHandleImplementationResult:
         returned = await phase._handle_implementation_result(issue, result, True)
 
         mock_prs.create_pr.assert_not_awaited()
-        assert returned.pr_info is None
+        assert returned.pr_info is not None
+        assert returned.pr_info.number == 101
+        mock_prs.transition.assert_awaited_once_with(42, "review", pr_number=101)
+
+    @pytest.mark.asyncio
+    async def test_success_without_pr_and_no_branch_diff_closes_issue(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """No PR + no branch diff should close issue as already satisfied."""
+        issue = TaskFactory.create()
+        result = WorkerResultFactory.create(
+            issue_number=42,
+            success=True,
+            worktree_path=str(config.worktree_base / "issue-42"),
+        )
+
+        phase, _, mock_prs = _make_phase(
+            config, [issue], create_pr_return=PRInfoFactory.create(number=0)
+        )
+        mock_prs.find_open_pr_for_branch.return_value = None
+        mock_prs.branch_has_diff_from_main.return_value = False
+
+        returned = await phase._handle_implementation_result(issue, result, False)
+
+        assert returned.success is True
+        assert (
+            phase._state.to_dict()["processed_issues"].get(str(42))
+            == "already_satisfied"
+        )
+        mock_prs.transition.assert_not_awaited()
+        mock_prs.close_task.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_success_without_pr_and_with_diff_stays_ready_as_failed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """No PR + branch diff should avoid review transition and mark failed."""
+        issue = TaskFactory.create()
+        result = WorkerResultFactory.create(
+            issue_number=42,
+            success=True,
+            worktree_path=str(config.worktree_base / "issue-42"),
+        )
+
+        phase, _, mock_prs = _make_phase(
+            config, [issue], create_pr_return=PRInfoFactory.create(number=0)
+        )
+        mock_prs.find_open_pr_for_branch.return_value = None
+        mock_prs.branch_has_diff_from_main.return_value = True
+
+        returned = await phase._handle_implementation_result(issue, result, False)
+
+        assert returned.success is False
+        assert returned.error == "PR creation failed"
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
+        mock_prs.transition.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_failure_marks_issue_failed(self, config: HydraFlowConfig) -> None:
