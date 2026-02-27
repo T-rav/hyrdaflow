@@ -143,14 +143,14 @@ export function MetricsPanel() {
 
   if (!hasGithub && !hasSession && !hasLifetime && !current) {
     return (
-      <div style={styles.container}>
+      <div style={styles.container} data-testid="metrics-panel-root">
         <div style={styles.empty}>No metrics data available yet.</div>
       </div>
     )
   }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} data-testid="metrics-panel-root">
       <h3 style={styles.heading}>Lifetime</h3>
       <div style={styles.row}>
         <StatCard

@@ -60,6 +60,28 @@ describe('SystemPanel', () => {
       fireEvent.click(screen.getByText('Metrics'))
       expect(screen.getByText('Lifetime')).toBeInTheDocument()
     })
+
+    it('mounts MetricsPanel as the direct scroll container (empty state)', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext())
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      fireEvent.click(screen.getByText('Metrics'))
+      const subTabContent = screen.getByTestId('system-subtab-content')
+      const metricsPanel = screen.getByTestId('metrics-panel-root')
+      expect(metricsPanel.parentElement).toBe(subTabContent)
+      expect(metricsPanel.style.overflowY).toBe('auto')
+    })
+
+    it('mounts MetricsPanel as the direct scroll container (populated state)', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        githubMetrics: { total_closed: 10, total_merged: 8, open_by_label: {} },
+      }))
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      fireEvent.click(screen.getByText('Metrics'))
+      const subTabContent = screen.getByTestId('system-subtab-content')
+      const metricsPanel = screen.getByTestId('metrics-panel-root')
+      expect(metricsPanel.parentElement).toBe(subTabContent)
+      expect(metricsPanel.style.overflowY).toBe('auto')
+    })
   })
 
   describe('Background Workers', () => {
