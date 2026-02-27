@@ -542,7 +542,7 @@ class ReviewPhase:
             pr_number=pr.number,
             stage=PipelineStage.REVIEW,
         )
-        cause = f"CI failed after {ci_fix_attempts} fix attempt(s)"
+        cause = f"CI failed after {ci_fix_attempts} fix attempt(s): {logs[:200]}"
         await self._escalate_to_hitl(
             issue.id,
             pr.number,

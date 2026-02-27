@@ -97,6 +97,18 @@ class TestCauseClassification:
         assert _classify_cause("merge conflict") == FailureCause.MERGE_CONFLICT
         assert _classify_cause("Has CONFLICT markers") == FailureCause.MERGE_CONFLICT
 
+    def test_classify_cause_ci_timeout(self) -> None:
+        assert _classify_cause("Timeout after 600s") == FailureCause.CI_TIMEOUT
+        assert (
+            _classify_cause("timed out waiting for checks") == FailureCause.CI_TIMEOUT
+        )
+
+    def test_timeout_takes_priority_over_ci_failure(self) -> None:
+        # Cause strings like "CI failed after 2 fix attempt(s): Timeout after 600s"
+        # contain both "ci fail" and "timeout" — timeout should win.
+        cause = "CI failed after 2 fix attempt(s): Timeout after 600s"
+        assert _classify_cause(cause) == FailureCause.CI_TIMEOUT
+
     def test_classify_cause_ci_failure_returns_ci_failure(self) -> None:
         assert (
             _classify_cause("CI failed after 2 fix attempts") == FailureCause.CI_FAILURE
@@ -978,3 +990,202 @@ class TestMemorySuggestionExtraction:
                 unsticker._prs,
                 unsticker._state,
             )
+
+
+class TestCITimeoutResolution:
+    """Tests for CI_TIMEOUT cause type and test-isolation fix strategy."""
+
+    @pytest.mark.asyncio
+    async def test_ci_timeout_runs_isolation_then_agent(self, tmp_path: Path) -> None:
+        """Full flow: isolation mock -> agent capture -> verify prompt content."""
+        issue = GitHubIssue(
+            number=42,
+            title="Fix hanging test",
+            body="body",
+            labels=["hydraflow-hitl"],
+            url="https://github.com/test-org/test-repo/issues/42",
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_all_causes=True, unstick_auto_merge=False
+        )
+        state.set_hitl_cause(42, "CI failed after 2 fix attempt(s): Timeout after 600s")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.start_merge_main = AsyncMock(return_value=True)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+
+        # Mock run_simple for test isolation — simulate timeout
+        agents._runner = MagicMock()
+        agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
+
+        captured_prompt = None
+        original_execute = AsyncMock(return_value="fixed transcript")
+
+        async def capture_execute(cmd, prompt, wt_arg, issue_meta, **kwargs):
+            nonlocal captured_prompt
+            captured_prompt = prompt
+            return await original_execute(cmd, prompt, wt_arg, issue_meta, **kwargs)
+
+        agents._build_command = MagicMock(return_value=["claude", "-p"])
+        agents._execute = capture_execute
+        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+
+        prs.push_branch = AsyncMock(return_value=True)
+
+        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
+
+        stats = await unsticker.unstick(
+            [_make_hitl_item(42, prUrl="https://github.com/test-org/test-repo/pull/42")]
+        )
+
+        assert stats["resolved"] == 1
+        assert captured_prompt is not None
+        # Prompt should mention timeout/hanging
+        assert (
+            "hanging" in captured_prompt.lower() or "timeout" in captured_prompt.lower()
+        )
+        assert "AsyncMock" in captured_prompt
+
+    @pytest.mark.asyncio
+    async def test_ci_timeout_prompt_contains_isolation_guidance(
+        self, tmp_path: Path
+    ) -> None:
+        """The prompt should contain isolation output and common hang causes."""
+        issue = GitHubIssue(
+            number=42,
+            title="Fix CI",
+            body="body",
+            labels=[],
+            url="https://github.com/test-org/test-repo/issues/42",
+        )
+        unsticker, state, *_ = _make_unsticker(tmp_path)
+        state.set_hitl_cause(42, "CI failed: Timeout after 600s")
+
+        isolation_output = "pytest timed out after 120s — a test is hanging."
+        prompt, stats = unsticker._build_ci_timeout_fix_prompt(
+            issue,
+            "https://github.com/test-org/test-repo/pull/42",
+            "CI failed: Timeout after 600s",
+            isolation_output,
+        )
+
+        assert "AsyncMock" in prompt
+        assert "hanging" in prompt.lower()
+        assert "120s" in prompt
+        assert "timed out" in prompt
+        assert "make quality" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_ci_timeout_isolation_failure_still_runs_agent(
+        self, tmp_path: Path
+    ) -> None:
+        """When test isolation errors out, the agent should still run with fallback info."""
+        issue = GitHubIssue(
+            number=42,
+            title="Fix CI",
+            body="body",
+            labels=["hydraflow-hitl"],
+            url="https://github.com/test-org/test-repo/issues/42",
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_all_causes=True, unstick_auto_merge=False
+        )
+        state.set_hitl_cause(42, "CI failed after 1 fix attempt(s): Timeout after 600s")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.start_merge_main = AsyncMock(return_value=True)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+
+        # Mock run_simple to raise a generic error (not TimeoutError)
+        agents._runner = MagicMock()
+        agents._runner.run_simple = AsyncMock(
+            side_effect=FileNotFoundError("pytest not found")
+        )
+
+        captured_prompt = None
+
+        async def capture_execute(cmd, prompt, wt_arg, issue_meta, **kwargs):
+            nonlocal captured_prompt
+            captured_prompt = prompt
+            return "transcript"
+
+        agents._build_command = MagicMock(return_value=["claude", "-p"])
+        agents._execute = capture_execute
+        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        prs.push_branch = AsyncMock(return_value=True)
+
+        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
+
+        stats = await unsticker.unstick(
+            [_make_hitl_item(42, prUrl="https://github.com/test-org/test-repo/pull/42")]
+        )
+
+        assert stats["resolved"] == 1
+        assert captured_prompt is not None
+        # Fallback message should be in the prompt
+        assert "isolation failed" in captured_prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_ci_timeout_exhausts_max_attempts(self, tmp_path: Path) -> None:
+        """After max_ci_timeout_fix_attempts failures, returns False."""
+        issue = GitHubIssue(
+            number=42,
+            title="Fix CI",
+            body="body",
+            labels=["hydraflow-hitl"],
+            url="https://github.com/test-org/test-repo/issues/42",
+        )
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path,
+            unstick_all_causes=True,
+            unstick_auto_merge=False,
+            max_ci_timeout_fix_attempts=2,
+        )
+        state.set_hitl_cause(42, "CI failed after 2 fix attempt(s): Timeout after 600s")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.start_merge_main = AsyncMock(return_value=True)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+
+        # Mock isolation
+        agents._runner = MagicMock()
+        agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
+
+        agents._build_command = MagicMock(return_value=["claude", "-p"])
+        agents._execute = AsyncMock(return_value="transcript")
+        # Verification always fails
+        agents._verify_result = AsyncMock(return_value=(False, "tests still hang"))
+        prs.push_branch = AsyncMock(return_value=True)
+
+        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+        (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
+
+        stats = await unsticker.unstick(
+            [_make_hitl_item(42, prUrl="https://github.com/test-org/test-repo/pull/42")]
+        )
+
+        assert stats["failed"] == 1
+        assert stats["resolved"] == 0
+        # Agent should have been called max_ci_timeout_fix_attempts times
+        assert agents._execute.await_count == 2
+
+    def test_ci_timeout_priority_ordering(self) -> None:
+        """CI_TIMEOUT should sort before CI_FAILURE in priority."""
+        from pr_unsticker import _CAUSE_PRIORITY
+
+        assert (
+            _CAUSE_PRIORITY[FailureCause.CI_TIMEOUT]
+            < _CAUSE_PRIORITY[FailureCause.CI_FAILURE]
+        )
+        assert (
+            _CAUSE_PRIORITY[FailureCause.MERGE_CONFLICT]
+            < _CAUSE_PRIORITY[FailureCause.CI_TIMEOUT]
+        )

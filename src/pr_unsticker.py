@@ -39,6 +39,9 @@ _CI_FAILURE_KEYWORDS = (
     "type",
 )
 
+# Keywords for CI timeout (checked before CI failure since cause may contain both)
+_CI_TIMEOUT_KEYWORDS = ("timeout", "timed out")
+
 # Keywords for review fix cap exceeded
 _REVIEW_CAP_KEYWORDS = ("review fix", "fix attempt", "fix cap", "review cap")
 _MAX_UNSTICKER_CAUSE_CHARS = 3000
@@ -48,6 +51,7 @@ class FailureCause(StrEnum):
     """Classification of HITL escalation causes."""
 
     MERGE_CONFLICT = "merge_conflict"
+    CI_TIMEOUT = "ci_timeout"
     CI_FAILURE = "ci_failure"
     REVIEW_FIX_CAP = "review_fix_cap"
     GENERIC = "generic"
@@ -56,9 +60,10 @@ class FailureCause(StrEnum):
 # Priority order: lower index = processed first
 _CAUSE_PRIORITY = {
     FailureCause.MERGE_CONFLICT: 0,
-    FailureCause.CI_FAILURE: 1,
-    FailureCause.REVIEW_FIX_CAP: 2,
-    FailureCause.GENERIC: 3,
+    FailureCause.CI_TIMEOUT: 1,
+    FailureCause.CI_FAILURE: 2,
+    FailureCause.REVIEW_FIX_CAP: 3,
+    FailureCause.GENERIC: 4,
 }
 
 
@@ -67,6 +72,10 @@ def _classify_cause(cause: str) -> FailureCause:
     lower = cause.lower()
     if any(kw in lower for kw in _MERGE_CONFLICT_KEYWORDS):
         return FailureCause.MERGE_CONFLICT
+    # Check timeout before CI failure — cause like "CI failed...: Timeout..."
+    # contains both "ci fail" and "timeout" keywords.
+    if any(kw in lower for kw in _CI_TIMEOUT_KEYWORDS):
+        return FailureCause.CI_TIMEOUT
     if any(kw in lower for kw in _CI_FAILURE_KEYWORDS):
         return FailureCause.CI_FAILURE
     if any(kw in lower for kw in _REVIEW_CAP_KEYWORDS):
@@ -347,6 +356,11 @@ class PRUnsticker:
             return await self._resolver.resolve_merge_conflicts(
                 pr, issue.to_task(), wt_path, worker_id=None, source="pr_unsticker"
             )
+        if cause == FailureCause.CI_TIMEOUT:
+            success = await self._resolve_ci_timeout(
+                issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
+            )
+            return ConflictResolutionResult(success=success, used_rebuild=False)
         if cause in (FailureCause.CI_FAILURE, FailureCause.REVIEW_FIX_CAP):
             success = await self._resolve_ci_or_quality(
                 issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
@@ -485,6 +499,168 @@ PR URL: {pr_url}
             section_chars={
                 "cause_before": cause_before,
                 "cause_after": cause_after,
+            },
+        )
+        return prompt, stats
+
+    async def _resolve_ci_timeout(
+        self,
+        issue_number: int,
+        issue: GitHubIssue,
+        wt_path: Path,
+        branch: str,
+        pr_url: str,
+        pr_number: int = 0,
+    ) -> bool:
+        """Rebase on main, isolate the hanging test, and run agent to fix it.
+
+        Retries up to ``max_ci_timeout_fix_attempts`` times before giving up.
+        """
+        max_attempts = self._config.max_ci_timeout_fix_attempts
+
+        for attempt in range(1, max_attempts + 1):
+            # Rebase on main
+            clean = await self._worktrees.start_merge_main(wt_path, branch)
+            if not clean:
+                await self._worktrees.abort_merge(wt_path)
+
+            # Isolate which test hangs
+            isolation_output = await self._isolate_hanging_tests(wt_path)
+
+            cause_str = self._state.get_hitl_cause(issue_number) or ""
+            prompt, prompt_stats = self._build_ci_timeout_fix_prompt(
+                issue, pr_url, cause_str, isolation_output
+            )
+
+            try:
+                cmd = self._agents._build_command(wt_path)
+                transcript = await self._agents._execute(
+                    cmd,
+                    prompt,
+                    wt_path,
+                    {"issue": issue_number, "source": "pr_unsticker"},
+                    telemetry_stats=prompt_stats,
+                )
+                if self._resolver is not None:
+                    self._resolver.save_conflict_transcript(
+                        pr_number, issue_number, attempt, transcript, source="unsticker"
+                    )
+
+                await safe_file_memory_suggestion(
+                    transcript,
+                    "pr_unsticker",
+                    f"issue #{issue_number}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
+
+                success, error_msg = await self._agents._verify_result(wt_path, branch)
+                if success:
+                    return True
+
+                logger.warning(
+                    "CI timeout fix attempt %d/%d failed for issue #%d: %s",
+                    attempt,
+                    max_attempts,
+                    issue_number,
+                    error_msg[:200] if error_msg else "",
+                )
+            except Exception as exc:
+                logger.error(
+                    "Unsticker CI timeout agent failed for issue #%d (attempt %d): %s",
+                    issue_number,
+                    attempt,
+                    exc,
+                )
+
+        return False
+
+    async def _isolate_hanging_tests(self, wt_path: Path) -> str:
+        """Run pytest with a short subprocess timeout to identify hanging tests.
+
+        Returns a string describing which test was running when the timeout hit,
+        or an error message if isolation itself failed.
+        """
+        try:
+            result = await self._agents._runner.run_simple(
+                ["python", "-m", "pytest", "-x", "--tb=line", "-q"],
+                cwd=str(wt_path),
+                timeout=120.0,
+            )
+            # If pytest completed within the timeout, it didn't hang — return output
+            return (
+                f"pytest completed (rc={result.returncode}):\n{result.stdout[-2000:]}"
+            )
+        except TimeoutError:
+            return (
+                "pytest timed out after 120s — a test is hanging. "
+                "The last test being collected/run was likely the culprit."
+            )
+        except Exception as exc:
+            return f"Test isolation failed: {exc}"
+
+    def _build_ci_timeout_fix_prompt(
+        self,
+        issue: GitHubIssue,
+        pr_url: str,
+        cause: str,
+        isolation_output: str,
+    ) -> tuple[str, dict[str, object]]:
+        """Build a targeted prompt for fixing hanging tests."""
+        cause_text, cause_before, cause_after = truncate_with_notice(
+            cause or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Escalation reason"
+        )
+        isolation_text, iso_before, iso_after = truncate_with_notice(
+            isolation_output or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Test isolation"
+        )
+        prompt = f"""You are fixing a CI timeout caused by hanging tests in a pull request.
+
+## Issue: {issue.title}
+Issue URL: {issue.url}
+PR URL: {pr_url}
+
+## Escalation Reason
+
+{cause_text}
+
+## Test Isolation Output
+
+{isolation_text}
+
+## Common Causes of Hanging Tests
+
+1. **Truthy AsyncMock**: `AsyncMock()` without `return_value` returns a truthy MagicMock, \
+causing `while await work_fn()` loops to spin forever. Fix: set `return_value=0` or a falsy value.
+2. **Missing event.set()**: Tests that wait on `asyncio.Event` objects that never get set.
+3. **Infinite loops**: Code that loops without a break condition being met.
+4. **Deadlocks**: Multiple async tasks waiting on each other.
+5. **Unresolved futures**: `await` on futures/tasks that never complete.
+
+## Instructions
+
+1. Identify which test is hanging from the isolation output above.
+2. Read the hanging test and the code it exercises.
+3. Fix the **root cause** — do NOT mask the problem with timeouts or pytest-timeout markers.
+4. Run `make quality` to verify all tests pass and no new issues are introduced.
+5. Commit fixes with a descriptive message.
+
+## Rules
+
+- Follow the project's CLAUDE.md guidelines strictly.
+- Write tests for all new code — tests are mandatory.
+- Do NOT push to remote. Do NOT create pull requests.
+- Do NOT run `git push` or `gh pr create`.
+- Ensure `make quality` passes before committing.
+"""
+        stats = build_prompt_stats(
+            history_before=cause_before + iso_before,
+            history_after=cause_after + iso_after,
+            section_chars={
+                "cause_before": cause_before,
+                "cause_after": cause_after,
+                "isolation_before": iso_before,
+                "isolation_after": iso_after,
             },
         )
         return prompt, stats

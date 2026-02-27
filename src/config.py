@@ -32,6 +32,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
     ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
     ("max_merge_conflict_fix_attempts", "HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", 3),
+    ("max_ci_timeout_fix_attempts", "HYDRAFLOW_MAX_CI_TIMEOUT_FIX_ATTEMPTS", 2),
     ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 300),
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
     ("manifest_refresh_interval", "HYDRAFLOW_MANIFEST_REFRESH_INTERVAL", 3600),
@@ -247,6 +248,12 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=5,
         description="Max merge conflict resolution retry cycles",
+    )
+    max_ci_timeout_fix_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        description="Max fix attempts for CI timeout (hanging test) failures",
     )
     max_issue_attempts: int = Field(
         default=3,
