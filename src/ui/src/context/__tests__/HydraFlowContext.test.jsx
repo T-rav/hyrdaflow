@@ -13,7 +13,6 @@ const emptyPipeline = {
 
 const initialState = {
   connected: false,
-  batchNum: 0,
   phase: 'idle',
   orchestratorStatus: 'idle',
   workers: {},
@@ -805,7 +804,7 @@ describe('SESSION_RESET reducer', () => {
       orchestratorStatus: 'running',
       lifetimeStats: { issues_completed: 10, prs_merged: 5 },
       config: { repo: 'test/repo' },
-      events: [{ type: 'batch_start', timestamp: '2026-01-01' }],
+      events: [{ type: 'phase_change', timestamp: '2026-01-01' }],
       backgroundWorkers: [{ name: 'triage', status: 'ok', enabled: true }],
       metrics: { lifetime: { issues_completed: 10 } },
       githubMetrics: { open_by_label: {}, total_closed: 5, total_merged: 3 },

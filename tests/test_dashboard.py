@@ -371,7 +371,7 @@ class TestEventsRoute:
 
         async def publish() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
 
         asyncio.run(publish())
@@ -381,7 +381,7 @@ class TestEventsRoute:
         body = response.json()
 
         assert len(body) == 1
-        assert body[0]["type"] == EventType.BATCH_START.value
+        assert body[0]["type"] == EventType.PHASE_CHANGE.value
 
 
 # ---------------------------------------------------------------------------
@@ -1174,7 +1174,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
             await event_bus.publish(
                 EventFactory.create(
@@ -1192,8 +1192,8 @@ class TestWebSocketEndpoint:
             msg1 = json.loads(ws.receive_text())
             msg2 = json.loads(ws.receive_text())
 
-        assert msg1["type"] == "batch_start"
-        assert msg1["data"]["batch"] == 1
+        assert msg1["type"] == "phase_change"
+        assert msg1["data"]["phase"] == "plan"
         assert msg2["type"] == "phase_change"
         assert msg2["data"]["phase"] == "implement"
 
@@ -1269,7 +1269,7 @@ class TestWebSocketEndpoint:
 
         from dashboard import HydraFlowDashboard
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
 
         original_subscribe = event_bus.subscribe
 
@@ -1299,7 +1299,7 @@ class TestWebSocketEndpoint:
 
         from dashboard import HydraFlowDashboard
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
 
         original_subscribe = event_bus.subscribe
 
@@ -1338,7 +1338,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
             await event_bus.publish(
                 EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
@@ -1373,7 +1373,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"step": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 1})
             )
             await event_bus.publish(
                 EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 2})
@@ -1391,7 +1391,7 @@ class TestWebSocketEndpoint:
         with client.websocket_connect("/ws") as ws:
             msgs = [json.loads(ws.receive_text()) for _ in range(3)]
 
-        assert msgs[0]["type"] == "batch_start"
+        assert msgs[0]["type"] == "phase_change"
         assert msgs[1]["type"] == "phase_change"
         assert msgs[2]["type"] == "worker_update"
         assert msgs[0]["data"]["step"] == 1
@@ -2182,7 +2182,7 @@ class TestWebSocketErrorLogging:
         # Publish an event so history is non-empty
         async def publish() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"batch": 1})
             )
 
         asyncio.run(publish())
@@ -2218,7 +2218,7 @@ class TestWebSocketErrorLogging:
         client = TestClient(app)
 
         # Pre-populate a queue with one event so queue.get() returns immediately
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
         pre_populated_queue: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         pre_populated_queue.put_nowait(event)
 

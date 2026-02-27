@@ -442,12 +442,12 @@ describe('useHydraFlowSocket reducer', () => {
   describe('BACKFILL_EVENTS', () => {
     it('merges new events without duplicating existing', () => {
       const existing = [
-        { type: 'batch_start', timestamp: '2024-01-01T00:00:02Z', data: { batch: 2 } },
-        { type: 'batch_start', timestamp: '2024-01-01T00:00:01Z', data: { batch: 1 } },
+        { type: 'phase_change', timestamp: '2024-01-01T00:00:02Z', data: { phase: 'plan' } },
+        { type: 'phase_change', timestamp: '2024-01-01T00:00:01Z', data: { phase: 'plan' } },
       ]
       const state = { ...initialState, events: existing }
       const backfill = [
-        { type: 'batch_start', timestamp: '2024-01-01T00:00:01Z', data: { batch: 1 } },
+        { type: 'phase_change', timestamp: '2024-01-01T00:00:01Z', data: { phase: 'plan' } },
         { type: 'phase_change', timestamp: '2024-01-01T00:00:00Z', data: { phase: 'plan' } },
       ]
       const next = reducer(state, { type: 'BACKFILL_EVENTS', data: backfill })
@@ -458,18 +458,18 @@ describe('useHydraFlowSocket reducer', () => {
 
     it('populates empty state', () => {
       const backfill = [
-        { type: 'batch_start', timestamp: '2024-01-01T00:00:01Z', data: { batch: 1 } },
+        { type: 'phase_change', timestamp: '2024-01-01T00:00:01Z', data: { phase: 'plan' } },
       ]
       const next = reducer(initialState, { type: 'BACKFILL_EVENTS', data: backfill })
       expect(next.events).toHaveLength(1)
-      expect(next.events[0].type).toBe('batch_start')
+      expect(next.events[0].type).toBe('phase_change')
     })
 
     it('with empty data is a no-op', () => {
       const state = {
         ...initialState,
         events: [
-          { type: 'batch_start', timestamp: '2024-01-01T00:00:01Z', data: {} },
+          { type: 'phase_change', timestamp: '2024-01-01T00:00:01Z', data: {} },
         ],
       }
       const next = reducer(state, { type: 'BACKFILL_EVENTS', data: [] })
@@ -494,8 +494,8 @@ describe('useHydraFlowSocket reducer', () => {
 
     it('sorts merged events newest-first', () => {
       const existing = [
-        { type: 'batch_start', timestamp: '2024-01-01T00:00:03Z', data: {} },
-        { type: 'batch_start', timestamp: '2024-01-01T00:00:01Z', data: {} },
+        { type: 'phase_change', timestamp: '2024-01-01T00:00:03Z', data: {} },
+        { type: 'phase_change', timestamp: '2024-01-01T00:00:01Z', data: {} },
       ]
       const backfill = [
         { type: 'phase_change', timestamp: '2024-01-01T00:00:04Z', data: {} },

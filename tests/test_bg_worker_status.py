@@ -27,14 +27,8 @@ class TestEventTypes:
     def test_memory_sync_event_type(self) -> None:
         assert EventType.MEMORY_SYNC == "memory_sync"
 
-    def test_retrospective_event_type(self) -> None:
-        assert EventType.RETROSPECTIVE == "retrospective"
-
     def test_metrics_update_event_type(self) -> None:
         assert EventType.METRICS_UPDATE == "metrics_update"
-
-    def test_review_insight_event_type(self) -> None:
-        assert EventType.REVIEW_INSIGHT == "review_insight"
 
     def test_background_worker_status_event_type(self) -> None:
         assert EventType.BACKGROUND_WORKER_STATUS == "background_worker_status"

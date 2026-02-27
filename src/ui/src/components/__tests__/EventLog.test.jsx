@@ -42,13 +42,12 @@ describe('EventLog component', () => {
 
   it('renders events and applies pre-computed styles', () => {
     const events = [
-      { type: 'batch_start', timestamp: Date.now(), data: { batch: 1 } },
+      { type: 'phase_change', timestamp: Date.now(), data: { phase: 'plan' } },
       { type: 'error', timestamp: Date.now(), data: { message: 'fail' } },
     ]
-    const { container } = render(<EventLog events={events} />)
-    const spans = container.querySelectorAll('span')
+    render(<EventLog events={events} />)
     // Should render without crashing and contain the event types
-    expect(screen.getByText('batch start')).toBeInTheDocument()
+    expect(screen.getByText('phase change')).toBeInTheDocument()
     expect(screen.getByText('error')).toBeInTheDocument()
   })
 
@@ -64,10 +63,6 @@ describe('EventLog component', () => {
 })
 
 describe('eventSummary', () => {
-  it('formats batch_start', () => {
-    expect(eventSummary('batch_start', { batch: 5 })).toBe('Batch 5 started')
-  })
-
   it('formats phase_change', () => {
     expect(eventSummary('phase_change', { phase: 'implement' })).toBe('implement')
   })
@@ -93,10 +88,6 @@ describe('eventSummary', () => {
 
   it('formats merge_update', () => {
     expect(eventSummary('merge_update', { pr: 20, status: 'merged' })).toBe('PR #20 merged')
-  })
-
-  it('formats batch_complete', () => {
-    expect(eventSummary('batch_complete', { merged: 2, implemented: 3 })).toBe('2 merged, 3 implemented')
   })
 
   it('formats error', () => {
@@ -154,7 +145,7 @@ describe('typeColors', () => {
   it('has entries for all known event types', () => {
     const expectedTypes = [
       'worker_update', 'phase_change', 'pr_created', 'review_update',
-      'merge_update', 'error', 'batch_start', 'batch_complete', 'transcript_line',
+      'merge_update', 'error', 'transcript_line',
       'triage_update', 'planner_update', 'orchestrator_status',
       'hitl_escalation', 'hitl_update', 'ci_check', 'issue_created',
       'background_worker_status',

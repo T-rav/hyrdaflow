@@ -11,13 +11,13 @@ describe('Livestream component', () => {
 
   it('renders formatted events with timestamp, type badge, and summary', () => {
     const events = [
-      { type: 'batch_start', timestamp: '2026-01-15T10:30:00Z', data: { batch: 3 } },
+      { type: 'phase_change', timestamp: '2026-01-15T10:30:00Z', data: { phase: 'plan' } },
       { type: 'pr_created', timestamp: '2026-01-15T10:31:00Z', data: { pr: 42, issue: 10, draft: false } },
     ]
     render(<Livestream events={events} />)
 
-    expect(screen.getByText('batch start')).toBeInTheDocument()
-    expect(screen.getByText('Batch 3 started')).toBeInTheDocument()
+    expect(screen.getByText('phase change')).toBeInTheDocument()
+    expect(screen.getByText('plan')).toBeInTheDocument()
     expect(screen.getByText('pr created')).toBeInTheDocument()
     expect(screen.getByText('#10 PR #42 for #10')).toBeInTheDocument()
   })
@@ -59,7 +59,7 @@ describe('Livestream component', () => {
 
   it('renders timestamps via toLocaleTimeString', () => {
     const events = [
-      { type: 'batch_start', timestamp: '2026-01-15T10:30:00Z', data: { batch: 1 } },
+      { type: 'phase_change', timestamp: '2026-01-15T10:30:00Z', data: { phase: 'plan' } },
     ]
     const { container } = render(<Livestream events={events} />)
 
@@ -74,7 +74,6 @@ describe('Livestream component', () => {
       { type: 'worker_update', timestamp: '2026-01-15T10:31:00Z', data: { issue: 5, status: 'running' } },
       { type: 'review_update', timestamp: '2026-01-15T10:32:00Z', data: { pr: 20, verdict: 'approved' } },
       { type: 'merge_update', timestamp: '2026-01-15T10:33:00Z', data: { pr: 20, status: 'merged' } },
-      { type: 'batch_complete', timestamp: '2026-01-15T10:34:00Z', data: { merged: 2, implemented: 3 } },
     ]
     render(<Livestream events={events} />)
 
@@ -82,12 +81,11 @@ describe('Livestream component', () => {
     expect(screen.getByText('#5 #5 → running')).toBeInTheDocument()
     expect(screen.getByText('PR #20 → approved')).toBeInTheDocument()
     expect(screen.getByText('PR #20 merged')).toBeInTheDocument()
-    expect(screen.getByText('2 merged, 3 implemented')).toBeInTheDocument()
   })
 
   it('does not show resume button when auto-scroll is active (at top)', () => {
     const events = [
-      { type: 'batch_start', timestamp: '2026-01-15T10:30:00Z', data: { batch: 1 } },
+      { type: 'phase_change', timestamp: '2026-01-15T10:30:00Z', data: { phase: 'plan' } },
     ]
     render(<Livestream events={events} />)
 
