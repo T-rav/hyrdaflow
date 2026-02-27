@@ -1114,6 +1114,10 @@ def _parse_dotenv_text(text: str) -> dict[str, str]:
             continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
+        else:
+            # For unquoted values, treat inline " # comment" suffixes as comments.
+            # Keep literal '#' when no whitespace precedes it.
+            value = re.sub(r"\s+#.*$", "", value).rstrip()
         result[key] = value
     return result
 

@@ -1318,6 +1318,22 @@ class TestHydraFlowConfigGhToken:
         )
         assert cfg.gh_token == "ghp_from_dotenv"
 
+    def test_gh_token_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GH_TOKEN=ghp_from_dotenv # bot token\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.gh_token == "ghp_from_dotenv"
+
 
 # ---------------------------------------------------------------------------
 # HydraFlowConfig – git identity resolution
@@ -1421,6 +1437,23 @@ class TestHydraFlowConfigGitIdentity:
         (tmp_path / ".env").write_text(
             "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot\n"
             "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_user_name == "Dotenv Bot"
+        assert cfg.git_user_email == "dotenv-bot@example.com"
+
+    def test_git_identity_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot # preferred\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com # notifications\n"
         )
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
