@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 
-from prompt_telemetry import PromptTelemetry, parse_command_tool_model
+from model_pricing import ModelPricingTable
+from prompt_telemetry import PromptTelemetry, _as_float, parse_command_tool_model
 from tests.helpers import ConfigFactory
 
 
@@ -334,3 +335,131 @@ class TestPromptTelemetry:
         )
         mtime = telemetry.get_mtime()
         assert mtime > 0.0
+
+    def test_record_includes_estimated_cost_for_known_model(self, tmp_path):
+        pricing_path = tmp_path / "pricing.json"
+        pricing_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "models": {
+                        "claude-sonnet-4-20250514": {
+                            "input_cost_per_million": 3.0,
+                            "output_cost_per_million": 15.0,
+                            "aliases": ["sonnet"],
+                        }
+                    },
+                }
+            )
+        )
+        config = ConfigFactory.create(repo_root=tmp_path)
+        pricing = ModelPricingTable(pricing_path)
+        telemetry = PromptTelemetry(config, pricing=pricing)
+        telemetry.record(
+            source="reviewer",
+            tool="claude",
+            model="sonnet",
+            issue_number=50,
+            pr_number=600,
+            session_id="sess-cost",
+            prompt_chars=800,
+            transcript_chars=400,
+            duration_seconds=1.0,
+            success=True,
+            stats={"input_tokens": 1000, "output_tokens": 500},
+        )
+        inf_file = config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(inf_file.read_text().strip())
+        assert row["estimated_cost_usd"] is not None
+        assert row["estimated_cost_usd"] > 0
+        expected = (3.0 * 1000 + 15.0 * 500) / 1_000_000
+        assert abs(row["estimated_cost_usd"] - expected) < 1e-6
+
+    def test_record_cost_none_for_unknown_model(self, tmp_path):
+        pricing_path = tmp_path / "pricing.json"
+        pricing_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "models": {},
+                }
+            )
+        )
+        config = ConfigFactory.create(repo_root=tmp_path)
+        pricing = ModelPricingTable(pricing_path)
+        telemetry = PromptTelemetry(config, pricing=pricing)
+        telemetry.record(
+            source="reviewer",
+            tool="claude",
+            model="unknown-model",
+            issue_number=51,
+            pr_number=601,
+            session_id="sess-nocost",
+            prompt_chars=100,
+            transcript_chars=50,
+            duration_seconds=0.5,
+            success=True,
+            stats={},
+        )
+        inf_file = config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(inf_file.read_text().strip())
+        assert row["estimated_cost_usd"] is None
+
+    def test_cost_accumulates_across_records(self, tmp_path):
+        pricing_path = tmp_path / "pricing.json"
+        pricing_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "models": {
+                        "claude-opus-4-20250514": {
+                            "input_cost_per_million": 15.0,
+                            "output_cost_per_million": 75.0,
+                            "aliases": ["opus"],
+                        }
+                    },
+                }
+            )
+        )
+        config = ConfigFactory.create(repo_root=tmp_path)
+        pricing = ModelPricingTable(pricing_path)
+        telemetry = PromptTelemetry(config, pricing=pricing)
+        for _ in range(3):
+            telemetry.record(
+                source="implementer",
+                tool="claude",
+                model="opus",
+                issue_number=52,
+                pr_number=700,
+                session_id="sess-accum",
+                prompt_chars=100,
+                transcript_chars=50,
+                duration_seconds=0.1,
+                success=True,
+                stats={"input_tokens": 1000, "output_tokens": 200},
+            )
+        pr_file = config.data_path("metrics", "prompt", "pr_stats.json")
+        rollup = json.loads(pr_file.read_text())
+        pr_cost = rollup["prs"]["700"]["estimated_cost_usd"]
+        single_cost = (15.0 * 1000 + 75.0 * 200) / 1_000_000
+        assert abs(pr_cost - round(single_cost * 3, 6)) < 1e-6
+
+
+class TestAsFloat:
+    def test_int_value(self):
+        assert _as_float(42) == 42.0
+
+    def test_float_value(self):
+        assert _as_float(3.14) == 3.14
+
+    def test_string_value(self):
+        assert _as_float("2.5") == 2.5
+
+    def test_invalid_string(self):
+        assert _as_float("not_a_number") == 0.0
+
+    def test_bool_value(self):
+        assert _as_float(True) == 1.0
+
+    def test_none_value(self):
+        assert _as_float(None) == 0.0
