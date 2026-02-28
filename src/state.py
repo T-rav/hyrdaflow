@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from file_util import atomic_write
 from models import (
     BackgroundWorkerState,
+    EpicState,
     HITLSummaryCacheEntry,
     HITLSummaryFailureEntry,
     HookFailureRecord,
@@ -452,6 +453,53 @@ class StateTracker:
             f.model_copy(deep=True)
             for f in self._data.hook_failures.get(str(issue_number), [])
         ]
+
+    # --- epic state tracking ---
+
+    def get_epic_state(self, epic_number: int) -> EpicState | None:
+        """Return the persisted state for *epic_number*, or ``None``."""
+        es = self._data.epic_states.get(str(epic_number))
+        return es.model_copy(deep=True) if es else None
+
+    def upsert_epic_state(self, state: EpicState) -> None:
+        """Create or update the persisted state for an epic."""
+        self._data.epic_states[str(state.epic_number)] = state.model_copy(deep=True)
+        self.save()
+
+    def mark_epic_child_complete(self, epic_number: int, child_number: int) -> None:
+        """Move *child_number* to completed_children for *epic_number*."""
+        epic = self._data.epic_states.get(str(epic_number))
+        if epic is None:
+            return
+        if child_number not in epic.completed_children:
+            epic.completed_children.append(child_number)
+        if child_number in epic.failed_children:
+            epic.failed_children.remove(child_number)
+        epic.last_activity = datetime.now(UTC).isoformat()
+        self.save()
+
+    def mark_epic_child_failed(self, epic_number: int, child_number: int) -> None:
+        """Move *child_number* to failed_children for *epic_number*."""
+        epic = self._data.epic_states.get(str(epic_number))
+        if epic is None:
+            return
+        if child_number not in epic.failed_children:
+            epic.failed_children.append(child_number)
+        epic.last_activity = datetime.now(UTC).isoformat()
+        self.save()
+
+    def get_all_epic_states(self) -> dict[str, EpicState]:
+        """Return all persisted epic states (deep copy)."""
+        return {k: v.model_copy(deep=True) for k, v in self._data.epic_states.items()}
+
+    def close_epic(self, epic_number: int) -> None:
+        """Mark an epic as closed."""
+        epic = self._data.epic_states.get(str(epic_number))
+        if epic is None:
+            return
+        epic.closed = True
+        epic.last_activity = datetime.now(UTC).isoformat()
+        self.save()
 
     # --- reset ---
 

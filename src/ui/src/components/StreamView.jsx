@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react'
+import React, { useMemo, useCallback, useState } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { StreamCard } from './StreamCard'
@@ -268,8 +268,140 @@ export function findWorkerTranscript(workers, prs, stageKey, issueNumber) {
   return workers[key]?.transcript || []
 }
 
+function EpicChildRow({ child }) {
+  const dotColor = child.is_completed ? theme.green : child.is_failed ? theme.red : theme.textMuted
+  return (
+    <div style={epicPanelStyles.childRow}>
+      <span style={{ ...epicPanelStyles.childDot, background: dotColor }} />
+      <a
+        href={child.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={epicPanelStyles.childLink}
+      >
+        #{child.issue_number}
+      </a>
+      <span style={epicPanelStyles.childTitle}>{child.title || `Issue #${child.issue_number}`}</span>
+      {child.is_completed && <span style={epicPanelStyles.childBadgeDone}>done</span>}
+      {child.is_failed && <span style={epicPanelStyles.childBadgeFailed}>failed</span>}
+    </div>
+  )
+}
+
+function EpicRow({ epic, config }) {
+  const [expanded, setExpanded] = useState(false)
+  const [children, setChildren] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const pct = epic.percent_complete || 0
+  const statusStyle = epicStatusStyles[epic.status] || epicStatusStyles.active
+  const repo = config?.repo || ''
+  const epicUrl = repo ? `https://github.com/${repo}/issues/${epic.epic_number}` : ''
+
+  const handleToggle = useCallback(async () => {
+    if (!expanded && children === null) {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/epics/${epic.epic_number}`)
+        if (res.ok) {
+          const detail = await res.json()
+          setChildren(detail.children || [])
+        }
+      } catch { /* ignore */ }
+      setLoading(false)
+    }
+    setExpanded(prev => !prev)
+  }, [expanded, children, epic.epic_number])
+
+  return (
+    <div style={epicPanelStyles.row}>
+      <div
+        style={epicPanelStyles.rowTop}
+        onClick={handleToggle}
+        role="button"
+        tabIndex={0}
+      >
+        <span style={epicPanelStyles.chevron}>{expanded ? '\u25BE' : '\u25B8'}</span>
+        {epicUrl ? (
+          <a
+            href={epicUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={epicPanelStyles.epicLink}
+            onClick={e => e.stopPropagation()}
+          >
+            #{epic.epic_number}
+          </a>
+        ) : (
+          <span style={epicPanelStyles.epicLabel}>#{epic.epic_number}</span>
+        )}
+        <span style={epicPanelStyles.epicTitle}>{epic.title}</span>
+        {epic.auto_decomposed && <span style={epicPanelStyles.autoBadge}>auto</span>}
+        <span style={statusStyle}>{epic.status}</span>
+      </div>
+      <div style={epicPanelStyles.barTrack}>
+        {epic.completed > 0 && (
+          <div style={{ ...epicPanelStyles.barGreen, width: `${(epic.completed / epic.total_children) * 100}%` }} />
+        )}
+        {epic.failed > 0 && (
+          <div style={{ ...epicPanelStyles.barRed, width: `${(epic.failed / epic.total_children) * 100}%` }} />
+        )}
+      </div>
+      <span style={epicPanelStyles.progress}>
+        {epic.completed}/{epic.total_children} done
+        {epic.failed > 0 && ` \u00B7 ${epic.failed} failed`}
+        {` \u00B7 ${Math.round(pct)}%`}
+        {epic.child_issues?.length > 0 && ` \u00B7 ${epic.child_issues.length} issues`}
+      </span>
+      {expanded && (
+        <div style={epicPanelStyles.childList}>
+          {loading && <span style={epicPanelStyles.childLoading}>Loading...</span>}
+          {children && children.length > 0 && children.map(child => (
+            <EpicChildRow key={child.issue_number} child={child} />
+          ))}
+          {children && children.length === 0 && !loading && (
+            <span style={epicPanelStyles.childLoading}>No child issues found</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EpicOverviewPanel({ epics, config }) {
+  if (!epics || epics.length === 0) return null
+
+  const active = epics.filter(e => e.status !== 'completed')
+  const completed = epics.filter(e => e.status === 'completed')
+
+  return (
+    <div style={epicPanelStyles.wrapper}>
+      <div style={epicPanelStyles.header}>
+        <span style={epicPanelStyles.title}>Epics</span>
+        <span style={epicPanelStyles.count}>{epics.length}</span>
+        {active.length > 0 && active.length !== epics.length && (
+          <span style={epicPanelStyles.activeCount}>{active.length} active</span>
+        )}
+      </div>
+      {active.map(epic => (
+        <EpicRow key={epic.epic_number} epic={epic} config={config} />
+      ))}
+      {completed.length > 0 && (
+        <>
+          <div style={epicPanelStyles.completedDivider}>
+            <span style={epicPanelStyles.completedLabel}>Completed ({completed.length})</span>
+          </div>
+          {completed.map(epic => (
+            <EpicRow key={epic.epic_number} epic={epic} config={config} />
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 export function StreamView({ intents, expandedStages, onToggleStage, onRequestChanges }) {
-  const { pipelineIssues, prs, stageStatus, workers } = useHydraFlow()
+  const { pipelineIssues, prs, stageStatus, workers, epics, config } = useHydraFlow()
 
   // Match intents to issues by issueNumber
   const intentMap = useMemo(() => {
@@ -337,6 +469,8 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
       ))}
 
       <PipelineFlow stageGroups={stageGroups} />
+
+      <EpicOverviewPanel epics={epics} config={config} />
 
       {stageGroups.map(({ stage, issues: stageIssues }) => {
         const status = stageStatus[stage.key] || {}
@@ -628,6 +762,193 @@ const epicContainerStyles = {
     padding: 4,
   },
 }
+
+const epicPanelStyles = {
+  wrapper: {
+    background: theme.surfaceInset,
+    borderRadius: 8,
+    padding: '8px 12px',
+    marginBottom: 8,
+    borderLeft: `3px solid ${theme.purple}`,
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: theme.textBright,
+  },
+  count: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: theme.purple,
+    background: theme.purpleSubtle,
+    borderRadius: 8,
+    padding: '1px 6px',
+  },
+  activeCount: {
+    fontSize: 10,
+    color: theme.textMuted,
+  },
+  row: {
+    marginBottom: 8,
+  },
+  rowTop: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+    cursor: 'pointer',
+  },
+  chevron: {
+    fontSize: 10,
+    color: theme.textMuted,
+    flexShrink: 0,
+    width: 10,
+  },
+  epicLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.purple,
+    flexShrink: 0,
+  },
+  epicLink: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.purple,
+    flexShrink: 0,
+    textDecoration: 'none',
+    cursor: 'pointer',
+  },
+  epicTitle: {
+    fontSize: 11,
+    color: theme.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+  },
+  autoBadge: {
+    fontSize: 9,
+    fontWeight: 600,
+    color: theme.accent,
+    background: theme.accentSubtle,
+    borderRadius: 4,
+    padding: '1px 4px',
+    flexShrink: 0,
+  },
+  barTrack: {
+    display: 'flex',
+    height: 4,
+    background: theme.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 2,
+    marginLeft: 18,
+  },
+  barGreen: {
+    height: '100%',
+    background: theme.green,
+    transition: 'width 0.3s ease',
+  },
+  barRed: {
+    height: '100%',
+    background: theme.red,
+    transition: 'width 0.3s ease',
+  },
+  progress: {
+    fontSize: 10,
+    color: theme.textMuted,
+    marginLeft: 18,
+  },
+  childList: {
+    marginLeft: 18,
+    marginTop: 4,
+    paddingLeft: 8,
+    borderLeft: `1px solid ${theme.border}`,
+  },
+  childRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '2px 0',
+  },
+  childDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  childLink: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: theme.accent,
+    textDecoration: 'none',
+    flexShrink: 0,
+  },
+  childTitle: {
+    fontSize: 10,
+    color: theme.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+  },
+  childBadgeDone: {
+    fontSize: 9,
+    fontWeight: 600,
+    color: theme.green,
+    background: theme.greenSubtle,
+    borderRadius: 4,
+    padding: '0 4px',
+    flexShrink: 0,
+  },
+  childBadgeFailed: {
+    fontSize: 9,
+    fontWeight: 600,
+    color: theme.red,
+    background: theme.redSubtle,
+    borderRadius: 4,
+    padding: '0 4px',
+    flexShrink: 0,
+  },
+  childLoading: {
+    fontSize: 10,
+    color: theme.textMuted,
+    fontStyle: 'italic',
+  },
+  completedDivider: {
+    borderTop: `1px solid ${theme.border}`,
+    marginTop: 4,
+    paddingTop: 4,
+    marginBottom: 4,
+  },
+  completedLabel: {
+    fontSize: 10,
+    color: theme.textMuted,
+    fontWeight: 600,
+  },
+}
+
+const epicStatusBase = {
+  fontSize: 9,
+  fontWeight: 600,
+  padding: '1px 6px',
+  borderRadius: 4,
+  flexShrink: 0,
+}
+
+const epicStatusStyles = {
+  active: { ...epicStatusBase, color: theme.green, background: theme.greenSubtle },
+  completed: { ...epicStatusBase, color: theme.textMuted, background: theme.mutedSubtle },
+  stale: { ...epicStatusBase, color: theme.yellow, background: theme.yellowSubtle },
+  blocked: { ...epicStatusBase, color: theme.red, background: theme.redSubtle },
+}
+
 
 // Pre-computed section opacity variants (avoids object spread in StageSection render)
 const sectionEnabledStyle = { ...styles.section, opacity: 1, transition: 'opacity 0.2s' }

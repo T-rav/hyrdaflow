@@ -2599,6 +2599,7 @@ class TestIssueOutcomeModels:
         assert IssueOutcomeType.ALREADY_SATISFIED == "already_satisfied"
         assert IssueOutcomeType.HITL_CLOSED == "hitl_closed"
         assert IssueOutcomeType.HITL_SKIPPED == "hitl_skipped"
+        assert IssueOutcomeType.HITL_APPROVED == "hitl_approved"
         assert IssueOutcomeType.FAILED == "failed"
         assert IssueOutcomeType.MANUAL_CLOSE == "manual_close"
 

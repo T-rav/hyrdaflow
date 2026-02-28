@@ -205,6 +205,18 @@ class TriageResult(BaseModel):
     issue_number: int
     ready: bool = False
     reasons: list[str] = Field(default_factory=list)
+    complexity_score: int = 0
+    issue_type: str = "feature"  # "feature" | "bug" | "epic"
+
+
+class EpicDecompResult(BaseModel):
+    """Result of auto-decomposing a large issue into an epic."""
+
+    should_decompose: bool = False
+    epic_title: str = ""
+    epic_body: str = ""
+    children: list[NewIssueSpec] = Field(default_factory=list)
+    reasoning: str = ""
 
 
 # --- Planner ---
@@ -601,6 +613,7 @@ class IssueOutcomeType(StrEnum):
     ALREADY_SATISFIED = "already_satisfied"
     HITL_CLOSED = "hitl_closed"
     HITL_SKIPPED = "hitl_skipped"
+    HITL_APPROVED = "hitl_approved"
     FAILED = "failed"
     MANUAL_CLOSE = "manual_close"
 
@@ -701,6 +714,20 @@ class HITLSummaryFailureEntry(BaseModel):
     error: str = ""
 
 
+class EpicState(BaseModel):
+    """Persisted state for a tracked epic."""
+
+    epic_number: int
+    title: str = ""
+    child_issues: list[int] = Field(default_factory=list)
+    completed_children: list[int] = Field(default_factory=list)
+    failed_children: list[int] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    closed: bool = False
+    auto_decomposed: bool = False
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
@@ -739,10 +766,57 @@ class StateData(BaseModel):
     pending_reports: list[PendingReport] = Field(default_factory=list)
     issue_outcomes: dict[str, IssueOutcome] = Field(default_factory=dict)
     hook_failures: dict[str, list[HookFailureRecord]] = Field(default_factory=dict)
+    epic_states: dict[str, EpicState] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
 # --- Dashboard API Responses ---
+
+
+class EpicProgress(BaseModel):
+    """Dashboard-facing epic progress summary."""
+
+    epic_number: int
+    title: str = ""
+    total_children: int = 0
+    completed: int = 0
+    failed: int = 0
+    in_progress: int = 0
+    status: str = "active"  # "active", "completed", "stale", "blocked"
+    percent_complete: float = 0.0
+    last_activity: str = ""
+    auto_decomposed: bool = False
+    child_issues: list[int] = Field(default_factory=list)
+
+
+class EpicChildInfo(BaseModel):
+    """Status of a single child issue within an epic."""
+
+    issue_number: int
+    title: str = ""
+    url: str = ""
+    state: str = "open"  # "open", "closed"
+    stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
+    is_completed: bool = False
+    is_failed: bool = False
+
+
+class EpicDetail(BaseModel):
+    """Full epic detail for the dashboard, including child issue info."""
+
+    epic_number: int
+    title: str = ""
+    url: str = ""
+    total_children: int = 0
+    completed: int = 0
+    failed: int = 0
+    in_progress: int = 0
+    status: str = "active"
+    percent_complete: float = 0.0
+    last_activity: str = ""
+    created_at: str = ""
+    auto_decomposed: bool = False
+    children: list[EpicChildInfo] = Field(default_factory=list)
 
 
 class PipelineIssueStatus(StrEnum):

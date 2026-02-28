@@ -40,6 +40,7 @@ _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
     (EventType.TRANSCRIPT_SUMMARY, "transcript_summary"),
     (EventType.SESSION_START, "session_start"),
     (EventType.SESSION_END, "session_end"),
+    (EventType.EPIC_UPDATE, "epic_update"),
     (EventType.PIPELINE_STATS, "pipeline_stats"),
 ]
 
@@ -70,6 +71,7 @@ class TestEventTypeEnum:
             "TRANSCRIPT_SUMMARY",
             "SESSION_START",
             "SESSION_END",
+            "EPIC_UPDATE",
             "PIPELINE_STATS",
         }
         actual = {member.name for member in EventType}

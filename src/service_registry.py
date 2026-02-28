@@ -11,7 +11,8 @@ from acceptance_criteria import AcceptanceCriteriaGenerator
 from agent import AgentRunner
 from config import HydraFlowConfig
 from docker_runner import get_docker_runner
-from epic import EpicCompletionChecker
+from epic import EpicCompletionChecker, EpicManager
+from epic_monitor_loop import EpicMonitorLoop
 from events import EventBus
 from execution import SubprocessRunner
 from harness_insights import HarnessInsightStore
@@ -86,6 +87,7 @@ class ServiceRegistry:
     ac_generator: AcceptanceCriteriaGenerator
     verification_judge: VerificationJudge
     epic_checker: EpicCompletionChecker
+    epic_manager: EpicManager
 
     # Background loops
     memory_sync_bg: MemorySyncLoop
@@ -93,6 +95,7 @@ class ServiceRegistry:
     pr_unsticker_loop: PRUnstickerLoop
     manifest_refresh_loop: ManifestRefreshLoop
     report_issue_loop: ReportIssueLoop
+    epic_monitor_loop: EpicMonitorLoop
 
 
 @dataclass
@@ -141,8 +144,21 @@ def build_services(
     # Troubleshooting pattern store (CI timeout feedback loop)
     troubleshooting_store = TroubleshootingPatternStore(config.data_path("memory"))
 
+    # Epic management
+    epic_checker = EpicCompletionChecker(config, prs, fetcher)
+    epic_manager = EpicManager(config, state, prs, fetcher, event_bus)
+
     # Phase coordinators
-    triager = TriagePhase(config, state, store, triage, prs, event_bus, stop_event)
+    triager = TriagePhase(
+        config,
+        state,
+        store,
+        triage,
+        prs,
+        event_bus,
+        stop_event,
+        epic_manager=epic_manager,
+    )
     planner_phase = PlanPhase(
         config,
         state,
@@ -153,6 +169,7 @@ def build_services(
         stop_event,
         transcript_summarizer=summarizer,
         harness_insights=harness_insights,
+        epic_manager=epic_manager,
     )
     hitl_phase = HITLPhase(
         config,
@@ -217,7 +234,6 @@ def build_services(
         config, prs, event_bus, runner=subprocess_runner
     )
     verification_judge = VerificationJudge(config, event_bus, runner=subprocess_runner)
-    epic_checker = EpicCompletionChecker(config, prs, fetcher)
     post_merge_handler = PostMergeHandler(
         config=config,
         state=state,
@@ -228,6 +244,7 @@ def build_services(
         verification_judge=verification_judge,
         epic_checker=epic_checker,
         update_bg_worker_status=callbacks.update_bg_worker_status,
+        epic_manager=epic_manager,
     )
     reviewer = ReviewPhase(
         config,
@@ -304,6 +321,17 @@ def build_services(
         runner=subprocess_runner,
     )
 
+    epic_monitor_loop = EpicMonitorLoop(
+        config=config,
+        epic_manager=epic_manager,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
+
     return ServiceRegistry(
         worktrees=worktrees,
         subprocess_runner=subprocess_runner,
@@ -329,9 +357,11 @@ def build_services(
         ac_generator=ac_generator,
         verification_judge=verification_judge,
         epic_checker=epic_checker,
+        epic_manager=epic_manager,
         memory_sync_bg=memory_sync_bg,
         metrics_sync_bg=metrics_sync_bg,
         pr_unsticker_loop=pr_unsticker_loop,
         manifest_refresh_loop=manifest_refresh_loop,
         report_issue_loop=report_issue_loop,
+        epic_monitor_loop=epic_monitor_loop,
     )

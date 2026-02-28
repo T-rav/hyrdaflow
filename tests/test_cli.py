@@ -979,3 +979,61 @@ class TestDockerBuildConfig:
         assert cfg.docker_spawn_delay == pytest.approx(2.0)
         assert cfg.docker_read_only_root is True
         assert cfg.docker_no_new_privileges is True
+
+
+# ---------------------------------------------------------------------------
+# Repo-scoped config overlay
+# ---------------------------------------------------------------------------
+
+
+class TestRepoConfigOverlay:
+    """Tests for _apply_repo_config_overlay in build_config."""
+
+    def test_repo_config_overrides_shared_config(self, tmp_path: Path) -> None:
+        """Values in the repo-scoped config file override the shared config."""
+        import json
+
+        from cli import _apply_repo_config_overlay
+        from config import HydraFlowConfig
+
+        # Set config_file to the repo-scoped path (as build_config would)
+        repo_cfg_dir = tmp_path / ".hydraflow" / "org-repo"
+        repo_cfg_dir.mkdir(parents=True)
+        repo_cfg_file = repo_cfg_dir / "config.json"
+        repo_cfg_file.write_text(json.dumps({"batch_size": 42}))
+
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="org/repo", config_file=repo_cfg_file
+        )
+
+        _apply_repo_config_overlay(cfg, cli_explicit=set())
+        assert cfg.batch_size == 42
+
+    def test_cli_explicit_not_overridden_by_repo_config(self, tmp_path: Path) -> None:
+        """CLI-explicit values should not be overridden by repo config."""
+        import json
+
+        from cli import _apply_repo_config_overlay
+        from config import HydraFlowConfig
+
+        repo_cfg_dir = tmp_path / ".hydraflow" / "org-repo"
+        repo_cfg_dir.mkdir(parents=True)
+        repo_cfg_file = repo_cfg_dir / "config.json"
+        repo_cfg_file.write_text(json.dumps({"batch_size": 42}))
+
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="org/repo", batch_size=7, config_file=repo_cfg_file
+        )
+
+        _apply_repo_config_overlay(cfg, cli_explicit={"batch_size"})
+        assert cfg.batch_size == 7
+
+    def test_no_repo_config_file_is_noop(self, tmp_path: Path) -> None:
+        """When no repo config file exists, overlay does nothing."""
+        from cli import _apply_repo_config_overlay
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/repo")
+        original_batch = cfg.batch_size
+        _apply_repo_config_overlay(cfg, cli_explicit=set())
+        assert cfg.batch_size == original_batch

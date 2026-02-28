@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from analysis import PlanAnalyzer
 from config import HydraFlowConfig
@@ -26,6 +27,9 @@ from state import StateTracker
 from task_source import TaskTransitioner
 from transcript_summarizer import TranscriptSummarizer
 
+if TYPE_CHECKING:
+    from epic import EpicManager
+
 logger = logging.getLogger("hydraflow.plan_phase")
 
 # Minimum body length for auto-filed sub-issues discovered during planning.
@@ -46,6 +50,7 @@ class PlanPhase:
         stop_event: asyncio.Event,
         transcript_summarizer: TranscriptSummarizer | None = None,
         harness_insights: HarnessInsightStore | None = None,
+        epic_manager: EpicManager | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -57,6 +62,7 @@ class PlanPhase:
         self._stop_event = stop_event
         self._summarizer = transcript_summarizer
         self._harness_insights = harness_insights
+        self._epic_manager = epic_manager
 
     async def _handle_already_satisfied(self, issue: Task, result: PlanResult) -> bool:
         """Validate evidence and close issue as already-satisfied.
@@ -593,6 +599,13 @@ class PlanPhase:
                     epic_number, children, semaphore
                 )
                 all_results.extend(epic_results)
+                # Notify EpicManager of successful plans
+                if self._epic_manager is not None:
+                    for r in epic_results:
+                        if r.success and r.plan:
+                            await self._epic_manager.on_child_planned(
+                                epic_number, r.issue_number
+                            )
 
             return all_results
         finally:

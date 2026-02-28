@@ -10,7 +10,7 @@ from pathlib import Path
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
-from models import Task, TriageResult, TriageStatus
+from models import EpicDecompResult, NewIssueSpec, Task, TriageResult, TriageStatus
 from prompt_stats import build_prompt_stats, truncate_with_notice
 from subprocess_util import CreditExhaustedError
 
@@ -200,6 +200,13 @@ Evaluate the issue against these four criteria:
 3. **Actionability**: Is there enough context to start planning? (expected behavior, affected area, reproduction steps for bugs)
 4. **Scope**: Is it a single, bounded unit of work? (not an unstructured epic or multiple unrelated requests)
 
+## Issue Type Classification
+
+Also classify the issue as one of:
+- **"feature"**: A new capability, enhancement, or improvement request
+- **"bug"**: A defect report — something broken, incorrect, or failing
+- **"epic"**: A large, multi-step initiative that should be decomposed into smaller issues
+
 ## Instructions
 
 - If ALL criteria are met, return `"ready": true`
@@ -210,13 +217,13 @@ Evaluate the issue against these four criteria:
 Return ONLY a JSON object in this exact format, with no other text:
 
 ```json
-{{"ready": true, "reasons": []}}
+{{"ready": true, "reasons": [], "issue_type": "feature"}}
 ```
 
 or
 
 ```json
-{{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"]}}
+{{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"], "issue_type": "bug"}}
 ```
 """
         stats = build_prompt_stats(
@@ -264,6 +271,24 @@ or
         )
 
     @staticmethod
+    def _result_from_dict(data: dict[str, object], issue_number: int) -> TriageResult:
+        """Build a TriageResult from a parsed JSON dict."""
+        raw = data.get("reasons", [])
+        complexity = data.get("complexity_score", 0)
+        score = int(complexity) if isinstance(complexity, (int, float)) else 0
+        issue_type_raw = data.get("issue_type", "feature")
+        issue_type = str(issue_type_raw).lower() if issue_type_raw else "feature"
+        if issue_type not in ("feature", "bug", "epic"):
+            issue_type = "feature"
+        return TriageResult(
+            issue_number=issue_number,
+            ready=_coerce_ready(data["ready"]),
+            reasons=_coerce_reasons(raw),
+            complexity_score=max(0, min(score, 10)),
+            issue_type=issue_type,
+        )
+
+    @staticmethod
     def _parse_verdict(transcript: str, issue_number: int) -> TriageResult | None:
         """Extract a JSON verdict from the LLM transcript.
 
@@ -276,12 +301,7 @@ or
         try:
             data = json.loads(transcript.strip())
             if isinstance(data, dict) and "ready" in data:
-                raw = data.get("reasons", [])
-                return TriageResult(
-                    issue_number=issue_number,
-                    ready=_coerce_ready(data["ready"]),
-                    reasons=_coerce_reasons(raw),
-                )
+                return TriageRunner._result_from_dict(data, issue_number)
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
@@ -291,12 +311,7 @@ or
             try:
                 data = json.loads(fence_match.group(1).strip())
                 if isinstance(data, dict) and "ready" in data:
-                    raw = data.get("reasons", [])
-                    return TriageResult(
-                        issue_number=issue_number,
-                        ready=_coerce_ready(data["ready"]),
-                        reasons=_coerce_reasons(raw),
-                    )
+                    return TriageRunner._result_from_dict(data, issue_number)
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
@@ -306,12 +321,7 @@ or
             try:
                 data = json.loads(json_match.group(0))
                 if isinstance(data, dict) and "ready" in data:
-                    raw = data.get("reasons", [])
-                    return TriageResult(
-                        issue_number=issue_number,
-                        ready=_coerce_ready(data["ready"]),
-                        reasons=_coerce_reasons(raw),
-                    )
+                    return TriageRunner._result_from_dict(data, issue_number)
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
@@ -344,4 +354,136 @@ or
                     "role": "triage",
                 },
             )
+        )
+
+    # --- Auto-decomposition ---
+
+    async def run_decomposition(self, task: Task) -> EpicDecompResult:
+        """Determine if a high-complexity issue should be decomposed into an epic."""
+        cmd = self._build_command()
+        prompt = self._build_decomposition_prompt(task)
+
+        try:
+            transcript = await self._execute(
+                cmd,
+                prompt,
+                self._config.repo_root,
+                {"issue": task.id, "source": "decomposition"},
+            )
+        except CreditExhaustedError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Decomposition LLM call failed for issue #%d: %s",
+                task.id,
+                exc,
+            )
+            return EpicDecompResult()
+
+        self._save_transcript("decomp-issue", task.id, transcript)
+        return self._parse_decomposition(transcript)
+
+    @staticmethod
+    def _build_decomposition_prompt(task: Task) -> str:
+        """Build the prompt asking the LLM to decompose a complex issue."""
+        body = (task.body or "")[:5000]
+        return f"""You are a decomposition agent. This issue has been identified as too complex for a single implementation pass.
+
+## Issue #{task.id}
+
+**Title:** {task.title}
+
+**Body:**
+{body}
+
+## Instructions
+
+Determine whether this issue should be broken into smaller, independently implementable child issues.
+
+If YES, provide:
+1. An epic title (concise summary)
+2. An epic body with a checkbox list of child issues
+3. 2-6 child issue specifications (title + body for each)
+
+If NO, explain why decomposition is not appropriate.
+
+Return ONLY a JSON object in this exact format:
+
+```json
+{{
+  "should_decompose": true,
+  "epic_title": "Epic: ...",
+  "epic_body": "## Sub-issues\\n\\n- [ ] #1 — Child title 1\\n- [ ] #2 — Child title 2",
+  "children": [
+    {{"title": "Child issue title", "body": "Detailed description..."}},
+    {{"title": "Another child", "body": "More details..."}}
+  ],
+  "reasoning": "Why this decomposition makes sense"
+}}
+```
+
+or
+
+```json
+{{
+  "should_decompose": false,
+  "reasoning": "Why this issue should not be decomposed"
+}}
+```
+"""
+
+    @staticmethod
+    def _parse_decomposition(transcript: str) -> EpicDecompResult:
+        """Parse the decomposition LLM response."""
+        data: dict[str, object] | None = None
+
+        # Strategy 1: direct parse
+        try:
+            parsed = json.loads(transcript.strip())
+            if isinstance(parsed, dict) and "should_decompose" in parsed:
+                data = parsed
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+        # Strategy 2: code fence
+        if data is None:
+            fence_match = re.search(
+                r"```(?:json)?\s*\n?(.*?)\n?```", transcript, re.DOTALL
+            )
+            if fence_match:
+                try:
+                    parsed = json.loads(fence_match.group(1).strip())
+                    if isinstance(parsed, dict) and "should_decompose" in parsed:
+                        data = parsed
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+
+        if data is None:
+            return EpicDecompResult()
+
+        should = bool(data.get("should_decompose", False))
+        if not should:
+            return EpicDecompResult(
+                should_decompose=False,
+                reasoning=str(data.get("reasoning", "")),
+            )
+
+        children_raw = data.get("children", [])
+        children: list[NewIssueSpec] = []
+        if isinstance(children_raw, list):
+            for item in children_raw:
+                if isinstance(item, dict) and "title" in item:
+                    children.append(
+                        NewIssueSpec(
+                            title=str(item["title"]),
+                            body=str(item.get("body", "")),
+                        )
+                    )
+
+        return EpicDecompResult(
+            should_decompose=True,
+            epic_title=str(data.get("epic_title", "")),
+            epic_body=str(data.get("epic_body", "")),
+            children=children,
+            reasoning=str(data.get("reasoning", "")),
         )

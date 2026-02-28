@@ -6,12 +6,15 @@ import logging
 import re
 from collections.abc import Coroutine
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
+
+if TYPE_CHECKING:
+    from epic import EpicManager
 from models import (
     CiGateFn,
     CriterionVerdict,
@@ -85,6 +88,7 @@ class PostMergeHandler:
         verification_judge: VerificationJudge | None,
         epic_checker: EpicCompletionChecker | None,
         update_bg_worker_status: StatusCallback | None = None,
+        epic_manager: EpicManager | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -96,6 +100,7 @@ class PostMergeHandler:
         self._epic_checker = epic_checker
         self._update_bg_worker_status = update_bg_worker_status
         self._prompt_telemetry = PromptTelemetry(config)
+        self._epic_manager = epic_manager
 
     async def handle_approved(
         self,
@@ -352,8 +357,23 @@ class PostMergeHandler:
                 pr.issue_number,
             )
 
-        # Check if any parent epics can be closed
-        if self._epic_checker:
+        # Notify EpicManager of child completion (handles auto-close internally)
+        if self._epic_manager is not None:
+            epic_state = self._state.get_epic_state(pr.issue_number)
+            if epic_state is None:
+                # Check all tracked epics if this issue is a child
+                for es in self._state.get_all_epic_states().values():
+                    if pr.issue_number in es.child_issues:
+                        await self._safe_hook(
+                            "epic child completion",
+                            self._epic_manager.on_child_completed(
+                                es.epic_number, pr.issue_number
+                            ),
+                            pr.issue_number,
+                        )
+                        break
+        elif self._epic_checker:
+            # Fallback to legacy checker if EpicManager is not wired
             await self._safe_hook(
                 "epic completion check",
                 self._epic_checker.check_and_close_epics(pr.issue_number),

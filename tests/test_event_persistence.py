@@ -445,7 +445,9 @@ class TestEventLogConfig:
 
         config = HydraFlowConfig(repo="test/repo")
         assert config.event_log_path.name == "events.jsonl"
-        assert config.event_log_path.parent.name == ".hydraflow"
+        # event_log_path is at .hydraflow/<repo_slug>/events.jsonl
+        assert config.event_log_path.parent.parent.name == ".hydraflow"
+        assert config.event_log_path.parent.name == "test-repo"
 
     def test_default_max_size_mb(self) -> None:
         from config import HydraFlowConfig
