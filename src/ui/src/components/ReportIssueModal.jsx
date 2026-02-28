@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { theme } from '../theme'
-import { ANNOTATION_COLORS } from '../constants'
+import { ANNOTATION_COLORS, ANNOTATION_PENCIL_CURSOR } from '../constants'
 
 /** Resolve a CSS variable reference like `var(--yellow)` to its computed value. */
 function resolveColor(cssVar) {
@@ -331,7 +331,7 @@ const styles = {
   canvas: {
     width: '100%',
     height: 'auto',
-    cursor: 'crosshair',
+    cursor: ANNOTATION_PENCIL_CURSOR,
     display: 'block',
   },
   textarea: {

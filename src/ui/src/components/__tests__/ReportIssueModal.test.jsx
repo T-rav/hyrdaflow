@@ -64,6 +64,14 @@ describe('ReportIssueModal', () => {
     expect(screen.queryByTestId('report-canvas')).toBeNull()
   })
 
+  it('annotation canvas has pencil cursor with crosshair fallback', () => {
+    render(<ReportIssueModal {...defaultProps} screenshotDataUrl={fakeScreenshot} />)
+    fireEvent.click(screen.getByTestId('screenshot-thumbnail'))
+    const canvas = screen.getByTestId('report-canvas')
+    expect(canvas.style.cursor).toContain('data:image/svg+xml')
+    expect(canvas.style.cursor).toContain('crosshair')
+  })
+
   it('submit button is disabled with empty description', () => {
     render(<ReportIssueModal {...defaultProps} />)
     const submitBtn = screen.getByTestId('report-submit')
