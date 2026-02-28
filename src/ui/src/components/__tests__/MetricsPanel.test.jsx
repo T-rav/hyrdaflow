@@ -137,6 +137,24 @@ describe('MetricsPanel', () => {
     expect(screen.getByText('8')).toBeInTheDocument()
   })
 
+  it('prefers local lifetime when github metrics are all zeros', () => {
+    mockUseHydraFlow.mockReturnValue(defaultContext({
+      metrics: {
+        lifetime: { issues_completed: 12, prs_merged: 9, issues_created: 3 },
+        rates: {},
+      },
+      githubMetrics: {
+        open_by_label: {},
+        total_closed: 0,
+        total_merged: 0,
+      },
+    }))
+    render(<MetricsPanel />)
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.getByText('9')).toBeInTheDocument()
+    expect(screen.queryByText('Open Issues')).not.toBeInTheDocument()
+  })
+
   it('shows empty state when everything is null and session is empty', () => {
     render(<MetricsPanel />)
     expect(screen.getByText('No metrics data available yet.')).toBeInTheDocument()

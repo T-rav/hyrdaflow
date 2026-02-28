@@ -105,6 +105,11 @@ export function MetricsPanel() {
   const github = githubMetrics || {}
   const openByLabel = github.open_by_label || {}
   const lifetime = metrics?.lifetime || lifetimeStats || {}
+  const lifetimeIssuesCompleted = Number(lifetime.issues_completed ?? 0)
+  const lifetimePrsMerged = Number(lifetime.prs_merged ?? 0)
+  const githubTotalClosed = Number(github.total_closed ?? 0)
+  const githubTotalMerged = Number(github.total_merged ?? 0)
+  const githubOpenIssueTotal = Object.values(openByLabel).reduce((a, b) => a + Number(b || 0), 0)
 
   const timeToMerge = metrics?.time_to_merge || {}
   const thresholds = metrics?.thresholds || []
@@ -112,10 +117,16 @@ export function MetricsPanel() {
   const inferenceSession = metrics?.inference_session || {}
 
   const hasGithub = githubMetrics !== null && githubMetrics !== undefined
+  const githubLooksUnavailable = hasGithub
+    && githubOpenIssueTotal === 0
+    && githubTotalClosed === 0
+    && githubTotalMerged === 0
+    && (lifetimeIssuesCompleted > 0 || lifetimePrsMerged > 0)
+  const useGithubTotals = hasGithub && !githubLooksUnavailable
   const hasSession = sessionTriaged > 0 || sessionPlanned > 0 ||
     sessionImplemented > 0 || sessionReviewed > 0 || mergedCount > 0
-  const hasLifetime = hasGithub || lifetime.issues_completed > 0 ||
-    lifetime.prs_merged > 0
+  const hasLifetime = useGithubTotals || lifetimeIssuesCompleted > 0 ||
+    lifetimePrsMerged > 0
 
   // Extract history data
   const historyData = metricsHistory || {}
@@ -139,7 +150,7 @@ export function MetricsPanel() {
         <div className="metrics-grid" data-testid="metrics-grid-lifetime">
           <StatCard
             label="Issues Completed"
-            value={github.total_closed ?? lifetime.issues_completed ?? 0}
+            value={useGithubTotals ? githubTotalClosed : lifetimeIssuesCompleted}
             trend={<TrendIndicator
               current={current?.issues_completed}
               previous={prev?.issues_completed}
@@ -147,16 +158,16 @@ export function MetricsPanel() {
           />
           <StatCard
             label="PRs Merged"
-            value={github.total_merged ?? lifetime.prs_merged ?? 0}
+            value={useGithubTotals ? githubTotalMerged : lifetimePrsMerged}
             trend={<TrendIndicator
               current={current?.prs_merged}
               previous={prev?.prs_merged}
             />}
           />
-          {hasGithub && (
+          {useGithubTotals && (
             <StatCard
               label="Open Issues"
-              value={Object.values(openByLabel).reduce((a, b) => a + b, 0)}
+              value={githubOpenIssueTotal}
             />
           )}
         </div>
