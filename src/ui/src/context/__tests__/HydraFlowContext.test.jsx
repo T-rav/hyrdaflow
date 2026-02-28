@@ -168,10 +168,9 @@ describe('PIPELINE_SNAPSHOT reducer', () => {
     expect(next.pipelineIssues.hitl).toEqual([])
   })
 
-  it('ignores transient empty snapshots while orchestrator is running', () => {
+  it('ignores transient empty snapshots', () => {
     const state = {
       ...initialState,
-      orchestratorStatus: 'running',
       pipelineIssues: {
         ...emptyPipeline,
         triage: [{ issue_number: 10, title: 'Queued', url: '', status: 'queued' }],
@@ -184,6 +183,23 @@ describe('PIPELINE_SNAPSHOT reducer', () => {
     })
     expect(next.pipelineIssues.triage).toHaveLength(1)
     expect(next.pipelineIssues.implement).toHaveLength(1)
+  })
+
+  it('clears open queues after 3 consecutive empty snapshots', () => {
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        triage: [{ issue_number: 10, title: 'Queued', url: '', status: 'queued' }],
+      },
+    }
+    const emptyData = { triage: [], plan: [], implement: [], review: [], hitl: [] }
+    const after1 = reducer(state, { type: 'PIPELINE_SNAPSHOT', data: emptyData })
+    const after2 = reducer(after1, { type: 'PIPELINE_SNAPSHOT', data: emptyData })
+    const after3 = reducer(after2, { type: 'PIPELINE_SNAPSHOT', data: emptyData })
+    expect(after1.pipelineIssues.triage).toHaveLength(1)
+    expect(after2.pipelineIssues.triage).toHaveLength(1)
+    expect(after3.pipelineIssues.triage).toHaveLength(0)
   })
 })
 

@@ -39,6 +39,7 @@ export const initialState = {
   githubMetrics: null,
   metricsHistory: null,
   pipelineIssues: { ...emptyPipeline },
+  emptyPipelineSnapshotStreak: 0,
   pipelinePollerLastRun: null,
   sessions: [],
   currentSessionId: null,
@@ -124,6 +125,7 @@ export function reducer(state, action) {
           hitlEscalation: null,
           lastSeenId: -1,
           pipelineIssues: { ...emptyPipeline },
+          emptyPipelineSnapshotStreak: 0,
           intents: [],
           humanInputRequests: {},
         } : {}),
@@ -450,10 +452,13 @@ export function reducer(state, action) {
         (sum, key) => sum + ((state.pipelineIssues[key] || []).length),
         0,
       )
+      const nextEmptyStreak = incomingOpenCount === 0
+        ? (state.emptyPipelineSnapshotStreak || 0) + 1
+        : 0
 
-      // Guard against transient empty snapshots while running: preserve prior
-      // open queues to avoid UI queue wipe/reload flicker.
-      const preserveExistingOpen = state.orchestratorStatus === 'running'
+      // Guard against transient empty snapshots: require 3 consecutive empty
+      // polls before clearing non-empty open queues.
+      const preserveExistingOpen = (state.emptyPipelineSnapshotStreak || 0) < 2
         && incomingOpenCount === 0
         && existingOpenCount > 0
 
@@ -475,6 +480,7 @@ export function reducer(state, action) {
           // Server never sends merged — preserve session-accumulated merged items
           merged: state.pipelineIssues.merged || [],
         },
+        emptyPipelineSnapshotStreak: nextEmptyStreak,
         pipelinePollerLastRun: new Date().toISOString(),
       }
     }
@@ -518,7 +524,11 @@ export function reducer(state, action) {
         }
       }
 
-      return { ...state, pipelineIssues: next }
+      return {
+        ...state,
+        pipelineIssues: next,
+        emptyPipelineSnapshotStreak: 0,
+      }
     }
 
     case 'SESSION_RESET': {
@@ -538,6 +548,7 @@ export function reducer(state, action) {
         humanInputRequests: {},
         lastSeenId: -1,
         pipelineIssues: { ...emptyPipeline },
+        emptyPipelineSnapshotStreak: 0,
         intents: [],
       }
     }
