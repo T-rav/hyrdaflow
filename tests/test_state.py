@@ -212,6 +212,33 @@ class TestWorkerHeartbeatPersistence:
         assert beats["metrics"]["status"] == "error"
         assert beats["metrics"]["details"]["synced"] == 0
 
+    def test_legacy_state_file_migrates_bg_worker_states_to_heartbeats(
+        self, tmp_path: Path
+    ) -> None:
+        """Loading a legacy state file with only bg_worker_states populates worker_heartbeats."""
+        state_file = tmp_path / "state.json"
+        # Write a legacy state file: bg_worker_states populated, worker_heartbeats absent
+        state_file.write_text(
+            json.dumps(
+                {
+                    "bg_worker_states": {
+                        "memory_sync": {
+                            "name": "memory_sync",
+                            "status": "ok",
+                            "last_run": "2025-01-01T00:00:00Z",
+                            "details": {"count": 3},
+                        }
+                    }
+                }
+            )
+        )
+        tracker = StateTracker(state_file)
+        beats = tracker.get_worker_heartbeats()
+        assert "memory_sync" in beats
+        assert beats["memory_sync"]["status"] == "ok"
+        assert beats["memory_sync"]["last_run"] == "2025-01-01T00:00:00Z"
+        assert beats["memory_sync"]["details"]["count"] == 3
+
 
 # ---------------------------------------------------------------------------
 # Issue tracking

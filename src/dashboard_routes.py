@@ -1010,10 +1010,11 @@ def create_router(
         orch = get_orchestrator()
         bg_states = orch.get_bg_worker_states() if orch else {}
         persisted_states: dict[str, BackgroundWorkerState] = {}
-        try:
-            persisted_states = state.get_bg_worker_states()
-        except Exception:  # pragma: no cover - defensive guard
-            logger.exception("Failed to load persisted bg worker states")
+        if not orch:
+            try:
+                persisted_states = state.get_bg_worker_states()
+            except Exception:  # pragma: no cover - defensive guard
+                logger.exception("Failed to load persisted bg worker states")
         inference_by_worker = _build_system_worker_inference_stats()
         workers = []
         for name, label, description in _bg_worker_defs:

@@ -322,7 +322,7 @@ class HydraFlowOrchestrator:
             name=name,
             status=status,
             last_run=datetime.now(UTC).isoformat(),
-            details=dict(details) if details else {},
+            details=dict(details) if details is not None else {},
         )
         self._state.set_bg_worker_state(name, self._bg_worker_states[name])
 
