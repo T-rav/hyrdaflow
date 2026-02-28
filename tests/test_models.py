@@ -32,6 +32,7 @@ from models import (
     PipelineIssue,
     PipelineIssueStatus,
     PipelineStage,
+    PipelineStats,
     PlanAccuracyResult,
     PlannerStatus,
     PlanResult,
@@ -39,16 +40,19 @@ from models import (
     PRInfo,
     PRInfoExtract,
     PRListItem,
+    QueueStats,
     ReviewerStatus,
     ReviewResult,
     ReviewVerdict,
     SessionLog,
     SessionStatus,
+    StageStats,
     StageStatus,
     StateData,
     Task,
     TaskLink,
     TaskLinkKind,
+    ThroughputStats,
     TimelineStage,
     VerificationCriteria,
     VerificationCriterion,
@@ -1279,6 +1283,19 @@ class TestControlStatusResponse:
         assert data["config"]["max_workers"] == 2
         assert data["config"]["batch_size"] == 15
         assert data["config"]["model"] == "sonnet"
+
+    def test_credits_paused_until_default_none(self) -> None:
+        resp = ControlStatusResponse()
+        assert resp.credits_paused_until is None
+
+    def test_credits_paused_until_set(self) -> None:
+        resp = ControlStatusResponse(
+            status="credits_paused",
+            credits_paused_until="2026-02-28T15:30:00+00:00",
+        )
+        assert resp.credits_paused_until == "2026-02-28T15:30:00+00:00"
+        data = resp.model_dump()
+        assert data["credits_paused_until"] == "2026-02-28T15:30:00+00:00"
 
 
 # ---------------------------------------------------------------------------
@@ -2727,3 +2744,88 @@ class TestIssueOutcomeModels:
         assert stats.total_outcomes_hitl_closed == 0
         assert stats.total_outcomes_hitl_skipped == 0
         assert stats.total_outcomes_failed == 0
+
+
+class TestStageStats:
+    def test_defaults_all_zero(self) -> None:
+        s = StageStats()
+        assert s.queued == 0
+        assert s.active == 0
+        assert s.completed_session == 0
+        assert s.completed_lifetime == 0
+        assert s.worker_count == 0
+        assert s.worker_cap is None
+
+    def test_with_values(self) -> None:
+        s = StageStats(
+            queued=3,
+            active=2,
+            completed_session=10,
+            completed_lifetime=50,
+            worker_count=2,
+            worker_cap=4,
+        )
+        assert s.queued == 3
+        assert s.worker_cap == 4
+
+
+class TestThroughputStats:
+    def test_defaults_all_zero(self) -> None:
+        t = ThroughputStats()
+        assert t.triage == 0.0
+        assert t.plan == 0.0
+        assert t.implement == 0.0
+        assert t.review == 0.0
+        assert t.hitl == 0.0
+
+    def test_with_values(self) -> None:
+        t = ThroughputStats(triage=1.5, implement=3.0)
+        assert t.triage == 1.5
+        assert t.implement == 3.0
+
+
+class TestPipelineStats:
+    def test_minimal_creation(self) -> None:
+        ps = PipelineStats(timestamp="2026-02-28T12:00:00+00:00")
+        assert ps.timestamp == "2026-02-28T12:00:00+00:00"
+        assert ps.stages == {}
+        assert ps.uptime_seconds == 0.0
+
+    def test_full_creation(self) -> None:
+        ps = PipelineStats(
+            timestamp="2026-02-28T12:00:00+00:00",
+            stages={
+                "triage": StageStats(queued=1, active=1, worker_count=1, worker_cap=1),
+                "plan": StageStats(queued=2),
+                "implement": StageStats(active=3, worker_count=2, worker_cap=2),
+                "review": StageStats(completed_session=5, completed_lifetime=20),
+                "hitl": StageStats(),
+                "merged": StageStats(completed_session=4, completed_lifetime=15),
+            },
+            queue=QueueStats(queue_depth={"find": 1, "plan": 2}),
+            throughput=ThroughputStats(triage=2.5, implement=1.0),
+            uptime_seconds=3600.0,
+        )
+        assert len(ps.stages) == 6
+        assert ps.stages["triage"].queued == 1
+        assert ps.stages["merged"].completed_lifetime == 15
+        assert ps.throughput.triage == 2.5
+        assert ps.uptime_seconds == 3600.0
+
+    def test_json_serializable(self) -> None:
+        ps = PipelineStats(
+            timestamp="2026-02-28T12:00:00+00:00",
+            stages={"triage": StageStats(queued=1)},
+            throughput=ThroughputStats(triage=1.0),
+            uptime_seconds=60.0,
+        )
+        data = ps.model_dump()
+        assert isinstance(data, dict)
+        assert data["stages"]["triage"]["queued"] == 1
+        assert data["throughput"]["triage"] == 1.0
+        # Round-trip through JSON
+        import json
+
+        json_str = json.dumps(data)
+        restored = PipelineStats.model_validate_json(json_str)
+        assert restored.stages["triage"].queued == 1

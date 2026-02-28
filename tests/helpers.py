@@ -248,6 +248,7 @@ class ConfigFactory:
         docker_network: str = "",
         docker_extra_mounts: list[str] | None = None,
         memory_auto_approve: bool = False,
+        memory_prune_stale_items: bool = True,
         transcript_summary_as_issue: bool = False,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
@@ -406,6 +407,7 @@ class ConfigFactory:
             if docker_extra_mounts is not None
             else [],
             memory_auto_approve=memory_auto_approve,
+            memory_prune_stale_items=memory_prune_stale_items,
             transcript_summary_as_issue=transcript_summary_as_issue,
             harness_insight_window=harness_insight_window,
             harness_pattern_threshold=harness_pattern_threshold,

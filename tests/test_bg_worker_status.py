@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from events import EventBus, EventType
 from models import (
     BackgroundWorkersResponse,
+    BackgroundWorkerState,
     BackgroundWorkerStatus,
     BGWorkerHealth,
     MetricsResponse,
@@ -135,6 +136,66 @@ class TestOrchestratorBgWorkerTracking:
 
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch.get_bg_worker_states() == {}
+
+    def test_restore_bg_worker_states_from_state_on_startup(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Verify _restore_state hydrates in-memory heartbeat cache from persisted state."""
+        from orchestrator import HydraFlowOrchestrator
+
+        # Arrange: pre-populate a StateTracker with a persisted heartbeat
+        state = StateTracker(tmp_path / "state.json")
+        state.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:00:00Z",
+                details={"item_count": 5},
+            ),
+        )
+
+        # Act: create a new orchestrator with the same state, then restore
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._restore_state()
+
+        # Assert: in-memory states reflect persisted data
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["last_run"] == "2026-02-20T10:00:00Z"
+        assert states["memory_sync"]["details"]["item_count"] == 5
+
+    def test_backfill_bg_worker_states_from_events(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Verify _restore_state backfills missing workers from event bus history."""
+        from events import EventType, HydraFlowEvent
+        from orchestrator import HydraFlowOrchestrator
+
+        # Arrange: inject a BACKGROUND_WORKER_STATUS event into the bus history
+        event_bus._history.append(
+            HydraFlowEvent(
+                type=EventType.BACKGROUND_WORKER_STATUS,
+                data={
+                    "worker": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-20T09:00:00Z",
+                    "details": {"item_count": 3},
+                },
+            )
+        )
+
+        # Act: create orchestrator with empty persisted state and restore
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus)
+        orch._restore_state()
+
+        # Assert: state was backfilled from event history
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["last_run"] == "2026-02-20T09:00:00Z"
+        assert states["memory_sync"]["details"]["item_count"] == 3
 
 
 class TestBgWorkerEnabled:
@@ -280,6 +341,30 @@ class TestSystemWorkersEndpoint:
         # Others should still be disabled
         retro = next(w for w in data["workers"] if w["name"] == "retrospective")
         assert retro["status"] == "disabled"
+
+    @pytest.mark.asyncio
+    async def test_returns_persisted_state_without_orchestrator(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        state.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:00:00Z",
+                details={"count": 7},
+            ),
+        )
+
+        router = self._make_router(config, event_bus, state, tmp_path, orch=None)
+        endpoint = self._find_endpoint(router, "/api/system/workers")
+        response = await endpoint()
+        data = json.loads(response.body)
+
+        ms = next(w for w in data["workers"] if w["name"] == "memory_sync")
+        assert ms["status"] == "ok"
+        assert ms["last_run"] == "2026-02-20T10:00:00Z"
+        assert ms["details"]["count"] == 7
 
 
 class TestMetricsEndpoint:

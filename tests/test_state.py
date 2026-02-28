@@ -10,7 +10,14 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from models import LifetimeStats, PendingReport, SessionLog, SessionStatus, StateData
+from models import (
+    BackgroundWorkerState,
+    LifetimeStats,
+    PendingReport,
+    SessionLog,
+    SessionStatus,
+    StateData,
+)
 from state import StateTracker
 
 # ---------------------------------------------------------------------------
@@ -45,6 +52,7 @@ class TestInitialization:
         assert "active_branches" in d
         assert "reviewed_prs" in d
         assert "last_updated" in d
+        assert "bg_worker_states" in d
         assert "current_batch" not in d
 
     def test_loads_legacy_file_with_current_batch_field(self, tmp_path: Path) -> None:
@@ -129,6 +137,107 @@ class TestLoadSave:
         tracker = make_tracker(tmp_path)
         result = tracker.load()
         assert isinstance(result, dict)
+
+
+class TestBackgroundWorkerStatePersistence:
+    def test_defaults_empty_states(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_bg_worker_states() == {}
+
+    def test_set_and_get_worker_state(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:30:00Z",
+                details={"count": 5},
+            ),
+        )
+        states = tracker.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["details"]["count"] == 5
+
+    def test_remove_worker_state(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_bg_worker_state(
+            "metrics",
+            BackgroundWorkerState(
+                name="metrics", status="error", last_run=None, details={}
+            ),
+        )
+        tracker.remove_bg_worker_state("metrics")
+        assert tracker.get_bg_worker_states() == {}
+
+
+class TestWorkerHeartbeatPersistence:
+    def test_worker_heartbeats_initially_empty(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_worker_heartbeats() == {}
+
+    def test_set_worker_heartbeat_round_trip(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_worker_heartbeat(
+            "memory_sync",
+            {
+                "status": "ok",
+                "last_run": "2026-02-20T10:30:00Z",
+                "details": {"count": 2},
+            },
+        )
+        beats = tracker.get_worker_heartbeats()
+        assert beats["memory_sync"]["status"] == "ok"
+        assert beats["memory_sync"]["details"]["count"] == 2
+
+        states = tracker.get_bg_worker_states()
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["details"]["count"] == 2
+
+    def test_set_bg_worker_state_populates_worker_heartbeats(
+        self, tmp_path: Path
+    ) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_bg_worker_state(
+            "metrics",
+            BackgroundWorkerState(
+                name="metrics",
+                status="error",
+                last_run="2026-02-20T12:00:00Z",
+                details={"synced": 0},
+            ),
+        )
+        beats = tracker.get_worker_heartbeats()
+        assert beats["metrics"]["status"] == "error"
+        assert beats["metrics"]["details"]["synced"] == 0
+
+    def test_legacy_state_file_migrates_bg_worker_states_to_heartbeats(
+        self, tmp_path: Path
+    ) -> None:
+        """Loading a legacy state file with only bg_worker_states populates worker_heartbeats."""
+        state_file = tmp_path / "state.json"
+        # Write a legacy state file: bg_worker_states populated, worker_heartbeats absent
+        state_file.write_text(
+            json.dumps(
+                {
+                    "bg_worker_states": {
+                        "memory_sync": {
+                            "name": "memory_sync",
+                            "status": "ok",
+                            "last_run": "2025-01-01T00:00:00Z",
+                            "details": {"count": 3},
+                        }
+                    }
+                }
+            )
+        )
+        tracker = StateTracker(state_file)
+        beats = tracker.get_worker_heartbeats()
+        assert "memory_sync" in beats
+        assert beats["memory_sync"]["status"] == "ok"
+        assert beats["memory_sync"]["last_run"] == "2025-01-01T00:00:00Z"
+        assert beats["memory_sync"]["details"]["count"] == 3
 
 
 # ---------------------------------------------------------------------------

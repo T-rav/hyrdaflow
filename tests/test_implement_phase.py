@@ -132,11 +132,11 @@ class TestImplementBatch:
         expected = [
             WorkerResultFactory.create(
                 issue_number=1,
-                worktree_path=str(config.worktree_base / "issue-1"),
+                worktree_path=str(config.worktree_path_for_issue(1)),
             ),
             WorkerResultFactory.create(
                 issue_number=2,
-                worktree_path=str(config.worktree_base / "issue-2"),
+                worktree_path=str(config.worktree_path_for_issue(2)),
             ),
         ]
 
@@ -230,7 +230,7 @@ class TestImplementBatch:
         issue = TaskFactory.create(id=77)
 
         # Pre-create worktree directory to simulate resume
-        wt_path = config.worktree_base / "issue-77"
+        wt_path = config.worktree_path_for_issue(77)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = _make_phase(
@@ -1407,7 +1407,7 @@ class TestRunImplementation:
         """When worktree dir exists, should reuse it."""
         issue = TaskFactory.create()
 
-        wt_path = config.worktree_base / "issue-42"
+        wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = _make_phase(config, [issue])
@@ -1503,7 +1503,7 @@ class TestHandleImplementationResult:
             success=False,
             error="No commits found on branch",
             commits=0,
-            worktree_path=str(config.worktree_base / "issue-42"),
+            worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
         phase, _, mock_prs = _make_phase(config, [issue])
@@ -1524,7 +1524,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_base / "issue-42"),
+            worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
         phase, _, mock_prs = _make_phase(
@@ -1546,7 +1546,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_base / "issue-42"),
+            worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
         phase, _, mock_prs = _make_phase(config, [issue])
@@ -1567,7 +1567,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_base / "issue-42"),
+            worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
         phase, _, mock_prs = _make_phase(
@@ -1594,7 +1594,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_base / "issue-42"),
+            worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
         phase, _, mock_prs = _make_phase(

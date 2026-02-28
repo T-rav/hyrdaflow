@@ -949,6 +949,7 @@ const epicStatusStyles = {
   blocked: { ...epicStatusBase, color: theme.red, background: theme.redSubtle },
 }
 
+
 // Pre-computed section opacity variants (avoids object spread in StageSection render)
 const sectionEnabledStyle = { ...styles.section, opacity: 1, transition: 'opacity 0.2s' }
 const sectionDisabledStyle = { ...styles.section, opacity: 0.5, transition: 'opacity 0.2s' }

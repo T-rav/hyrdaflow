@@ -256,7 +256,7 @@ class ReviewPhase:
         self, pr: PRInfo, task: Task, idx: int
     ) -> Path | None:
         """Ensure worktree exists and main is merged. Returns path or None on conflict."""
-        wt_path = self._config.worktree_base / f"issue-{pr.issue_number}"
+        wt_path = self._config.worktree_path_for_issue(pr.issue_number)
         if not wt_path.exists():
             wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
         merged = await self._merge_with_main(pr, task, wt_path, idx)

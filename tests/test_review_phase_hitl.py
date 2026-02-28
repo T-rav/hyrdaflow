@@ -55,7 +55,7 @@ class TestHITLEscalationEvents:
         phase._worktrees.start_merge_main = AsyncMock(return_value=False)
         phase._worktrees.abort_merge = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -91,7 +91,7 @@ class TestHITLEscalationEvents:
         phase._prs.add_pr_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -142,7 +142,7 @@ class TestHITLEscalationEvents:
         phase._prs.add_pr_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -176,7 +176,7 @@ class TestHITLEscalationEvents:
         phase._prs.add_labels = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -215,7 +215,7 @@ class TestHITLEscalationEvents:
         phase._prs.submit_review = AsyncMock()
         phase._worktrees.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -264,7 +264,7 @@ class TestRequestChangesRetry:
         phase._prs.post_pr_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         return phase, pr, issue
@@ -366,7 +366,7 @@ class TestRequestChangesRetry:
         phase._prs.post_pr_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -395,7 +395,7 @@ class TestRequestChangesRetry:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -421,7 +421,7 @@ class TestRequestChangesRetry:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -461,7 +461,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -493,7 +493,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -535,7 +535,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -574,7 +574,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -615,7 +615,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -657,7 +657,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])

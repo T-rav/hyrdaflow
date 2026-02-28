@@ -16,6 +16,7 @@ export const initialState = {
   lastSeenId: -1,  // Monotonic event ID for deduplication on reconnect
   phase: 'idle',
   orchestratorStatus: 'idle',
+  creditsPausedUntil: null,
   workers: {},
   prs: [],
   reviews: [],
@@ -118,6 +119,7 @@ export function reducer(state, action) {
       return {
         ...addEvent(state, action),
         orchestratorStatus: newStatus,
+        creditsPausedUntil: action.data.credits_paused_until || null,
         ...(isStopped ? {
           workers: {},
           sessionTriaged: 0,
@@ -903,7 +905,7 @@ export function HydraFlowProvider({ children }) {
         .then(data => {
           dispatch({
             type: 'orchestrator_status',
-            data: { status: data.status },
+            data: { status: data.status, credits_paused_until: data.credits_paused_until },
             timestamp: new Date().toISOString(),
           })
           if (data.config) {

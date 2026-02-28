@@ -253,6 +253,9 @@ class MemorySyncWorker:
         prev_ids, prev_hash, _ = self._state.get_memory_state()
 
         if not issues:
+            pruned = 0
+            if self._config.memory_prune_stale_items:
+                pruned = self._prune_stale_items([])
             self._state.update_memory_state([], prev_hash)
             self._manifest_store.update_from_learnings([])
             await self._refresh_manifest("memory-sync-empty")
@@ -261,6 +264,8 @@ class MemorySyncWorker:
                 "item_count": 0,
                 "compacted": False,
                 "digest_chars": 0,
+                "pruned": pruned,
+                "issues_closed": 0,
             }
 
         # Extract learnings (now typed) and build digest
@@ -301,6 +306,11 @@ class MemorySyncWorker:
             item_path = items_dir / f"{num}.md"
             item_path.write_text(learning)
 
+        # Prune stale item files
+        pruned = 0
+        if self._config.memory_prune_stale_items:
+            pruned = self._prune_stale_items(current_ids)
+
         # Atomic write of digest
         self._write_digest(digest)
 
@@ -310,13 +320,15 @@ class MemorySyncWorker:
         self._manifest_store.update_from_learnings(learnings)
         await self._refresh_manifest("memory-sync")
         await self._route_adr_candidates(issues)
-        await self._close_synced_issues(issues)
+        closed, _close_failed = await self._close_synced_issues(issues)
 
         return {
             "action": "synced",
             "item_count": len(learnings),
             "compacted": compacted,
             "digest_chars": len(digest),
+            "pruned": pruned,
+            "issues_closed": closed,
         }
 
     def _should_auto_close_issue(self, issue: MemoryIssueData) -> bool:
@@ -335,10 +347,37 @@ class MemorySyncWorker:
         )
         return is_memory or is_transcript
 
-    async def _close_synced_issues(self, issues: list[MemoryIssueData]) -> None:
-        """Close synced memory issues when a PR port is available."""
+    def _prune_stale_items(self, current_ids: list[int]) -> int:
+        """Remove item files whose source issue is no longer active.
+
+        Returns the number of pruned files.
+        """
+        items_dir = self._config.data_path("memory", "items")
+        if not items_dir.is_dir():
+            return 0
+        active = set(current_ids)
+        pruned = 0
+        for path in items_dir.glob("*.md"):
+            try:
+                file_id = int(path.stem)
+            except ValueError:
+                continue
+            if file_id not in active:
+                path.unlink()
+                pruned += 1
+        if pruned:
+            logger.info("Pruned %d stale memory item files", pruned)
+        return pruned
+
+    async def _close_synced_issues(
+        self, issues: list[MemoryIssueData]
+    ) -> tuple[int, int]:
+        """Close synced memory issues when a PR port is available.
+
+        Returns ``(closed, failed)`` counts.
+        """
         if self._prs is None:
-            return
+            return 0, 0
         closed = 0
         failed = 0
         for issue in issues:
@@ -362,6 +401,7 @@ class MemorySyncWorker:
             closed,
             failed,
         )
+        return closed, failed
 
     async def _route_adr_candidates(self, issues: list[MemoryIssueData]) -> None:
         """Create ADR draft tasks from architecture-shift memory issues."""

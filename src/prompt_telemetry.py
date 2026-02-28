@@ -9,6 +9,7 @@ from typing import Any
 
 from config import HydraFlowConfig
 from file_util import atomic_write, file_lock
+from model_pricing import ModelPricingTable, load_pricing
 
 logger = logging.getLogger("hydraflow.prompt_telemetry")
 
@@ -37,12 +38,17 @@ def _estimate_tokens(chars: int, model: str) -> tuple[int, float, str]:
 class PromptTelemetry:
     """Writes prompt/inference metrics to filesystem-backed JSON artifacts."""
 
-    def __init__(self, config: HydraFlowConfig) -> None:
+    def __init__(
+        self,
+        config: HydraFlowConfig,
+        pricing: ModelPricingTable | None = None,
+    ) -> None:
         self._config = config
         self._dir = config.data_path("metrics", "prompt")
         self._inferences_file = self._dir / "inferences.jsonl"
         self._pr_stats_file = self._dir / "pr_stats.json"
         self._lock_file = self._dir / ".lock"
+        self._pricing = pricing or load_pricing()
 
     def record(
         self,
@@ -154,6 +160,15 @@ class PromptTelemetry:
                 else max(0, history_saved + context_saved)
             ),
         }
+        # Estimate cost from pricing table
+        cost = self._pricing.estimate_cost(
+            model,
+            input_tokens=actual_input_tokens or prompt_tokens,
+            output_tokens=actual_output_tokens or transcript_tokens,
+            cache_write_tokens=actual_cache_creation_tokens,
+            cache_read_tokens=actual_cache_read_tokens,
+        )
+        record["estimated_cost_usd"] = round(cost, 6) if cost is not None else None
         section_chars = st.get("section_chars")
         if isinstance(section_chars, dict):
             clean_sections: dict[str, int] = {}
@@ -344,6 +359,12 @@ class PromptTelemetry:
         target["pruned_chars_total"] = _as_int(
             target.get("pruned_chars_total", 0)
         ) + _as_int(record.get("pruned_chars_total", 0))
+        record_cost = record.get("estimated_cost_usd")
+        if isinstance(record_cost, int | float) and record_cost > 0:
+            target["estimated_cost_usd"] = round(
+                _as_float(target.get("estimated_cost_usd", 0.0)) + float(record_cost),
+                6,
+            )
         target["last_updated"] = str(record.get("timestamp", ""))
 
     def get_pr_totals(self, pr_number: int) -> dict[str, int] | None:
@@ -457,6 +478,20 @@ def _as_int(value: object) -> int:
         except ValueError:
             return 0
     return 0
+
+
+def _as_float(value: object) -> float:
+    """Best-effort float conversion for telemetry cost accumulators."""
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0
 
 
 def _get_or_init_dict(

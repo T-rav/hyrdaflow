@@ -565,6 +565,47 @@ class QueueStats(BaseModel):
     in_flight_count: int = 0
 
 
+class StageStats(BaseModel):
+    """Per-stage snapshot of queue depth, active count, and completions."""
+
+    queued: int = 0
+    active: int = 0
+    completed_session: int = 0
+    completed_lifetime: int = 0
+    worker_count: int = 0
+    worker_cap: int | None = None
+
+
+class ThroughputStats(BaseModel):
+    """Issues processed per hour, computed per stage."""
+
+    triage: float = 0.0
+    plan: float = 0.0
+    implement: float = 0.0
+    review: float = 0.0
+    hitl: float = 0.0
+
+
+class PipelineStats(BaseModel):
+    """Unified real-time pipeline state emitted periodically by the orchestrator."""
+
+    timestamp: str
+    stages: dict[str, StageStats] = Field(default_factory=dict)
+    queue: QueueStats = Field(default_factory=QueueStats)
+    throughput: ThroughputStats = Field(default_factory=ThroughputStats)
+    uptime_seconds: float = 0.0
+
+
+class RepoRuntimeInfo(BaseModel):
+    """Snapshot of a single repo runtime for API/dashboard consumption."""
+
+    slug: str
+    repo: str = ""
+    running: bool = False
+    session_id: str | None = None
+    uptime_seconds: float = 0.0
+
+
 class IssueOutcomeType(StrEnum):
     """How an issue was ultimately resolved."""
 
@@ -703,6 +744,8 @@ class StateData(BaseModel):
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
+    bg_worker_states: dict[str, BackgroundWorkerState] = Field(default_factory=dict)
+    worker_heartbeats: dict[str, PersistedWorkerHeartbeat] = Field(default_factory=dict)
     verification_issues: dict[str, int] = Field(default_factory=dict)
     issue_attempts: dict[str, int] = Field(default_factory=dict)
     active_issue_numbers: list[int] = Field(default_factory=list)
@@ -905,6 +948,7 @@ class ControlStatusResponse(BaseModel):
     """Response for GET /api/control/status."""
 
     status: str = "idle"
+    credits_paused_until: str | None = None
     config: ControlStatusConfig = Field(default_factory=ControlStatusConfig)
 
 
@@ -919,6 +963,14 @@ class BackgroundWorkerState(TypedDict):
     last_run: str | None
     details: dict[str, Any]
     enabled: NotRequired[bool]  # added by get_bg_worker_states()
+
+
+class PersistedWorkerHeartbeat(TypedDict, total=False):
+    """Lightweight persisted snapshot for worker heartbeats."""
+
+    status: str
+    last_run: str | None
+    details: dict[str, Any]
 
 
 class TranscriptEventData(TypedDict, total=False):
@@ -1164,6 +1216,8 @@ class MemorySyncResult(TypedDict):
     item_count: int
     compacted: bool
     digest_chars: int
+    pruned: NotRequired[int]
+    issues_closed: NotRequired[int]
 
 
 class UnstickResult(TypedDict):

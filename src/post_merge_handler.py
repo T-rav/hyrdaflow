@@ -119,7 +119,7 @@ class PostMergeHandler:
             should_merge = await ci_gate_fn(
                 pr,
                 issue,
-                self._config.worktree_base / f"issue-{pr.issue_number}",
+                self._config.worktree_path_for_issue(pr.issue_number),
                 result,
                 worker_id,
             )

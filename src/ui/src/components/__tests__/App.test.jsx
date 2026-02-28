@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
 import { tabActiveStyle, tabInactiveStyle, hitlBadgeStyle } from '../../App'
 
 const { mockState } = vi.hoisted(() => {
@@ -67,6 +67,7 @@ vi.mock('../../context/HydraFlowContext', () => ({
 beforeEach(() => {
   mockState.hitlItems = []
   mockState.prs = []
+  mockState.events = []
   mockState.resetSession = undefined
   mockState.metrics = null
   cleanup()
@@ -181,6 +182,42 @@ describe('System and Metrics tabs', () => {
     fireEvent.click(screen.getByText('System'))
     fireEvent.click(screen.getByText('Metrics'))
     expect(screen.getByText('Lifetime')).toBeInTheDocument()
+  })
+})
+
+describe('EventLog side panel', () => {
+  it('renders a persistent EventLog panel fed by live events', async () => {
+    mockState.events = [
+      { type: 'merge_update', timestamp: '2026-02-28T10:00:00Z', data: { pr: 42, status: 'merged' } },
+    ]
+    const { default: App } = await import('../../App')
+    render(<App />)
+
+    const panel = screen.getByTestId('event-log-panel')
+    expect(panel).toBeInTheDocument()
+    expect(within(panel).getByText('[review]')).toBeInTheDocument()
+    expect(within(panel).getByText('PR #42 merged')).toBeInTheDocument()
+  })
+
+  it('shows empty state when no events have arrived', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+
+    const panel = screen.getByTestId('event-log-panel')
+    expect(within(panel).getByText('Waiting for events...')).toBeInTheDocument()
+  })
+
+  it('remains visible after switching tabs', async () => {
+    mockState.events = [
+      { type: 'pr_created', timestamp: '2026-02-28T10:01:00Z', data: { pr: 7, issue: 3, draft: false } },
+    ]
+    const { default: App } = await import('../../App')
+    render(<App />)
+
+    for (const tab of ['History', 'HITL', 'System', 'Work Stream']) {
+      fireEvent.click(screen.getByText(tab))
+      expect(screen.getByTestId('event-log-panel')).toBeInTheDocument()
+    }
   })
 })
 

@@ -43,7 +43,7 @@ def _make_phase(
     fetcher_store = AsyncMock()
     store = IssueStore(config, fetcher_store, bus)
     worktrees = AsyncMock()
-    worktrees.create = AsyncMock(return_value=config.worktree_base / "issue-42")
+    worktrees.create = AsyncMock(return_value=config.worktree_path_for_issue(42))
     worktrees.destroy = AsyncMock()
     hitl_runner = AsyncMock()
     prs = AsyncMock()
@@ -458,7 +458,7 @@ class TestHITLResetsAttempts:
         )
 
         # Create worktree directory
-        wt_path = config.worktree_base / "issue-42"
+        wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
         wt.create = AsyncMock(return_value=wt_path)
 

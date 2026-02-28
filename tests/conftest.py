@@ -513,6 +513,7 @@ def make_orchestrator_mock(
     orch.running = running
     orch.run_status = run_status
     orch.current_session_id = None
+    orch.credits_paused_until = None
     orch.stop = AsyncMock()
     orch.request_stop = AsyncMock()
     return orch

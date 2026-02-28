@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { theme } from '../theme'
-import { eventMessage, typeSpanStyles, defaultTypeStyle } from './EventLog'
+import { eventMessage, processLabel, typeSpanStyles, defaultTypeStyle } from './EventLog'
 
 function issueNumberForEvent(event) {
   const data = event?.data || {}
@@ -57,7 +57,7 @@ export function Livestream({ events }) {
               {new Date(e.timestamp).toLocaleTimeString()}
             </span>
             <span style={typeSpanStyles[e.type] || defaultTypeStyle}>
-              {e.type.replace(/_/g, ' ')}
+              {processLabel(e.type)}
             </span>
             <span>{lineText}</span>
           </div>

@@ -55,7 +55,7 @@ class TestMergeConflictResolver:
         result = await resolver.merge_with_main(
             pr,
             issue,
-            config.worktree_base / "issue-42",
+            config.worktree_path_for_issue(42),
             0,
             escalate_fn=escalate_fn,
             publish_fn=publish_fn,
@@ -80,7 +80,7 @@ class TestMergeConflictResolver:
         result = await resolver.merge_with_main(
             pr,
             issue,
-            config.worktree_base / "issue-42",
+            config.worktree_path_for_issue(42),
             0,
             escalate_fn=escalate_fn,
             publish_fn=publish_fn,
@@ -99,7 +99,7 @@ class TestMergeConflictResolver:
         issue = TaskFactory.create()
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_base / "issue-42", worker_id=0
+            pr, issue, config.worktree_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=False, used_rebuild=False)
@@ -117,7 +117,7 @@ class TestMergeConflictResolver:
         resolver._worktrees.start_merge_main = AsyncMock(return_value=True)
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_base / "issue-42", worker_id=0
+            pr, issue, config.worktree_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -138,7 +138,7 @@ class TestMergeConflictResolver:
         resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_base / "issue-42", worker_id=0
+            pr, issue, config.worktree_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -160,7 +160,7 @@ class TestMergeConflictResolver:
         resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_base / "issue-42", worker_id=0
+            pr, issue, config.worktree_path_for_issue(42), worker_id=0
         )
 
         log_dir = config.repo_root / ".hydraflow" / "logs"
@@ -187,7 +187,7 @@ class TestSourceParameter:
         await resolver.resolve_merge_conflicts(
             pr,
             issue,
-            config.worktree_base / "issue-42",
+            config.worktree_path_for_issue(42),
             worker_id=0,
             source="pr_unsticker",
         )
@@ -218,7 +218,7 @@ class TestSourceParameter:
             await resolver.resolve_merge_conflicts(
                 pr,
                 issue,
-                config.worktree_base / "issue-42",
+                config.worktree_path_for_issue(42),
                 worker_id=0,
                 source="test_source",
             )
@@ -255,7 +255,7 @@ class TestWorkerIdNone:
         resolver._bus.publish = track_publish
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_base / "issue-42", worker_id=None
+            pr, issue, config.worktree_path_for_issue(42), worker_id=None
         )
 
         # No REVIEW_UPDATE events should have been published
@@ -290,7 +290,7 @@ class TestWorkerIdNone:
         resolver._bus.publish = track_publish
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_base / "issue-42", worker_id=1
+            pr, issue, config.worktree_path_for_issue(42), worker_id=1
         )
 
         # Should have published at least one REVIEW_UPDATE event

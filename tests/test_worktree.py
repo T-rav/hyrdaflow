@@ -147,7 +147,7 @@ class TestCreate:
         setup_env.assert_called_once()
         create_venv.assert_awaited_once()
         install_hooks.assert_awaited_once()
-        assert result == config.worktree_base / "issue-7"
+        assert result == config.worktree_path_for_issue(7)
 
     @pytest.mark.asyncio
     async def test_create_returns_correct_path(self, config, tmp_path: Path) -> None:
@@ -167,7 +167,7 @@ class TestCreate:
         ):
             result = await manager.create(issue_number=99, branch="agent/issue-99")
 
-        assert result == config.worktree_base / "issue-99"
+        assert result == config.worktree_path_for_issue(99)
 
     @pytest.mark.asyncio
     async def test_create_dry_run_skips_git_commands(
@@ -180,7 +180,7 @@ class TestCreate:
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
         mock_exec.assert_not_called()
-        assert result == dry_config.worktree_base / "issue-7"
+        assert result == dry_config.worktree_path_for_issue(7)
 
     @pytest.mark.asyncio
     async def test_create_raises_when_fetch_origin_main_fails(
@@ -238,7 +238,7 @@ class TestCreate:
         ):
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
-        assert result == config.worktree_base / "issue-7"
+        assert result == config.worktree_path_for_issue(7)
         assert call_count >= 4  # fetch (fail), fetch (retry), branch, worktree add
         sleep_mock.assert_awaited_once()
 
@@ -357,7 +357,7 @@ class TestCreate:
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
         # _create_venv catches RuntimeError internally, so create completes
-        assert result == config.worktree_base / "issue-7"
+        assert result == config.worktree_path_for_issue(7)
 
     @pytest.mark.asyncio
     async def test_create_cleans_up_branch_when_worktree_add_fails(
@@ -449,7 +449,7 @@ class TestDestroy:
         manager = WorktreeManager(config)
 
         # Simulate existing worktree path
-        wt_path = config.worktree_base / "issue-7"
+        wt_path = config.worktree_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc()
@@ -492,7 +492,7 @@ class TestDestroy:
         """destroy should swallow RuntimeError from 'git branch -D' gracefully."""
         manager = WorktreeManager(config)
 
-        wt_path = config.worktree_base / "issue-7"
+        wt_path = config.worktree_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         remove_proc = make_proc(returncode=0)
@@ -518,7 +518,7 @@ class TestDestroy:
         """destroy should propagate RuntimeError when 'git worktree remove --force' fails."""
         manager = WorktreeManager(config)
 
-        wt_path = config.worktree_base / "issue-7"
+        wt_path = config.worktree_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         fail_proc = make_proc(returncode=1, stderr=b"fatal: dirty worktree")
@@ -557,9 +557,10 @@ class TestDestroyAll:
         """destroy_all should call destroy for each issue-N directory."""
         manager = WorktreeManager(config)
 
-        # Create two issue directories
-        (config.worktree_base / "issue-1").mkdir(parents=True, exist_ok=True)
-        (config.worktree_base / "issue-2").mkdir(parents=True, exist_ok=True)
+        # Create two issue directories in the repo-scoped subdirectory
+        repo_base = config.worktree_base / config.repo_slug
+        (repo_base / "issue-1").mkdir(parents=True, exist_ok=True)
+        (repo_base / "issue-2").mkdir(parents=True, exist_ok=True)
 
         destroyed: list[int] = []
 
@@ -593,8 +594,9 @@ class TestDestroyAll:
         """destroy_all should skip directories not named issue-N."""
         manager = WorktreeManager(config)
 
-        (config.worktree_base / "random-dir").mkdir(parents=True, exist_ok=True)
-        (config.worktree_base / "issue-5").mkdir(parents=True, exist_ok=True)
+        repo_base = config.worktree_base / config.repo_slug
+        (repo_base / "random-dir").mkdir(parents=True, exist_ok=True)
+        (repo_base / "issue-5").mkdir(parents=True, exist_ok=True)
 
         destroyed: list[int] = []
 
@@ -608,6 +610,124 @@ class TestDestroyAll:
             await manager.destroy_all()
 
         assert destroyed == [5]
+
+
+# ---------------------------------------------------------------------------
+# Repo-scoped isolation
+# ---------------------------------------------------------------------------
+
+
+class TestRepoScopedPaths:
+    """Verify worktree paths are namespaced by repo slug."""
+
+    def test_worktree_path_includes_repo_slug(self, config) -> None:
+        """worktree_path_for_issue should include repo_slug in the path."""
+        path = config.worktree_path_for_issue(42)
+        assert config.repo_slug in str(path)
+        assert path.name == "issue-42"
+        assert path.parent.name == config.repo_slug
+
+    def test_two_repos_have_distinct_paths(self, tmp_path: Path) -> None:
+        """Two different repos should have non-overlapping worktree paths."""
+        from tests.helpers import ConfigFactory
+
+        cfg_a = ConfigFactory.create(
+            repo="org/repo-a",
+            worktree_base=tmp_path / "worktrees",
+            repo_root=tmp_path / "a",
+        )
+        cfg_b = ConfigFactory.create(
+            repo="org/repo-b",
+            worktree_base=tmp_path / "worktrees",
+            repo_root=tmp_path / "b",
+        )
+        path_a = cfg_a.worktree_path_for_issue(10)
+        path_b = cfg_b.worktree_path_for_issue(10)
+        assert path_a != path_b
+        assert "org-repo-a" in str(path_a)
+        assert "org-repo-b" in str(path_b)
+
+
+class TestPerRepoWorktreeLock:
+    """Verify per-repo locking prevents concurrent worktree operations."""
+
+    @pytest.mark.asyncio
+    async def test_create_delegates_to_create_unlocked(self, config) -> None:
+        """create should delegate to _create_unlocked under the lock."""
+        manager = WorktreeManager(config)
+
+        mock_create = AsyncMock(return_value=config.worktree_path_for_issue(7))
+        with patch.object(manager, "_create_unlocked", mock_create):
+            result = await manager.create(7, "agent/issue-7")
+
+        mock_create.assert_awaited_once_with(7, "agent/issue-7")
+        assert result == config.worktree_path_for_issue(7)
+
+    def test_same_repo_gets_same_lock(self, config) -> None:
+        """Two managers for the same repo should share the same lock."""
+        manager_a = WorktreeManager(config)
+        manager_b = WorktreeManager(config)
+        assert manager_a._repo_worktree_lock() is manager_b._repo_worktree_lock()
+
+    def test_different_repos_get_different_locks(self, tmp_path: Path) -> None:
+        """Two managers for different repos should have independent locks."""
+        from tests.helpers import ConfigFactory
+
+        cfg_a = ConfigFactory.create(
+            repo="org/alpha",
+            worktree_base=tmp_path / "wt",
+            repo_root=tmp_path / "a",
+        )
+        cfg_b = ConfigFactory.create(
+            repo="org/beta",
+            worktree_base=tmp_path / "wt",
+            repo_root=tmp_path / "b",
+        )
+        lock_a = WorktreeManager(cfg_a)._repo_worktree_lock()
+        lock_b = WorktreeManager(cfg_b)._repo_worktree_lock()
+        assert lock_a is not lock_b
+
+
+class TestDestroyAllRepoScoped:
+    """Verify destroy_all only cleans the current repo's worktrees."""
+
+    @pytest.mark.asyncio
+    async def test_destroy_all_only_targets_repo_scoped_dir(
+        self, tmp_path: Path
+    ) -> None:
+        """destroy_all should remove worktrees under the repo-scoped directory."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo="org/alpha",
+            worktree_base=tmp_path / "worktrees",
+            repo_root=tmp_path / "repo",
+        )
+        manager = WorktreeManager(cfg)
+
+        # Create repo-scoped worktree dirs
+        alpha_base = tmp_path / "worktrees" / "org-alpha"
+        (alpha_base / "issue-1").mkdir(parents=True)
+        (alpha_base / "issue-2").mkdir(parents=True)
+
+        # Create another repo's worktree (should NOT be destroyed)
+        beta_base = tmp_path / "worktrees" / "org-beta"
+        (beta_base / "issue-1").mkdir(parents=True)
+
+        destroyed: list[int] = []
+
+        async def fake_destroy(issue_number: int) -> None:
+            destroyed.append(issue_number)
+
+        with (
+            patch.object(manager, "destroy", side_effect=fake_destroy),
+            patch("worktree.run_subprocess", new_callable=AsyncMock),
+        ):
+            await manager.destroy_all()
+
+        assert sorted(destroyed) == [1, 2]
+        # Beta repo's worktree should still exist
+        assert (beta_base / "issue-1").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -1044,6 +1044,102 @@ class TestMemorySyncWorkerSync:
         for r in results:
             assert not isinstance(r, Exception), f"sync() raised: {r}"
 
+    @pytest.mark.asyncio
+    async def test_sync_prunes_stale_item_files(self, tmp_path: Path) -> None:
+        """Stale .md files in items/ should be removed when their issue is gone."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([10, 20, 30], "oldhash", "")
+        bus = MagicMock()
+
+        # Pre-populate items dir with files for issues 10, 20, 30
+        items_dir = tmp_path / ".hydraflow" / "memory" / "items"
+        items_dir.mkdir(parents=True)
+        for n in [10, 20, 30]:
+            (items_dir / f"{n}.md").write_text(f"learning for {n}")
+
+        worker = MemorySyncWorker(config, state, bus)
+        # Only issue 10 is still active
+        issues = [
+            {"number": 10, "title": "A", "body": "B", "createdAt": ""},
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats["pruned"] == 2
+        assert (items_dir / "10.md").exists()
+        assert not (items_dir / "20.md").exists()
+        assert not (items_dir / "30.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_sync_prune_disabled_by_config(self, tmp_path: Path) -> None:
+        """When memory_prune_stale_items is False, no files should be removed."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path, memory_prune_stale_items=False
+        )
+        state = MagicMock()
+        state.get_memory_state.return_value = ([10, 20], "oldhash", "")
+        bus = MagicMock()
+
+        items_dir = tmp_path / ".hydraflow" / "memory" / "items"
+        items_dir.mkdir(parents=True)
+        (items_dir / "10.md").write_text("active")
+        (items_dir / "99.md").write_text("stale")
+
+        worker = MemorySyncWorker(config, state, bus)
+        issues = [
+            {"number": 10, "title": "A", "body": "B", "createdAt": ""},
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats.get("pruned", 0) == 0
+        assert (items_dir / "99.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_sync_returns_issues_closed_count(self, tmp_path: Path) -> None:
+        """Sync result should include issues_closed count."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = AsyncMock()
+        prs.close_issue = AsyncMock()
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 10,
+                "title": "[Memory] Test",
+                "body": "## Memory Suggestion\n\n**Learning:** Test\n\n**Context:** Test",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats["issues_closed"] == 1
+        prs.close_issue.assert_awaited_once_with(10)
+
+    @pytest.mark.asyncio
+    async def test_sync_empty_issues_prunes_all_stale_files(
+        self, tmp_path: Path
+    ) -> None:
+        """When no issues remain, all item files should be pruned."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([10], "hash", "")
+        bus = MagicMock()
+
+        items_dir = tmp_path / ".hydraflow" / "memory" / "items"
+        items_dir.mkdir(parents=True)
+        (items_dir / "10.md").write_text("stale")
+
+        worker = MemorySyncWorker(config, state, bus)
+        stats = await worker.sync([])
+
+        assert stats["pruned"] == 1
+        assert stats["issues_closed"] == 0
+        assert not (items_dir / "10.md").exists()
+
 
 # --- State tracking tests ---
 

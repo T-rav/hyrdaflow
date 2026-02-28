@@ -455,7 +455,7 @@ class TestWorktreePreservation:
         phase._prs.pull_main = AsyncMock()
 
         # Create worktree path
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -498,7 +498,7 @@ class TestWorktreePreservation:
         phase._prs.swap_pipeline_labels = AsyncMock()
         phase._prs.pull_main = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -528,7 +528,7 @@ class TestWorktreePreservation:
         phase._prs.swap_pipeline_labels = AsyncMock()
         phase._prs.pull_main = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         # Stop event is NOT set

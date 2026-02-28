@@ -16,9 +16,9 @@ describe('Livestream component', () => {
     ]
     render(<Livestream events={events} />)
 
-    expect(screen.getByText('phase change')).toBeInTheDocument()
+    expect(screen.getByText('[orchestrator]')).toBeInTheDocument()
     expect(screen.getByText('issue: n/a line plan')).toBeInTheDocument()
-    expect(screen.getByText('pr created')).toBeInTheDocument()
+    expect(screen.getByText('[implement]')).toBeInTheDocument()
     expect(screen.getByText('issue: 10 line PR #42 for #10')).toBeInTheDocument()
   })
 
@@ -29,8 +29,8 @@ describe('Livestream component', () => {
     ]
     render(<Livestream events={events} />)
 
-    expect(screen.getByText('transcript line')).toBeInTheDocument()
-    expect(screen.getByText('error')).toBeInTheDocument()
+    expect(screen.getByText('[agent]')).toBeInTheDocument()
+    expect(screen.getByText('[system]')).toBeInTheDocument()
     expect(screen.getByText('issue: 1 line')).toBeInTheDocument()
     expect(screen.getByText('issue: n/a line something broke')).toBeInTheDocument()
   })
@@ -41,7 +41,7 @@ describe('Livestream component', () => {
     ]
     const { container } = render(<Livestream events={events} />)
 
-    const typeBadge = screen.getByText('error')
+    const typeBadge = screen.getByText('[system]')
     expect(typeBadge.style.color).toBe(typeSpanStyles.error.color)
     expect(typeBadge.style.fontWeight).toBe(String(typeSpanStyles.error.fontWeight))
   })
@@ -52,7 +52,7 @@ describe('Livestream component', () => {
     ]
     render(<Livestream events={events} />)
 
-    const typeBadge = screen.getByText('custom event')
+    const typeBadge = screen.getByText('[unknown]')
     expect(typeBadge.style.color).toBe(defaultTypeStyle.color)
     expect(typeBadge.style.fontWeight).toBe(String(defaultTypeStyle.fontWeight))
   })

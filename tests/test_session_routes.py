@@ -183,6 +183,7 @@ class TestControlStatusIncludesSessionId:
         mock_orch = MagicMock()
         mock_orch.run_status = "running"
         mock_orch.current_session_id = "test-session-123"
+        mock_orch.credits_paused_until = None
 
         router = _make_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch

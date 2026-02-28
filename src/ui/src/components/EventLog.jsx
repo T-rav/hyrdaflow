@@ -1,5 +1,6 @@
 import React from 'react'
 import { theme } from '../theme'
+import { EVENT_PROCESS_MAP } from '../constants'
 
 export const typeColors = {
   worker_update: theme.accent,
@@ -19,6 +20,15 @@ export const typeColors = {
   background_worker_status: theme.accent,
 }
 
+/**
+ * Returns a bracketed process label for an event type, e.g. "[triage]".
+ * Falls back to "[unknown]" when the event type has no mapping.
+ */
+export function processLabel(type) {
+  const name = EVENT_PROCESS_MAP[type] || 'unknown'
+  return `[${name}]`
+}
+
 export function eventSummary(type, data) {
   switch (type) {
     case 'phase_change': return data.phase
@@ -32,7 +42,7 @@ export function eventSummary(type, data) {
     case 'planner_update': return `#${data.issue} → ${data.status}`
     case 'orchestrator_status': return `${data.status}`
     case 'hitl_escalation': return data.pr ? `PR #${data.pr} escalated to HITL` : `Issue #${data.issue} escalated to HITL`
-    case 'hitl_update': return `#${data.issue} ${data.action || data.status}`
+    case 'hitl_update': return `#${data.issue} ${data.action || data.status || 'awaiting_retry'}`
     case 'ci_check': return `PR #${data.pr} CI ${data.status}`
     case 'issue_created': return `#${data.issue} created`
     case 'background_worker_status': return `${data.worker} → ${data.status}`
@@ -50,12 +60,12 @@ export function eventMessage(type, data) {
   return summary
 }
 
-export function EventLog({ events }) {
+export function EventLog({ events = [] }) {
   // Filter out noisy transcript_line events from the log
   const filtered = events.filter(e => e.type !== 'transcript_line')
 
   return (
-    <div style={styles.panel}>
+    <div style={styles.panel} data-testid="event-log-panel">
       <div style={styles.title}>Event Log</div>
       <div style={styles.log}>
         {filtered.length === 0 && (
@@ -67,7 +77,7 @@ export function EventLog({ events }) {
               {new Date(e.timestamp).toLocaleTimeString()}
             </span>
             <span style={typeSpanStyles[e.type] || defaultTypeStyle}>
-              {e.type.replace(/_/g, ' ')}
+              {processLabel(e.type)}
             </span>
             <span>{eventSummary(e.type, e.data)}</span>
           </div>
@@ -80,10 +90,12 @@ export function EventLog({ events }) {
 const styles = {
   panel: {
     borderLeft: `1px solid ${theme.border}`,
-    overflowY: 'auto',
     background: theme.surface,
     display: 'flex',
     flexDirection: 'column',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
   },
   title: {
     padding: '12px 16px 8px',
@@ -93,7 +105,7 @@ const styles = {
     color: theme.textMuted,
     letterSpacing: 0.5,
   },
-  log: { padding: 8, flex: 1, overflowY: 'auto' },
+  log: { padding: 8, flex: 1, minHeight: 0, overflowY: 'auto' },
   empty: {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     height: 200, color: theme.textMuted, fontSize: 13,

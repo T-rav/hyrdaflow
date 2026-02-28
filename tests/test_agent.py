@@ -397,6 +397,45 @@ class TestBuildPrompt:
 
         assert plan_pos < feedback_pos < instructions_pos
 
+    def test_prompt_includes_self_check_checklist(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Prompt should include the self-check checklist section."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        assert "## Self-Check Before Committing" in prompt
+        assert "Tests cover all new/changed code" in prompt
+        assert "No missing imports" in prompt
+        assert "Type hints are correct" in prompt
+        assert "Edge cases handled" in prompt
+        assert "No leftover debug code" in prompt
+
+    def test_self_check_appears_after_instructions(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Self-check should appear after Instructions and before UI Guidelines."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        instructions_pos = prompt.index("## Instructions")
+        self_check_pos = prompt.index("## Self-Check Before Committing")
+        ui_pos = prompt.index("## UI Guidelines")
+        assert instructions_pos < self_check_pos < ui_pos
+
+    def test_self_check_is_class_constant(self) -> None:
+        """_SELF_CHECK_CHECKLIST should be a non-empty class attribute."""
+        assert hasattr(AgentRunner, "_SELF_CHECK_CHECKLIST")
+        assert len(AgentRunner._SELF_CHECK_CHECKLIST) > 100
+
+    def test_pre_quality_review_includes_edge_case_checks(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Pre-quality review prompt should include expanded scope items."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_pre_quality_review_prompt(issue, attempt=1)
+        assert "type hints" in prompt
+        assert "edge cases" in prompt
+        assert "empty inputs" in prompt
+
 
 # ---------------------------------------------------------------------------
 # AgentRunner.run — success path

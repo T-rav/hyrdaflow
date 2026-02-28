@@ -2107,28 +2107,55 @@ class TestWorktreePathForIssue:
 
     def test_returns_path_under_worktree_base(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
+            repo="org/my-repo",
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(42) == tmp_path / "wt" / "issue-42"
+        assert (
+            cfg.worktree_path_for_issue(42)
+            == tmp_path / "wt" / "org-my-repo" / "issue-42"
+        )
 
     def test_single_digit_issue(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
+            repo="org/my-repo",
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(1) == tmp_path / "wt" / "issue-1"
+        assert (
+            cfg.worktree_path_for_issue(1)
+            == tmp_path / "wt" / "org-my-repo" / "issue-1"
+        )
 
     def test_uses_configured_worktree_base(self, tmp_path: Path) -> None:
         custom_base = tmp_path / "custom-worktrees"
         cfg = HydraFlowConfig(
+            repo="org/proj",
             repo_root=tmp_path,
             worktree_base=custom_base,
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(7) == custom_base / "issue-7"
+        assert cfg.worktree_path_for_issue(7) == custom_base / "org-proj" / "issue-7"
+
+    def test_repo_slug_from_repo(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo="acme/widgets",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.repo_slug == "acme-widgets"
+
+    def test_repo_slug_fallback_to_dir_name(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo="",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.repo_slug == tmp_path.name
 
 
 # ---------------------------------------------------------------------------

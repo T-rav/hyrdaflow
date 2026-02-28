@@ -135,7 +135,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
 }
 
 export function Header({
-  connected, orchestratorStatus,
+  connected, orchestratorStatus, creditsPausedUntil,
   onStart, onStop,
 }) {
   const { stageStatus, config, submitReport } = useHydraFlow()
@@ -260,7 +260,18 @@ export function Header({
         )}
         {isCreditsPaused && (
           <>
-            <span style={styles.creditsPausedBadge}>Credits Paused</span>
+            <span
+              style={styles.creditsPausedBadge}
+              title={creditsPausedUntil ? new Date(creditsPausedUntil).toString() : ''}
+            >
+              Credits Paused
+              {creditsPausedUntil && (
+                <span style={styles.creditResumeTime}>
+                  {' · resumes '}
+                  {new Date(creditsPausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </span>
             <button style={styles.stopBtn} onClick={onStop}>
               Stop
             </button>
@@ -399,6 +410,10 @@ const styles = {
     color: theme.bg,
     fontSize: 12,
     fontWeight: 600,
+  },
+  creditResumeTime: {
+    fontWeight: 400,
+    opacity: 0.85,
   },
   reportBtn: {
     padding: '4px 14px',

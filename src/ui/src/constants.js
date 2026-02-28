@@ -46,6 +46,28 @@ export const ANNOTATION_COLORS = [
   { key: 'failed',    label: 'Failed',    color: theme.red },
 ]
 
+/**
+ * Maps event types to their canonical [process_name] labels.
+ * Used across EventLog and Livestream for consistent system-event identification.
+ */
+export const EVENT_PROCESS_MAP = {
+  worker_update: 'implement',
+  phase_change: 'orchestrator',
+  pr_created: 'implement',
+  review_update: 'review',
+  merge_update: 'review',
+  error: 'system',
+  transcript_line: 'agent',
+  triage_update: 'triage',
+  planner_update: 'plan',
+  orchestrator_status: 'orchestrator',
+  hitl_escalation: 'hitl',
+  hitl_update: 'hitl',
+  ci_check: 'ci',
+  issue_created: 'triage',
+  background_worker_status: 'bg_worker',
+}
+
 /** Shared CSS animation value for the stream-pulse keyframe. */
 export const PULSE_ANIMATION = 'stream-pulse 1.5s ease-in-out infinite'
 

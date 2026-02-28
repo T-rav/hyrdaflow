@@ -36,6 +36,21 @@ class AgentRunner(BaseRunner):
     _MAX_IMPL_PLAN_CHARS = 6_000
     _MAX_REVIEW_FEEDBACK_CHARS = 2_000
 
+    _SELF_CHECK_CHECKLIST = """
+## Self-Check Before Committing
+
+Run through this checklist before your final commit:
+
+- [ ] **Tests cover all new/changed code** — every new function, branch, and edge case has a test
+- [ ] **No missing imports** — all new symbols are imported; removed code has imports cleaned up
+- [ ] **Type hints are correct** — function signatures match actual usage; no `Any` where a concrete type exists
+- [ ] **Edge cases handled** — empty inputs, None values, boundary conditions are addressed
+- [ ] **No leftover debug code** — no print(), console.log(), or commented-out code
+- [ ] **Error messages are clear** — exceptions include context (what failed, what was expected)
+- [ ] **Existing tests still pass** — your changes don't break unrelated tests
+- [ ] **Commit message matches changes** — "Fixes #N: <summary>" accurately describes what changed
+"""
+
     def __init__(
         self,
         config: HydraFlowConfig,
@@ -400,6 +415,7 @@ class AgentRunner(BaseRunner):
 4. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality`; fix and rerun.
 5. Commit with: "Fixes #{issue.id}: <concise summary>"
 {feedback_section}
+{self._SELF_CHECK_CHECKLIST}
 ## UI Guidelines
 
 - Before creating UI components, search `src/ui/src/components/` for existing patterns to reuse.
@@ -484,6 +500,8 @@ Attempt: {attempt}
 Scope:
 - review current branch changes for correctness and plan adherence
 - add/fix tests for missing coverage and edge cases
+- verify all new functions have type hints and all imports are correct
+- check edge cases: empty inputs, None values, missing keys, boundary conditions
 - apply code fixes directly in this working tree
 
 Constraints:

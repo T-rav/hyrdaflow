@@ -1141,7 +1141,7 @@ class TestReviewPhaseWiring:
         mock_judge.judge = AsyncMock(return_value=JudgeVerdict(issue_number=42))
 
         # Create worktree dir
-        wt_path = config.worktree_base / "issue-42"
+        wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase = ReviewPhase(
@@ -1206,7 +1206,7 @@ class TestReviewPhaseWiring:
         mock_prs.post_pr_comment = AsyncMock()
         mock_prs.submit_review = AsyncMock()
 
-        wt_path = config.worktree_base / "issue-42"
+        wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase = ReviewPhase(

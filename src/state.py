@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from file_util import atomic_write
 from models import (
+    BackgroundWorkerState,
     EpicState,
     HITLSummaryCacheEntry,
     HITLSummaryFailureEntry,
@@ -20,6 +21,7 @@ from models import (
     IssueOutcomeType,
     LifetimeStats,
     PendingReport,
+    PersistedWorkerHeartbeat,
     SessionLog,
     SessionStatus,
     StateData,
@@ -41,6 +43,51 @@ class StateTracker:
         self._data: StateData = StateData()
         self.load()
 
+    def _normalise_details(self, raw: Any) -> dict[str, Any]:
+        """Ensure worker heartbeat details are stored as dicts."""
+        if isinstance(raw, dict):
+            return dict(raw)
+        if raw in (None, "", []):
+            return {}
+        return {"raw": raw}
+
+    def _coerce_last_run(self, value: Any) -> str | None:
+        """Normalise arbitrary values to ISO8601 strings or None."""
+        if value is None or isinstance(value, str):
+            return value
+        return str(value)
+
+    def _persist_worker_state(
+        self,
+        name: str,
+        status: str,
+        last_run: str | None,
+        details: dict[str, Any],
+    ) -> None:
+        heartbeat: PersistedWorkerHeartbeat = {
+            "status": status,
+            "last_run": last_run,
+            "details": dict(details),
+        }
+        self._data.worker_heartbeats[name] = heartbeat
+        self._data.bg_worker_states[name] = BackgroundWorkerState(
+            name=name,
+            status=status,
+            last_run=last_run,
+            details=dict(details),
+        )
+
+    def _maybe_migrate_worker_states(self) -> None:
+        """Copy legacy bg_worker_states entries into worker_heartbeats if needed."""
+        if self._data.worker_heartbeats or not self._data.bg_worker_states:
+            return
+        for name, state in self._data.bg_worker_states.items():
+            details = self._normalise_details(state.get("details"))
+            status = str(state.get("status", "disabled"))
+            last_run = self._coerce_last_run(state.get("last_run"))
+            self._persist_worker_state(name, status, last_run, details)
+        self.save()
+
     # --- persistence ---
 
     def load(self) -> dict[str, Any]:
@@ -60,6 +107,7 @@ class StateTracker:
             ) as exc:
                 logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
+        self._maybe_migrate_worker_states()
         return self._data.model_dump()
 
     def save(self) -> None:
@@ -581,6 +629,76 @@ class StateTracker:
         """Persist worker interval overrides."""
         self._data.worker_intervals = intervals
         self.save()
+
+    # --- background worker states ---
+
+    def get_worker_heartbeats(self) -> dict[str, PersistedWorkerHeartbeat]:
+        """Return the minimal persisted heartbeat snapshots."""
+        source: dict[str, Any] = {}
+        if self._data.worker_heartbeats:
+            source = self._data.worker_heartbeats
+        elif self._data.bg_worker_states:
+            source = {
+                name: {
+                    "status": state.get("status", "disabled"),
+                    "last_run": state.get("last_run"),
+                    "details": state.get("details", {}),
+                }
+                for name, state in self._data.bg_worker_states.items()
+            }
+        result: dict[str, PersistedWorkerHeartbeat] = {}
+        for name, heartbeat in source.items():
+            details = self._normalise_details(heartbeat.get("details"))
+            result[name] = {
+                "status": str(heartbeat.get("status", "disabled")),
+                "last_run": heartbeat.get("last_run"),
+                "details": details,
+            }
+        return result
+
+    def set_worker_heartbeat(
+        self, name: str, heartbeat: PersistedWorkerHeartbeat
+    ) -> None:
+        """Persist a single worker heartbeat snapshot."""
+        details = self._normalise_details(heartbeat.get("details"))
+        status = str(heartbeat.get("status", "disabled"))
+        last_run = self._coerce_last_run(heartbeat.get("last_run"))
+        self._persist_worker_state(name, status, last_run, details)
+        self.save()
+
+    def get_bg_worker_states(self) -> dict[str, BackgroundWorkerState]:
+        """Return persisted background worker heartbeat states."""
+        result: dict[str, BackgroundWorkerState] = {}
+        for name, heartbeat in self.get_worker_heartbeats().items():
+            result[name] = BackgroundWorkerState(
+                name=name,
+                status=heartbeat.get("status", "disabled"),
+                last_run=heartbeat.get("last_run"),
+                details=dict(heartbeat.get("details", {})),
+            )
+        return result
+
+    def set_bg_worker_state(self, name: str, state: BackgroundWorkerState) -> None:
+        """Persist a single background worker heartbeat entry."""
+        stored = dict(state)
+        stored.pop("enabled", None)  # enabled is runtime-only
+        details = self._normalise_details(stored.get("details"))
+        status = str(stored.get("status", "disabled"))
+        last_run = self._coerce_last_run(stored.get("last_run"))
+        self._persist_worker_state(name, status, last_run, details)
+        self.save()
+
+    def remove_bg_worker_state(self, name: str) -> None:
+        """Remove persisted heartbeat entry for *name*."""
+        removed = False
+        if name in self._data.bg_worker_states:
+            self._data.bg_worker_states.pop(name, None)
+            removed = True
+        if name in self._data.worker_heartbeats:
+            self._data.worker_heartbeats.pop(name, None)
+            removed = True
+        if removed:
+            self.save()
 
     # --- pending reports queue ---
 

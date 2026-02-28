@@ -242,7 +242,7 @@ class ImplementPhase:
 
     async def _setup_worktree_and_branch(self, issue: Task, branch: str) -> Path:
         """Ensure worktree exists/resumed and branch is pushed."""
-        wt_path = self._config.worktree_base / f"issue-{issue.id}"
+        wt_path = self._config.worktree_path_for_issue(issue.id)
         if wt_path.is_dir():
             logger.info("Resuming existing worktree for issue #%d", issue.id)
         else:

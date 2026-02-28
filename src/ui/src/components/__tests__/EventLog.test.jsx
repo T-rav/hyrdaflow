@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { EventLog, typeSpanStyles, defaultTypeStyle, eventSummary, eventMessage, typeColors } from '../EventLog'
+import { EventLog, processLabel, typeSpanStyles, defaultTypeStyle, eventSummary, eventMessage, typeColors } from '../EventLog'
 
 describe('EventLog pre-computed styles', () => {
   it('has an entry for every typeColors key', () => {
@@ -40,15 +40,14 @@ describe('EventLog component', () => {
     expect(screen.getByText('Waiting for events...')).toBeInTheDocument()
   })
 
-  it('renders events and applies pre-computed styles', () => {
+  it('renders events with bracketed process labels', () => {
     const events = [
       { type: 'phase_change', timestamp: Date.now(), data: { phase: 'plan' } },
       { type: 'error', timestamp: Date.now(), data: { message: 'fail' } },
     ]
     render(<EventLog events={events} />)
-    // Should render without crashing and contain the event types
-    expect(screen.getByText('phase change')).toBeInTheDocument()
-    expect(screen.getByText('error')).toBeInTheDocument()
+    expect(screen.getByText('[orchestrator]')).toBeInTheDocument()
+    expect(screen.getByText('[system]')).toBeInTheDocument()
   })
 
   it('filters out transcript_line events', () => {
@@ -57,8 +56,8 @@ describe('EventLog component', () => {
       { type: 'error', timestamp: Date.now(), data: { message: 'fail' } },
     ]
     render(<EventLog events={events} />)
-    expect(screen.queryByText('transcript line')).not.toBeInTheDocument()
-    expect(screen.getByText('error')).toBeInTheDocument()
+    expect(screen.queryByText('[agent]')).not.toBeInTheDocument()
+    expect(screen.getByText('[system]')).toBeInTheDocument()
   })
 })
 
@@ -121,6 +120,10 @@ describe('eventSummary', () => {
 
   it('formats hitl_update falling back to status', () => {
     expect(eventSummary('hitl_update', { issue: 10, status: 'pending' })).toBe('#10 pending')
+  })
+
+  it('formats hitl_update with awaiting_retry when no action or status', () => {
+    expect(eventSummary('hitl_update', { issue: 10 })).toBe('#10 awaiting_retry')
   })
 
   it('formats ci_check', () => {
@@ -213,6 +216,32 @@ describe('eventMessage', () => {
   it('falls back to truncated JSON for unknown types', () => {
     const result = eventMessage('unknown_type', { foo: 'bar' })
     expect(result).toBe('{"foo":"bar"}')
+  })
+})
+
+describe('processLabel', () => {
+  it('returns bracketed process name for known event types', () => {
+    expect(processLabel('worker_update')).toBe('[implement]')
+    expect(processLabel('triage_update')).toBe('[triage]')
+    expect(processLabel('planner_update')).toBe('[plan]')
+    expect(processLabel('review_update')).toBe('[review]')
+    expect(processLabel('error')).toBe('[system]')
+    expect(processLabel('hitl_escalation')).toBe('[hitl]')
+    expect(processLabel('ci_check')).toBe('[ci]')
+    expect(processLabel('background_worker_status')).toBe('[bg_worker]')
+    expect(processLabel('orchestrator_status')).toBe('[orchestrator]')
+  })
+
+  it('returns [unknown] for unmapped event types', () => {
+    expect(processLabel('some_future_event')).toBe('[unknown]')
+  })
+
+  it('covers all typeColors keys', () => {
+    for (const key of Object.keys(typeColors)) {
+      const label = processLabel(key)
+      expect(label).toMatch(/^\[.+\]$/)
+      expect(label).not.toBe('[unknown]')
+    }
   })
 })
 

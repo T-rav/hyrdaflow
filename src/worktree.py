@@ -16,6 +16,7 @@ from subprocess_util import run_subprocess
 logger = logging.getLogger("hydraflow.worktree")
 
 _FETCH_LOCKS: dict[str, asyncio.Lock] = {}
+_WORKTREE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 class WorktreeManager:
@@ -65,6 +66,15 @@ class WorktreeManager:
         if lock is None:
             lock = asyncio.Lock()
             _FETCH_LOCKS[key] = lock
+        return lock
+
+    def _repo_worktree_lock(self) -> asyncio.Lock:
+        """Return a per-repo lock for worktree create/destroy operations."""
+        key = f"wt:{self._config.repo_slug}"
+        lock = _WORKTREE_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _WORKTREE_LOCKS[key] = lock
         return lock
 
     def _is_main_ref_lock_error(self, message: str) -> bool:
@@ -142,6 +152,11 @@ class WorktreeManager:
 
         Returns the absolute path to the new worktree.
         """
+        async with self._repo_worktree_lock():
+            return await self._create_unlocked(issue_number, branch)
+
+    async def _create_unlocked(self, issue_number: int, branch: str) -> Path:
+        """Inner create logic — must be called under ``_repo_worktree_lock``."""
         wt_path = self._config.worktree_path_for_issue(issue_number)
         logger.info(
             "Creating worktree %s on branch %s",
@@ -154,8 +169,8 @@ class WorktreeManager:
             logger.info("[dry-run] Would create worktree at %s", wt_path)
             return wt_path
 
-        # Ensure base directory exists
-        self._base.mkdir(parents=True, exist_ok=True)
+        # Ensure repo-scoped base directory exists
+        wt_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Clean up any stale local branch (from previous runs) to avoid
         # fetch conflicts and worktree checkout errors
@@ -245,6 +260,11 @@ class WorktreeManager:
 
     async def destroy(self, issue_number: int) -> None:
         """Remove the worktree for *issue_number*."""
+        async with self._repo_worktree_lock():
+            await self._destroy_unlocked(issue_number)
+
+    async def _destroy_unlocked(self, issue_number: int) -> None:
+        """Inner destroy logic — must be called under ``_repo_worktree_lock``."""
         wt_path = self._config.worktree_path_for_issue(issue_number)
         if self._config.dry_run:
             logger.info("[dry-run] Would destroy worktree %s", wt_path)
@@ -279,16 +299,21 @@ class WorktreeManager:
             )
 
     async def destroy_all(self) -> None:
-        """Remove every worktree under the base directory."""
+        """Remove every worktree under this repo's scoped base directory."""
         if not self._base.exists():
             return
-        for child in self._base.iterdir():
-            if child.is_dir() and child.name.startswith("issue-"):
-                try:
-                    num = int(child.name.split("-", 1)[1])
-                    await self.destroy(num)
-                except (ValueError, RuntimeError) as exc:
-                    logger.warning("Could not destroy %s: %s", child, exc)
+        repo_base = self._base / self._config.repo_slug
+        # Also scan the flat (legacy) layout for backward compatibility
+        for scan_dir in (repo_base, self._base):
+            if not scan_dir.exists():
+                continue
+            for child in scan_dir.iterdir():
+                if child.is_dir() and child.name.startswith("issue-"):
+                    try:
+                        num = int(child.name.split("-", 1)[1])
+                        await self.destroy(num)
+                    except (ValueError, RuntimeError) as exc:
+                        logger.warning("Could not destroy %s: %s", child, exc)
 
         # Final prune
         with contextlib.suppress(RuntimeError):

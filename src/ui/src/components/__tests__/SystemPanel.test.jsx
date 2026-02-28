@@ -391,11 +391,13 @@ describe('SystemPanel', () => {
   })
 
   describe('Sub-tab Navigation', () => {
-    it('shows Workers, Pipeline, and Livestream sub-tab labels', () => {
+    it('shows Workers, Pipeline, Metrics, and Livestream sub-tab labels', () => {
       render(<SystemPanel backgroundWorkers={[]} />)
       expect(screen.getByText('Workers')).toBeInTheDocument()
       expect(screen.getByText('Pipeline')).toBeInTheDocument()
+      expect(screen.getByText('Metrics')).toBeInTheDocument()
       expect(screen.getByText('Livestream')).toBeInTheDocument()
+      expect(screen.queryByText('Event Log')).not.toBeInTheDocument()
     })
 
     it('Workers sub-tab is active by default showing background worker content', () => {
@@ -460,8 +462,9 @@ describe('SystemPanel', () => {
       }))
       render(<SystemPanel backgroundWorkers={[]} />)
       fireEvent.click(screen.getByText('Livestream'))
-      expect(screen.getByText('worker update')).toBeInTheDocument()
+      expect(screen.getByText('[implement]')).toBeInTheDocument()
     })
+
   })
 
   describe('Worker Log Stream integration', () => {
