@@ -137,6 +137,35 @@ class TestOrchestratorBgWorkerTracking:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch.get_bg_worker_states() == {}
 
+    def test_restore_bg_worker_states_from_state_on_startup(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Verify _restore_state hydrates in-memory heartbeat cache from persisted state."""
+        from orchestrator import HydraFlowOrchestrator
+
+        # Arrange: pre-populate a StateTracker with a persisted heartbeat
+        state = StateTracker(tmp_path / "state.json")
+        state.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:00:00Z",
+                details={"item_count": 5},
+            ),
+        )
+
+        # Act: create a new orchestrator with the same state, then restore
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._restore_state()
+
+        # Assert: in-memory states reflect persisted data
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["last_run"] == "2026-02-20T10:00:00Z"
+        assert states["memory_sync"]["details"]["item_count"] == 5
+
 
 class TestBgWorkerEnabled:
     """Tests for is_bg_worker_enabled / set_bg_worker_enabled."""
