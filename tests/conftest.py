@@ -148,31 +148,78 @@ class PlanResultFactory:
     def create(
         *,
         issue_number: int = 42,
-        success: bool = True,
-        plan: str = "## Plan\n\n1. Do the thing\n2. Test the thing",
-        summary: str = "Plan to implement the feature",
+        success: bool | None = None,
+        plan: str | None = None,
+        summary: str | None = None,
         error: str | None = None,
-        transcript: str = "PLAN_START\n## Plan\n\n1. Do the thing\nPLAN_END\nSUMMARY: Plan to implement the feature",
-        duration_seconds: float = 10.0,
+        transcript: str | None = None,
+        duration_seconds: float | None = None,
         new_issues: list[Any] | None = None,
         validation_errors: list[str] | None = None,
-        retry_attempted: bool = False,
-        already_satisfied: bool = False,
+        retry_attempted: bool | None = None,
+        already_satisfied: bool | None = None,
+        use_defaults: bool = False,
     ):
         from models import PlanResult
 
+        if use_defaults:
+            kwargs = {"issue_number": issue_number}
+            if success is not None:
+                kwargs["success"] = success
+            if plan is not None:
+                kwargs["plan"] = plan
+            if summary is not None:
+                kwargs["summary"] = summary
+            if error is not None:
+                kwargs["error"] = error
+            if transcript is not None:
+                kwargs["transcript"] = transcript
+            if duration_seconds is not None:
+                kwargs["duration_seconds"] = duration_seconds
+            if new_issues is not None:
+                kwargs["new_issues"] = list(new_issues)
+            if validation_errors is not None:
+                kwargs["validation_errors"] = list(validation_errors)
+            if retry_attempted is not None:
+                kwargs["retry_attempted"] = retry_attempted
+            if already_satisfied is not None:
+                kwargs["already_satisfied"] = already_satisfied
+            return PlanResult(**kwargs)
+
+        success_value = True if success is None else success
+        plan_value = (
+            plan
+            if plan is not None
+            else "## Plan\n\n1. Do the thing\n2. Test the thing"
+        )
+        summary_value = (
+            summary if summary is not None else "Plan to implement the feature"
+        )
+        transcript_value = (
+            transcript
+            if transcript is not None
+            else "PLAN_START\n## Plan\n\n1. Do the thing\nPLAN_END\nSUMMARY: Plan to implement the feature"
+        )
+        duration_value = duration_seconds if duration_seconds is not None else 10.0
+        retry_value = False if retry_attempted is None else retry_attempted
+        already_satisfied_value = (
+            False if already_satisfied is None else already_satisfied
+        )
+
         return PlanResult(
             issue_number=issue_number,
-            success=success,
-            plan=plan,
-            summary=summary,
+            success=success_value,
+            plan=plan_value,
+            summary=summary_value,
             error=error,
-            transcript=transcript,
-            duration_seconds=duration_seconds,
-            new_issues=new_issues or [],
-            validation_errors=validation_errors or [],
-            retry_attempted=retry_attempted,
-            already_satisfied=already_satisfied,
+            transcript=transcript_value,
+            duration_seconds=duration_value,
+            new_issues=list(new_issues) if new_issues is not None else [],
+            validation_errors=list(validation_errors)
+            if validation_errors is not None
+            else [],
+            retry_attempted=retry_value,
+            already_satisfied=already_satisfied_value,
         )
 
 

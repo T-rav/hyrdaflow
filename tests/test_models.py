@@ -16,7 +16,6 @@ from models import (
     NewIssueSpec,
     Phase,
     PlannerStatus,
-    PlanResult,
     PRInfo,
     PRListItem,
     ReviewerStatus,
@@ -27,7 +26,7 @@ from models import (
     WorkerResult,
     WorkerStatus,
 )
-from tests.conftest import ReviewResultFactory
+from tests.conftest import PlanResultFactory, ReviewResultFactory
 
 # ---------------------------------------------------------------------------
 # GitHubIssue
@@ -283,73 +282,76 @@ class TestNewIssueSpec:
 class TestPlanResult:
     """Tests for the PlanResult model."""
 
+    @staticmethod
+    def _create(**overrides):
+        overrides.setdefault("issue_number", 1)
+        overrides.setdefault("use_defaults", True)
+        return PlanResultFactory.create(**overrides)
+
     def test_minimal_instantiation(self) -> None:
-        result = PlanResult(issue_number=10)
+        result = self._create(issue_number=10)
         assert result.issue_number == 10
 
     def test_success_defaults_to_false(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.success is False
 
     def test_plan_defaults_to_empty_string(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.plan == ""
 
     def test_summary_defaults_to_empty_string(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.summary == ""
 
     def test_error_defaults_to_none(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.error is None
 
     def test_transcript_defaults_to_empty_string(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.transcript == ""
 
     def test_duration_seconds_defaults_to_zero(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.duration_seconds == pytest.approx(0.0)
 
     def test_new_issues_defaults_to_empty_list(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.new_issues == []
 
     def test_new_issues_can_be_populated(self) -> None:
         spec = NewIssueSpec(title="Bug", body="Details")
-        result = PlanResult(issue_number=1, new_issues=[spec])
+        result = self._create(new_issues=[spec])
         assert len(result.new_issues) == 1
         assert result.new_issues[0].title == "Bug"
 
     def test_validation_errors_defaults_to_empty_list(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.validation_errors == []
 
     def test_validation_errors_can_be_populated(self) -> None:
-        result = PlanResult(
-            issue_number=1,
-            validation_errors=["Missing section", "Too short"],
-        )
+        result = self._create(validation_errors=["Missing section", "Too short"])
         assert len(result.validation_errors) == 2
 
     def test_retry_attempted_defaults_to_false(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.retry_attempted is False
 
     def test_retry_attempted_can_be_set(self) -> None:
-        result = PlanResult(issue_number=1, retry_attempted=True)
+        result = self._create(retry_attempted=True)
         assert result.retry_attempted is True
 
     def test_already_satisfied_defaults_to_false(self) -> None:
-        result = PlanResult(issue_number=1)
+        result = self._create()
         assert result.already_satisfied is False
 
     def test_already_satisfied_can_be_set(self) -> None:
-        result = PlanResult(issue_number=1, already_satisfied=True)
+        result = self._create(already_satisfied=True)
         assert result.already_satisfied is True
 
     def test_all_fields_set(self) -> None:
-        result = PlanResult(
+        result = self._create(
             issue_number=7,
             success=True,
             plan="Step 1: Do the thing",
@@ -367,7 +369,7 @@ class TestPlanResult:
         assert result.duration_seconds == pytest.approx(30.5)
 
     def test_serialization_with_model_dump(self) -> None:
-        result = PlanResult(
+        result = self._create(
             issue_number=3,
             success=True,
             plan="The plan",
