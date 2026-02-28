@@ -177,6 +177,7 @@ class ConfigFactory:
         metrics_label: list[str] | None = None,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
+        epic_child_label: list[str] | None = None,
         find_label: list[str] | None = None,
         planner_label: list[str] | None = None,
         planner_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -320,6 +321,11 @@ class ConfigFactory:
             else ["hydraflow-metrics"],
             dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
             epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
+            epic_child_label=(
+                epic_child_label
+                if epic_child_label is not None
+                else ["hydraflow-epic-child"]
+            ),
             find_label=find_label if find_label is not None else ["hydraflow-find"],
             planner_label=planner_label
             if planner_label is not None

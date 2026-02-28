@@ -342,6 +342,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Labels for epic tracking issues, comma-separated (default: hydraflow-epic)",
     )
     parser.add_argument(
+        "--epic-child-label",
+        default=None,
+        help="Labels for epic child issues, comma-separated (default: hydraflow-epic-child)",
+    )
+    parser.add_argument(
         "--metrics-sync-interval",
         type=int,
         default=None,
@@ -656,6 +661,7 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
         "manifest_label",
         "metrics_label",
         "epic_label",
+        "epic_child_label",
         "lite_plan_labels",
     ):
         val = getattr(args, field)

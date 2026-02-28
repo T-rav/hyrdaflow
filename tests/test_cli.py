@@ -302,6 +302,7 @@ class TestParseArgs:
             "planner_label",
             "improve_label",
             "transcript_label",
+            "epic_child_label",
             "triage_tool",
             "planner_model",
             "planner_tool",
@@ -386,6 +387,7 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("planner_label", ["hydraflow-plan"]),
     ("improve_label", ["hydraflow-improve"]),
     ("transcript_label", ["hydraflow-transcript"]),
+    ("epic_child_label", ["hydraflow-epic-child"]),
     ("triage_tool", "claude"),
     ("planner_tool", "claude"),
     ("planner_model", "opus"),
@@ -511,6 +513,8 @@ class TestBuildConfig:
                 "j,k",
                 "--transcript-label",
                 "t1,t2",
+                "--epic-child-label",
+                "ec1,ec2",
             ]
         )
         cfg = build_config(args)
@@ -524,6 +528,7 @@ class TestBuildConfig:
         assert cfg.planner_label == ["i"]
         assert cfg.improve_label == ["j", "k"]
         assert cfg.transcript_label == ["t1", "t2"]
+        assert cfg.epic_child_label == ["ec1", "ec2"]
 
     def test_planner_model_passed_through(self) -> None:
         args = parse_args(["--planner-model", "sonnet"])
