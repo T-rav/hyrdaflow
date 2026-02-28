@@ -220,6 +220,50 @@ describe('phase-specific style maps', () => {
   })
 })
 
+describe('StreamCard auto-collapse on status change', () => {
+  it('collapses when defaultExpanded transitions from true to false', async () => {
+    const issue = makeIssue()
+    const intent = { text: 'Tighten regression coverage' }
+    const { rerender } = render(<StreamCard issue={issue} defaultExpanded intent={intent} />)
+    expect(screen.getByText('Intent:')).toBeInTheDocument()
+
+    rerender(<StreamCard issue={issue} defaultExpanded={false} intent={intent} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Intent:')).toBeNull()
+    })
+  })
+
+  it('does not auto-expand when defaultExpanded transitions from false to true', async () => {
+    const issue = makeIssue()
+    const intent = { text: 'Document auto-collapse behavior' }
+    const { rerender } = render(<StreamCard issue={issue} defaultExpanded={false} intent={intent} />)
+    expect(screen.queryByText('Intent:')).toBeNull()
+
+    rerender(<StreamCard issue={issue} defaultExpanded intent={intent} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Intent:')).toBeNull()
+    })
+  })
+
+  it('allows manual toggle to expand after auto-collapse runs', async () => {
+    const issue = makeIssue()
+    const intent = { text: 'Keep UI clean' }
+    const { rerender } = render(<StreamCard issue={issue} defaultExpanded intent={intent} />)
+    expect(screen.getByText('Intent:')).toBeInTheDocument()
+
+    rerender(<StreamCard issue={issue} defaultExpanded={false} intent={intent} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Intent:')).toBeNull()
+    })
+
+    fireEvent.click(screen.getByText('Fix the frobnicator'))
+    expect(screen.getByText('Intent:')).toBeInTheDocument()
+  })
+})
+
 describe('StreamCard request changes feedback flow', () => {
   it('shows feedback textarea on Request Changes click', () => {
     const issue = makeIssue()

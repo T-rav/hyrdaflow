@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { theme } from '../theme'
 import { PIPELINE_STAGES, PULSE_ANIMATION } from '../constants'
 import { formatDuration, STAGE_META, STAGE_KEYS } from '../hooks/useTimeline'
@@ -83,11 +83,19 @@ function StageRow({ stageKey, stageData, isLast }) {
 
 export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, transcript = [] }) {
   const [expanded, setExpanded] = useState(defaultExpanded || false)
+  const prevDefaultExpanded = useRef(defaultExpanded)
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackText, setFeedbackText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const toggle = useCallback(() => setExpanded(v => !v), [])
+
+  useEffect(() => {
+    if (prevDefaultExpanded.current && defaultExpanded === false) {
+      setExpanded(false)
+    }
+    prevDefaultExpanded.current = defaultExpanded
+  }, [defaultExpanded])
 
   const handleSubmitFeedback = useCallback(async () => {
     if (!feedbackText.trim() || submitting) return
