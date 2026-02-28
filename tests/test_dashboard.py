@@ -1307,7 +1307,7 @@ class TestWebSocketEndpoint:
         from dashboard import HydraFlowDashboard
 
         event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
-        unsubscribed = threading.Event()
+        unsubscribe_called = threading.Event()
 
         original_subscribe = event_bus.subscribe
         original_unsubscribe = event_bus.unsubscribe
@@ -1316,6 +1316,8 @@ class TestWebSocketEndpoint:
             *_args: object, **_kwargs: object
         ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
+            # Preload one event so receive_text() returns immediately, ensuring
+            # the handler has entered its live-streaming loop before disconnect.
             queue.put_nowait(event)
             return queue
 
@@ -1325,7 +1327,7 @@ class TestWebSocketEndpoint:
             queue: asyncio.Queue[HydraFlowEvent],
         ) -> None:
             original_unsubscribe(queue)
-            unsubscribed.set()
+            unsubscribe_called.set()
 
         event_bus.unsubscribe = unsubscribe_and_signal  # type: ignore[assignment]
 
@@ -1337,7 +1339,10 @@ class TestWebSocketEndpoint:
             ws.receive_text()
 
         # Wait for the background ASGI thread to unsubscribe its queue deterministically
-        assert unsubscribed.wait(timeout=5), "unsubscribe was not called within 5s"
+        assert unsubscribe_called.wait(timeout=5), (
+            "unsubscribe was not called within 5s"
+        )
+        # Also verify the unsubscribe actually mutated _subscribers (not just that it was called)
         assert len(event_bus._subscribers) == 0, (
             f"Expected 0 subscribers after disconnect, got {len(event_bus._subscribers)}"
         )
