@@ -2026,3 +2026,88 @@ class TestValidateAlreadySatisfiedEvidence:
         )
         errors = PlannerRunner.validate_already_satisfied_evidence(summary)
         assert errors == []
+
+    def test_rejects_when_issue_has_many_acceptance_criteria(self) -> None:
+        """Issues with 5+ unchecked criteria are too complex for 'already satisfied'."""
+        summary = (
+            "Feature: MyClass at src/models.py:42\n"
+            "Tests: test_my_class\n"
+            "Criteria: All criteria met"
+        )
+        issue_body = (
+            "## Acceptance Criteria\n\n"
+            "- [ ] First criterion\n"
+            "- [ ] Second criterion\n"
+            "- [ ] Third criterion\n"
+            "- [ ] Fourth criterion\n"
+            "- [ ] Fifth criterion\n"
+        )
+        errors = PlannerRunner.validate_already_satisfied_evidence(
+            summary, issue_body=issue_body
+        )
+        assert any("acceptance criteria" in e.lower() for e in errors)
+
+    def test_accepts_when_few_acceptance_criteria(self) -> None:
+        """Issues with <5 criteria should pass the criteria count check."""
+        summary = (
+            "Feature: MyClass at src/models.py:42\n"
+            "Tests: test_my_class\n"
+            "Criteria: All criteria met"
+        )
+        issue_body = (
+            "## Acceptance Criteria\n\n- [ ] First criterion\n- [ ] Second criterion\n"
+        )
+        errors = PlannerRunner.validate_already_satisfied_evidence(
+            summary, issue_body=issue_body
+        )
+        assert errors == []
+
+    def test_rejects_when_new_files_do_not_exist(self, tmp_path) -> None:
+        """Already-satisfied claim is invalid when issue describes new files that don't exist."""
+        summary = (
+            "Feature: MyClass at src/models.py:42\n"
+            "Tests: test_my_class\n"
+            "Criteria: All criteria met"
+        )
+        issue_body = (
+            "## New Files\n\n- `src/new_feature.py`\n- `tests/test_new_feature.py`\n"
+        )
+        errors = PlannerRunner.validate_already_satisfied_evidence(
+            summary, issue_body=issue_body, repo_root=tmp_path
+        )
+        assert any("do not exist" in e for e in errors)
+
+    def test_accepts_when_new_files_exist(self, tmp_path) -> None:
+        """No error when described new files actually exist on disk."""
+        summary = (
+            "Feature: MyClass at src/models.py:42\n"
+            "Tests: test_my_class\n"
+            "Criteria: All criteria met"
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "existing.py").write_text("# exists")
+        issue_body = "## New Files\n\n- `src/existing.py`\n"
+        errors = PlannerRunner.validate_already_satisfied_evidence(
+            summary, issue_body=issue_body, repo_root=tmp_path
+        )
+        assert errors == []
+
+    def test_rejects_file_delta_added_lines(self, tmp_path) -> None:
+        """ADDED: lines in File Delta should be checked for existence."""
+        summary = (
+            "Feature: MyClass at src/models.py:42\n"
+            "Tests: test_my_class\n"
+            "Criteria: All criteria met"
+        )
+        issue_body = (
+            "## File Delta\n\n"
+            "```\n"
+            "MODIFIED: src/config.py\n"
+            "ADDED: src/brand_new.py\n"
+            "ADDED: tests/test_brand_new.py\n"
+            "```\n"
+        )
+        errors = PlannerRunner.validate_already_satisfied_evidence(
+            summary, issue_body=issue_body, repo_root=tmp_path
+        )
+        assert any("do not exist" in e for e in errors)
