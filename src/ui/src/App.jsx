@@ -9,6 +9,7 @@ import { MetricsPanel } from './components/MetricsPanel'
 import { IssueHistoryPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
+import { EventLog } from './components/EventLog'
 import { theme } from './theme'
 import { ACTIVE_STATUSES } from './constants'
 
@@ -60,7 +61,7 @@ function AppContent() {
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
     backgroundWorkers, systemAlert, intents, toggleBgWorker, updateBgWorkerInterval,
     selectedSession, selectSession,
-    requestChanges, resetSession,
+    requestChanges, resetSession, events,
   } = useHydraFlow()
   const [selectedWorker, setSelectedWorker] = useState(null)
   const [activeTab, setActiveTab] = useState('issues')
@@ -148,6 +149,9 @@ function AppContent() {
             {activeTab === 'system' && <SystemPanel backgroundWorkers={backgroundWorkers} onToggleBgWorker={toggleBgWorker} onUpdateInterval={updateBgWorkerInterval} />}
             {activeTab === 'metrics' && <MetricsPanel />}
           </div>
+          <div style={styles.eventLogColumn}>
+            <EventLog events={events} />
+          </div>
         </div>
       </div>
 
@@ -210,6 +214,13 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
+  },
+  eventLogColumn: {
+    width: 320,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
   },
   hitlBadge: {
     background: theme.red,
