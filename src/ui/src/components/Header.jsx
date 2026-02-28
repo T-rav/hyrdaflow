@@ -16,6 +16,37 @@ function isCrossOriginImage(el) {
   }
 }
 
+function stripUnsupportedColorFunctions(value, fallback) {
+  if (typeof value !== 'string') return value
+  return value.includes('color(') ? fallback : value
+}
+
+function sanitizeClonedDocumentForHtml2Canvas(clonedDoc) {
+  // Drop stylesheet parsing in safe mode: this avoids unsupported CSS color() syntax.
+  clonedDoc.querySelectorAll('style,link[rel="stylesheet"]').forEach((el) => el.remove())
+  const fallbackColors = {
+    color: '#c9d1d9',
+    'background-color': '#0d1117',
+    'border-color': '#30363d',
+    'border-top-color': '#30363d',
+    'border-right-color': '#30363d',
+    'border-bottom-color': '#30363d',
+    'border-left-color': '#30363d',
+    'outline-color': '#30363d',
+    'text-decoration-color': '#c9d1d9',
+    fill: '#c9d1d9',
+    stroke: '#c9d1d9',
+  }
+
+  clonedDoc.querySelectorAll('*').forEach((el) => {
+    Object.entries(fallbackColors).forEach(([prop, fallback]) => {
+      const current = el.style.getPropertyValue(prop)
+      if (!current) return
+      el.style.setProperty(prop, stripUnsupportedColorFunctions(current, fallback))
+    })
+  })
+}
+
 async function captureDashboardScreenshot(root, html2canvas) {
   if (!root) return null
   const STYLE_PROPS = [
@@ -70,7 +101,24 @@ async function captureDashboardScreenshot(root, html2canvas) {
     })
     return second.toDataURL('image/png')
   } catch (secondErr) {
-    console.error('Safe-mode screenshot capture failed:', secondErr)
+    console.warn('Safe-mode screenshot capture failed, retrying with sanitized clone.', secondErr)
+  }
+
+  // Attempt 3: aggressive sanitized clone fallback for browsers producing CSS color() values.
+  try {
+    const third = await html2canvas(root, {
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#0d1117',
+      scale: 1,
+      ignoreElements: isCrossOriginImage,
+      onclone: (clonedDoc) => {
+        sanitizeClonedDocumentForHtml2Canvas(clonedDoc)
+      },
+    })
+    return third.toDataURL('image/png')
+  } catch (thirdErr) {
+    console.error('Sanitized screenshot capture failed:', thirdErr)
     return null
   }
 }
