@@ -462,7 +462,7 @@ describe('SystemPanel', () => {
       }))
       render(<SystemPanel backgroundWorkers={[]} />)
       fireEvent.click(screen.getByText('Livestream'))
-      expect(screen.getByText('worker update')).toBeInTheDocument()
+      expect(screen.getByText('[implement]')).toBeInTheDocument()
     })
 
   })
