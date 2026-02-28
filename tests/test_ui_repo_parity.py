@@ -241,9 +241,7 @@ class TestRuntimeEndpointAvailability:
     ) -> None:
         """Router should register all runtime lifecycle routes."""
         router = _make_router(config, event_bus, state, tmp_path)
-        paths = {
-            getattr(route, "path", "") for route in router.routes
-        }
+        paths = {getattr(route, "path", "") for route in router.routes}
 
         expected = {
             "/api/runtimes",

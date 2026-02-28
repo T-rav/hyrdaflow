@@ -34,7 +34,9 @@ class TestSustainedQueueProcessing:
 
         # All 200 issues should be present
         for i in range(200):
-            assert str(i) in processed or i in processed, f"Issue {i} missing after 200 cycles"
+            assert str(i) in processed or i in processed, (
+                f"Issue {i} missing after 200 cycles"
+            )
 
     def test_session_ingestion_over_100_sessions(self, tmp_path) -> None:
         """State should handle 100+ sessions without data loss."""
@@ -85,7 +87,9 @@ class TestDriftDetection:
         data = st2.load()
         processed = data.get("processed_issues", {})
 
-        assert len(processed) == 500, f"Expected 500, got {len(processed)} — data drift detected"
+        assert len(processed) == 500, (
+            f"Expected 500, got {len(processed)} — data drift detected"
+        )
 
     def test_lifetime_stats_consistent_after_repeated_updates(self, tmp_path) -> None:
         """Lifetime stats should reflect exact cumulative values after many updates."""
@@ -119,11 +123,13 @@ class TestWorkerIntervalStability:
         st = StateTracker(tmp_path / "state.json")
 
         for i in range(50):
-            st.set_worker_intervals({
-                "plan": 30 + i,
-                "implement": 60 + i,
-                "review": 90 + i,
-            })
+            st.set_worker_intervals(
+                {
+                    "plan": 30 + i,
+                    "implement": 60 + i,
+                    "review": 90 + i,
+                }
+            )
 
         st2 = StateTracker(tmp_path / "state.json")
         intervals = st2.get_worker_intervals()

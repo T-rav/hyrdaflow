@@ -33,7 +33,9 @@ def _make_config(tmp_path: Path, slug: str):
     )
 
 
-def _make_session(repo: str, session_id: str, *, status: str = "completed") -> SessionLog:
+def _make_session(
+    repo: str, session_id: str, *, status: str = "completed"
+) -> SessionLog:
     return SessionLog(
         id=session_id,
         repo=repo,
