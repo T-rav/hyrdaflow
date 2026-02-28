@@ -39,9 +39,20 @@ function sanitizeClonedDocumentForHtml2Canvas(clonedDoc) {
   }
 
   clonedDoc.querySelectorAll('*').forEach((el) => {
+    // Force safe baseline values so html2canvas parser does not encounter CSS Color 4
+    // functions from computed styles (e.g. color(display-p3 ...)).
+    el.style.setProperty('color', '#c9d1d9')
+    el.style.setProperty('border-color', '#30363d')
+    el.style.setProperty('box-shadow', 'none')
+
     Object.entries(fallbackColors).forEach(([prop, fallback]) => {
       const current = el.style.getPropertyValue(prop)
-      if (!current) return
+      if (!current) {
+        // Ensure the parser sees deterministic values instead of inheriting
+        // potentially unsupported color() values from user-agent/computed styles.
+        el.style.setProperty(prop, fallback)
+        return
+      }
       el.style.setProperty(prop, stripUnsupportedColorFunctions(current, fallback))
     })
   })
@@ -110,6 +121,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
       logging: false,
       backgroundColor: '#0d1117',
       scale: 1,
+      foreignObjectRendering: true,
       ignoreElements: isCrossOriginImage,
       onclone: (clonedDoc) => {
         sanitizeClonedDocumentForHtml2Canvas(clonedDoc)
