@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
+from datetime import UTC, datetime, timedelta
 
 from config import HydraFlowConfig
 from models import GitHubIssue, PRInfo, Task
@@ -13,12 +15,19 @@ from subprocess_util import run_subprocess
 logger = logging.getLogger("hydraflow.issue_fetcher")
 
 
+class IncompleteIssueFetchError(RuntimeError):
+    """Raised when a label-scoped issue fetch could not complete reliably."""
+
+
 class IssueFetcher:
     """Fetches GitHub issues and PRs via the ``gh`` CLI."""
 
     def __init__(self, config: HydraFlowConfig) -> None:
         self._config = config
         self._repo_owner = config.repo.split("/", 1)[0] if "/" in config.repo else ""
+        self._rate_limited_until: datetime | None = None
+        self._rate_limit_recovery_attempts = 0
+        self._rate_limit_lock = asyncio.Lock()
 
     @staticmethod
     def _normalize_issue_payload(item: dict) -> dict:
@@ -40,11 +49,15 @@ class IssueFetcher:
         labels: list[str],
         limit: int,
         exclude_labels: list[str] | None = None,
+        require_complete: bool = False,
     ) -> list[GitHubIssue]:
         """Fetch open issues matching *any* of *labels*, deduplicated.
 
         If *labels* is empty but *exclude_labels* is provided, fetch all
         open issues and filter out those carrying any of the exclude labels.
+        When *require_complete* is ``True``, rate-limited/incomplete fetches
+        raise :class:`IncompleteIssueFetchError` instead of returning partial
+        data.
         """
         if self._config.dry_run:
             logger.info(
@@ -55,38 +68,62 @@ class IssueFetcher:
             return []
 
         seen: dict[int, dict] = {}
+        rate_limited = False
 
         async def _query_label(label: str | None) -> None:
-            cmd = [
-                "gh",
-                "api",
-                f"repos/{self._config.repo}/issues",
-                "--method",
-                "GET",
-                "--field",
-                "state=open",
-                "--field",
-                "sort=created",
-                "--field",
-                "direction=asc",
-                "--field",
-                f"per_page={limit}",
-            ]
-            if label is not None:
-                cmd += ["--field", f"labels={label}"]
-            try:
-                raw = await run_subprocess(*cmd, gh_token=self._config.gh_token)
-                for item in json.loads(raw):
-                    if not isinstance(item, dict):
-                        continue
-                    if "pull_request" in item:
-                        continue
-                    normalized = self._normalize_issue_payload(item)
-                    number = normalized.get("number")
-                    if isinstance(number, int):
-                        seen.setdefault(number, normalized)
-            except (RuntimeError, json.JSONDecodeError, FileNotFoundError) as exc:
-                logger.error("gh issue list failed for label=%r: %s", label, exc)
+            nonlocal rate_limited
+            if self._is_rate_limited_now():
+                rate_limited = True
+                return
+            page = 1
+            remaining = max(0, limit)
+            while remaining > 0:
+                per_page = min(100, remaining)
+                cmd = [
+                    "gh",
+                    "api",
+                    f"repos/{self._config.repo}/issues",
+                    "--method",
+                    "GET",
+                    "--field",
+                    "state=open",
+                    "--field",
+                    "sort=created",
+                    "--field",
+                    "direction=asc",
+                    "--field",
+                    f"per_page={per_page}",
+                    "--field",
+                    f"page={page}",
+                ]
+                if label is not None:
+                    cmd += ["--field", f"labels={label}"]
+                try:
+                    raw = await run_subprocess(*cmd, gh_token=self._config.gh_token)
+                    self._note_success_after_rate_limit()
+                    items = json.loads(raw)
+                    if not isinstance(items, list):
+                        break
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        if "pull_request" in item:
+                            continue
+                        normalized = self._normalize_issue_payload(item)
+                        number = normalized.get("number")
+                        if isinstance(number, int):
+                            seen.setdefault(number, normalized)
+                    if len(items) < per_page:
+                        break
+                    page += 1
+                    remaining -= per_page
+                except (RuntimeError, json.JSONDecodeError, FileNotFoundError) as exc:
+                    if isinstance(exc, RuntimeError) and self._is_rate_limit_error(exc):
+                        await self._set_rate_limit_backoff(exc)
+                        rate_limited = True
+                        return
+                    logger.error("gh issue list failed for label=%r: %s", label, exc)
+                    return
 
         if labels:
             await asyncio.gather(*[_query_label(lbl) for lbl in labels])
@@ -107,8 +144,74 @@ class IssueFetcher:
         else:
             return []
 
+        if require_complete and rate_limited:
+            raise IncompleteIssueFetchError(
+                "GitHub issue fetch incomplete due to rate limiting"
+            )
+
         issues = [GitHubIssue.model_validate(raw) for raw in seen.values()]
         return issues[:limit]
+
+    def _is_rate_limited_now(self) -> bool:
+        until = self._rate_limited_until
+        if until is None:
+            return False
+        now = datetime.now(UTC)
+        if now >= until:
+            self._rate_limited_until = None
+            return False
+        return True
+
+    def _note_success_after_rate_limit(self) -> None:
+        self._rate_limit_recovery_attempts = 0
+
+    @staticmethod
+    def _is_rate_limit_error(exc: RuntimeError) -> bool:
+        return "rate limit" in str(exc).lower()
+
+    async def _set_rate_limit_backoff(self, exc: RuntimeError) -> None:
+        async with self._rate_limit_lock:
+            if self._is_rate_limited_now():
+                return
+
+            now = datetime.now(UTC)
+            reset_until = await self._fetch_rate_limit_reset_time()
+            if reset_until is not None and reset_until > now:
+                # Hard pause until the GitHub core reset boundary (+small buffer).
+                until = reset_until + timedelta(seconds=5)
+                self._rate_limit_recovery_attempts = 0
+            else:
+                # Post-reset recovery: exponentially back off with jitter.
+                self._rate_limit_recovery_attempts += 1
+                exp = min(self._rate_limit_recovery_attempts, 8)
+                base_seconds = 2**exp
+                jitter = random.uniform(0.75, 1.25)
+                delay_seconds = min(300, max(1, int(base_seconds * jitter)))
+                until = now + timedelta(seconds=delay_seconds)
+
+            self._rate_limited_until = until
+            seconds = max(1, int((until - datetime.now(UTC)).total_seconds()))
+            logger.error(
+                "GitHub API rate limit hit; backing off issue fetches for ~%ds (until %s). Cause: %s",
+                seconds,
+                until.isoformat(),
+                exc,
+            )
+
+    async def _fetch_rate_limit_reset_time(self) -> datetime | None:
+        try:
+            raw = await run_subprocess(
+                "gh",
+                "api",
+                "rate_limit",
+                "--jq",
+                ".resources.core.reset",
+                gh_token=self._config.gh_token,
+            )
+            reset_epoch = int(raw.strip())
+            return datetime.fromtimestamp(reset_epoch, tz=UTC)
+        except (RuntimeError, ValueError, OSError):
+            return None
 
     async def fetch_all_hydraflow_issues(self) -> list[GitHubIssue]:
         """Fetch all open issues with any HydraFlow pipeline label in one batch.
@@ -128,7 +231,11 @@ class IssueFetcher:
         )
         if not all_labels:
             return []
-        return await self.fetch_issues_by_labels(all_labels, limit=100)
+        return await self.fetch_issues_by_labels(
+            all_labels,
+            limit=100,
+            require_complete=True,
+        )
 
     async def fetch_issue_by_number(self, issue_number: int) -> GitHubIssue | None:
         """Fetch a single issue by its number.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Coroutine
 from datetime import UTC, datetime
 from typing import Any, TypeVar
@@ -21,6 +22,7 @@ from models import (
     PRInfo,
     PublishFn,
     ReviewResult,
+    StatusCallback,
     Task,
     VerificationCriterion,
 )
@@ -34,6 +36,38 @@ from verification_judge import VerificationJudge
 logger = logging.getLogger("hydraflow.post_merge_handler")
 
 _T = TypeVar("_T")
+_MANUAL_VERIFY_KEYWORDS = (
+    "ui",
+    "ux",
+    "visual",
+    "screen",
+    "page",
+    "button",
+    "browser",
+    "click",
+    "manual",
+    "frontend",
+    "form",
+)
+_NON_MANUAL_WORK_KEYWORDS = (
+    "refactor",
+    "cleanup",
+    "chore",
+    "lint",
+    "type",
+    "typing",
+    "test",
+    "coverage",
+    "docs",
+    "documentation",
+)
+_USER_SURFACE_DIFF_RE = re.compile(
+    r"^\+\+\+\s+b/("
+    r"src/ui/|ui/|frontend/|web/|"
+    r".*\.(?:tsx|jsx|css|scss|html)"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class PostMergeHandler:
@@ -49,6 +83,7 @@ class PostMergeHandler:
         retrospective: RetrospectiveCollector | None,
         verification_judge: VerificationJudge | None,
         epic_checker: EpicCompletionChecker | None,
+        update_bg_worker_status: StatusCallback | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -58,6 +93,7 @@ class PostMergeHandler:
         self._retrospective = retrospective
         self._verification_judge = verification_judge
         self._epic_checker = epic_checker
+        self._update_bg_worker_status = update_bg_worker_status
         self._prompt_telemetry = PromptTelemetry(config)
 
     async def handle_approved(
@@ -146,6 +182,7 @@ class PostMergeHandler:
                     "Escalating to human review."
                 ),
                 event_cause="merge_failed",
+                task=issue,
             )
 
     async def _post_inference_totals_comment(self, pr: PRInfo, issue: Task) -> None:
@@ -214,15 +251,33 @@ class PostMergeHandler:
                 pr.issue_number,
             )
         if self._retrospective:
-            await self._safe_hook(
-                "retrospective",
-                self._retrospective.record(
+            retro_status = "ok"
+            try:
+                await self._retrospective.record(
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     review_result=result,
-                ),
-                pr.issue_number,
-            )
+                )
+            except Exception:  # noqa: BLE001
+                retro_status = "error"
+                logger.warning(
+                    "retrospective failed for issue #%d",
+                    pr.issue_number,
+                    exc_info=True,
+                )
+            if self._update_bg_worker_status:
+                try:
+                    self._update_bg_worker_status(
+                        "retrospective",
+                        retro_status,
+                        {"issue_number": pr.issue_number, "pr_number": pr.number},
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "retrospective status callback failed for issue #%d",
+                        pr.issue_number,
+                        exc_info=True,
+                    )
 
         verdict: JudgeVerdict | None = None
         if self._verification_judge:
@@ -237,7 +292,9 @@ class PostMergeHandler:
             )
 
         judge_result = self._get_judge_result(issue, pr, verdict)
-        if judge_result is not None:
+        if judge_result is not None and self._should_create_verification_issue(
+            issue, judge_result, diff
+        ):
             await self._safe_hook(
                 "verification issue creation",
                 self._create_verification_issue(issue, pr, judge_result),
@@ -278,6 +335,42 @@ class PostMergeHandler:
             verification_instructions=verdict.verification_instructions,
             summary=verdict.summary,
         )
+
+    def _should_create_verification_issue(
+        self, issue: Task, judge_result: JudgeResult, diff: str
+    ) -> bool:
+        """Return True only when the change needs human/manual verification."""
+        instructions = judge_result.verification_instructions.strip()
+        if not instructions:
+            logger.info(
+                "Skipping verification issue for #%d: no verification instructions",
+                issue.id,
+            )
+            return False
+
+        issue_text = f"{issue.title}\n{issue.body}".lower()
+        instructions_text = instructions.lower()
+        has_manual_cues = any(
+            kw in instructions_text or kw in issue_text
+            for kw in _MANUAL_VERIFY_KEYWORDS
+        )
+        touches_user_surface = bool(_USER_SURFACE_DIFF_RE.search(diff or ""))
+
+        if has_manual_cues or touches_user_surface:
+            return True
+
+        if any(kw in issue_text for kw in _NON_MANUAL_WORK_KEYWORDS):
+            logger.info(
+                "Skipping verification issue for #%d: non-user-facing change",
+                issue.id,
+            )
+            return False
+
+        logger.info(
+            "Skipping verification issue for #%d: no human-verification signal",
+            issue.id,
+        )
+        return False
 
     async def _create_verification_issue(
         self,

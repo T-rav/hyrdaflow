@@ -230,7 +230,7 @@ class ReviewRunner(BaseRunner):
         failure_summary: str,
         attempt: int,
         ci_logs: str = "",
-    ) -> tuple[str, dict[str, int | dict[str, int]]]:
+    ) -> tuple[str, dict[str, object]]:
         """Build a focused prompt for fixing CI failures."""
         raw_ci_logs = ci_logs or ""
         compact_ci_logs = raw_ci_logs
@@ -270,7 +270,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 """
         before = len(failure_summary) + len(raw_ci_logs)
         after = len(failure_summary) + len(compact_ci_logs)
-        stats: dict[str, int | dict[str, int]] = {
+        stats: dict[str, object] = {
             "context_chars_before": before,
             "context_chars_after": after,
             "pruned_chars_total": max(0, before - after),

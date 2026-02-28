@@ -62,9 +62,9 @@ class TestGroupEventsByIssue:
     def test_ignores_events_without_issue(self, event_bus: EventBus) -> None:
         builder = TimelineBuilder(event_bus)
         events = [
-            _event(EventType.BATCH_START, 0, batch=1),
+            _event(EventType.PHASE_CHANGE, 0, batch=1),
             _event(EventType.TRIAGE_UPDATE, 5, issue=42, status="done"),
-            _event(EventType.BATCH_COMPLETE, 10, batch=1),
+            _event(EventType.ORCHESTRATOR_STATUS, 10, batch=1),
         ]
         grouped = builder._group_events_by_issue(events)
         assert len(grouped) == 1

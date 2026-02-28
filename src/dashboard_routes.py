@@ -37,16 +37,20 @@ from models import (
     MetricsHistoryResponse,
     MetricsResponse,
     MetricsSnapshot,
+    PendingReport,
     PipelineIssue,
     PipelineSnapshot,
     PipelineSnapshotEntry,
     QueueStats,
+    ReportIssueRequest,
+    ReportIssueResponse,
     parse_task_links,
 )
 from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from state import StateTracker
 from timeline import TimelineBuilder
+from transcript_summarizer import TranscriptSummarizer
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
@@ -197,6 +201,12 @@ def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]
     return (parsed, _status_rank(status))
 
 
+def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
+    """Return True for the expected local-dev supervisor-down condition."""
+    text = str(exc).strip().lower()
+    return text.startswith("hf supervisor is not running.")
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -210,6 +220,7 @@ def create_router(
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers."""
     router = APIRouter()
+    hitl_summary_cooldown_seconds = 300
 
     class RepoAddRequest(BaseModel):
         slug: str | None = None
@@ -218,6 +229,10 @@ def create_router(
         supervisor_client = importlib.import_module("hf_cli.supervisor_client")
     except ImportError:  # pragma: no cover - env missing CLI
         supervisor_client = None  # type: ignore[assignment]
+    issue_fetcher = IssueFetcher(config)
+    hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
+    hitl_summary_inflight: set[int] = set()
+    hitl_summary_slots = asyncio.Semaphore(3)
 
     def _serve_spa_index() -> HTMLResponse:
         """Serve the SPA index.html, falling back to template or placeholder."""
@@ -319,6 +334,80 @@ def create_router(
 
         await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
 
+    def _build_hitl_context(issue: Any, *, cause: str, origin: str | None) -> str:
+        body = str(getattr(issue, "body", "") or "").strip()
+        comments = list(getattr(issue, "comments", []) or [])
+        recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
+        comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
+        origin_text = origin or "unknown"
+        return (
+            f"Issue #{issue.number}: {issue.title}\n"
+            f"Escalation cause: {cause or 'not recorded'}\n"
+            f"Escalation origin: {origin_text}\n\n"
+            f"Issue body:\n{body[:6000]}\n\n"
+            f"Recent comments:\n{comments_block[:3000]}"
+        )
+
+    def _normalise_summary_lines(raw: str) -> str:
+        lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
+        return "\n".join(lines[:8]).strip()
+
+    def _hitl_summary_retry_due(issue_number: int) -> bool:
+        failed_at, _ = state.get_hitl_summary_failure(issue_number)
+        failed_dt = _parse_iso_or_none(failed_at)
+        if failed_dt is None:
+            return True
+        age = (datetime.now(UTC) - failed_dt).total_seconds()
+        return age >= hitl_summary_cooldown_seconds
+
+    async def _compute_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> str | None:
+        if (
+            not config.transcript_summarization_enabled
+            or config.dry_run
+            or not config.gh_token
+        ):
+            return None
+        issue = await issue_fetcher.fetch_issue_by_number(issue_number)
+        if issue is None:
+            state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
+            return None
+        context = _build_hitl_context(issue, cause=cause, origin=origin)
+        generated = await hitl_summarizer.summarize_hitl_context(context)
+        if not generated:
+            state.set_hitl_summary_failure(issue_number, "Summary model returned empty")
+            return None
+        summary = _normalise_summary_lines(generated)
+        if not summary:
+            state.set_hitl_summary_failure(
+                issue_number, "Summary normalization produced empty output"
+            )
+            return None
+        state.set_hitl_summary(issue_number, summary)
+        state.clear_hitl_summary_failure(issue_number)
+        return summary
+
+    async def _warm_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> None:
+        if issue_number in hitl_summary_inflight:
+            return
+        hitl_summary_inflight.add(issue_number)
+        try:
+            async with hitl_summary_slots:
+                await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
+        except Exception:
+            state.set_hitl_summary_failure(
+                issue_number, "Unexpected summary warm error"
+            )
+            logger.exception(
+                "Failed to warm HITL summary for issue #%d",
+                issue_number,
+            )
+        finally:
+            hitl_summary_inflight.discard(issue_number)
+
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         return _serve_spa_index()
@@ -366,9 +455,7 @@ def create_router(
         stage_labels: list[str] = getattr(config, label_field, [])
         origin_label: str = stage_labels[0]
 
-        for lbl in stage_labels:
-            await pr_manager.remove_label(issue_number, lbl)
-        await pr_manager.add_labels(issue_number, config.hitl_label)
+        await pr_manager.swap_pipeline_labels(issue_number, config.hitl_label[0])
 
         state.set_hitl_cause(issue_number, feedback)
         state.set_hitl_origin(issue_number, origin_label)
@@ -442,7 +529,10 @@ def create_router(
     @router.get("/api/hitl")
     async def get_hitl() -> JSONResponse:
         """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
-        items = await pr_manager.list_hitl_items(config.hitl_label)
+        hitl_labels = list(
+            dict.fromkeys([*config.hitl_label, *config.hitl_active_label])
+        )
+        items = await pr_manager.list_hitl_items(hitl_labels)
         orch = get_orchestrator()
         enriched = []
         for item in items:
@@ -464,8 +554,57 @@ def create_router(
                 data["cause"] = cause
             if origin and origin in config.improve_label:
                 data["isMemorySuggestion"] = True
+            cached_summary = state.get_hitl_summary(item.issue)
+            data["llmSummary"] = cached_summary or ""
+            data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
+            if (
+                not cached_summary
+                and config.transcript_summarization_enabled
+                and not config.dry_run
+                and bool(config.gh_token)
+                and _hitl_summary_retry_due(item.issue)
+            ):
+                asyncio.create_task(
+                    _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
+                )
             enriched.append(data)
+
+        # When memory auto-approve is on, filter out memory suggestions that
+        # were queued before the setting was enabled.
+        if config.memory_auto_approve:
+            enriched = [d for d in enriched if not d.get("isMemorySuggestion")]
+
         return JSONResponse(enriched)
+
+    @router.get("/api/hitl/{issue_number}/summary")
+    async def get_hitl_summary(issue_number: int) -> JSONResponse:
+        """Return cached HITL summary, generating one if missing."""
+        cached = state.get_hitl_summary(issue_number)
+        if cached:
+            return JSONResponse(
+                {
+                    "issue": issue_number,
+                    "summary": cached,
+                    "updated_at": state.get_hitl_summary_updated_at(issue_number),
+                    "cached": True,
+                }
+            )
+
+        cause = state.get_hitl_cause(issue_number) or ""
+        origin = state.get_hitl_origin(issue_number)
+        summary = await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
+        if summary:
+            return JSONResponse(
+                {
+                    "issue": issue_number,
+                    "summary": summary,
+                    "updated_at": state.get_hitl_summary_updated_at(issue_number),
+                    "cached": False,
+                }
+            )
+        return JSONResponse(
+            {"issue": issue_number, "summary": "", "updated_at": None, "cached": False}
+        )
 
     @router.post("/api/hitl/{issue_number}/correct")
     async def hitl_correct(issue_number: int, body: dict[str, Any]) -> JSONResponse:
@@ -509,6 +648,7 @@ def create_router(
         orch.skip_hitl_issue(issue_number)
         state.remove_hitl_origin(issue_number)
         state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
 
         # If this was an improve issue, transition to triage for implementation
         if origin and origin in config.improve_label and config.find_label:
@@ -538,6 +678,8 @@ def create_router(
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
         orch.skip_hitl_issue(issue_number)
         state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
         await pr_manager.close_issue(issue_number)
         await event_bus.publish(
             HydraFlowEvent(
@@ -563,6 +705,7 @@ def create_router(
             orch.skip_hitl_issue(issue_number)
         state.remove_hitl_origin(issue_number)
         state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
@@ -654,6 +797,8 @@ def create_router(
                 fixed_label=config.fixed_label,
                 improve_label=config.improve_label,
                 memory_label=config.memory_label,
+                transcript_label=config.transcript_label,
+                max_triagers=config.max_triagers,
                 max_workers=config.max_workers,
                 max_planners=config.max_planners,
                 max_reviewers=config.max_reviewers,
@@ -670,6 +815,7 @@ def create_router(
 
     # Mutable fields that can be changed at runtime via PATCH
     _MUTABLE_FIELDS = {
+        "max_triagers",
         "max_workers",
         "max_planners",
         "max_reviewers",
@@ -738,20 +884,71 @@ def create_router(
 
     # Known workers with human-friendly labels (pipeline loops + background)
     _bg_worker_defs = [
-        ("triage", "Triage"),
-        ("plan", "Plan"),
-        ("implement", "Implement"),
-        ("review", "Review"),
-        ("memory_sync", "Memory Manager"),
-        ("retrospective", "Retrospective"),
-        ("metrics", "Metrics"),
-        ("review_insights", "Review Insights"),
-        ("pipeline_poller", "Pipeline Poller"),
-        ("pr_unsticker", "PR Unsticker"),
+        (
+            "triage",
+            "Triage",
+            "Classifies freshly discovered issues and routes them into the pipeline.",
+        ),
+        (
+            "plan",
+            "Plan",
+            "Builds implementation plans for triaged issues that are ready to execute.",
+        ),
+        (
+            "implement",
+            "Implement",
+            "Runs coding agents to implement planned issues and open pull requests.",
+        ),
+        (
+            "review",
+            "Review",
+            "Reviews PRs, applies fixes, and merges approved work when checks pass.",
+        ),
+        (
+            "memory_sync",
+            "Memory Manager",
+            "Ingests memory and transcript issues into durable learnings and proposals.",
+        ),
+        (
+            "retrospective",
+            "Retrospective",
+            "Captures post-merge outcomes and identifies recurring delivery patterns.",
+        ),
+        (
+            "metrics",
+            "Metrics",
+            "Refreshes operational metrics and dashboards from state and GitHub data.",
+        ),
+        (
+            "review_insights",
+            "Review Insights",
+            "Aggregates recurring review feedback into improvement opportunities.",
+        ),
+        (
+            "pipeline_poller",
+            "Pipeline Poller",
+            "Refreshes live pipeline snapshots for dashboard queue/status rendering.",
+        ),
+        (
+            "pr_unsticker",
+            "PR Unsticker",
+            "Requeues stalled HITL PRs by validating requirements and reopening flow.",
+        ),
+        (
+            "report_issue",
+            "Report Issue",
+            "Processes queued bug reports into GitHub issues via the configured agent.",
+        ),
     ]
 
     # Workers that have independent configurable intervals
-    _INTERVAL_WORKERS = {"memory_sync", "metrics", "pr_unsticker", "pipeline_poller"}
+    _INTERVAL_WORKERS = {
+        "memory_sync",
+        "metrics",
+        "pr_unsticker",
+        "pipeline_poller",
+        "report_issue",
+    }
     # Pipeline loops share poll_interval (read-only display)
     _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}
     _WORKER_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
@@ -765,7 +962,7 @@ def create_router(
         source_totals = telemetry.get_source_totals()
 
         worker_totals: dict[str, dict[str, int]] = {}
-        for worker_name, _label in _bg_worker_defs:
+        for worker_name, _label, _description in _bg_worker_defs:
             sources = (worker_name, *_WORKER_SOURCE_ALIASES.get(worker_name, ()))
             totals = {
                 "inference_calls": 0,
@@ -820,7 +1017,7 @@ def create_router(
                 logger.exception("Failed to load persisted bg worker states")
         inference_by_worker = _build_system_worker_inference_stats()
         workers = []
-        for name, label in _bg_worker_defs:
+        for name, label, description in _bg_worker_defs:
             enabled = orch.is_bg_worker_enabled(name) if orch else True
 
             # Determine interval for this worker
@@ -853,6 +1050,7 @@ def create_router(
                     BackgroundWorkerStatus(
                         name=name,
                         label=label,
+                        description=description,
                         status=BGWorkerHealth(
                             entry.get("status", BGWorkerHealth.DISABLED)
                         ),
@@ -868,6 +1066,7 @@ def create_router(
                     BackgroundWorkerStatus(
                         name=name,
                         label=label,
+                        description=description,
                         enabled=enabled,
                         interval_seconds=interval,
                         details=inference_by_worker.get(name, {}),
@@ -1472,7 +1671,8 @@ def create_router(
         try:
             repos = await _call_supervisor(supervisor_client.list_repos)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Supervisor list_repos failed: %s", exc)
+            if not _is_expected_supervisor_unavailable(exc):
+                logger.warning("Supervisor list_repos failed: %s", exc)
             return JSONResponse({"error": str(exc)}, status_code=503)
         return JSONResponse({"repos": repos})
 
@@ -1543,6 +1743,22 @@ def create_router(
 
         url = f"https://github.com/{config.repo}/issues/{issue_number}"
         response = IntentResponse(issue_number=issue_number, title=title, url=url)
+        return JSONResponse(response.model_dump())
+
+    @router.post("/api/report")
+    async def submit_report(request: ReportIssueRequest) -> JSONResponse:
+        """Queue a bug report for async processing by the report issue worker."""
+        report = PendingReport(
+            description=request.description,
+            screenshot_base64=request.screenshot_base64,
+            environment=request.environment,
+        )
+        state.enqueue_report(report)
+
+        title = f"[Bug Report] {request.description[:100]}"
+        response = ReportIssueResponse(
+            issue_number=0, title=title, url="", status="queued"
+        )
         return JSONResponse(response.model_dump())
 
     @router.get("/api/sessions")

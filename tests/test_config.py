@@ -384,6 +384,25 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.max_reviewers == 2
 
+    def test_max_triagers_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 1
+
+    def test_max_triagers_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_MAX_TRIAGERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 4
+
     def test_max_hitl_workers_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -810,6 +829,44 @@ class TestHydraFlowConfigValidationConstraints:
         with pytest.raises(ValueError):
             HydraFlowConfig(
                 max_workers=11,
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    # max_triagers: ge=1, le=10
+
+    def test_max_triagers_minimum_boundary(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            max_triagers=1,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 1
+
+    def test_max_triagers_maximum_boundary(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            max_triagers=10,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 10
+
+    def test_max_triagers_below_minimum_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            HydraFlowConfig(
+                max_triagers=0,
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    def test_max_triagers_above_maximum_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            HydraFlowConfig(
+                max_triagers=11,
                 repo_root=tmp_path,
                 worktree_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
@@ -1263,6 +1320,8 @@ class TestHydraFlowConfigGhToken:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1301,6 +1360,36 @@ class TestHydraFlowConfigGhToken:
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_explicit"
+
+    def test_gh_token_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        (tmp_path / ".env").write_text("HYDRAFLOW_GH_TOKEN=ghp_from_dotenv\n")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.gh_token == "ghp_from_dotenv"
+
+    def test_gh_token_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GH_TOKEN=ghp_from_dotenv # bot token\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.gh_token == "ghp_from_dotenv"
 
 
 # ---------------------------------------------------------------------------
@@ -1396,6 +1485,40 @@ class TestHydraFlowConfigGitIdentity:
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == "explicit@example.com"
+
+    def test_git_identity_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_user_name == "Dotenv Bot"
+        assert cfg.git_user_email == "dotenv-bot@example.com"
+
+    def test_git_identity_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot # preferred\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com # notifications\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_user_name == "Dotenv Bot"
+        assert cfg.git_user_email == "dotenv-bot@example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -1504,6 +1627,50 @@ class TestHydraFlowConfigImproveLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.improve_label == ["explicit-improve"]
+
+
+class TestHydraFlowConfigEpicChildLabel:
+    """Tests for epic_child_label default, custom value, and env var override."""
+
+    def test_epic_child_label_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["hydraflow-epic-child"]
+
+    def test_epic_child_label_custom_value(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            epic_child_label=["my-epic-child"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["my-epic-child"]
+
+    def test_epic_child_label_env_var_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "custom-epic-child")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["custom-epic-child"]
+
+    def test_epic_child_label_env_var_not_applied_when_explicit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "env-epic-child")
+        cfg = HydraFlowConfig(
+            epic_child_label=["explicit-epic-child"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["explicit-epic-child"]
 
 
 # ---------------------------------------------------------------------------
@@ -1716,12 +1883,12 @@ class TestHydraFlowConfigLitePlanLabels:
 
 
 # ---------------------------------------------------------------------------
-# HydraFlowConfig – improve_label / memory_label env var overrides
+# HydraFlowConfig – improve_label / memory/transcript label env var overrides
 # ---------------------------------------------------------------------------
 
 
 class TestHydraFlowConfigImproveLabelAndMemoryLabel:
-    """Tests for improve_label and memory_label fields and env var overrides."""
+    """Tests for improve_label, memory_label, and transcript_label."""
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1738,6 +1905,14 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["hydraflow-memory"]
+
+    def test_transcript_label_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["hydraflow-transcript"]
 
     def test_improve_label_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1760,6 +1935,17 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["custom-memory"]
+
+    def test_transcript_label_env_var_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "custom-transcript")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["custom-transcript"]
 
     def test_improve_label_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1784,6 +1970,18 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["explicit-memory"]
+
+    def test_transcript_label_explicit_overrides_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "env-transcript")
+        cfg = HydraFlowConfig(
+            transcript_label=["explicit-transcript"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["explicit-transcript"]
 
     def test_metrics_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -3285,6 +3483,53 @@ class TestDockerConfigValidation:
         )
         assert cfg.execution_mode == "host"
 
+    def test_docker_mode_warns_when_identity_missing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="hydraflow.config"):
+            HydraFlowConfig(
+                execution_mode="docker",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        warnings = "\n".join(rec.getMessage() for rec in caplog.records)
+        assert "without GH token configured" in warnings
+        assert "git identity not configured" in warnings
+
+    def test_docker_mode_warns_on_partial_git_identity(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="hydraflow.config"):
+            HydraFlowConfig(
+                execution_mode="docker",
+                gh_token="ghp_bot",
+                git_user_name="Bot Name",
+                git_user_email="",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        warnings = "\n".join(rec.getMessage() for rec in caplog.records)
+        assert "git identity is incomplete" in warnings
+
 
 # ---------------------------------------------------------------------------
 # Docker size notation validator – targeted tests for validate_docker_size_notation
@@ -3964,9 +4209,11 @@ class TestLabelValidation:
             "fixed_label",
             "improve_label",
             "memory_label",
+            "transcript_label",
             "metrics_label",
             "dup_label",
             "epic_label",
+            "epic_child_label",
             "find_label",
             "planner_label",
         ],
@@ -4360,6 +4607,7 @@ class TestAllPipelineLabels:
         assert cfg.hitl_active_label[0] in labels
         assert cfg.fixed_label[0] in labels
         assert cfg.improve_label[0] in labels
+        assert cfg.transcript_label[0] in labels
 
     def test_returns_flat_list(self, tmp_path: Path) -> None:
         from tests.helpers import ConfigFactory

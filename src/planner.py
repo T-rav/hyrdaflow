@@ -44,7 +44,8 @@ _PLAN_SECTION_DESCRIPTIONS: tuple[tuple[str, str], ...] = (
     ),
     (
         "## Implementation Steps",
-        "ordered numbered list of steps (must have at least 3 steps)",
+        "actionable implementation checklist/steps (numbered, bulleted, checkbox, or heading-style) "
+        "with concrete code targets and at least one verification step",
     ),
     (
         "## Testing Strategy",
@@ -157,6 +158,10 @@ class PlannerRunner(BaseRunner):
             result.new_issues = self._extract_new_issues(transcript)
 
             if result.plan:
+                (
+                    result.actionability_score,
+                    result.actionability_rank,
+                ) = self._score_actionability(result.plan, scale=scale)
                 await self._emit_status(task.id, worker_id, PlannerStatus.VALIDATING)
                 validation_errors = self._validate_plan(task, result.plan, scale=scale)
                 if scale == "lite":
@@ -193,6 +198,10 @@ class PlannerRunner(BaseRunner):
 
                     retry_plan = self._extract_plan(retry_transcript)
                     if retry_plan:
+                        (
+                            result.actionability_score,
+                            result.actionability_rank,
+                        ) = self._score_actionability(retry_plan, scale=scale)
                         retry_validation = self._validate_plan(
                             task, retry_plan, scale=scale
                         )
@@ -479,13 +488,30 @@ Use only label `{find_label}`.
 
 ## Already Satisfied
 
-If requirements are already fully met (no changes needed), do NOT produce a plan. Output:
+IMPORTANT: This should be used VERY RARELY. Only if the EXACT feature described in the
+issue is ALREADY fully implemented, tested, and working. You must be able to prove it.
+
+Before marking as already satisfied, verify ALL of the following:
+1. The specific functions/classes requested in the issue ALREADY EXIST (cite exact file:line)
+2. Existing tests ALREADY COVER the described behavior (cite test names)
+3. The acceptance criteria in the issue are ALL already met by existing code
+
+DO NOT mark as already satisfied if:
+- The feature is similar to something that exists but not identical
+- The infrastructure exists but the specific feature does not
+- Related code exists but the issue asks for NEW functionality
+- You are unsure — when in doubt, produce a plan
+
+If ALL verification checks above pass, output:
 
 ALREADY_SATISFIED_START
-<explanation of why no changes are needed, referencing specific files and code>
+Evidence:
+- Feature: <exact function/class name at file:line that implements this>
+- Tests: <exact test names that verify this behavior>
+- Criteria: <how each acceptance criterion is already met>
 ALREADY_SATISFIED_END
 
-This closes the issue automatically. Use only when you are certain.
+This closes the issue automatically. False positives waste significant human time.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
         stats = {
@@ -641,7 +667,7 @@ This closes the issue automatically. Use only when you are certain.
                     "## Testing Strategy must reference at least one test file or pattern"
                 )
 
-        # --- Implementation Steps must have at least 3 numbered steps ---
+        # --- Implementation Steps must contain at least one actionable step ---
         is_match = re.search(
             r"## Implementation Steps\s*\n(.*?)(?=\n## |\Z)",
             plan,
@@ -649,11 +675,37 @@ This closes the issue automatically. Use only when you are certain.
         )
         if is_match:
             is_body = is_match.group(1)
-            numbered_steps = re.findall(r"^\s*\d+[\.\)]\s+\S", is_body, re.MULTILINE)
-            if len(numbered_steps) < 3:
+            step_texts = self._extract_implementation_step_texts(is_body)
+            if not step_texts:
                 errors.append(
-                    "## Implementation Steps must have at least 3 numbered steps"
+                    "## Implementation Steps must include at least one actionable step"
                 )
+            else:
+                if scale != "lite" and len(step_texts) < 2:
+                    errors.append(
+                        "## Implementation Steps must include at least 2 steps for full plans"
+                    )
+                shallow_steps = [
+                    s for s in step_texts if len(re.findall(r"\b\w+\b", s)) < 3
+                ]
+                if shallow_steps:
+                    errors.append(
+                        "## Implementation Steps must include enough detail per step "
+                        "(at least 3 words each)"
+                    )
+                if scale != "lite":
+                    has_concrete_target = any(
+                        re.search(
+                            r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+|`[^`]+`|\w+\(",
+                            s,
+                        )
+                        for s in step_texts
+                    )
+                    if not has_concrete_target:
+                        errors.append(
+                            "## Implementation Steps must reference at least one concrete code target "
+                            "(file path, symbol, or callable)"
+                        )
 
         # --- Minimum word count (full plans only) ---
         if scale != "lite":
@@ -685,6 +737,93 @@ This closes the issue automatically. Use only when you are certain.
             )
 
         return errors
+
+    def _extract_implementation_step_texts(self, section_body: str) -> list[str]:
+        """Extract step text from Implementation Steps section body."""
+        list_steps = re.findall(
+            r"^\s*(?:\d+[\.\)]|[-*+]|\[[ xX]\])\s+(.+)$",
+            section_body,
+            re.MULTILINE,
+        )
+        heading_steps = re.findall(
+            r"^\s*#{2,6}\s*(?:Step\s*\d+[:\.\-]?\s+(.+)|\d+[\.\)]\s+(.+))$",
+            section_body,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        step_texts = [s.strip() for s in list_steps]
+        step_texts.extend((s1 or s2).strip() for s1, s2 in heading_steps)
+        return [s for s in step_texts if s]
+
+    def _score_actionability(
+        self, plan: str, *, scale: PlanScale = "full"
+    ) -> tuple[int, str]:
+        """Return actionability ``(score, rank)`` for *plan*."""
+        score = 0
+        is_match = re.search(
+            r"## Implementation Steps\s*\n(.*?)(?=\n## |\Z)",
+            plan,
+            re.DOTALL | re.IGNORECASE,
+        )
+        step_texts = (
+            self._extract_implementation_step_texts(is_match.group(1))
+            if is_match
+            else []
+        )
+
+        if step_texts:
+            score += 20
+        if scale != "lite" and len(step_texts) >= 2:
+            score += 15
+        elif scale == "lite" and step_texts:
+            score += 10
+
+        has_concrete_target = any(
+            re.search(r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+|`[^`]+`|\w+\(", s)
+            for s in step_texts
+        )
+        if has_concrete_target:
+            score += 25
+
+        if step_texts:
+            shallow_steps = [
+                s for s in step_texts if len(re.findall(r"\b\w+\b", s)) < 3
+            ]
+            if not shallow_steps:
+                score += 10
+            avg_words = sum(len(re.findall(r"\b\w+\b", s)) for s in step_texts) / len(
+                step_texts
+            )
+            if avg_words >= 6:
+                score += 10
+
+        fd_match = re.search(
+            r"## File Delta\s*\n(.*?)(?=\n## |\Z)", plan, re.DOTALL | re.IGNORECASE
+        )
+        if fd_match and re.search(
+            r"^\s*(MODIFIED|ADDED|REMOVED):\s+\S", fd_match.group(1), re.MULTILINE
+        ):
+            score += 10
+
+        ts_match = re.search(
+            r"## Testing Strategy\s*\n(.*?)(?=\n## |\Z)",
+            plan,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if ts_match and re.search(
+            r"test[\w\-]*\.[\w]+|tests/|pytest|unit test|integration test",
+            ts_match.group(1),
+            re.IGNORECASE,
+        ):
+            score += 10
+
+        score = max(0, min(100, score))
+        if score >= 85:
+            rank = "high"
+        elif score >= 65:
+            rank = "medium"
+        else:
+            rank = "low"
+        return score, rank
 
     def _run_phase_minus_one_gates(self, plan: str) -> tuple[list[str], list[str]]:
         """Run Phase -1 gates on *plan*.
@@ -855,7 +994,7 @@ This closes the issue automatically. Use only when you are certain.
         validation_errors: list[str],
         *,
         scale: PlanScale = "full",
-    ) -> tuple[str, dict[str, int | dict[str, int]]]:
+    ) -> tuple[str, dict[str, object]]:
         """Build a retry prompt that includes the original issue, the failed plan, and validation feedback."""
         error_list = "\n".join(f"- {e}" for e in validation_errors[:12])
         sections_list = self._format_sections_list(scale)
@@ -904,7 +1043,7 @@ SUMMARY: <brief one-line description of the plan>
             len(raw_body) + len(failed_plan) + sum(len(e) for e in validation_errors)
         )
         after = len(compact_body) + len(compact_failed_plan) + len(error_list)
-        stats: dict[str, int | dict[str, int]] = {
+        stats: dict[str, object] = {
             "context_chars_before": before,
             "context_chars_after": after,
             "pruned_chars_total": max(0, before - after),

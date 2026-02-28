@@ -589,7 +589,7 @@ class TestPatternDetection:
     async def test_improvement_issue_has_correct_labels(
         self, config: HydraFlowConfig
     ) -> None:
-        """Filed improvement issue should have hydraflow-improve + hydraflow-hitl labels."""
+        """Filed improvement issue should have hydraflow-improve + hydraflow-memory labels."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -606,7 +606,7 @@ class TestPatternDetection:
 
         labels = mock_prs.create_issue.call_args[0][2]
         assert "hydraflow-improve" in labels
-        assert "hydraflow-hitl" in labels
+        assert "hydraflow-memory" in labels
 
 
 # ---------------------------------------------------------------------------
@@ -688,31 +688,34 @@ class TestRetrospectiveEntry:
 
 
 # ---------------------------------------------------------------------------
-# _file_improvement_issue sets hitl_origin
+# _file_improvement_issue memory routing
 # ---------------------------------------------------------------------------
 
 
 class TestFileImprovementIssueSetsOrigin:
-    """Tests that _file_improvement_issue sets hitl_origin for created issues."""
+    """Tests for memory-routed issue creation in _file_improvement_issue."""
 
     @pytest.mark.asyncio
-    async def test_file_improvement_issue_sets_hitl_origin(
+    async def test_file_improvement_issue_uses_memory_labels_and_prefix(
         self, config: HydraFlowConfig
     ) -> None:
-        """Filing an improvement issue should set hitl_origin to improve label."""
+        """Filing an improvement issue should route to improve+memory with [Memory] title."""
         collector, mock_prs, state = _make_collector(config, create_issue_return=99)
 
         await collector._file_improvement_issue("Pattern: test", "Some body text")
 
         mock_prs.create_issue.assert_awaited_once()
-        assert state.get_hitl_origin(99) == config.improve_label[0]
-        assert state.get_hitl_cause(99) == "Retrospective pattern detected"
+        args = mock_prs.create_issue.call_args[0]
+        assert args[0].startswith("[Memory] ")
+        assert args[2] == [config.improve_label[0], config.memory_label[0]]
+        assert state.get_hitl_origin(99) is None
+        assert state.get_hitl_cause(99) is None
 
     @pytest.mark.asyncio
-    async def test_file_improvement_issue_no_origin_on_failure(
+    async def test_file_improvement_issue_no_state_change_on_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        """When create_issue returns 0, no hitl_origin should be set."""
+        """When create_issue returns 0, no HITL state should be set."""
         collector, mock_prs, state = _make_collector(config, create_issue_return=0)
 
         await collector._file_improvement_issue("Pattern: test", "Some body text")
@@ -721,10 +724,10 @@ class TestFileImprovementIssueSetsOrigin:
         assert state.get_hitl_origin(0) is None
 
     @pytest.mark.asyncio
-    async def test_pattern_detection_sets_hitl_origin(
+    async def test_pattern_detection_does_not_set_hitl_origin(
         self, config: HydraFlowConfig
     ) -> None:
-        """When pattern detection files an issue, hitl_origin should be set."""
+        """When pattern detection files an issue, it should not mark HITL state."""
         collector, mock_prs, state = _make_collector(config, create_issue_return=77)
         entries = [
             RetrospectiveEntry(
@@ -740,8 +743,8 @@ class TestFileImprovementIssueSetsOrigin:
         await collector._detect_patterns(entries)
 
         mock_prs.create_issue.assert_awaited_once()
-        assert state.get_hitl_origin(77) == config.improve_label[0]
-        assert state.get_hitl_cause(77) == "Retrospective pattern detected"
+        assert state.get_hitl_origin(77) is None
+        assert state.get_hitl_cause(77) is None
 
 
 # ---------------------------------------------------------------------------

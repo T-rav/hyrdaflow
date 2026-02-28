@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -34,6 +34,7 @@ def _make_handler(
     retrospective=None,
     verification_judge=None,
     epic_checker=None,
+    update_bg_worker_status=None,
 ) -> PostMergeHandler:
     """Build a PostMergeHandler with standard mock dependencies."""
     state = StateTracker(config.state_file)
@@ -46,6 +47,7 @@ def _make_handler(
         retrospective=retrospective,
         verification_judge=verification_judge,
         epic_checker=epic_checker,
+        update_bg_worker_status=update_bg_worker_status,
     )
 
 
@@ -215,6 +217,108 @@ class TestPostMergeHandler:
         mock_retro.record.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_updates_retrospective_bg_status_after_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Retrospective runs should publish a background worker status update."""
+        mock_retro = AsyncMock()
+        status_cb = MagicMock()
+        handler = _make_handler(
+            config,
+            retrospective=mock_retro,
+            update_bg_worker_status=status_cb,
+        )
+        pr = PRInfoFactory.create(number=55, issue_number=66)
+        issue = TaskFactory.create(id=66)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        status_cb.assert_called_with(
+            "retrospective",
+            "ok",
+            {"issue_number": 66, "pr_number": 55},
+        )
+
+    @pytest.mark.asyncio
+    async def test_updates_retrospective_bg_status_error_when_retro_fails(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Retrospective failure should still publish error worker status."""
+        mock_retro = AsyncMock()
+        mock_retro.record.side_effect = RuntimeError("retro boom")
+        status_cb = MagicMock()
+        handler = _make_handler(
+            config,
+            retrospective=mock_retro,
+            update_bg_worker_status=status_cb,
+        )
+        pr = PRInfoFactory.create(number=55, issue_number=66)
+        issue = TaskFactory.create(id=66)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        status_cb.assert_called_with(
+            "retrospective",
+            "error",
+            {"issue_number": 66, "pr_number": 55},
+        )
+
+    @pytest.mark.asyncio
+    async def test_retrospective_status_callback_failure_is_swallowed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Status callback errors must not break post-merge hooks."""
+        mock_retro = AsyncMock()
+        status_cb = MagicMock(side_effect=RuntimeError("status boom"))
+        handler = _make_handler(
+            config,
+            retrospective=mock_retro,
+            update_bg_worker_status=status_cb,
+        )
+        pr = PRInfoFactory.create(number=55, issue_number=66)
+        issue = TaskFactory.create(id=66)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        assert result.merged is True
+
+    @pytest.mark.asyncio
     async def test_verification_issue_created_when_judge_returns_verdict(
         self, config: HydraFlowConfig
     ) -> None:
@@ -229,7 +333,7 @@ class TestPostMergeHandler:
                 ),
             ],
             summary="1/1 passed",
-            verification_instructions="Run the tests",
+            verification_instructions="Open the app in browser and click Save button",
         )
         mock_judge = AsyncMock()
         mock_judge.judge = AsyncMock(return_value=verdict)
@@ -248,7 +352,7 @@ class TestPostMergeHandler:
             pr,
             issue,
             result,
-            "diff",
+            "+++ b/src/ui/App.tsx\n@@\n+<button>Save</button>",
             0,
             ci_gate_fn=ci_gate_fn,
             escalate_fn=escalate_fn,
@@ -256,6 +360,52 @@ class TestPostMergeHandler:
         )
 
         handler._prs.create_issue.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_verification_issue_skipped_for_refactor_and_test_only_work(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Refactor/test-only changes should not generate Verify issues."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="Looks good",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Run unit tests and lint",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        handler = _make_handler(config, verification_judge=mock_judge)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create(
+            title="Refactor test helpers",
+            body="Cleanup test fixtures and typing in unit tests.",
+        )
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(return_value=42)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "+++ b/tests/test_helpers.py\n@@\n+assert value == expected",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        handler._prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_epic_runs_when_verification_issue_creation_fails(

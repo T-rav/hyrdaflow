@@ -32,6 +32,12 @@ logger = logging.getLogger("hydraflow.pr_manager")
 _LABEL_CACHE_TTL: int = 30
 
 
+def _is_missing_label_404(exc: RuntimeError) -> bool:
+    """Return True when gh reports a missing label during label removal."""
+    msg = str(exc).lower()
+    return "label does not exist" in msg and "http 404" in msg
+
+
 class SelfReviewError(RuntimeError):
     """Raised when a formal review fails due to the 'own pull request' restriction."""
 
@@ -266,12 +272,87 @@ class PRManager:
 
         except (RuntimeError, ValueError) as exc:
             logger.error("PR creation failed for issue #%d: %s", issue.number, exc)
+            existing = await self.find_open_pr_for_branch(
+                branch, issue_number=issue.number
+            )
+            if existing is not None:
+                logger.info(
+                    "Using existing PR #%d for issue #%d on branch %s after create failure",
+                    existing.number,
+                    issue.number,
+                    branch,
+                )
+                return existing
             return PRInfo(
                 number=0,
                 issue_number=issue.number,
                 branch=branch,
                 draft=draft,
             )
+
+    async def find_open_pr_for_branch(
+        self, branch: str, *, issue_number: int = 0
+    ) -> PRInfo | None:
+        """Return the open PR for *branch*, or ``None`` when absent/unreadable."""
+        if self._config.dry_run:
+            return None
+        head_filter = f"{self._repo_owner}:{branch}" if self._repo_owner else branch
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/pulls",
+                "--method",
+                "GET",
+                "--field",
+                "state=open",
+                "--field",
+                f"head={head_filter}",
+                "--field",
+                "per_page=1",
+                "--jq",
+                "[.[] | {number, url: .html_url, isDraft: .draft}]",
+            )
+            prs = json.loads(raw)
+            if not prs:
+                return None
+            pr_data = prs[0]
+            return PRInfo(
+                number=int(pr_data["number"]),
+                issue_number=issue_number,
+                branch=branch,
+                url=str(pr_data.get("url", "")),
+                draft=bool(pr_data.get("isDraft", False)),
+            )
+        except (RuntimeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            logger.debug(
+                "Could not resolve open PR for branch %s", branch, exc_info=True
+            )
+            return None
+
+    async def branch_has_diff_from_main(self, branch: str) -> bool:
+        """Return whether *branch* has commits ahead of configured main branch."""
+        if self._config.dry_run:
+            return True
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/compare/{self._config.main_branch}...{branch}",
+                "--jq",
+                "{ahead_by}",
+            )
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                ahead_by = int(data.get("ahead_by", 0) or 0)
+                return ahead_by > 0
+        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError):
+            logger.warning(
+                "Could not determine branch diff for %s; assuming diff exists",
+                branch,
+                exc_info=True,
+            )
+        return True
 
     async def merge_pr(self, pr_number: int) -> bool:
         """Merge PR immediately via squash merge with branch deletion.
@@ -452,6 +533,14 @@ class PRManager:
                 "DELETE",
             )
         except RuntimeError as exc:
+            if _is_missing_label_404(exc):
+                logger.debug(
+                    "Label %r not present on %s #%d; skipping remove",
+                    label,
+                    target,
+                    number,
+                )
+                return
             logger.warning(
                 "Could not remove label %r from %s #%d: %s",
                 label,
@@ -591,6 +680,55 @@ class PRManager:
         except (RuntimeError, ValueError) as exc:
             logger.error("Issue creation failed for %r: %s", title, exc)
             return 0
+
+    async def upload_screenshot_gist(self, png_base64: str) -> str:
+        """Upload a base64-encoded PNG as a GitHub gist and return the raw URL.
+
+        Returns an empty string on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would upload screenshot gist")
+            return ""
+
+        import base64
+
+        # Strip optional data URI prefix
+        if png_base64.startswith("data:"):
+            _, _, png_base64 = png_base64.partition(",")
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-screenshot-")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(base64.b64decode(png_base64))
+
+            output = await self._run_gh(
+                "gh",
+                "gist",
+                "create",
+                "--public",
+                "--filename",
+                "screenshot.png",
+                tmp_path,
+            )
+            # gh gist create prints the gist URL, e.g.
+            # https://gist.github.com/user/abc123
+            gist_url = output.strip()
+            if "gist.github.com" not in gist_url:
+                logger.warning("Unexpected gist create output: %s", gist_url[:200])
+                return ""
+
+            # Convert to raw URL:
+            # https://gist.githubusercontent.com/user/abc123/raw/screenshot.png
+            raw_url = (
+                gist_url.replace("gist.github.com", "gist.githubusercontent.com")
+                + "/raw/screenshot.png"
+            )
+            return raw_url
+        except Exception:
+            logger.exception("Screenshot gist upload failed")
+            return ""
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
     async def get_pr_diff(self, pr_number: int) -> str:
         """Fetch the diff for *pr_number*."""

@@ -25,10 +25,12 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("fixed_label", "0075ca", "PR merged — issue completed"),
     ("improve_label", "7057ff", "Review insight improvement proposal"),
     ("memory_label", "1d76db", "Approved memory suggestion for sync"),
+    ("transcript_label", "bfd4f2", "Transcript summary issue for memory ingestion"),
     ("metrics_label", "006b75", "Metrics persistence issue"),
     ("manifest_label", "1185fe", "Manifest persistence issue"),
     ("dup_label", "cfd3d7", "Issue already satisfied — no changes needed"),
     ("epic_label", "5319e7", "Epic tracking issue with linked sub-issues"),
+    ("epic_child_label", "9b59b6", "Child issue linked to a HydraFlow epic"),
 )
 
 
@@ -164,9 +166,11 @@ _LABEL_FIELDS: tuple[str, ...] = (
     "fixed_label",
     "improve_label",
     "memory_label",
+    "transcript_label",
     "metrics_label",
     "dup_label",
     "epic_label",
+    "epic_child_label",
 )
 
 

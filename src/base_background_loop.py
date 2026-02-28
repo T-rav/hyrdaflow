@@ -73,12 +73,21 @@ class BaseBackgroundLoop(abc.ABC):
             return self._interval_cb(self._worker_name)
         return self._get_default_interval()
 
+    def _build_details(self, stats: dict[str, Any] | None) -> dict[str, Any]:
+        """Coerce arbitrary worker stats into a details dict."""
+        if stats is None:
+            return {}
+        if isinstance(stats, dict):
+            return dict(stats)
+        return {"value": stats}
+
     async def _execute_cycle(self) -> None:
         """Execute one work cycle with error handling and status reporting."""
         try:
             stats = await self._do_work()
+            details = self._build_details(stats)
             last_run = datetime.now(UTC).isoformat()
-            self._status_cb(self._worker_name, "ok", stats)
+            self._status_cb(self._worker_name, "ok", details)
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.BACKGROUND_WORKER_STATUS,
@@ -86,7 +95,7 @@ class BaseBackgroundLoop(abc.ABC):
                         "worker": self._worker_name,
                         "status": "ok",
                         "last_run": last_run,
-                        "details": stats or {},
+                        "details": details,
                     },
                 )
             )
@@ -98,7 +107,7 @@ class BaseBackgroundLoop(abc.ABC):
                 self._worker_name.replace("_", " ").capitalize(),
             )
             last_run = datetime.now(UTC).isoformat()
-            self._status_cb(self._worker_name, "error", None)
+            self._status_cb(self._worker_name, "error", {})
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.BACKGROUND_WORKER_STATUS,

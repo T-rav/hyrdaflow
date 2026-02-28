@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
     TYPE_CHECKING,
@@ -15,6 +15,7 @@ from typing import (
     NotRequired,
     Protocol,
 )
+from uuid import uuid4
 
 from pydantic import (
     AfterValidator,
@@ -240,6 +241,8 @@ class PlanResult(BaseModel):
     duration_seconds: float = 0.0
     new_issues: list[NewIssueSpec] = Field(default_factory=list)
     validation_errors: list[str] = Field(default_factory=list)
+    actionability_score: int = 0
+    actionability_rank: str = "unknown"
     retry_attempted: bool = False
     already_satisfied: bool = False
 
@@ -536,6 +539,8 @@ class QueueStats(BaseModel):
     active_count: dict[str, int] = Field(default_factory=dict)
     total_processed: dict[str, int] = Field(default_factory=dict)
     last_poll_timestamp: str | None = None
+    dedup_stats: dict[str, int] = Field(default_factory=dict)
+    in_flight_count: int = 0
 
 
 class SessionStatus(StrEnum):
@@ -583,6 +588,20 @@ class LifetimeStats(BaseModel):
     fired_thresholds: list[str] = Field(default_factory=list)
 
 
+class HITLSummaryCacheEntry(BaseModel):
+    """Cached LLM summary for a HITL issue."""
+
+    summary: str = ""
+    updated_at: str | None = None
+
+
+class HITLSummaryFailureEntry(BaseModel):
+    """Cached failure metadata for HITL summary generation."""
+
+    last_failed_at: str | None = None
+    error: str = ""
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
@@ -592,10 +611,15 @@ class StateData(BaseModel):
     reviewed_prs: dict[str, str] = Field(default_factory=dict)
     hitl_origins: dict[str, str] = Field(default_factory=dict)
     hitl_causes: dict[str, str] = Field(default_factory=dict)
+    hitl_summaries: dict[str, HITLSummaryCacheEntry] = Field(default_factory=dict)
+    hitl_summary_failures: dict[str, HITLSummaryFailureEntry] = Field(
+        default_factory=dict
+    )
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
     bg_worker_states: dict[str, BackgroundWorkerState] = Field(default_factory=dict)
+    worker_heartbeats: dict[str, PersistedWorkerHeartbeat] = Field(default_factory=dict)
     verification_issues: dict[str, int] = Field(default_factory=dict)
     issue_attempts: dict[str, int] = Field(default_factory=dict)
     active_issue_numbers: list[int] = Field(default_factory=list)
@@ -607,14 +631,13 @@ class StateData(BaseModel):
     manifest_snapshot_hash: str = ""
     manifest_hash: str = ""
     manifest_last_updated: str | None = None
-    manifest_issue_number: int | None = None
-    manifest_snapshot_hash: str = ""
     metrics_issue_number: int | None = None
     metrics_last_snapshot_hash: str = ""
     metrics_last_synced: str | None = None
     worker_intervals: dict[str, int] = Field(default_factory=dict)
     interrupted_issues: dict[str, str] = Field(default_factory=dict)
     last_reviewed_shas: dict[str, str] = Field(default_factory=dict)
+    pending_reports: list[PendingReport] = Field(default_factory=list)
     last_updated: str | None = None
 
 
@@ -661,6 +684,33 @@ class IntentResponse(BaseModel):
     status: str = "created"
 
 
+class ReportIssueRequest(BaseModel):
+    """Request body for POST /api/report."""
+
+    description: str = Field(..., min_length=1, max_length=5000)
+    screenshot_base64: str = Field(default="", max_length=5_000_000)
+    environment: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReportIssueResponse(BaseModel):
+    """Response for POST /api/report."""
+
+    issue_number: int
+    title: str
+    url: HttpUrl = ""
+    status: str = "created"
+
+
+class PendingReport(BaseModel):
+    """A queued bug report awaiting background processing."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    description: str
+    screenshot_base64: str = ""
+    environment: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
 class PRListItem(BaseModel):
     """A PR entry returned by GET /api/prs."""
 
@@ -684,6 +734,8 @@ class HITLItem(BaseModel):
     cause: str = ""  # escalation reason (populated by #113)
     status: str = "pending"  # pending | processing | resolved
     isMemorySuggestion: bool = False  # camelCase to match frontend contract
+    llmSummary: str = ""  # cached, operator-focused context summary
+    llmSummaryUpdatedAt: str | None = None
 
 
 class ControlStatusConfig(BaseModel):
@@ -702,7 +754,9 @@ class ControlStatusConfig(BaseModel):
     fixed_label: list[str] = Field(default_factory=list)
     improve_label: list[str] = Field(default_factory=list)
     memory_label: list[str] = Field(default_factory=list)
+    transcript_label: list[str] = Field(default_factory=list)
     manifest_label: list[str] = Field(default_factory=list)
+    max_triagers: int = 0
     max_workers: int = 0
     max_planners: int = 0
     max_reviewers: int = 0
@@ -731,6 +785,14 @@ class BackgroundWorkerState(TypedDict):
     last_run: str | None
     details: dict[str, Any]
     enabled: NotRequired[bool]  # added by get_bg_worker_states()
+
+
+class PersistedWorkerHeartbeat(TypedDict, total=False):
+    """Lightweight persisted snapshot for worker heartbeats."""
+
+    status: str
+    last_run: str | None
+    details: dict[str, Any]
 
 
 class TranscriptEventData(TypedDict, total=False):
@@ -811,6 +873,7 @@ class CICheckPayload(TypedDict, total=False):
     failed: list[str]
     worker: int
     attempt: int
+    verdict: str
 
 
 class HITLEscalationPayload(TypedDict, total=False):
@@ -961,6 +1024,7 @@ class MemoryIssueData(TypedDict):
     title: str
     body: str
     createdAt: str
+    labels: NotRequired[list[str]]
 
 
 class MemorySyncResult(TypedDict):
@@ -1082,6 +1146,7 @@ class BackgroundWorkerStatus(BaseModel):
 
     name: str
     label: str
+    description: str = ""
     status: BGWorkerHealth = BGWorkerHealth.DISABLED
     enabled: bool = True
     last_run: str | None = None
@@ -1333,6 +1398,7 @@ class EscalateFn(Protocol):
         post_on_pr: bool = ...,
         event_cause: str = ...,
         extra_event_data: dict[str, object] | None = ...,
+        task: Task | None = ...,
     ) -> None: ...
 
 

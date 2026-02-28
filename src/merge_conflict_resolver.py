@@ -101,6 +101,7 @@ class MergeConflictResolver:
                 "Escalating to human review."
             ),
             event_cause="merge_conflict",
+            task=issue,
         )
         return False
 

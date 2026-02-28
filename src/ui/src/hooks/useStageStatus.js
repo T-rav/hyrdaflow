@@ -26,15 +26,37 @@ const LOOP_KEYS = new Set(PIPELINE_LOOPS.map(l => l.key))
  * @param {Array} backgroundWorkers - Array of { name, status, enabled, ... }
  * @param {Object} sessionCounters - { sessionTriaged, sessionPlanned, sessionImplemented, sessionReviewed, mergedCount }
  * @returns {{ [stageKey]: { issueCount, activeCount, queuedCount, workerCount, enabled, sessionCount }, workload: { total, active, done, failed } }}
- *   workload.done = sessionCounters.mergedCount (merged PRs), NOT workers with status 'done'
+ *   workload is pipeline-centric (same source as Stream/System pipeline views):
+ *   open issue counts come from pipelineIssues; merged comes from session counters.
  */
-export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, sessionCounters) {
+export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, sessionCounters, config) {
   const issues = pipelineIssues || {}
   const workerValues = Object.values(workers || {})
   const bgMap = new Map((backgroundWorkers || []).map(w => [w.name, w]))
   const counters = sessionCounters || {}
+  const cfg = config || {}
 
   const stageStatus = {}
+
+  const triageCap = Number.isFinite(Number(cfg.max_triagers))
+    ? Number(cfg.max_triagers)
+    : null
+  const plannerCap = Number.isFinite(Number(cfg.max_planners))
+    ? Number(cfg.max_planners)
+    : null
+  const implementCap = Number.isFinite(Number(cfg.max_workers))
+    ? Number(cfg.max_workers)
+    : null
+  const reviewCap = Number.isFinite(Number(cfg.max_reviewers))
+    ? Number(cfg.max_reviewers)
+    : null
+
+  const workerCaps = {
+    triage: triageCap,
+    plan: plannerCap,
+    implement: implementCap,
+    review: reviewCap,
+  }
 
   for (const stage of PIPELINE_STAGES) {
     const stageIssues = issues[stage.key] || []
@@ -69,16 +91,28 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, se
     }
   }
 
-  // Workload aggregate across all workers
+  // Workload aggregate aligned with pipeline snapshots to avoid drift between
+  // Header and Stream/System pipeline views.
+  const openStageKeys = ['triage', 'plan', 'implement', 'review', 'hitl']
+  const openIssues = openStageKeys.flatMap((k) => issues[k] || [])
+  const pipelineActive = openIssues.filter(i => i.status === 'active').length
+  const pipelineFailed = openIssues.filter(
+    i => i.status === 'failed' || i.status === 'error'
+  ).length
+  const workerActive = workerValues.filter(w => ACTIVE_STATUSES.includes(w.status)).length
+
+  const doneCount = counters.mergedCount || 0
+  const totalCount = openIssues.length + doneCount
+
   const workload = {
-    total: workerValues.length,
-    active: workerValues.filter(w => ACTIVE_STATUSES.includes(w.status)).length,
-    done: counters.mergedCount || 0,
-    failed: workerValues.filter(w => w.status === 'failed').length,
+    total: totalCount,
+    active: Math.max(pipelineActive, workerActive),
+    done: doneCount,
+    failed: pipelineFailed,
   }
 
   stageStatus.workload = workload
+  stageStatus.workerCaps = workerCaps
 
   return stageStatus
 }
-

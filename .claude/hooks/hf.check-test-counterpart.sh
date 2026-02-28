@@ -44,3 +44,5 @@ echo "Reminder: New source file being created without a test counterpart." >&2
 echo "  Source: $FILE_PATH" >&2
 echo "  Expected: test_${FILENAME}.py" >&2
 echo "  Per CLAUDE.md: Every new function/class MUST include tests." >&2
+
+exit 0

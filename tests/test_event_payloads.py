@@ -68,10 +68,41 @@ class TestEventPayloadTypes:
         # Minimal — pending state
         pending: CICheckPayload = {"pr": 5, "status": "pending", "pending": 3}
         assert pending["pending"] == 3
+        assert "verdict" not in pending
 
         # Final — with total
         final: CICheckPayload = {"pr": 5, "status": "passed", "total": 10}
         assert final["total"] == 10
+        assert "verdict" not in final
+
+        # Verdict supplied — approve
+        with_verdict: CICheckPayload = {
+            "pr": 5,
+            "issue": 42,
+            "status": "passed",
+            "worker": 1,
+            "attempt": 2,
+            "verdict": "approve",
+        }
+        assert with_verdict["verdict"] == "approve"
+
+        # Verdict supplied — request-changes (hyphenated, typo-prone)
+        with_request_changes: CICheckPayload = {
+            "pr": 5,
+            "issue": 42,
+            "status": "fix_done",
+            "verdict": "request-changes",
+        }
+        assert with_request_changes["verdict"] == "request-changes"
+
+        # Verdict supplied — comment (default when _parse_verdict finds no pattern)
+        with_comment: CICheckPayload = {
+            "pr": 5,
+            "issue": 42,
+            "status": "fix_done",
+            "verdict": "comment",
+        }
+        assert with_comment["verdict"] == "comment"
 
     def test_hitl_escalation_with_ci_fix_attempts(self) -> None:
         from models import HITLEscalationPayload

@@ -218,6 +218,9 @@ jolly-sea-65a9/
 
 # Claude Code
 .claude/plans/
+.claude/state/
 
 .pre
 src/ui/src/test/shims/generated/
+
+.hydraflow/prep

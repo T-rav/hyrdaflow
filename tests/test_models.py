@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 # conftest.py already inserts the hydraflow package directory into sys.path
@@ -1174,6 +1176,8 @@ class TestHITLItem:
             "cause": "test failure",
             "status": "processing",
             "isMemorySuggestion": False,
+            "llmSummary": "",
+            "llmSummaryUpdatedAt": None,
         }
 
     def test_serialization_defaults_include_new_fields(self) -> None:
@@ -1183,6 +1187,8 @@ class TestHITLItem:
         assert data["cause"] == ""
         assert data["status"] == "pending"
         assert data["isMemorySuggestion"] is False
+        assert data["llmSummary"] == ""
+        assert data["llmSummaryUpdatedAt"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -1447,6 +1453,47 @@ class TestStateDataVerificationIssues:
         data = StateData(verification_issues={"42": 500, "99": 501})
         assert data.verification_issues["42"] == 500
         assert data.verification_issues["99"] == 501
+
+
+class TestStateDataManifestFields:
+    """Regression tests for manifest-related fields on StateData."""
+
+    def test_manifest_field_defaults(self) -> None:
+        data = StateData()
+        assert data.manifest_issue_number is None
+        assert data.manifest_snapshot_hash == ""
+
+    def test_manifest_fields_accept_explicit_values(self) -> None:
+        data = StateData(manifest_issue_number=42, manifest_snapshot_hash="abc123")
+        assert data.manifest_issue_number == 42
+        assert data.manifest_snapshot_hash == "abc123"
+
+    def test_manifest_fields_round_trip_serialization(self) -> None:
+        start = StateData(manifest_issue_number=99, manifest_snapshot_hash="sha256hash")
+        payload = start.model_dump()
+        restored = StateData.model_validate(payload)
+        assert restored.manifest_issue_number == 99
+        assert restored.manifest_snapshot_hash == "sha256hash"
+
+    def test_manifest_issue_number_none_survives_round_trip(self) -> None:
+        start = StateData(manifest_issue_number=None)
+        restored = StateData.model_validate(start.model_dump())
+        assert restored.manifest_issue_number is None
+
+    def test_no_duplicate_field_names_in_state_data(self) -> None:
+        source = inspect.getsource(StateData)
+        field_lines = [
+            line.split(":")[0].strip()
+            for line in source.splitlines()
+            if ":" in line and not line.strip().startswith(("#", "class", '"""'))
+        ]
+        manifest_fields = [
+            f
+            for f in field_lines
+            if f in {"manifest_issue_number", "manifest_snapshot_hash"}
+        ]
+        assert manifest_fields.count("manifest_issue_number") == 1
+        assert manifest_fields.count("manifest_snapshot_hash") == 1
 
 
 # ---------------------------------------------------------------------------

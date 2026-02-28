@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -17,7 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-from issue_fetcher import IssueFetcher
+from issue_fetcher import IncompleteIssueFetchError, IssueFetcher
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -913,6 +914,117 @@ class TestFetchIssuesByLabels:
 
         assert issues == []
 
+    @pytest.mark.asyncio
+    async def test_rate_limit_sets_backoff_and_skips_followup_calls(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+        reset_epoch = int((datetime.now(UTC) + timedelta(minutes=10)).timestamp())
+        calls: list[tuple[Any, ...]] = []
+
+        async def fake_run_subprocess(*cmd, **_kwargs):
+            calls.append(cmd)
+            if len(cmd) >= 3 and cmd[2] == "rate_limit":
+                return str(reset_epoch)
+            raise RuntimeError("gh: API rate limit exceeded (HTTP 403)")
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run_subprocess):
+            first = await fetcher.fetch_issues_by_labels(["a", "b"], limit=10)
+            second = await fetcher.fetch_issues_by_labels(["a"], limit=10)
+
+        assert first == []
+        assert second == []
+        rate_limit_calls = [
+            cmd for cmd in calls if len(cmd) >= 3 and cmd[2] == "rate_limit"
+        ]
+        assert len(rate_limit_calls) >= 1
+        issue_calls = [
+            cmd for cmd in calls if len(cmd) >= 3 and "/issues" in str(cmd[2])
+        ]
+        # Second fetch should be skipped while backoff is active.
+        assert len(issue_calls) <= 2
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_recovery_uses_exponential_jittered_backoff(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+
+        with (
+            patch.object(
+                fetcher, "_fetch_rate_limit_reset_time", AsyncMock(return_value=None)
+            ),
+            patch("issue_fetcher.random.uniform", return_value=1.0),
+        ):
+            await fetcher._set_rate_limit_backoff(RuntimeError("rate limit"))
+            first_until = fetcher._rate_limited_until
+            first_attempts = fetcher._rate_limit_recovery_attempts
+
+            # Expire first window to allow next recovery backoff to compute.
+            fetcher._rate_limited_until = datetime.now(UTC) - timedelta(seconds=1)
+
+            await fetcher._set_rate_limit_backoff(RuntimeError("rate limit"))
+            second_until = fetcher._rate_limited_until
+            second_attempts = fetcher._rate_limit_recovery_attempts
+
+        assert first_until is not None
+        assert second_until is not None
+        assert first_attempts == 1
+        assert second_attempts == 2
+
+        first_delay = (first_until - datetime.now(UTC)).total_seconds()
+        second_delay = (second_until - datetime.now(UTC)).total_seconds()
+        # attempt1 => ~2s, attempt2 => ~4s when jitter=1.0
+        assert first_delay <= 3.0
+        assert second_delay >= 3.0
+
+    @pytest.mark.asyncio
+    async def test_paginates_when_limit_exceeds_100(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+        page1 = json.dumps(
+            [
+                {
+                    "number": i,
+                    "title": f"Issue {i}",
+                    "body": "",
+                    "labels": [{"name": "memory"}],
+                    "comments": [],
+                    "url": "",
+                }
+                for i in range(1, 101)
+            ]
+        )
+        page2 = json.dumps(
+            [
+                {
+                    "number": i,
+                    "title": f"Issue {i}",
+                    "body": "",
+                    "labels": [{"name": "memory"}],
+                    "comments": [],
+                    "url": "",
+                }
+                for i in range(101, 151)
+            ]
+        )
+
+        async def fake_run_subprocess(*cmd, **_kwargs):
+            joined = " ".join(str(c) for c in cmd)
+            if "page=1" in joined:
+                return page1
+            if "page=2" in joined:
+                return page2
+            return "[]"
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run_subprocess):
+            issues = await fetcher.fetch_issues_by_labels(["memory"], limit=150)
+
+        assert len(issues) == 150
+        assert issues[0].number == 1
+        assert issues[-1].number == 150
+
 
 # ---------------------------------------------------------------------------
 # fetch_all_hydraflow_issues
@@ -956,3 +1068,21 @@ class TestFetchAllHydraFlowIssues:
 
         assert issues == []
         mock_exec.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_raises_incomplete_error_when_rate_limited(
+        self, config: HydraFlowConfig
+    ) -> None:
+        fetcher = IssueFetcher(config)
+        reset_epoch = int((datetime.now(UTC) + timedelta(minutes=10)).timestamp())
+
+        async def fake_run_subprocess(*cmd, **_kwargs):
+            if len(cmd) >= 3 and cmd[2] == "rate_limit":
+                return str(reset_epoch)
+            raise RuntimeError("gh: API rate limit exceeded (HTTP 403)")
+
+        with (
+            patch("issue_fetcher.run_subprocess", side_effect=fake_run_subprocess),
+            pytest.raises(IncompleteIssueFetchError),
+        ):
+            await fetcher.fetch_all_hydraflow_issues()

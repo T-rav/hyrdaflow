@@ -14,6 +14,13 @@ from events import EventBus, EventType, HydraFlowEvent
 from models import HITLItem, SessionStatus
 
 
+@pytest.fixture(autouse=True)
+def _disable_hitl_summary_autowarm(config) -> None:
+    """Keep route tests deterministic unless a test explicitly opts in."""
+    config.transcript_summarization_enabled = False
+    config.gh_token = ""
+
+
 class TestCreateRouter:
     """Tests for create_router factory function."""
 
@@ -89,6 +96,7 @@ class TestCreateRouter:
             "/api/timeline",
             "/api/timeline/issue/{issue_num}",
             "/api/intent",
+            "/api/report",
             "/api/sessions",
             "/api/sessions/{session_id}",
             "/api/request-changes",
@@ -483,6 +491,50 @@ class TestControlStatusImproveLabel:
         assert data["config"]["improve_label"] == config.improve_label
 
 
+class TestControlStatusMaxTriagers:
+    """Tests that /api/control/status includes max_triagers."""
+
+    @pytest.mark.asyncio
+    async def test_control_status_includes_max_triagers(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """GET /api/control/status should include max_triagers from config."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        get_control_status = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/control/status"
+                and hasattr(route, "endpoint")
+            ):
+                get_control_status = route.endpoint
+                break
+
+        assert get_control_status is not None
+        response = await get_control_status()
+        data = json.loads(response.body)
+        assert "config" in data
+        assert data["config"]["max_triagers"] == config.max_triagers
+
+
 class TestControlStatusAppVersion:
     """Tests that /api/control/status includes app_version."""
 
@@ -735,6 +787,55 @@ class TestPatchConfigMemoryAutoApprove:
         assert data["updated"] == {}
 
 
+class TestPatchConfigMaxTriagers:
+    """Tests that PATCH /api/control/config accepts max_triagers."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_patch_config_updates_max_triagers(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """PATCH /api/control/config with max_triagers should update config."""
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        patch_config = self._find_endpoint(router, "/api/control/config")
+        assert patch_config is not None
+
+        assert config.max_triagers == 1
+        response = await patch_config({"max_triagers": 3})
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+        assert data["updated"]["max_triagers"] == 3
+        assert config.max_triagers == 3
+
+
 class TestHITLEndpointCause:
     """Tests that /api/hitl includes the cause from state."""
 
@@ -786,6 +887,179 @@ class TestHITLEndpointCause:
         items = json.loads(data)
         assert len(items) == 1
         assert items[0]["cause"] == "CI failed after 2 fix attempt(s)"
+        called_labels = pr_mgr.list_hitl_items.await_args.args[0]  # type: ignore[union-attr]
+        assert set(called_labels) == {
+            *config.hitl_label,
+            *config.hitl_active_label,
+        }
+
+    @pytest.mark.asyncio
+    async def test_hitl_endpoint_includes_cached_llm_summary(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Cached HITL summary should be included in /api/hitl payload."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        state.set_hitl_summary(42, "Line one\nLine two\nLine three")
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = None
+        get_hitl_summary = None
+        for route in router.routes:
+            if hasattr(route, "path") and hasattr(route, "endpoint"):
+                if route.path == "/api/hitl":
+                    get_hitl = route.endpoint  # type: ignore[union-attr]
+                if route.path == "/api/hitl/{issue_number}/summary":
+                    get_hitl_summary = route.endpoint  # type: ignore[union-attr]
+
+        assert get_hitl is not None
+        assert get_hitl_summary is not None
+
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert items[0]["llmSummary"].startswith("Line one")
+        assert items[0]["llmSummaryUpdatedAt"] is not None
+
+        summary_response = await get_hitl_summary(42)
+        summary_payload = json.loads(summary_response.body)
+        assert summary_payload["cached"] is True
+        assert summary_payload["summary"].startswith("Line one")
+
+    @pytest.mark.asyncio
+    async def test_hitl_endpoint_skips_background_warm_during_failure_cooldown(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Recent summary failures should suppress warm task creation until cooldown."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        config.transcript_summarization_enabled = True
+        config.dry_run = False
+        config.gh_token = "test-token"
+
+        pr_mgr = PRManager(config, event_bus)
+        state.set_hitl_summary_failure(42, "model timeout")
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        hitl_item = HITLItem(issue=42, title="Needs context", pr=0)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        with patch("dashboard_routes.asyncio.create_task") as mock_create_task:
+            response = await get_hitl()
+            import json
+
+            payload = json.loads(response.body)
+            assert payload[0]["llmSummary"] == ""
+            mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hitl_endpoint_includes_items_from_hitl_active_label(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """`/api/hitl` should return items tagged with either HITL label."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        async def fake_run_gh(*args: str, **_kwargs: object) -> str:
+            # list_hitl_items -> _fetch_hitl_raw_issues
+            if args[0] == "gh" and args[1] == "api" and "issues" in args[2]:
+                label_arg = next(
+                    (
+                        arg
+                        for arg in args
+                        if isinstance(arg, str) and arg.startswith("labels=")
+                    ),
+                    "",
+                )
+                if label_arg == f"labels={config.hitl_label[0]}":
+                    return (
+                        '[{"number": 42, "title": "Issue from hitl", '
+                        '"url": "https://github.com/T-rav/hyrda/issues/42"}]'
+                    )
+                if label_arg == f"labels={config.hitl_active_label[0]}":
+                    return (
+                        '[{"number": 77, "title": "Issue from hitl-active", '
+                        '"url": "https://github.com/T-rav/hyrda/issues/77"}]'
+                    )
+                return "[]"
+            # list_hitl_items -> _build_hitl_item PR lookup
+            if args[0] == "gh" and args[1] == "api" and "/pulls" in args[2]:
+                return "[]"
+            raise AssertionError(f"Unexpected gh invocation: {args}")
+
+        pr_mgr._run_gh = fake_run_gh  # type: ignore[method-assign]
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        issue_numbers = {item["issue"] for item in items}
+        assert {42, 77}.issubset(issue_numbers)
 
     @pytest.mark.asyncio
     async def test_hitl_endpoint_omits_cause_when_not_set(
@@ -1099,6 +1373,117 @@ class TestHITLEndpointCause:
         items = json.loads(response.body)
         assert len(items) == 1
         assert items[0]["cause"] == "CI failed after 2 fix attempt(s)"
+
+    @pytest.mark.asyncio
+    async def test_hitl_filters_memory_suggestions_when_auto_approve_enabled(
+        self, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """With memory_auto_approve=True, memory items excluded from response."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+        from state import StateTracker
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            memory_auto_approve=True,
+            transcript_summarization_enabled=False,
+            gh_token="",
+        )
+        st = StateTracker(cfg.state_file)
+        pr_mgr = PRManager(cfg, event_bus)
+
+        router = create_router(
+            config=cfg,
+            event_bus=event_bus,
+            state=st,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        # Mark issue 42 as a memory suggestion (origin = improve label)
+        st.set_hitl_origin(42, "hydraflow-improve")
+        st.set_hitl_cause(42, "Actionable memory suggestion (config)")
+
+        # Also add a non-memory HITL item
+        st.set_hitl_origin(43, "hydraflow-review")
+        st.set_hitl_cause(43, "CI failed after 2 fix attempt(s)")
+
+        hitl_items = [
+            HITLItem(issue=42, title="Memory suggestion", pr=101),
+            HITLItem(issue=43, title="CI failure", pr=102),
+        ]
+        pr_mgr.list_hitl_items = AsyncMock(return_value=hitl_items)  # type: ignore[method-assign]
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        # Only the non-memory item should remain
+        assert len(items) == 1
+        assert items[0]["issue"] == 43
+
+    @pytest.mark.asyncio
+    async def test_hitl_keeps_memory_suggestions_when_auto_approve_disabled(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """With memory_auto_approve=False (default), memory items included."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        state.set_hitl_origin(42, "hydraflow-improve")
+        state.set_hitl_cause(42, "Actionable memory suggestion (config)")
+
+        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert len(items) == 1
+        assert items[0]["isMemorySuggestion"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -2068,6 +2453,7 @@ class TestHITLSkipImproveTransition:
         """Skip should clean up hitl_cause in addition to hitl_origin."""
         state.set_hitl_origin(42, "hydraflow-review")
         state.set_hitl_cause(42, "CI failed after 2 fix attempt(s)")
+        state.set_hitl_summary(42, "cached summary")
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
@@ -2081,6 +2467,7 @@ class TestHITLSkipImproveTransition:
 
         assert state.get_hitl_origin(42) is None
         assert state.get_hitl_cause(42) is None
+        assert state.get_hitl_summary(42) is None
 
 
 # ---------------------------------------------------------------------------
@@ -2098,6 +2485,7 @@ class TestRequestChangesEndpoint:
         pr_mgr = PRManager(config, event_bus)
         pr_mgr.remove_label = AsyncMock()
         pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         return (
             create_router(
                 config=config,
@@ -2147,7 +2535,7 @@ class TestRequestChangesEndpoint:
     async def test_request_changes_swaps_labels(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Stage labels are removed and HITL labels are added."""
+        """Request changes transitions issue into HITL via pipeline label swap."""
         router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
         endpoint = self._find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
@@ -2156,13 +2544,7 @@ class TestRequestChangesEndpoint:
             {"issue_number": 42, "feedback": "Fix the tests", "stage": "review"}
         )
 
-        # Verify review label removed
-        remove_calls = [c.args for c in pr_mgr.remove_label.call_args_list]
-        assert (42, config.review_label[0]) in remove_calls
-
-        # Verify HITL label added
-        add_calls = [c.args for c in pr_mgr.add_labels.call_args_list]
-        assert (42, config.hitl_label) in add_calls
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(42, config.hitl_label[0])
 
     @pytest.mark.asyncio
     async def test_request_changes_emits_escalation_event(
@@ -2285,7 +2667,7 @@ class TestRequestChangesEndpoint:
     async def test_request_changes_triage_stage(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Triage stage removes find_label and records origin from find_label."""
+        """Triage stage records origin from find_label and routes to HITL."""
         import json
 
         router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
@@ -2301,14 +2683,13 @@ class TestRequestChangesEndpoint:
         assert state.get_hitl_cause(10) == "Not the right issue"
         assert state.get_hitl_origin(10) == config.find_label[0]
 
-        remove_calls = [c.args for c in pr_mgr.remove_label.call_args_list]
-        assert (10, config.find_label[0]) in remove_calls
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(10, config.hitl_label[0])
 
     @pytest.mark.asyncio
     async def test_request_changes_plan_stage(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Plan stage removes planner_label and records origin from planner_label."""
+        """Plan stage records origin from planner_label and routes to HITL."""
         import json
 
         router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
@@ -2324,11 +2705,7 @@ class TestRequestChangesEndpoint:
         assert state.get_hitl_cause(7) == "Plan is incomplete"
         assert state.get_hitl_origin(7) == config.planner_label[0]
 
-        remove_calls = [c.args for c in pr_mgr.remove_label.call_args_list]
-        assert (7, config.planner_label[0]) in remove_calls
-
-        add_calls = [c.args for c in pr_mgr.add_labels.call_args_list]
-        assert (7, config.hitl_label) in add_calls
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(7, config.hitl_label[0])
 
 
 class TestDeleteSessionEndpoint:
@@ -3090,6 +3467,103 @@ class TestGetPRsEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/repos
+# ---------------------------------------------------------------------------
+
+
+class TestListSupervisedReposEndpoint:
+    """Tests for GET /api/repos supervisor error logging behavior."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, supervisor_module):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch(
+            "dashboard_routes.importlib.import_module", return_value=supervisor_module
+        ):
+            return create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+            )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_expected_supervisor_down_error_not_warned(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        def _raise_down():
+            raise RuntimeError(
+                "hf supervisor is not running. Run `hf run` inside a repo to start it."
+            )
+
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            SimpleNamespace(list_repos=_raise_down),
+        )
+        endpoint = self._find_endpoint(router, "/api/repos")
+        assert endpoint is not None
+
+        with patch("dashboard_routes.logger") as mock_logger:
+            response = await endpoint()
+
+        data = json.loads(response.body)
+        assert response.status_code == 503
+        assert "hf supervisor is not running" in data["error"]
+        mock_logger.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unexpected_supervisor_error_is_warned(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        def _raise_other():
+            raise RuntimeError("Supervisor connection failed: [Errno 61] refused")
+
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            SimpleNamespace(list_repos=_raise_other),
+        )
+        endpoint = self._find_endpoint(router, "/api/repos")
+        assert endpoint is not None
+
+        with patch("dashboard_routes.logger") as mock_logger:
+            response = await endpoint()
+
+        data = json.loads(response.body)
+        assert response.status_code == 503
+        assert "Supervisor connection failed" in data["error"]
+        mock_logger.warning.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # GET /api/sessions and /api/sessions/{session_id}
 # ---------------------------------------------------------------------------
 
@@ -3582,6 +4056,8 @@ class TestHITLCloseEndpoint:
         )
         pr_mgr.close_issue = AsyncMock()  # type: ignore[method-assign]
         state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failure")
+        state.set_hitl_summary(42, "cached summary")
         endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(42)
         data = json.loads(response.body)
@@ -3589,6 +4065,8 @@ class TestHITLCloseEndpoint:
         mock_orch.skip_hitl_issue.assert_called_once_with(42)
         pr_mgr.close_issue.assert_called_once_with(42)
         assert state.get_hitl_origin(42) is None
+        assert state.get_hitl_cause(42) is None
+        assert state.get_hitl_summary(42) is None
 
 
 # ---------------------------------------------------------------------------
@@ -3644,6 +4122,7 @@ class TestHITLApproveMemoryEndpoint:
         )
         state.set_hitl_origin(42, "hydraflow-review")
         state.set_hitl_cause(42, "some cause")
+        state.set_hitl_summary(42, "cached summary")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert data["status"] == "ok"
@@ -3655,6 +4134,7 @@ class TestHITLApproveMemoryEndpoint:
         # State should be cleaned up
         assert state.get_hitl_origin(42) is None
         assert state.get_hitl_cause(42) is None
+        assert state.get_hitl_summary(42) is None
 
     @pytest.mark.asyncio
     async def test_approve_memory_works_without_orchestrator(
@@ -3737,6 +4217,79 @@ class TestSubmitIntentEndpoint:
         request = IntentRequest(text="Add something")
         response = await endpoint(request)
         assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# POST /api/report
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitReportEndpoint:
+    """Tests for POST /api/report."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_submit_report_queues_report(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import ReportIssueRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/report")
+        request = ReportIssueRequest(description="Button is broken")
+        response = await endpoint(request)
+        data = json.loads(response.body)
+        assert data["issue_number"] == 0
+        assert data["title"] == "[Bug Report] Button is broken"
+        assert data["status"] == "queued"
+
+    @pytest.mark.asyncio
+    async def test_submit_report_enqueues_in_state(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from models import ReportIssueRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/report")
+        request = ReportIssueRequest(
+            description="UI glitch",
+            screenshot_base64="iVBORw0KGgo=",
+            environment={"source": "dashboard"},
+        )
+        await endpoint(request)
+        reports = state.get_pending_reports()
+        assert len(reports) == 1
+        assert reports[0].description == "UI glitch"
+        assert reports[0].screenshot_base64 == "iVBORw0KGgo="
+        assert reports[0].environment["source"] == "dashboard"
 
 
 # ---------------------------------------------------------------------------

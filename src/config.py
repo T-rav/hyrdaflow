@@ -17,6 +17,7 @@ logger = logging.getLogger("hydraflow.config")
 # Data-driven env-var override tables.
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
+    ("max_triagers", "HYDRAFLOW_MAX_TRIAGERS", 1),
     ("min_plan_words", "HYDRAFLOW_MIN_PLAN_WORDS", 200),
     (
         "max_pre_quality_review_attempts",
@@ -32,12 +33,14 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
     ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
     ("max_merge_conflict_fix_attempts", "HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", 3),
-    ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 60),
+    ("max_ci_timeout_fix_attempts", "HYDRAFLOW_MAX_CI_TIMEOUT_FIX_ATTEMPTS", 2),
+    ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 300),
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
     ("manifest_refresh_interval", "HYDRAFLOW_MANIFEST_REFRESH_INTERVAL", 3600),
     ("max_manifest_prompt_chars", "HYDRAFLOW_MAX_MANIFEST_PROMPT_CHARS", 2000),
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
+    ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
     ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
@@ -52,6 +55,11 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
     ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
     ("error_output_max_chars", "HYDRAFLOW_ERROR_OUTPUT_MAX_CHARS", 3000),
+    (
+        "max_troubleshooting_prompt_chars",
+        "HYDRAFLOW_MAX_TROUBLESHOOTING_PROMPT_CHARS",
+        3000,
+    ),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -65,6 +73,7 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
     ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
+    ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "haiku"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -116,6 +125,7 @@ _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
     ("verification_judge_tool", "HYDRAFLOW_VERIFICATION_JUDGE_TOOL"),
     ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
     ("debug_tool", "HYDRAFLOW_DEBUG_TOOL"),
+    ("report_issue_tool", "HYDRAFLOW_REPORT_ISSUE_TOOL"),
 ]
 
 # Deprecated env var aliases (HYDRA_ → HYDRAFLOW_).
@@ -143,10 +153,12 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
     "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
     "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
+    "HYDRAFLOW_LABEL_TRANSCRIPT": ("transcript_label", ["hydraflow-transcript"]),
     "HYDRAFLOW_LABEL_MANIFEST": ("manifest_label", ["hydraflow-manifest"]),
     "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
+    "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
 }
 
 
@@ -171,6 +183,9 @@ class HydraFlowConfig(BaseModel):
     )
     max_reviewers: int = Field(
         default=2, ge=1, le=10, description="Concurrent review agents"
+    )
+    max_triagers: int = Field(
+        default=1, ge=1, le=10, description="Concurrent triage agents"
     )
     max_hitl_workers: int = Field(
         default=1, ge=1, le=5, description="Concurrent HITL correction agents"
@@ -247,6 +262,12 @@ class HydraFlowConfig(BaseModel):
         le=5,
         description="Max merge conflict resolution retry cycles",
     )
+    max_ci_timeout_fix_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        description="Max fix attempts for CI timeout (hanging test) failures",
+    )
     max_issue_attempts: int = Field(
         default=3,
         ge=1,
@@ -291,6 +312,10 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-memory"],
         description="Labels for accepted agent learnings (OR logic)",
     )
+    transcript_label: list[str] = Field(
+        default=["hydraflow-transcript"],
+        description="Labels for transcript-summary issues queued for memory sync (OR logic)",
+    )
     manifest_label: list[str] = Field(
         default=["hydraflow-manifest"],
         description="Labels for manifest snapshot persistence issues (OR logic)",
@@ -306,6 +331,10 @@ class HydraFlowConfig(BaseModel):
     epic_label: list[str] = Field(
         default=["hydraflow-epic"],
         description="Labels for epic tracking issues with linked sub-issues (OR logic)",
+    )
+    epic_child_label: list[str] = Field(
+        default=["hydraflow-epic-child"],
+        description="Labels for child issues linked to epics (OR logic)",
     )
 
     # Discovery / planner configuration
@@ -486,6 +515,12 @@ class HydraFlowConfig(BaseModel):
         le=50_000,
         description="Max characters for memory digest injected into agent prompts",
     )
+    max_troubleshooting_prompt_chars: int = Field(
+        default=3000,
+        ge=500,
+        le=10_000,
+        description="Max characters for learned troubleshooting patterns in CI timeout prompts",
+    )
     memory_compaction_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for memory digest compaction",
@@ -555,6 +590,22 @@ class HydraFlowConfig(BaseModel):
     transcript_summary_as_issue: bool = Field(
         default=False,
         description="Also create standalone GitHub issues for transcript summaries (default: off)",
+    )
+
+    # Report issue worker
+    report_issue_tool: Literal["claude", "codex", "pi"] = Field(
+        default="claude",
+        description="CLI backend for report-issue worker",
+    )
+    report_issue_model: str = Field(
+        default="haiku",
+        description="Model for report-issue worker (formatting task, cheap)",
+    )
+    report_issue_interval: int = Field(
+        default=30,
+        ge=10,
+        le=3600,
+        description="Seconds between report-issue worker polls",
     )
 
     # Git configuration
@@ -628,7 +679,7 @@ class HydraFlowConfig(BaseModel):
         description="Seconds between metrics snapshot syncs (default: 2 hours)",
     )
     data_poll_interval: int = Field(
-        default=60,
+        default=300,
         ge=10,
         le=600,
         description="Seconds between centralized GitHub issue store polls",
@@ -804,10 +855,12 @@ class HydraFlowConfig(BaseModel):
         "fixed_label",
         "improve_label",
         "memory_label",
+        "transcript_label",
         "manifest_label",
         "metrics_label",
         "dup_label",
         "epic_label",
+        "epic_child_label",
         "find_label",
         "planner_label",
     )
@@ -842,8 +895,18 @@ class HydraFlowConfig(BaseModel):
             self.hitl_active_label,
             self.fixed_label,
             self.improve_label,
+            self.transcript_label,
         ):
             result.extend(labels)
+        return result
+
+    @property
+    def memory_sync_labels(self) -> list[str]:
+        """Return labels fetched by memory sync (memory + transcript summaries)."""
+        result: list[str] = []
+        for label in [*self.memory_label, *self.transcript_label]:
+            if label not in result:
+                result.append(label)
         return result
 
     @property
@@ -901,6 +964,8 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_IMPROVE     → improve_label
             HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label
+            HYDRAFLOW_LABEL_EPIC        → epic_label
+            HYDRAFLOW_LABEL_EPIC_CHILD  → epic_child_label
         """
         _resolve_paths(self)
         _resolve_repo_and_identity(self)
@@ -950,6 +1015,7 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "triage_tool",
             "transcript_summary_tool",
             "memory_compaction_tool",
+            "report_issue_tool",
         ):
             _apply_if_default(field, config.background_tool)
 
@@ -958,6 +1024,7 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "triage_model",
             "transcript_summary_model",
             "memory_compaction_model",
+            "report_issue_model",
         ):
             _apply_if_default(field, config.background_model)
 
@@ -1015,21 +1082,95 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
             config.repo_root
         )
 
-    # GitHub token: explicit value → HYDRAFLOW_GH_TOKEN env var → inherited GH_TOKEN
+    # GitHub token:
+    # explicit value → HYDRAFLOW_GH_TOKEN env var → GH_TOKEN/GITHUB_TOKEN env vars
+    # → .env fallback
     if not config.gh_token:
-        env_token = os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+        env_token = (
+            os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+            or os.environ.get("GH_TOKEN", "")
+            or os.environ.get("GITHUB_TOKEN", "")
+            or _dotenv_lookup(
+                config.repo_root, "HYDRAFLOW_GH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
+            )
+        )
         if env_token:
             object.__setattr__(config, "gh_token", env_token)
 
-    # Git identity: explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env var
+    # Git identity:
+    # explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env vars
+    # → GIT_* author/committer env vars → .env fallback
     if not config.git_user_name:
-        env_name = os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
+        env_name = (
+            os.environ.get("HYDRAFLOW_GIT_USER_NAME", "")
+            or os.environ.get("GIT_AUTHOR_NAME", "")
+            or os.environ.get("GIT_COMMITTER_NAME", "")
+            or _dotenv_lookup(
+                config.repo_root,
+                "HYDRAFLOW_GIT_USER_NAME",
+                "GIT_AUTHOR_NAME",
+                "GIT_COMMITTER_NAME",
+            )
+        )
         if env_name:
             object.__setattr__(config, "git_user_name", env_name)
     if not config.git_user_email:
-        env_email = os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
+        env_email = (
+            os.environ.get("HYDRAFLOW_GIT_USER_EMAIL", "")
+            or os.environ.get("GIT_AUTHOR_EMAIL", "")
+            or os.environ.get("GIT_COMMITTER_EMAIL", "")
+            or _dotenv_lookup(
+                config.repo_root,
+                "HYDRAFLOW_GIT_USER_EMAIL",
+                "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_EMAIL",
+            )
+        )
         if env_email:
             object.__setattr__(config, "git_user_email", env_email)
+
+
+def _dotenv_lookup(repo_root: Path, *keys: str) -> str:
+    """Read first matching non-empty value from ``repo_root/.env``."""
+    env_file = repo_root / ".env"
+    if not env_file.exists():
+        return ""
+    try:
+        text = env_file.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    parsed = _parse_dotenv_text(text)
+    for key in keys:
+        val = parsed.get(key, "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _parse_dotenv_text(text: str) -> dict[str, str]:
+    """Parse minimal .env key/value content for local config fallbacks."""
+    result: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        else:
+            # For unquoted values, treat inline " # comment" suffixes as comments.
+            # Keep literal '#' when no whitespace precedes it.
+            value = re.sub(r"\s+#.*$", "", value).rstrip()
+        result[key] = value
+    return result
 
 
 def _get_env(key: str) -> str | None:
@@ -1172,15 +1313,33 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
-    if config.execution_mode == "docker":
+    docker_active = config.execution_mode == "docker" or config.docker_enabled
+    if docker_active:
         import shutil  # noqa: PLC0415
 
-        if shutil.which("docker") is None:
+        if config.execution_mode == "docker" and shutil.which("docker") is None:
             msg = (
                 "execution_mode is 'docker' but the 'docker' command "
                 "was not found on PATH"
             )
             raise ValueError(msg)
+
+        if not config.gh_token:
+            logger.warning(
+                "Docker mode without GH token configured; container actions may use the local gh auth context "
+                "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
+            )
+        if bool(config.git_user_name) ^ bool(config.git_user_email):
+            logger.warning(
+                "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",
+                config.git_user_name,
+                config.git_user_email,
+            )
+        elif not config.git_user_name and not config.git_user_email:
+            logger.warning(
+                "Docker mode git identity not configured; commits may use fallback host/global git identity "
+                "(set HYDRAFLOW_GIT_USER_NAME and HYDRAFLOW_GIT_USER_EMAIL, e.g. in .env)."
+            )
 
 
 def _find_repo_root() -> Path:

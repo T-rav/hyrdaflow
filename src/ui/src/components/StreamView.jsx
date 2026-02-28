@@ -4,7 +4,13 @@ import { useHydraFlow } from '../context/HydraFlowContext'
 import { StreamCard } from './StreamCard'
 import { PIPELINE_STAGES, PULSE_ANIMATION } from '../constants'
 import { STAGE_KEYS } from '../hooks/useTimeline'
-import { sectionHeaderStyles, sectionLabelStyles, sectionCountStyles, sectionLabelBase } from '../styles/sectionStyles'
+import {
+  sectionHeaderStyles,
+  sectionLabelStyles,
+  sectionCountStyles,
+  sectionLabelBase,
+  WORKSTREAM_SIDE_INSET_PX,
+} from '../styles/sectionStyles'
 
 function PendingIntentCard({ intent }) {
   return (
@@ -44,6 +50,7 @@ function PipelineFlow({ stageGroups }) {
                       issue.overallStatus === 'active' ? flowDotActiveStyles[group.stage.key]
                       : issue.overallStatus === 'failed' ? flowDotFailedStyles[group.stage.key]
                       : issue.overallStatus === 'hitl' ? flowDotHitlStyles[group.stage.key]
+                      : issue.overallStatus === 'queued' ? flowDotQueuedStyles[group.stage.key]
                       : flowDotStyles[group.stage.key]
                     }
                     title={`#${issue.issueNumber}`}
@@ -67,7 +74,7 @@ function PipelineFlow({ stageGroups }) {
   )
 }
 
-function StageSection({ stage, issues, workerCount, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
+function StageSection({ stage, issues, workerCount, workerCap, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
   const activeCount = issues.filter(i => i.overallStatus === 'active').length
   const failedCount = issues.filter(i => i.overallStatus === 'failed').length
   const hitlCount = issues.filter(i => i.overallStatus === 'hitl').length
@@ -82,6 +89,7 @@ function StageSection({ stage, issues, workerCount, intentMap, onRequestChanges,
       <div
         style={sectionHeaderStyles[stage.key]}
         onClick={onToggle}
+        data-testid={`stage-header-${stage.key}`}
       >
         <span style={{ fontSize: 10 }}>{open ? '▾' : '▸'}</span>
         <span style={sectionLabelStyles[stage.key]}>{stage.label}</span>
@@ -95,7 +103,11 @@ function StageSection({ stage, issues, workerCount, intentMap, onRequestChanges,
               <span> · {queuedCount} queued</span>
               {failedCount > 0 && <span style={styles.failedBadge}> · {failedCount} failed</span>}
               {hitlCount > 0 && <span style={styles.hitlBadge}> · {hitlCount} hitl</span>}
-              <span> · {workerCount} {workerCount === 1 ? 'worker' : 'workers'}</span>
+              <span>
+                {workerCap != null
+                  ? ` · ${workerCount}/${workerCap} workers`
+                  : ` · ${workerCount} ${workerCount === 1 ? 'worker' : 'workers'}`}
+              </span>
             </>
           ) : (
             <span>{issues.length} merged</span>
@@ -273,6 +285,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
         const status = stageStatus[stage.key] || {}
         const enabled = status.enabled !== false
         const workerCount = status.workerCount || 0
+        const workerCap = stage.role ? (stageStatus.workerCaps?.[stage.key] ?? null) : null
         let dotColor
         if (!stage.role) {
           dotColor = theme.green
@@ -289,6 +302,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
             stage={stage}
             issues={stageIssues}
             workerCount={workerCount}
+            workerCap={workerCap}
             intentMap={intentMap}
             onRequestChanges={stage.role ? onRequestChanges : undefined}
             open={!!expandedStages[stage.key]}
@@ -332,6 +346,10 @@ const flowDotStyles = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.key, { ...flowDotBase, background: s.color }])
 )
 
+const flowDotQueuedStyles = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.key, { ...flowDotBase, background: s.subtleColor }])
+)
+
 const flowDotActiveStyles = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.key, {
     ...flowDotBase,
@@ -363,7 +381,7 @@ const styles = {
     alignItems: 'center',
     gap: 12,
     padding: '8px 12px',
-    margin: '0 8px 8px',
+    margin: `0 ${WORKSTREAM_SIDE_INSET_PX}px 8px`,
     background: theme.surfaceInset,
     borderRadius: 8,
     border: `1px solid ${theme.border}`,
@@ -445,7 +463,7 @@ const styles = {
     background: theme.intentBg,
     border: `1px solid ${theme.border}`,
     borderRadius: 8,
-    marginBottom: 8,
+    margin: `0 ${WORKSTREAM_SIDE_INSET_PX}px 8px`,
   },
   pendingDot: {
     ...dotBase,

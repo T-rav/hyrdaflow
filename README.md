@@ -92,7 +92,7 @@ uv sync --all-extras
 # show available commands
 hf --help
 
-# copy hf assets (.claude, .codex, .githooks) into the current repo
+# copy hf assets (.claude, .codex, .pi, .githooks) into the current repo
 hf init
 
 # run the standard quick prep/scaffold flow without invoking make
@@ -127,6 +127,11 @@ hf stop /path/to/repo
 If you modify `.claude`, `.codex`, or `.githooks`, run `make bundle-assets` to generate
 `dist/hf_cli-assets.tar.gz` for release/build artifact workflows.
 The repository no longer tracks a committed `src/hf_cli/assets.tar.gz`.
+
+### Self-improving harness
+
+This repo includes a harnessed self-improvement loop (observation + session retro + memory candidate artifacts).
+See [docs/self-improving-harness.md](docs/self-improving-harness.md) for imported skills and runtime behavior.
 
 ### Publishing the hf CLI
 

@@ -614,8 +614,10 @@ def test_validate_plan_testing_strategy_requires_test_reference(config, event_bu
     assert any("test file" in e for e in errors)
 
 
-def test_validate_plan_implementation_steps_requires_three(config, event_bus):
-    """Less than 3 numbered steps fails."""
+def test_validate_plan_implementation_steps_requires_at_least_one_step(
+    config, event_bus
+):
+    """Implementation Steps must include at least one actionable list item."""
     runner = _make_runner(config, event_bus)
     task = Task(id=1, title="Fix it")
     plan = _valid_plan().replace(
@@ -623,10 +625,128 @@ def test_validate_plan_implementation_steps_requires_three(config, event_bus):
         "2. Add configuration field to config.py\n"
         "3. Wire up the new model in the orchestrator\n"
         "4. Add validation logic",
-        "1. Do the thing\n2. Done",
+        "Do the thing and then verify",
     )
     errors = runner._validate_plan(task, plan)
-    assert any("3 numbered steps" in e for e in errors)
+    assert any("at least one actionable step" in e for e in errors)
+
+
+def test_validate_plan_implementation_steps_allows_slim_numbered_plan(
+    config, event_bus
+):
+    """A concise numbered plan should pass without a 3-step minimum."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Fix it")
+    plan = _valid_plan().replace(
+        "1. Add the new model class to models.py\n"
+        "2. Add configuration field to config.py\n"
+        "3. Wire up the new model in the orchestrator\n"
+        "4. Add validation logic",
+        "1. Update src/models.py model wiring\n2. Validate orchestrator.load_models() behavior",
+    )
+    errors = runner._validate_plan(task, plan)
+    assert not any("Implementation Steps" in e for e in errors)
+
+
+def test_validate_plan_implementation_steps_allows_bulleted_plan(config, event_bus):
+    """Bulleted implementation steps are valid."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Fix it")
+    plan = _valid_plan().replace(
+        "1. Add the new model class to models.py\n"
+        "2. Add configuration field to config.py\n"
+        "3. Wire up the new model in the orchestrator\n"
+        "4. Add validation logic",
+        "- Update src/planner.py validation rule\n- Add tests/test_planner.py regression case",
+    )
+    errors = runner._validate_plan(task, plan)
+    assert not any("Implementation Steps" in e for e in errors)
+
+
+def test_validate_plan_implementation_steps_allows_markdown_heading_steps(
+    config, event_bus
+):
+    """Markdown heading-style steps (### Step 1 / ### 1.) are valid."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Fix it")
+    plan = _valid_plan().replace(
+        "1. Add the new model class to models.py\n"
+        "2. Add configuration field to config.py\n"
+        "3. Wire up the new model in the orchestrator\n"
+        "4. Add validation logic",
+        "### Step 1: Update src/dashboard_routes.py worker metadata\n"
+        "### 2. Wire ReviewPhase._record_review_insight() callbacks\n"
+        "### Step 3: Add tests/test_review_phase.py regression tests",
+    )
+    errors = runner._validate_plan(task, plan)
+    assert not any("Implementation Steps" in e for e in errors)
+
+
+def test_validate_plan_implementation_steps_requires_two_for_full(config, event_bus):
+    """Full plans need at least two implementation steps."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Fix it")
+    plan = _valid_plan().replace(
+        "1. Add the new model class to models.py\n"
+        "2. Add configuration field to config.py\n"
+        "3. Wire up the new model in the orchestrator\n"
+        "4. Add validation logic",
+        "1. Update src/models.py and validate behavior",
+    )
+    errors = runner._validate_plan(task, plan, scale="full")
+    assert any("at least 2 steps for full plans" in e for e in errors)
+
+
+def test_validate_plan_implementation_steps_require_concrete_target(config, event_bus):
+    """Full plans should reference concrete code targets in implementation steps."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Fix it")
+    plan = _valid_plan().replace(
+        "1. Add the new model class to models.py\n"
+        "2. Add configuration field to config.py\n"
+        "3. Wire up the new model in the orchestrator\n"
+        "4. Add validation logic",
+        "1. Improve architecture and verify outcomes\n"
+        "2. Refine behavior and validate assumptions",
+    )
+    errors = runner._validate_plan(task, plan, scale="full")
+    assert any("concrete code target" in e for e in errors)
+
+
+def test_score_actionability_high_for_concrete_plan(config, event_bus):
+    """Concrete, test-aware plans should rank high actionability."""
+    runner = _make_runner(config, event_bus)
+    score, rank = runner._score_actionability(_valid_plan(), scale="full")
+    assert score >= 85
+    assert rank == "high"
+
+
+def test_score_actionability_low_for_shallow_plan(config, event_bus):
+    """Shallow plans with vague steps should rank low."""
+    runner = _make_runner(config, event_bus)
+    shallow_plan = (
+        _valid_plan()
+        .replace(
+            "1. Add the new model class to models.py\n"
+            "2. Add configuration field to config.py\n"
+            "3. Wire up the new model in the orchestrator\n"
+            "4. Add validation logic",
+            "1. Do stuff\n2. Make better",
+        )
+        .replace(
+            "## Testing Strategy\n\n"
+            "- Add tests/test_models.py for the new model\n"
+            "- Add tests/test_config.py for the new config field",
+            "## Testing Strategy\n\n- Manual check",
+        )
+        .replace(
+            "## File Delta\n\nMODIFIED: src/models.py\nMODIFIED: src/config.py",
+            "## File Delta\n\nNone",
+        )
+    )
+    score, rank = runner._score_actionability(shallow_plan, scale="full")
+    assert score < 65
+    assert rank == "low"
 
 
 def test_validate_plan_minimum_word_count(config, event_bus):

@@ -165,6 +165,38 @@ class TestRouting:
 
         assert 50 in store._hitl_numbers
 
+    def test_enqueue_transition_moves_issue_to_next_stage_immediately(self) -> None:
+        store = _make_store()
+        issue = TaskFactory.create(id=60, tags=["hydraflow-find"])
+        store._route_issues([issue])
+        assert 60 in store._queue_members[STAGE_FIND]
+
+        store.enqueue_transition(issue, "plan")
+
+        assert 60 not in store._queue_members[STAGE_FIND]
+        assert 60 in store._queue_members[STAGE_PLAN]
+        assert 60 not in store._hitl_numbers
+
+    def test_enqueue_transition_routes_to_hitl_set(self) -> None:
+        store = _make_store()
+        issue = TaskFactory.create(id=61, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        assert 61 in store._queue_members[STAGE_PLAN]
+
+        store.enqueue_transition(issue, "hitl")
+
+        assert 61 not in store._queue_members[STAGE_PLAN]
+        assert 61 in store._hitl_numbers
+
+    def test_enqueue_transition_does_not_duplicate_existing_target_entry(self) -> None:
+        store = _make_store()
+        issue = TaskFactory.create(id=62, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.enqueue_transition(issue, "plan")
+        store.enqueue_transition(issue, "plan")
+
+        assert len([t for t in store._queues[STAGE_PLAN] if t.id == 62]) == 1
+
 
 # ── Queue Accessors ──────────────────────────────────────────────────
 
@@ -438,6 +470,23 @@ class TestRefresh:
         await store.refresh()
         assert store._last_poll_ts is not None
 
+    @pytest.mark.asyncio
+    async def test_refresh_deduplicates_incoming_duplicate_issue_ids(self) -> None:
+        fetcher = AsyncMock()
+        fetcher.fetch_all = AsyncMock(
+            return_value=[
+                TaskFactory.create(id=70, tags=["hydraflow-find"]),
+                TaskFactory.create(id=70, tags=["hydraflow-find"]),
+            ]
+        )
+        store = _make_store(fetcher=fetcher)
+
+        await store.refresh()
+
+        assert len(store._queues[STAGE_FIND]) == 1
+        stats = store.get_queue_stats()
+        assert stats.dedup_stats["incoming_tasks"] == 1
+
 
 # ── Stats ────────────────────────────────────────────────────────────
 
@@ -505,6 +554,16 @@ class TestStats:
         stats = store.get_queue_stats()
         assert stats.queue_depth[STAGE_HITL] == 2
 
+    def test_get_queue_stats_deduplicates_queue_depth_from_ids(self) -> None:
+        store = _make_store()
+        duplicate = TaskFactory.create(id=80, tags=["hydraflow-find"])
+        store._queues[STAGE_FIND].append(duplicate)
+        store._queues[STAGE_FIND].append(duplicate)
+        store._queue_members[STAGE_FIND].add(80)
+
+        stats = store.get_queue_stats()
+        assert stats.queue_depth[STAGE_FIND] == 1
+
 
 # ── Event Publishing ─────────────────────────────────────────────────
 
@@ -535,6 +594,26 @@ class TestEventPublishing:
         events = event_bus.get_history()
         queue_event = [e for e in events if e.type == EventType.QUEUE_UPDATE][0]
         assert queue_event.data["queue_depth"]["find"] == 1
+
+    @pytest.mark.asyncio
+    async def test_enqueue_transition_publishes_queue_update_in_realtime(
+        self, event_bus
+    ) -> None:
+        store = _make_store(event_bus=event_bus)
+        issue = TaskFactory.create(id=101, tags=["hydraflow-find"])
+        store._route_issues([issue])
+
+        before = len(
+            [e for e in event_bus.get_history() if e.type == EventType.QUEUE_UPDATE]
+        )
+        store.enqueue_transition(issue, "plan")
+        await asyncio.sleep(0)
+
+        after_events = [
+            e for e in event_bus.get_history() if e.type == EventType.QUEUE_UPDATE
+        ]
+        assert len(after_events) >= before + 1
+        assert after_events[-1].data["queue_depth"]["plan"] == 1
 
 
 # ── Lifecycle ────────────────────────────────────────────────────────
@@ -716,3 +795,249 @@ class TestPipelineSnapshot:
         assert len(plan_issues) == 1
         assert plan_issues[0]["title"] == "Issue #999"
         assert plan_issues[0]["url"] == ""
+
+
+# ── In-Flight Protection ────────────────────────────────────────────
+
+
+class TestInFlightProtection:
+    """Items between _take_from_queue and mark_active are protected."""
+
+    def test_taken_items_added_to_in_flight(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+
+        assert 1 in store._in_flight
+
+    def test_mark_active_clears_in_flight(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        assert 1 in store._in_flight
+
+        store.mark_active(1, STAGE_PLAN)
+        assert 1 not in store._in_flight
+
+    def test_mark_complete_clears_in_flight(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        # Skip mark_active — simulate a worker that crashes before mark_active
+        store.mark_complete(1)
+        assert 1 not in store._in_flight
+
+    def test_in_flight_items_not_rerouted_by_refresh(self) -> None:
+        """Core regression test: items taken from queue must not be
+        re-queued by refresh() during the semaphore wait gap."""
+        fetcher = AsyncMock()
+        store = _make_store(fetcher=fetcher)
+
+        # Initial refresh: issue 1 in plan queue
+        fetcher.fetch_all = AsyncMock(
+            return_value=[TaskFactory.create(id=1, tags=["hydraflow-plan"])]
+        )
+        store._route_issues(fetcher.fetch_all.return_value)
+
+        # Simulate phase taking the issue (dequeue → in-flight)
+        taken = store.get_plannable(1)
+        assert len(taken) == 1
+        assert 1 in store._in_flight
+
+        # Refresh again — same issue still has plan label on GitHub
+        store._route_issues(fetcher.fetch_all.return_value)
+
+        # Issue must NOT be re-queued (it's in-flight)
+        assert 1 not in store._queue_members[STAGE_PLAN]
+        assert len(store._queues[STAGE_PLAN]) == 0
+
+    def test_batch_of_40_items_all_protected(self) -> None:
+        """Reproduces the '38 drop out and reappear' bug.
+        All 40 taken items must stay in-flight across a refresh."""
+        fetcher = AsyncMock()
+        store = _make_store(fetcher=fetcher)
+
+        issues = [
+            TaskFactory.create(id=i, tags=["hydraflow-plan"]) for i in range(1, 41)
+        ]
+        store._route_issues(issues)
+
+        # Phase takes all 40
+        taken = store.get_plannable(40)
+        assert len(taken) == 40
+        assert len(store._in_flight) == 40
+
+        # Refresh with same issues — none should reappear in queue
+        store._route_issues(issues)
+        assert len(store._queues[STAGE_PLAN]) == 0
+        assert store._queue_members[STAGE_PLAN] == set()
+
+    def test_in_flight_items_not_evicted_when_absent_from_refresh(self) -> None:
+        """In-flight items must survive eviction even if the fetcher
+        temporarily doesn't return them (e.g. label swap in progress)."""
+        store = _make_store()
+
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        assert 1 in store._in_flight
+
+        # Refresh with empty list — issue 1 not returned
+        store._route_issues([])
+
+        # Should NOT have been evicted
+        assert 1 in store._in_flight
+
+    def test_release_in_flight_clears_protection(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        assert 1 in store._in_flight
+
+        store.release_in_flight({1})
+        assert 1 not in store._in_flight
+
+    def test_clear_active_also_clears_in_flight_and_eager(self) -> None:
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        store.enqueue_transition(issue, "ready")
+
+        store.clear_active()
+
+        assert store._in_flight == set()
+        assert store._eagerly_transitioned == {}
+
+
+# ── Eager Transition Protection ─────────────────────────────────────
+
+
+class TestEagerTransitionProtection:
+    """Items placed by enqueue_transition are protected from stale-label re-routing."""
+
+    def test_enqueue_transition_clears_in_flight(self) -> None:
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        assert 1 in store._in_flight
+
+        store.enqueue_transition(issue, "ready")
+        assert 1 not in store._in_flight
+        assert 1 in store._eagerly_transitioned
+
+    def test_eager_transition_not_evicted_when_absent_from_refresh(self) -> None:
+        """Eagerly transitioned items must survive eviction even when
+        the fetcher doesn't return them (label swap in progress)."""
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        store.enqueue_transition(issue, "ready")
+
+        assert 1 in store._queue_members[STAGE_READY]
+
+        # Refresh with empty results — issue vanished temporarily
+        store._route_issues([])
+
+        # Item must still be in the ready queue (protected by eager transition)
+        assert 1 in store._queue_members[STAGE_READY]
+
+    def test_eager_transition_not_moved_backward_by_stale_labels(self) -> None:
+        """If GitHub still shows old labels, refresh must not move
+        the issue backward from its eagerly-transitioned stage."""
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        store.enqueue_transition(issue, "ready")
+
+        assert 1 in store._queue_members[STAGE_READY]
+
+        # Refresh with stale plan label — should NOT move back to plan
+        stale_issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([stale_issue])
+
+        assert 1 in store._queue_members[STAGE_READY]
+        assert 1 not in store._queue_members[STAGE_PLAN]
+
+    def test_eager_protection_cleared_when_labels_catch_up(self) -> None:
+        """Once GitHub labels match or exceed the target stage,
+        eager protection is cleared and normal routing resumes."""
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        store.enqueue_transition(issue, "ready")
+
+        assert 1 in store._eagerly_transitioned
+
+        # Refresh with ready label (matches target) — protection clears
+        caught_up = TaskFactory.create(id=1, tags=["test-label"])  # ready
+        store._route_issues([caught_up])
+
+        assert 1 not in store._eagerly_transitioned
+        # Still in ready queue (label matches target, no move needed)
+        assert 1 in store._queue_members[STAGE_READY]
+
+    def test_eager_protection_cleared_when_labels_exceed_target(self) -> None:
+        """Labels that exceed the target stage also clear protection."""
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        store.enqueue_transition(issue, "ready")
+
+        # Refresh with review label (exceeds ready target)
+        advanced = TaskFactory.create(id=1, tags=["hydraflow-review"])
+        store._route_issues([advanced])
+
+        assert 1 not in store._eagerly_transitioned
+        # Moved to review (more advanced stage)
+        assert 1 in store._queue_members[STAGE_REVIEW]
+        assert 1 not in store._queue_members[STAGE_READY]
+
+    def test_eager_transition_vanished_issues_pruned(self) -> None:
+        """Eagerly transitioned items for issues that vanish entirely
+        (closed) should be pruned from the protection dict."""
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([issue])
+        store.get_plannable(1)
+        store.enqueue_transition(issue, "ready")
+
+        assert 1 in store._eagerly_transitioned
+
+        # Issue 1 completely vanished (closed), only issue 2 returned
+        other = TaskFactory.create(id=2, tags=["hydraflow-find"])
+        store._route_issues([other])
+
+        # Eager protection for vanished issue should be pruned
+        assert 1 not in store._eagerly_transitioned
+
+    def test_eager_transition_to_hitl_is_protected(self) -> None:
+        store = _make_store()
+        issue = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        store._route_issues([issue])
+        store.get_triageable(1)
+        store.enqueue_transition(issue, "hitl")
+
+        assert 1 in store._hitl_numbers
+        assert 1 in store._eagerly_transitioned
+
+        # Refresh with stale find label — should NOT evict from HITL
+        stale = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        store._route_issues([stale])
+
+        assert 1 in store._hitl_numbers
+
+    def test_in_flight_count_in_queue_stats(self) -> None:
+        store = _make_store()
+        store._route_issues(
+            [TaskFactory.create(id=i, tags=["hydraflow-plan"]) for i in range(1, 4)]
+        )
+        store.get_plannable(3)
+
+        stats = store.get_queue_stats()
+        assert stats.in_flight_count == 3

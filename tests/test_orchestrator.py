@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1065,7 +1065,7 @@ class TestManifestRefreshIntegration:
             orch._stop_event.set()
 
         orch._manifest_refresh_bg_loop = tracking_manifest_loop  # type: ignore[method-assign]
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
@@ -1452,7 +1452,7 @@ class TestSupervisorLoops:
             orch._stop_event.set()
             return [], []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = failing_implement  # type: ignore[method-assign]
         orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
@@ -1494,7 +1494,7 @@ class TestSupervisorLoops:
         # supervised task completes normally from _supervise_loops' perspective.
         orch._implement_loop = completing_then_stopping  # type: ignore[method-assign]
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
         orch._store.start = AsyncMock()  # type: ignore[method-assign]
@@ -1626,7 +1626,7 @@ class TestHITLLoop:
             orch._stop_event.set()
 
         orch._hitl_loop = tracking_hitl_loop  # type: ignore[method-assign]
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
@@ -1752,7 +1752,7 @@ class TestAuthFailure:
         async def auth_failing_plan() -> list[PlanResult]:
             raise AuthenticationError("401 Unauthorized")
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = auth_failing_plan  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -1782,7 +1782,7 @@ class TestAuthFailure:
         async def auth_failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             raise AuthenticationError("401 Unauthorized")
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = auth_failing_implement  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -2053,6 +2053,97 @@ class TestMemorySuggestionFiling:
         ) as mock_mem:
             await orch._review_loop()
             mock_mem.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_do_review_work_requeues_and_returns_idle_when_no_prs(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """No-PR review fetch should requeue tasks and signal idle for backoff sleep."""
+        orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
+
+        orch._store.get_reviewable = lambda _max_count: [review_task]  # type: ignore[method-assign]
+        orch._store.get_active_issues = lambda: {}  # type: ignore[method-assign]
+        orch._store.enqueue_transition = MagicMock()  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        did_work = await orch._do_review_work()
+
+        assert did_work is False
+        orch._store.enqueue_transition.assert_called_once_with(review_task, "review")
+
+    @pytest.mark.asyncio
+    async def test_do_review_work_processes_adr_without_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ADR review issues should use the no-PR ADR review path."""
+        orch = HydraFlowOrchestrator(config)
+        adr_task = TaskFactory.create(
+            id=420,
+            title="[ADR] Event rendering architecture",
+            body=(
+                "## Context\nA\n\n## Decision\nConcrete choice with enough "
+                "detail for review and finalization.\n\n## Consequences\nB"
+            ),
+        )
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[Task]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [adr_task]
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+        orch._reviewer.review_adrs = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        did_work = await orch._do_review_work()
+
+        assert did_work is True
+        orch._reviewer.review_adrs.assert_awaited_once_with([adr_task])
+        orch._fetcher.fetch_reviewable_prs.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_do_review_work_keeps_work_true_when_adr_processed_and_no_prs(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """If ADR work ran, no-PR normal review should not reset did_work to idle."""
+        orch = HydraFlowOrchestrator(config)
+        adr_task = TaskFactory.create(
+            id=500,
+            title="[ADR] Queue architecture",
+            body=(
+                "## Context\nA\n\n## Decision\nConcrete decision detail that is long "
+                "enough to pass ADR checks.\n\n## Consequences\nB"
+            ),
+        )
+        normal_review_task = TaskFactory.create(id=501, title="Regular review issue")
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[Task]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [adr_task, normal_review_task]
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+        orch._store.get_active_issues = lambda: {}  # type: ignore[method-assign]
+        orch._store.enqueue_transition = MagicMock()  # type: ignore[method-assign]
+        orch._reviewer.review_adrs = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        did_work = await orch._do_review_work()
+
+        assert did_work is True
+        orch._reviewer.review_adrs.assert_awaited_once_with([adr_task])
+        orch._store.enqueue_transition.assert_called_once_with(
+            normal_review_task, "review"
+        )
 
     @pytest.mark.asyncio
     async def test_review_loop_multiple_results_files_each(
@@ -3004,6 +3095,30 @@ class TestUpdateBgWorkerStatus:
         orch.update_bg_worker_status("memory_sync", "idle")
         state = orch._bg_worker_states["memory_sync"]
         assert state["details"] == {}
+
+    @pytest.mark.asyncio
+    async def test_restore_bg_worker_states_backfills_from_events(
+        self, config: HydraFlowConfig
+    ) -> None:
+        bus = EventBus()
+        await bus.publish(
+            HydraFlowEvent(
+                type=EventType.BACKGROUND_WORKER_STATUS,
+                data={
+                    "worker": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-25T09:00:00Z",
+                    "details": {"count": 4},
+                },
+            )
+        )
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+        orch._restore_bg_worker_states()
+        states = orch.get_bg_worker_states()
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["details"]["count"] == 4
+        persisted = orch.state.get_bg_worker_states()
+        assert "memory_sync" in persisted
 
     def test_update_bg_worker_status_persists_to_state(
         self, config: HydraFlowConfig

@@ -1395,15 +1395,6 @@ def test_run_scaffold_messages_do_not_use_hardening_term() -> None:
     assert "hardening" not in scaffold_body
 
 
-def test_prep_output_tracker_uses_scaffold_stage_label() -> None:
-    """Streaming prep output should be labeled as scaffold, not hardening."""
-    from pathlib import Path
-
-    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
-    content = cli_file.read_text()
-    assert '_prep_stage_line(\n                    "scaffold"' in content
-
-
 @pytest.mark.asyncio
 async def test_run_scaffold_reports_prompt_selection_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]

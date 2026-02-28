@@ -725,6 +725,226 @@ class TestMemorySyncWorkerSync:
         assert isinstance(call_args[1], str)  # digest hash
 
     @pytest.mark.asyncio
+    async def test_sync_auto_closes_processed_memory_issues(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=0)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 5,
+                "title": "[Memory] T",
+                "body": "**Learning:** Something",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+            {
+                "number": 6,
+                "title": "[Memory] U",
+                "body": "**Learning:** Else",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        await worker.sync(issues)
+
+        assert prs.close_issue.await_count == 2
+        prs.close_issue.assert_any_await(5)
+        prs.close_issue.assert_any_await(6)
+
+    @pytest.mark.asyncio
+    async def test_sync_close_issue_failure_does_not_fail_sync(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock(side_effect=RuntimeError("close failed"))
+        prs.create_issue = AsyncMock(return_value=0)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 5,
+                "title": "[Memory] T",
+                "body": "**Learning:** Something",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats["item_count"] == 1
+        prs.close_issue.assert_awaited_once_with(5)
+
+    @pytest.mark.asyncio
+    async def test_sync_does_not_close_non_memory_style_issues(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=0)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 5,
+                "title": "Feature issue that mentions memory",
+                "body": "**Learning:** Something",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+            {
+                "number": 6,
+                "title": "[Memory] Missing memory label",
+                "body": "**Learning:** Else",
+                "createdAt": "",
+                "labels": ["hydraflow-plan"],
+            },
+        ]
+        stats = await worker.sync(issues)
+
+        assert stats["item_count"] == 2
+        prs.close_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_routes_architecture_memory_to_adr_task(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=101)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 5,
+                "title": "[Memory] Shift to event-driven architecture",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Type:** knowledge\n\n"
+                    "**Learning:** We shifted service boundaries and queue topology.\n\n"
+                    "**Context:** Runtime scaling bottleneck.\n"
+                ),
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        await worker.sync(issues)
+
+        prs.create_issue.assert_awaited_once()
+        args = prs.create_issue.call_args[0]
+        assert args[0].startswith("[ADR] Draft decision from memory #5:")
+        assert "## Decision" in args[1]
+        assert "<Chosen architecture/workflow shift>" not in args[1]
+        assert args[2] == [config.find_label[0]]
+
+    @pytest.mark.asyncio
+    async def test_sync_rejects_invalid_adr_candidate_and_deduplicates(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=101)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker._build_adr_task = MagicMock(  # type: ignore[method-assign]
+            return_value=(
+                "[ADR] Draft decision from memory #5: bad",
+                "## ADR Draft Task\n\n## Context\nShort.\n\n## Decision\nNope.\n",
+            )
+        )
+        issue = {
+            "number": 5,
+            "title": "[Memory] Architecture update",
+            "body": (
+                "## Memory Suggestion\n\n"
+                "**Learning:** Architecture decision changed worker topology.\n"
+            ),
+            "createdAt": "",
+            "labels": ["hydraflow-memory"],
+        }
+
+        await worker.sync([issue])
+        await worker.sync([issue])
+
+        prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_adr_routing_deduplicates_by_source_issue(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=101)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issue = {
+            "number": 5,
+            "title": "[Memory] Architecture update",
+            "body": (
+                "## Memory Suggestion\n\n"
+                "**Learning:** Architecture decision changed worker topology.\n"
+            ),
+            "createdAt": "",
+            "labels": ["hydraflow-memory"],
+        }
+        await worker.sync([issue])
+        await worker.sync([issue])
+
+        assert prs.create_issue.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_sync_auto_closes_transcript_summary_issues(
+        self, tmp_path: Path
+    ) -> None:
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 11,
+                "title": "[Transcript Summary] Issue #42 — review phase",
+                "body": "## Transcript Summary\n\n- Insight",
+                "createdAt": "",
+                "labels": ["hydraflow-transcript"],
+            },
+        ]
+        await worker.sync(issues)
+
+        prs.close_issue.assert_awaited_once_with(11)
+
+    @pytest.mark.asyncio
     async def test_sync_refreshes_manifest_and_syncer(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
         state = MagicMock()
@@ -1802,6 +2022,68 @@ class TestFileMemorySuggestionAutoApprove:
         mock_prs.create_issue.assert_awaited_once()
         # No state should be set when issue creation fails
         assert state.get_hitl_origin(0) is None
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__auto_approve__actionable_uses_memory_label(
+        self, tmp_path: Path
+    ) -> None:
+        """Actionable type (config) with auto_approve=True gets memory_label only."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            memory_auto_approve=True,
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=90)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Increase CI timeout\n"
+            "type: config\n"
+            "learning: CI timeout too low\n"
+            "context: During implementation\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "implementer", "issue #5", config, mock_prs, state
+        )
+
+        call_labels = mock_prs.create_issue.call_args.args[2]
+        assert config.memory_label[0] in call_labels
+        assert config.improve_label[0] not in call_labels
+        assert config.hitl_label[0] not in call_labels
+
+    @pytest.mark.asyncio
+    async def test_file_memory_suggestion__auto_approve__actionable_skips_hitl_state(
+        self, tmp_path: Path
+    ) -> None:
+        """Instruction type with auto_approve=True sets no HITL state."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            memory_auto_approve=True,
+        )
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=91)
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "title: Always run lint before push\n"
+            "type: instruction\n"
+            "learning: Lint catches issues early\n"
+            "context: During review\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+
+        await file_memory_suggestion(
+            transcript, "reviewer", "PR #8", config, mock_prs, state
+        )
+
+        assert state.get_hitl_origin(91) is None
+        assert state.get_hitl_cause(91) is None
 
 
 class TestSyncWithTypedIssues:

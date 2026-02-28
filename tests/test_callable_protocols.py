@@ -22,6 +22,7 @@ from models import (
     PublishFn,
     ReviewResult,
     StatusCallback,
+    Task,
     WorkFn,
 )
 
@@ -64,6 +65,7 @@ class TestEscalateFnProtocol:
             post_on_pr=False,
             event_cause="test_cause",
             extra_event_data={"key": "value"},
+            task=Task(id=1, title="foo"),
         )
         fn.assert_called_once()  # type: ignore[union-attr]
 

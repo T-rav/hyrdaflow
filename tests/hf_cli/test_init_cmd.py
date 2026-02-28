@@ -10,9 +10,11 @@ from hf_cli import embedded_assets, init_cmd
 def _write_asset_tree(root: Path) -> None:
     (root / ".claude").mkdir(parents=True, exist_ok=True)
     (root / ".codex").mkdir(parents=True, exist_ok=True)
+    (root / ".pi").mkdir(parents=True, exist_ok=True)
     (root / ".githooks").mkdir(parents=True, exist_ok=True)
     (root / ".claude" / "settings.json").write_text('{"ok": true}')
     (root / ".codex" / "README.md").write_text("codex")
+    (root / ".pi" / "README.md").write_text("pi")
     (root / ".githooks" / "pre-commit").write_text("#!/bin/sh\necho ok\n")
 
 
@@ -34,21 +36,19 @@ def test_run_init_falls_back_to_source_tree_when_archive_missing(
     fake_module_path.write_text("# marker")
     monkeypatch.setattr(init_cmd, "__file__", str(fake_module_path))
 
-    # resources.files(...)/assets.tar.gz should resolve to a missing file.
-    pkg_dir = tmp_path / "pkg" / "hf_cli"
-    pkg_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(init_cmd.resources, "files", lambda _pkg: pkg_dir)
-
     _clear_embedded(monkeypatch)
     rc = init_cmd.run_init(["--target", str(target)])
     assert rc == 0
     assert (target / ".claude" / "settings.json").exists()
     assert (target / ".codex" / "README.md").exists()
+    assert (target / ".pi" / "README.md").exists()
     assert (target / ".githooks" / "pre-commit").exists()
     assert ".hydraflow/prep" in (target / ".gitignore").read_text()
 
 
-def test_run_init_prefers_archive_when_available(tmp_path: Path, monkeypatch) -> None:
+def test_run_init_prefers_embedded_archive_when_available(
+    tmp_path: Path, monkeypatch
+) -> None:
     repo_root = tmp_path / "repo"
     _write_asset_tree(repo_root)
     target = tmp_path / "target"
@@ -59,10 +59,7 @@ def test_run_init_prefers_archive_when_available(tmp_path: Path, monkeypatch) ->
     fake_module_path.write_text("# marker")
     monkeypatch.setattr(init_cmd, "__file__", str(fake_module_path))
 
-    # Build a package-like dir containing only assets.tar.gz.
-    pkg_dir = tmp_path / "pkg" / "hf_cli"
-    pkg_dir.mkdir(parents=True, exist_ok=True)
-    archive = pkg_dir / "assets.tar.gz"
+    archive = tmp_path / "embedded.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         archive_src = tmp_path / "archive_src"
         (archive_src / ".claude").mkdir(parents=True, exist_ok=True)
@@ -72,7 +69,12 @@ def test_run_init_prefers_archive_when_available(tmp_path: Path, monkeypatch) ->
             arcname=".claude/settings.json",
         )
 
-    monkeypatch.setattr(init_cmd.resources, "files", lambda _pkg: pkg_dir)
+    monkeypatch.setattr(
+        embedded_assets,
+        "ASSET_ARCHIVE_B64",
+        base64.b64encode(archive.read_bytes()).decode(),
+        raising=False,
+    )
 
     rc = init_cmd.run_init(["--target", str(target)])
     assert rc == 0
@@ -97,7 +99,35 @@ def test_run_init_uses_embedded_archive(tmp_path: Path, monkeypatch) -> None:
         base64.b64encode(archive.read_bytes()).decode(),
         raising=False,
     )
-    monkeypatch.setattr(init_cmd.resources, "files", lambda _pkg: Path("/missing"))
     rc = init_cmd.run_init(["--target", str(target)])
     assert rc == 0
     assert (target / ".codex" / "README.md").exists()
+
+
+def test_run_init_embedded_archive_blocks_path_traversal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    outside = tmp_path / "pwned.txt"
+
+    archive = tmp_path / "embedded-bad.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        good_src = tmp_path / "good.txt"
+        good_src.write_text("ok")
+        bad_src = tmp_path / "bad.txt"
+        bad_src.write_text("bad")
+        tar.add(good_src, arcname=".codex/README.md")
+        tar.add(bad_src, arcname="../../pwned.txt")
+
+    monkeypatch.setattr(
+        embedded_assets,
+        "ASSET_ARCHIVE_B64",
+        base64.b64encode(archive.read_bytes()).decode(),
+        raising=False,
+    )
+
+    rc = init_cmd.run_init(["--target", str(target)])
+    assert rc == 0
+    assert (target / ".codex" / "README.md").read_text() == "ok"
+    assert not outside.exists()

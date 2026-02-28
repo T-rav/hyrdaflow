@@ -13,7 +13,11 @@ from pydantic import ValidationError
 from file_util import atomic_write
 from models import (
     BackgroundWorkerState,
+    HITLSummaryCacheEntry,
+    HITLSummaryFailureEntry,
     LifetimeStats,
+    PendingReport,
+    PersistedWorkerHeartbeat,
     SessionLog,
     SessionStatus,
     StateData,
@@ -35,6 +39,52 @@ class StateTracker:
         self._data: StateData = StateData()
         self.load()
 
+    def _normalise_details(self, raw: Any) -> dict[str, Any]:
+        """Ensure worker heartbeat details are stored as dicts."""
+        if isinstance(raw, dict):
+            return dict(raw)
+        if raw in (None, "", []):
+            return {}
+        return {"raw": raw}
+
+    def _coerce_last_run(self, value: Any) -> str | None:
+        """Normalise arbitrary values to ISO8601 strings or None."""
+        if value is None or isinstance(value, str):
+            return value
+        return str(value)
+
+    def _persist_worker_state(
+        self,
+        name: str,
+        status: str,
+        last_run: str | None,
+        details: dict[str, Any],
+    ) -> None:
+        heartbeat: PersistedWorkerHeartbeat = {
+            "status": status,
+            "last_run": last_run,
+            "details": dict(details),
+        }
+        self._data.worker_heartbeats[name] = heartbeat
+        stored: BackgroundWorkerState = {
+            "name": name,
+            "status": status,
+            "last_run": last_run,
+            "details": dict(details),
+        }
+        self._data.bg_worker_states[name] = stored  # type: ignore[assignment]
+
+    def _maybe_migrate_worker_states(self) -> None:
+        """Copy legacy bg_worker_states entries into worker_heartbeats if needed."""
+        if self._data.worker_heartbeats or not self._data.bg_worker_states:
+            return
+        for name, state in self._data.bg_worker_states.items():
+            details = self._normalise_details(state.get("details"))
+            status = str(state.get("status", "disabled"))
+            last_run = self._coerce_last_run(state.get("last_run"))
+            self._persist_worker_state(name, status, last_run, details)
+        self.save()
+
     # --- persistence ---
 
     def load(self) -> dict[str, Any]:
@@ -54,6 +104,7 @@ class StateTracker:
             ) as exc:
                 logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
+        self._maybe_migrate_worker_states()
         return self._data.model_dump()
 
     def save(self) -> None:
@@ -133,6 +184,59 @@ class StateTracker:
     def remove_hitl_cause(self, issue_number: int) -> None:
         """Clear the escalation reason for *issue_number*."""
         self._data.hitl_causes.pop(str(issue_number), None)
+        self.save()
+
+    # --- HITL summary cache ---
+
+    def set_hitl_summary(self, issue_number: int, summary: str) -> None:
+        """Persist cached LLM summary text for *issue_number*."""
+        self._data.hitl_summaries[str(issue_number)] = HITLSummaryCacheEntry(
+            summary=summary,
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+        self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self.save()
+
+    def get_hitl_summary(self, issue_number: int) -> str | None:
+        """Return cached summary for *issue_number*, or ``None`` if absent."""
+        entry = self._data.hitl_summaries.get(str(issue_number))
+        if not entry:
+            return None
+        summary = str(getattr(entry, "summary", "")).strip()
+        return summary or None
+
+    def get_hitl_summary_updated_at(self, issue_number: int) -> str | None:
+        """Return cached summary update timestamp for *issue_number*."""
+        entry = self._data.hitl_summaries.get(str(issue_number))
+        if not entry:
+            return None
+        updated = getattr(entry, "updated_at", None)
+        return updated if isinstance(updated, str) and updated else None
+
+    def remove_hitl_summary(self, issue_number: int) -> None:
+        """Delete cached summary for *issue_number*."""
+        self._data.hitl_summaries.pop(str(issue_number), None)
+        self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self.save()
+
+    def set_hitl_summary_failure(self, issue_number: int, error: str) -> None:
+        """Persist failure metadata for summary generation attempts."""
+        self._data.hitl_summary_failures[str(issue_number)] = HITLSummaryFailureEntry(
+            last_failed_at=datetime.now(UTC).isoformat(),
+            error=error[:300],
+        )
+        self.save()
+
+    def get_hitl_summary_failure(self, issue_number: int) -> tuple[str | None, str]:
+        """Return ``(last_failed_at, error)`` for summary generation failures."""
+        entry = self._data.hitl_summary_failures.get(str(issue_number))
+        if not entry:
+            return None, ""
+        return getattr(entry, "last_failed_at", None), getattr(entry, "error", "")
+
+    def clear_hitl_summary_failure(self, issue_number: int) -> None:
+        """Clear summary-generation failure metadata for *issue_number*."""
+        self._data.hitl_summary_failures.pop(str(issue_number), None)
         self.save()
 
     # --- review attempt tracking ---
@@ -387,37 +491,92 @@ class StateTracker:
 
     # --- background worker states ---
 
+    def get_worker_heartbeats(self) -> dict[str, PersistedWorkerHeartbeat]:
+        """Return the minimal persisted heartbeat snapshots."""
+        source: dict[str, Any] = {}
+        if self._data.worker_heartbeats:
+            source = self._data.worker_heartbeats
+        elif self._data.bg_worker_states:
+            source = {
+                name: {
+                    "status": state.get("status", "disabled"),
+                    "last_run": state.get("last_run"),
+                    "details": state.get("details", {}),
+                }
+                for name, state in self._data.bg_worker_states.items()
+            }
+        result: dict[str, PersistedWorkerHeartbeat] = {}
+        for name, heartbeat in source.items():
+            details = self._normalise_details(heartbeat.get("details"))
+            result[name] = {
+                "status": str(heartbeat.get("status", "disabled")),
+                "last_run": heartbeat.get("last_run"),
+                "details": details,
+            }
+        return result
+
+    def set_worker_heartbeat(
+        self, name: str, heartbeat: PersistedWorkerHeartbeat
+    ) -> None:
+        """Persist a single worker heartbeat snapshot."""
+        details = self._normalise_details(heartbeat.get("details"))
+        status = str(heartbeat.get("status", "disabled"))
+        last_run = self._coerce_last_run(heartbeat.get("last_run"))
+        self._persist_worker_state(name, status, last_run, details)
+        self.save()
+
     def get_bg_worker_states(self) -> dict[str, BackgroundWorkerState]:
         """Return persisted background worker heartbeat states."""
         result: dict[str, BackgroundWorkerState] = {}
-        for name, state in self._data.bg_worker_states.items():
-            details = state.get("details", {}) or {}
+        for name, heartbeat in self.get_worker_heartbeats().items():
             result[name] = BackgroundWorkerState(
-                name=state.get("name", name),
-                status=state.get("status", "disabled"),
-                last_run=state.get("last_run"),
-                details=dict(details)
-                if isinstance(details, dict)
-                else {"raw": details},
+                name=name,
+                status=heartbeat.get("status", "disabled"),
+                last_run=heartbeat.get("last_run"),
+                details=dict(heartbeat.get("details", {})),
             )
         return result
 
     def set_bg_worker_state(self, name: str, state: BackgroundWorkerState) -> None:
         """Persist a single background worker heartbeat entry."""
-        stored: dict[str, Any] = dict(state)
+        stored = dict(state)
         stored.pop("enabled", None)  # enabled is runtime-only
-        stored.setdefault("name", name)
-        details = stored.get("details")
-        if not isinstance(details, dict):
-            stored["details"] = {}
-        self._data.bg_worker_states[name] = stored  # type: ignore[assignment]
+        details = self._normalise_details(stored.get("details"))
+        status = str(stored.get("status", "disabled"))
+        last_run = self._coerce_last_run(stored.get("last_run"))
+        self._persist_worker_state(name, status, last_run, details)
         self.save()
 
     def remove_bg_worker_state(self, name: str) -> None:
         """Remove persisted heartbeat entry for *name*."""
+        removed = False
         if name in self._data.bg_worker_states:
             self._data.bg_worker_states.pop(name, None)
+            removed = True
+        if name in self._data.worker_heartbeats:
+            self._data.worker_heartbeats.pop(name, None)
+            removed = True
+        if removed:
             self.save()
+
+    # --- pending reports queue ---
+
+    def enqueue_report(self, report: PendingReport) -> None:
+        """Append a report to the pending queue and persist."""
+        self._data.pending_reports.append(report)
+        self.save()
+
+    def dequeue_report(self) -> PendingReport | None:
+        """Pop the first pending report (FIFO) and persist, or return None."""
+        if not self._data.pending_reports:
+            return None
+        report = self._data.pending_reports.pop(0)
+        self.save()
+        return report
+
+    def get_pending_reports(self) -> list[PendingReport]:
+        """Return a copy of the pending reports list."""
+        return list(self._data.pending_reports)
 
     # --- metrics state ---
 

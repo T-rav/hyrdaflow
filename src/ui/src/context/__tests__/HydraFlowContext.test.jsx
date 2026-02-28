@@ -13,7 +13,6 @@ const emptyPipeline = {
 
 const initialState = {
   connected: false,
-  batchNum: 0,
   phase: 'idle',
   orchestratorStatus: 'idle',
   workers: {},
@@ -134,29 +133,115 @@ describe('HydraFlowContext reducer', () => {
 })
 
 describe('PIPELINE_SNAPSHOT reducer', () => {
-  it('fully replaces pipelineIssues with server data', () => {
+  it('reconciles stage membership with server snapshot data', () => {
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        triage: [{ issue_number: 1, title: 'Old title', url: '/old', status: 'active' }],
+      },
+    }
     const data = {
-      triage: [{ issue_number: 1, title: 'Bug', url: '', status: 'queued' }],
+      triage: [
+        { issue_number: 1, title: 'Bug', url: '', status: 'queued' },
+        { issue_number: 9, title: 'New', url: '', status: 'queued' },
+      ],
       plan: [],
       implement: [{ issue_number: 2, title: 'Feature', url: '', status: 'active' }],
       review: [],
       hitl: [],
     }
-    const next = reducer(initialState, { type: 'PIPELINE_SNAPSHOT', data })
-    expect(next.pipelineIssues.triage).toHaveLength(1)
-    expect(next.pipelineIssues.triage[0].issue_number).toBe(1)
+    const next = reducer(state, { type: 'PIPELINE_SNAPSHOT', data })
+    expect(next.pipelineIssues.triage).toHaveLength(2)
+    expect(next.pipelineIssues.triage.find(i => i.issue_number === 1)?.title).toBe('Bug')
+    expect(next.pipelineIssues.triage.find(i => i.issue_number === 9)).toBeTruthy()
     expect(next.pipelineIssues.implement).toHaveLength(1)
     expect(next.pipelineIssues.implement[0].status).toBe('active')
   })
 
-  it('fills missing stages with empty arrays', () => {
+  it('preserves missing stages from existing state', () => {
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        plan: [{ issue_number: 77, title: 'Carry', url: '', status: 'queued' }],
+        implement: [{ issue_number: 88, title: 'Keep', url: '', status: 'active' }],
+      },
+    }
     const data = { triage: [{ issue_number: 3, title: 'X', url: '', status: 'queued' }] }
-    const next = reducer(initialState, { type: 'PIPELINE_SNAPSHOT', data })
+    const next = reducer(state, { type: 'PIPELINE_SNAPSHOT', data })
     expect(next.pipelineIssues.triage).toHaveLength(1)
-    expect(next.pipelineIssues.plan).toEqual([])
-    expect(next.pipelineIssues.implement).toEqual([])
+    expect(next.pipelineIssues.plan).toHaveLength(1)
+    expect(next.pipelineIssues.plan[0].issue_number).toBe(77)
+    expect(next.pipelineIssues.implement).toHaveLength(1)
+    expect(next.pipelineIssues.implement[0].issue_number).toBe(88)
     expect(next.pipelineIssues.review).toEqual([])
     expect(next.pipelineIssues.hitl).toEqual([])
+  })
+
+  it('removes issues absent from the server snapshot (ghost card fix)', () => {
+    // When the server sends an empty array for a stage, issues that were locally
+    // tracked in that stage must be removed — they have moved elsewhere.
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        triage: [{ issue_number: 10, title: 'Queued', url: '', status: 'queued' }],
+        implement: [{ issue_number: 11, title: 'Active', url: '', status: 'active' }],
+      },
+    }
+    const next = reducer(state, {
+      type: 'PIPELINE_SNAPSHOT',
+      data: { triage: [], plan: [], implement: [], review: [], hitl: [] },
+    })
+    expect(next.pipelineIssues.triage).toHaveLength(0)
+    expect(next.pipelineIssues.implement).toHaveLength(0)
+  })
+
+  it('removes issue from old stage when snapshot shows it has moved (cross-stage ghost card)', () => {
+    // Regression for #1515: issue #100 was in implement, backend transitioned
+    // it to review. Next snapshot delivers { implement: [], review: [#100] }.
+    // The issue must appear ONLY in review, not in both stages.
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        implement: [{ issue_number: 100, title: 'Fix bug', url: '', status: 'active' }],
+      },
+    }
+    const next = reducer(state, {
+      type: 'PIPELINE_SNAPSHOT',
+      data: {
+        triage: [],
+        plan: [],
+        implement: [],
+        review: [{ issue_number: 100, title: 'Fix bug', url: '', status: 'queued' }],
+        hitl: [],
+      },
+    })
+    expect(next.pipelineIssues.implement).toHaveLength(0)
+    expect(next.pipelineIssues.review).toHaveLength(1)
+    expect(next.pipelineIssues.review[0].issue_number).toBe(100)
+  })
+
+  it('snapshot status overrides local WS status for issues that remain in their stage', () => {
+    // Snapshot is authoritative: a subsequent poll snapshot's status value
+    // overrides any locally-applied WS-derived status update.
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        implement: [{ issue_number: 55, title: 'Impl', url: '', status: 'active' }],
+      },
+    }
+    const next = reducer(state, {
+      type: 'PIPELINE_SNAPSHOT',
+      data: {
+        implement: [{ issue_number: 55, title: 'Impl', url: '', status: 'queued' }],
+      },
+    })
+    // Incoming status wins (snapshot is newer / more authoritative than local WS update)
+    expect(next.pipelineIssues.implement[0].status).toBe('queued')
   })
 })
 
@@ -805,7 +890,7 @@ describe('SESSION_RESET reducer', () => {
       orchestratorStatus: 'running',
       lifetimeStats: { issues_completed: 10, prs_merged: 5 },
       config: { repo: 'test/repo' },
-      events: [{ type: 'batch_start', timestamp: '2026-01-01' }],
+      events: [{ type: 'phase_change', timestamp: '2026-01-01' }],
       backgroundWorkers: [{ name: 'triage', status: 'ok', enabled: true }],
       metrics: { lifetime: { issues_completed: 10 } },
       githubMetrics: { open_by_label: {}, total_closed: 5, total_merged: 3 },

@@ -1,5 +1,5 @@
 /**
- * @typedef {'batch_start'|'phase_change'|'worker_update'|'transcript_line'|'pr_created'|'review_update'|'triage_update'|'planner_update'|'merge_update'|'ci_check'|'hitl_escalation'|'issue_created'|'batch_complete'|'hitl_update'|'orchestrator_status'|'error'|'memory_sync'|'retrospective'|'metrics_update'|'review_insight'|'background_worker_status'|'session_start'|'session_end'} EventType
+ * @typedef {'phase_change'|'worker_update'|'transcript_line'|'pr_created'|'review_update'|'triage_update'|'planner_update'|'merge_update'|'ci_check'|'hitl_escalation'|'issue_created'|'hitl_update'|'orchestrator_status'|'error'|'memory_sync'|'metrics_update'|'background_worker_status'|'session_start'|'session_end'} EventType
  *
  * @typedef {{ type: EventType, timestamp: string, data: Record<string, any> }} HydraFlowEvent
  *
@@ -11,7 +11,7 @@
  *
  * @typedef {{ pr: number, verdict: string, summary: string, duration?: number }} ReviewData
  *
- * @typedef {{ issue: number, title: string, issueUrl: string, pr: number, prUrl: string, branch: string, cause: string, status: 'pending'|'processing'|'resolved'|'approval'|string, isMemorySuggestion: boolean }} HITLItem
+ * @typedef {{ issue: number, title: string, issueUrl: string, pr: number, prUrl: string, branch: string, cause: string, status: 'pending'|'processing'|'resolved'|'approval'|string, isMemorySuggestion: boolean, llmSummary?: string, llmSummaryUpdatedAt?: string|null }} HITLItem
  *
  * @typedef {Record<string, string>} HumanInputRequests
  *

@@ -164,6 +164,7 @@ class ConfigFactory:
         max_review_fix_attempts: int = 2,
         min_review_findings: int = 3,
         max_merge_conflict_fix_attempts: int = 3,
+        max_ci_timeout_fix_attempts: int = 2,
         max_issue_attempts: int = 3,
         review_label: list[str] | None = None,
         hitl_label: list[str] | None = None,
@@ -171,10 +172,12 @@ class ConfigFactory:
         fixed_label: list[str] | None = None,
         improve_label: list[str] | None = None,
         memory_label: list[str] | None = None,
+        transcript_label: list[str] | None = None,
         manifest_label: list[str] | None = None,
         metrics_label: list[str] | None = None,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
+        epic_child_label: list[str] | None = None,
         find_label: list[str] | None = None,
         planner_label: list[str] | None = None,
         planner_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -202,7 +205,7 @@ class ConfigFactory:
         max_debug_attempts: int = 1,
         subskill_confidence_threshold: float = 0.7,
         poll_interval: int = 5,
-        data_poll_interval: int = 60,
+        data_poll_interval: int = 300,
         gh_max_retries: int = 3,
         ac_model: str = "sonnet",
         ac_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -262,6 +265,7 @@ class ConfigFactory:
         unstick_auto_merge: bool = True,
         unstick_all_causes: bool = True,
         enable_fresh_branch_rebuild: bool = True,
+        max_troubleshooting_prompt_chars: int = 3000,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -290,6 +294,7 @@ class ConfigFactory:
             max_review_fix_attempts=max_review_fix_attempts,
             min_review_findings=min_review_findings,
             max_merge_conflict_fix_attempts=max_merge_conflict_fix_attempts,
+            max_ci_timeout_fix_attempts=max_ci_timeout_fix_attempts,
             max_issue_attempts=max_issue_attempts,
             review_label=review_label
             if review_label is not None
@@ -305,6 +310,9 @@ class ConfigFactory:
             memory_label=memory_label
             if memory_label is not None
             else ["hydraflow-memory"],
+            transcript_label=transcript_label
+            if transcript_label is not None
+            else ["hydraflow-transcript"],
             manifest_label=manifest_label
             if manifest_label is not None
             else ["hydraflow-manifest"],
@@ -313,6 +321,11 @@ class ConfigFactory:
             else ["hydraflow-metrics"],
             dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
             epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
+            epic_child_label=(
+                epic_child_label
+                if epic_child_label is not None
+                else ["hydraflow-epic-child"]
+            ),
             find_label=find_label if find_label is not None else ["hydraflow-find"],
             planner_label=planner_label
             if planner_label is not None
@@ -405,6 +418,7 @@ class ConfigFactory:
             unstick_auto_merge=unstick_auto_merge,
             unstick_all_causes=unstick_all_causes,
             enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
+            max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
         )
 
 
@@ -512,7 +526,7 @@ def make_review_phase(
     mock_reviewers = AsyncMock()
     mock_prs = AsyncMock()
 
-    mock_store = AsyncMock(spec=IssueStore)
+    mock_store = MagicMock(spec=IssueStore)
     mock_store.mark_active = lambda _num, _stage: None
     mock_store.mark_complete = lambda _num: None
     mock_store.is_active = lambda _num: False

@@ -1,15 +1,27 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { theme } from '../theme'
 import { PIPELINE_STAGES, PULSE_ANIMATION } from '../constants'
 import { formatDuration, STAGE_META, STAGE_KEYS } from '../hooks/useTimeline'
 import { TranscriptPreview } from './TranscriptPreview'
+import { WORKSTREAM_SIDE_INSET_PX } from '../styles/sectionStyles'
 
-export function StatusDot({ status }) {
-  if (status === 'active') return <span style={dotStyles.active} />
+export function StatusDot({ status, stageKey }) {
+  if (status === 'active') {
+    const activeStyle = stageKey && activeDotStyleMap[stageKey]
+      ? activeDotStyleMap[stageKey]
+      : dotStyles.active
+    return <span style={activeStyle} />
+  }
   if (status === 'done') return <span style={dotStyles.done}>&#10003;</span>
   if (status === 'failed') return <span style={dotStyles.failed}>&#10007;</span>
   if (status === 'hitl') return <span style={dotStyles.hitl}>!</span>
-  if (status === 'queued') return <span style={dotStyles.queued} />
+  if (status === 'queued') {
+    const meta = stageKey ? STAGE_META[stageKey] : null
+    if (meta) {
+      return <span style={{ ...dotStyles.queued, background: meta.subtleColor, border: `1px solid ${meta.color}` }} />
+    }
+    return <span style={dotStyles.queued} />
+  }
   return <span style={dotStyles.pending} />
 }
 
@@ -32,7 +44,7 @@ function StageRow({ stageKey, stageData, isLast }) {
         : stageData.status === 'hitl'
           ? { ...stageNodeBase, background: theme.yellow, borderColor: theme.yellow }
           : stageData.status === 'queued'
-            ? { ...stageNodeBase, background: theme.yellow, borderColor: theme.yellow }
+            ? { ...stageNodeBase, background: meta.subtleColor, borderColor: meta.color }
             : { ...stageNodeBase, background: meta.color, borderColor: meta.color }
 
   const connectorColor = stageData.status !== 'pending' ? meta.color : theme.border
@@ -41,7 +53,7 @@ function StageRow({ stageKey, stageData, isLast }) {
   return (
     <div style={styles.stageRow}>
       <div style={styles.stageLeft}>
-        <div style={nodeStyle} />
+        <div style={nodeStyle} data-testid={`stage-node-${stageKey}`} />
         {!isLast && (
           <div style={{
             ...styles.connector,
@@ -53,7 +65,14 @@ function StageRow({ stageKey, stageData, isLast }) {
       </div>
       <div style={styles.stageContent}>
         <span style={styles.stageLabel}>{meta.label}</span>
-        <span style={badgeStyleMap[stageData.status] || badgeStyleMap.pending}>
+        <span
+          data-testid={`stage-badge-${stageKey}`}
+          style={
+            stageData.status === 'queued'
+              ? queuedBadgeStyleMap[stageKey]
+              : badgeStyleMap[stageData.status] || badgeStyleMap.pending
+          }
+        >
           {stageData.status}
         </span>
         {duration && <span style={styles.duration}>{duration}</span>}
@@ -64,11 +83,19 @@ function StageRow({ stageKey, stageData, isLast }) {
 
 export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, transcript = [] }) {
   const [expanded, setExpanded] = useState(defaultExpanded || false)
+  const prevDefaultExpanded = useRef(defaultExpanded)
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackText, setFeedbackText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const toggle = useCallback(() => setExpanded(v => !v), [])
+
+  useEffect(() => {
+    if (prevDefaultExpanded.current && defaultExpanded === false) {
+      setExpanded(false)
+    }
+    prevDefaultExpanded.current = defaultExpanded
+  }, [defaultExpanded])
 
   const handleSubmitFeedback = useCallback(async () => {
     if (!feedbackText.trim() || submitting) return
@@ -93,12 +120,16 @@ export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, t
       )
     : null
 
-  const cardBorder = isActive
-    ? `1px solid ${theme.cardActiveBorder}`
-    : `1px solid ${theme.border}`
+  const stageKey = issue.currentStage
+  const cardStageStyle = stageKey
+    ? (isActive ? cardActiveStyleMap[stageKey] : cardInactiveStyleMap[stageKey])
+    : null
 
   return (
-    <div style={{ ...styles.card, border: cardBorder }}>
+    <div
+      style={{ ...styles.card, ...(cardStageStyle || {}) }}
+      data-testid={`stream-card-${issue.issueNumber}`}
+    >
       <div style={styles.header} onClick={toggle}>
         <div style={styles.headerLeft}>
           {issue.issueUrl ? (
@@ -128,7 +159,7 @@ export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, t
             </span>
           )}
           {totalDuration && <span style={styles.duration}>{totalDuration}</span>}
-          <StatusDot status={issue.overallStatus} />
+          <StatusDot status={issue.overallStatus} stageKey={stageKey} />
           {issue.pr && (
             <a
               style={styles.prLink}
@@ -260,7 +291,7 @@ export const dotStyles = {
     width: 8,
     height: 8,
     borderRadius: '50%',
-    background: theme.yellow,
+    background: theme.border,
   },
   pending: {
     display: 'inline-block',
@@ -284,16 +315,42 @@ export const badgeStyleMap = {
   done: { ...badgeBase, background: theme.greenSubtle, color: theme.green },
   failed: { ...badgeBase, background: theme.redSubtle, color: theme.red },
   hitl: { ...badgeBase, background: theme.yellowSubtle, color: theme.yellow },
-  queued: { ...badgeBase, background: theme.yellowSubtle, color: theme.yellow },
   pending: { ...badgeBase, background: theme.mutedSubtle, color: theme.textMuted },
 }
+
+// Pre-computed per-stage queued badge styles (avoids object spread in StageRow render)
+const queuedBadgeStyleMap = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.key, { ...badgeBase, background: s.subtleColor, color: s.color }])
+)
+
+// Phase-aware card and dot styling — exported for test assertions.
+const subtleBorder = (color) => `color-mix(in srgb, ${color} 20%, transparent)`
+
+export const cardActiveStyleMap = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.key, {
+    border: `1px solid ${s.color}`,
+    borderLeft: `3px solid ${s.color}`,
+  }])
+)
+
+export const cardInactiveStyleMap = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.key, {
+    border: `1px solid ${subtleBorder(s.color)}`,
+    borderLeft: `3px solid ${s.color}`,
+  }])
+)
+
+export const activeDotStyleMap = Object.fromEntries(
+  PIPELINE_STAGES.map(s => [s.key, { ...dotStyles.active, background: s.color }])
+)
 
 const styles = {
   card: {
     background: theme.surface,
     borderRadius: 8,
-    marginBottom: 8,
+    margin: `0 ${WORKSTREAM_SIDE_INSET_PX}px 8px`,
     overflow: 'hidden',
+    border: `1px solid ${theme.border}`,
   },
   header: {
     display: 'flex',

@@ -1598,3 +1598,69 @@ class TestRecordReviewInsight:
 
         # Should not raise
         await phase._record_review_insight(result)
+
+    @pytest.mark.asyncio
+    async def test_updates_bg_status_on_success(self, config: HydraFlowConfig) -> None:
+        """Successful insight recording should update review_insights worker status."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(issue_number=42, pr_number=101)
+        status_cb = MagicMock()
+        phase._update_bg_worker_status = status_cb
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = []
+        mock_insights.get_proposed_categories.return_value = set()
+        phase._insights = mock_insights
+
+        with patch("review_phase.analyze_patterns", return_value=[]):
+            await phase._record_review_insight(result)
+
+        status_cb.assert_called_with(
+            "review_insights",
+            "ok",
+            {"issue_number": 42, "pr_number": 101},
+        )
+
+    @pytest.mark.asyncio
+    async def test_updates_bg_status_on_error(self, config: HydraFlowConfig) -> None:
+        """Insight recording failure should mark review_insights worker as error."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(issue_number=42, pr_number=101)
+        status_cb = MagicMock()
+        phase._update_bg_worker_status = status_cb
+
+        mock_insights = MagicMock()
+        mock_insights.append_review.side_effect = RuntimeError("disk full")
+        phase._insights = mock_insights
+
+        await phase._record_review_insight(result)
+
+        status_cb.assert_called_with(
+            "review_insights",
+            "error",
+            {
+                "issue_number": 42,
+                "pr_number": 101,
+                "error": "review insight recording failed",
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_status_callback_error_is_swallowed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Status callback failures must not break review insight recording."""
+        phase = make_review_phase(config)
+        result = ReviewResultFactory.create(issue_number=42, pr_number=101)
+        status_cb = MagicMock(side_effect=RuntimeError("status boom"))
+        phase._update_bg_worker_status = status_cb
+
+        mock_insights = MagicMock()
+        mock_insights.load_recent.return_value = []
+        mock_insights.get_proposed_categories.return_value = set()
+        phase._insights = mock_insights
+
+        with patch("review_phase.analyze_patterns", return_value=[]):
+            await phase._record_review_insight(result)
+
+        mock_insights.append_review.assert_called_once()

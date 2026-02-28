@@ -62,10 +62,6 @@ function handleEvent(event) {
   addEventLog(type, data, timestamp);
 
   switch (type) {
-    case 'batch_start':
-      document.getElementById('batch-num').textContent = data.batch;
-      break;
-
     case 'phase_change': {
       const badge = document.getElementById('phase-badge');
       badge.textContent = data.phase;
@@ -111,9 +107,6 @@ function handleEvent(event) {
       }
       break;
 
-    case 'batch_complete':
-      document.getElementById('merged-count').textContent = data.merged || 0;
-      break;
   }
 }
 
@@ -234,14 +227,12 @@ function addEventLog(type, data, timestamp) {
 
 function eventSummary(type, data) {
   switch (type) {
-    case 'batch_start': return `Batch ${data.batch} started`;
     case 'phase_change': return String(data.phase);
     case 'worker_update': return `#${data.issue} → ${String(data.status)}`;
     case 'transcript_line': return `#${data.issue || data.pr}`;
     case 'pr_created': return `PR #${data.pr} for #${data.issue}${data.draft ? ' (draft)' : ''}`;
     case 'review_update': return `PR #${data.pr} → ${String(data.verdict || data.status)}`;
     case 'merge_update': return `PR #${data.pr} ${String(data.status)}`;
-    case 'batch_complete': return `${data.merged} merged, ${data.implemented} implemented`;
     case 'error': return String(data.message || 'Error');
     default: return JSON.stringify(data).slice(0, 80);
   }

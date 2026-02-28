@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -12,28 +11,21 @@ import re
 import shutil
 import signal
 import sys
-import time
-from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
 from orchestrator import HydraFlowOrchestrator
 
-_T = TypeVar("_T")
-
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
-_PREP_COVERAGE_ALLOW_MISSING = True
 _SEEDED_DIGEST_PLACEHOLDER = (
     "## Accumulated Learnings\n"
     "*Seeded during prep; no learnings yet.*\n\n"
     "HydraFlow will update this digest after the first memory sync.\n"
 )
-_PREP_COVERAGE_STEP = 10.0
 _PREP_COVERAGE_STATE_PATH = Path("prep/coverage-floor.json")
 
 
@@ -84,223 +76,6 @@ def _prep_stage_line(stage: str, detail: str, status: str, color: bool) -> str:
     tint = colors.get(status, "") if color else ""
     glyph = glyphs.get(status, ">")
     return f"{tint}[prep:{stage}] {glyph} {detail}{reset}"
-
-
-async def _await_with_prep_heartbeat(
-    awaitable: Coroutine[Any, Any, _T],
-    *,
-    stage: str,
-    detail: str,
-    color: bool,
-    interval_seconds: float = 20.0,
-    tail_provider: Callable[[], list[str]] | None = None,
-) -> _T:
-    """Await long-running prep work while emitting periodic heartbeat lines."""
-    task = asyncio.create_task(awaitable)
-    start = asyncio.get_running_loop().time()
-    while True:
-        try:
-            return await asyncio.wait_for(
-                asyncio.shield(task), timeout=interval_seconds
-            )
-        except TimeoutError:
-            elapsed = int(asyncio.get_running_loop().time() - start)
-            if tail_provider is not None:
-                tail = [line for line in tail_provider() if line.strip()]
-                if tail:
-                    # Live tail already has meaningful output; avoid extra heartbeat noise.
-                    continue
-            print(  # noqa: T201
-                _prep_stage_line(
-                    stage,
-                    f"{detail} (still running, {elapsed}s elapsed)",
-                    "start",
-                    color,
-                )
-            )
-
-
-def _make_prep_output_tracker(
-    *,
-    data_root: Path,
-    task_slug: str,
-    stream_label: str,
-    color: bool,
-    min_emit_interval_seconds: float = 1.5,
-) -> tuple[Callable[[str], bool], Callable[[], list[str]], Path]:
-    """Return (on_output callback, tail getter) for rolling prep task output."""
-    from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
-
-    _pre_dir, runs_dir = ensure_pre_dirs(data_root)
-    ts = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
-    safe_slug = re.sub(r"[^a-z0-9]+", "-", task_slug.lower()).strip("-") or "task"
-    live_log_path = runs_dir / f"{ts}-{safe_slug}-live.log"
-
-    state: dict[str, Any] = {
-        "tail": [],
-        "last_emitted_tail": "",
-        "last_emit_at": 0.0,
-        "rendered_lines": 0,
-        "header_printed": False,
-        "start_time": time.monotonic(),
-        "written_line_count": 0,
-    }
-    force_in_place = os.environ.get("HYDRAFLOW_PREP_INPLACE")
-    use_in_place = (
-        force_in_place != "0"
-        and (force_in_place == "1" or sys.stdout.isatty())
-        and os.environ.get("TERM", "").lower() != "dumb"
-    )
-
-    def on_output(accumulated_text: str) -> bool:
-        all_lines = [ln for ln in accumulated_text.splitlines() if ln.strip()]
-        if len(all_lines) > state["written_line_count"]:
-            new_lines = all_lines[state["written_line_count"] :]
-            with live_log_path.open("a", encoding="utf-8") as fh:
-                for line in new_lines:
-                    fh.write(f"{line}\n")
-            state["written_line_count"] = len(all_lines)
-
-        display_lines = [
-            ln
-            for ln in all_lines
-            if not ln.startswith('{"type":"system"')
-            and '"type":"rate_limit_event"' not in ln
-        ]
-        tail = display_lines[-3:]
-        state["tail"] = tail
-        if not tail:
-            return False
-
-        tail_text = "\n".join(tail)
-        now = time.monotonic()
-        if (
-            tail_text != state["last_emitted_tail"]
-            and now - state["last_emit_at"] >= min_emit_interval_seconds
-        ):
-            elapsed = int(now - state["start_time"])
-            lines_to_render = [
-                _prep_stage_line(
-                    "scaffold",
-                    f"{stream_label}: live output (rolling 3 lines, {elapsed}s)",
-                    "start",
-                    color,
-                ),
-                *[f"  {line}" for line in tail],
-            ]
-            if use_in_place:
-                rendered_lines = state["rendered_lines"]
-                if rendered_lines:
-                    # Move cursor to the start of the previously rendered block.
-                    sys.stdout.write(f"\x1b[{rendered_lines}A")
-                clear_count = max(rendered_lines, len(lines_to_render))
-                for i in range(clear_count):
-                    sys.stdout.write("\x1b[2K\r")
-                    if i < len(lines_to_render):
-                        sys.stdout.write(lines_to_render[i])
-                    sys.stdout.write("\n")
-                sys.stdout.flush()
-                state["rendered_lines"] = len(lines_to_render)
-            else:
-                if not state["header_printed"]:
-                    print(lines_to_render[0])  # noqa: T201
-                    state["header_printed"] = True
-                for line in lines_to_render[1:]:
-                    print(line)  # noqa: T201
-            state["last_emitted_tail"] = tail_text
-            state["last_emit_at"] = now
-        return False
-
-    def get_tail() -> list[str]:
-        return list(state["tail"])
-
-    return on_output, get_tail, live_log_path
-
-
-def _write_prep_task_transcript(
-    *,
-    data_root: Path,
-    task_slug: str,
-    transcript: str,
-) -> Path | None:
-    """Persist a prep task transcript under ``.hydraflow/prep/runs/<run-id>``."""
-    from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
-
-    if not transcript.strip():
-        return None
-    _pre_dir, runs_dir = ensure_pre_dirs(data_root)
-    ts = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
-    safe_slug = re.sub(r"[^a-z0-9]+", "-", task_slug.lower()).strip("-") or "task"
-    path = runs_dir / f"{ts}-{safe_slug}.log"
-    path.write_text(transcript, encoding="utf-8")
-    return path
-
-
-def _append_full_run_log_line(data_root: Path, line: str) -> Path:
-    """Append one line to `.hydraflow/prep/runs/<run-id>/full-run.log` and return its path."""
-    from pre_issue_tracker import ensure_pre_dirs  # noqa: PLC0415
-
-    _pre_dir, runs_dir = ensure_pre_dirs(data_root)
-    path = runs_dir / "full-run.log"
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(f"{line}\n")
-    return path
-
-
-def _build_prep_failure_error_message(transcript: str, transcript_ref: str) -> str:
-    """Build a concrete failure message for local `.hydraflow/prep` issues."""
-    if re.search(r"PREP_RESULT_JSON\s*:\s*\{", transcript, re.IGNORECASE):
-        reason = "Agent returned PREP_RESULT_JSON with non-success status."
-    elif re.search(r"PREP_STATUS\s*:\s*FAILED", transcript, re.IGNORECASE):
-        reason = "Agent returned PREP_STATUS: FAILED."
-    elif re.search(r"File has not been read yet", transcript, re.IGNORECASE):
-        reason = (
-            "Agent hit tool precondition failure: attempted Edit before Read "
-            '("File has not been read yet").'
-        )
-    elif re.search(
-        r"(max[\s_-]*turns?|turn limit|conversation limit)", transcript, re.IGNORECASE
-    ):
-        reason = "Agent hit conversation turn limit before finishing prep."
-    elif not transcript.strip():
-        reason = "Agent produced an empty transcript."
-    else:
-        reason = "Agent did not return PREP_RESULT_JSON with prep_status SUCCESS."
-
-    lines = [ln for ln in transcript.splitlines() if ln.strip()]
-    tail = "\n".join(lines[-30:])
-    tail = tail[-3000:] if tail else "(no output)"
-    return f"{reason}\nTranscript path: {transcript_ref}\n\nLast output tail:\n{tail}"
-
-
-def _parse_prep_result(transcript: str) -> tuple[bool, str]:
-    """Parse structured prep result from transcript.
-
-    Returns ``(success, mode)`` where mode is ``json`` or ``legacy``.
-    """
-    json_match = re.search(
-        r"PREP_RESULT_JSON\s*:\s*(\{.*\})", transcript, re.IGNORECASE
-    )
-    if json_match:
-        try:
-            payload = json.loads(json_match.group(1))
-            status = str(payload.get("prep_status", "")).strip().upper()
-            if status == "SUCCESS":
-                return True, "json"
-            if status == "FAILED":
-                return False, "json"
-        except json.JSONDecodeError:
-            pass
-
-    return bool(
-        re.search(r"PREP_STATUS\s*:\s*SUCCESS", transcript, re.IGNORECASE)
-    ), "legacy"
-
-
-def _prep_failure_signature(error_message: str) -> str:
-    """Return a short stable signature for a prep failure payload."""
-    digest = hashlib.sha256(error_message.encode("utf-8")).hexdigest()
-    return digest[:10]
 
 
 def _seed_context_assets(config: HydraFlowConfig) -> list[str]:
@@ -530,6 +305,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Labels for accepted agent learnings, comma-separated (default: hydraflow-memory)",
     )
     parser.add_argument(
+        "--transcript-label",
+        default=None,
+        help="Labels for transcript-summary issues queued for memory sync, comma-separated (default: hydraflow-transcript)",
+    )
+    parser.add_argument(
         "--manifest-label",
         default=None,
         help="Labels for manifest persistence issues, comma-separated (default: hydraflow-manifest)",
@@ -560,6 +340,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--epic-label",
         default=None,
         help="Labels for epic tracking issues, comma-separated (default: hydraflow-epic)",
+    )
+    parser.add_argument(
+        "--epic-child-label",
+        default=None,
+        help="Labels for epic child issues, comma-separated (default: hydraflow-epic-child)",
     )
     parser.add_argument(
         "--metrics-sync-interval",
@@ -872,9 +657,11 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
         "planner_label",
         "improve_label",
         "memory_label",
+        "transcript_label",
         "manifest_label",
         "metrics_label",
         "epic_label",
+        "epic_child_label",
         "lite_plan_labels",
     ):
         val = getattr(args, field)
@@ -895,9 +682,9 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
 
 
 async def _run_prep(config: HydraFlowConfig) -> bool:
-    """Create HydraFlow lifecycle labels on the target repo.
+    """Sync HydraFlow lifecycle labels and run the repo audit.
 
-    Returns ``True`` if all labels were created/updated successfully,
+    Returns ``True`` if label sync had no failures,
     ``False`` if any labels failed.
     """
     from prep import RepoAuditor, ensure_labels  # noqa: PLC0415
@@ -948,21 +735,6 @@ def _makefile_has_target(repo_root: Path, target: str) -> bool:
     except OSError:
         return False
     return any(line.startswith(f"{target}:") for line in content.splitlines())
-
-
-async def _run_hardening_step(
-    step: str, cmd: list[str], cwd: Path
-) -> tuple[bool, str | None]:
-    """Run one prep/scaffold command and print a concise status line."""
-    from subprocess_util import run_subprocess  # noqa: PLC0415
-
-    try:
-        await run_subprocess(*cmd, cwd=cwd, timeout=900.0)
-        print(f"{step}: ok ({' '.join(cmd)})")  # noqa: T201
-        return True, None
-    except RuntimeError as exc:
-        print(f"{step}: failed ({' '.join(cmd)}): {exc}")  # noqa: T201
-        return False, str(exc)
 
 
 def _extract_coverage_percent(repo_root: Path) -> tuple[float | None, str]:
@@ -1215,14 +987,6 @@ def _evaluate_coverage_validation_projects(
     return True, any_warn, " | ".join(ok_details)
 
 
-def _coverage_below_target_from_detail(detail: str, target: float) -> bool:
-    """Return True if any rendered coverage percentage is below target."""
-    for match in re.finditer(r"(\d+(?:\.\d+)?)% from ", detail):
-        if float(match.group(1)) < target:
-            return True
-    return False
-
-
 def _prep_coverage_has_measurement(detail: str) -> bool:
     """Return True when coverage detail includes at least one measured percentage."""
     return bool(re.search(r"\d+(?:\.\d+)?% from ", detail))
@@ -1255,12 +1019,6 @@ def _save_prep_coverage_floor(data_root: Path, min_required: float) -> None:
     state_path.write_text(
         json.dumps({"min_required": value}, indent=2) + "\n", encoding="utf-8"
     )
-
-
-def _slugify_issue_name(step_name: str) -> str:
-    """Convert a step name to a safe `.hydraflow/prep` issue slug."""
-    slug = re.sub(r"[^a-z0-9]+", "-", step_name.lower()).strip("-")
-    return slug or "prep-step"
 
 
 def _detect_available_prep_tools() -> list[str]:
@@ -1312,179 +1070,6 @@ def _choose_prep_tool(configured: str) -> tuple[str | None, str]:
         selected = configured
         mode = "configured"
     return selected, mode
-
-
-def _build_prep_agent_prompt(
-    *,
-    stack: str,
-    failures: list[tuple[str, list[str], str]],
-    issue_filenames: list[str],
-) -> str:
-    """Build correction prompt for prep-agent runs."""
-    failure_lines = "\n".join(
-        [
-            f"- {step}: `{' '.join(cmd)}`\n  Error: {err[:500]}"
-            for step, cmd, err in failures
-        ]
-    )
-    issues = (
-        "\n".join([f"- .hydraflow/prep/{name}" for name in issue_filenames])
-        or "- (none)"
-    )
-    return (
-        "You are the HydraFlow prep correction agent.\n"
-        f"Stack: {stack}\n\n"
-        "Your task:\n"
-        "1) Read the local prep issue files listed below.\n"
-        "2) Apply code/config fixes in this repo to resolve the failures.\n"
-        "3) Keep changes minimal and safe.\n"
-        "4) Do not edit files outside this repository.\n"
-        "5) Drive verification through Make targets when available "
-        "(lint-fix, lint-check, typecheck, test, quality-lite, quality).\n"
-        "6) Before each Edit, Read that file first. If a tool error says a file has not "
-        "been read yet, immediately read it and retry the edit.\n"
-        "7) For independent failures, fan out work to sub-agents in parallel when available "
-        "(max 4 concurrent tracks).\n"
-        "8) Within each track, apply edits one file at a time and verify before the next edit.\n"
-        "9) Do not refactor unrelated application source to chase existing lint debt. "
-        "If failures are outside prep-managed files, record/update `.hydraflow/prep` issues with "
-        "concrete failing commands and file paths.\n\n"
-        "Local prep issue files:\n"
-        f"{issues}\n\n"
-        "Observed failed steps:\n"
-        f"{failure_lines}\n\n"
-        "Output a concise summary of fixes applied.\n"
-    )
-
-
-async def _run_prep_agent_correction(
-    *,
-    config: HydraFlowConfig,
-    tool: str,
-    model: str,
-    repo_root: Path,
-    stack: str,
-    failures: list[tuple[str, list[str], str]],
-    issue_filenames: list[str],
-    on_output: Callable[[str], bool] | None = None,
-) -> bool:
-    """Run Claude/Codex/Pi as a prep correction agent for one attempt."""
-    from agent_cli import build_agent_command  # noqa: PLC0415
-    from events import EventBus  # noqa: PLC0415
-    from runner_utils import stream_claude_process  # noqa: PLC0415
-
-    logger = logging.getLogger("hydraflow.prep")
-    prompt = _build_prep_agent_prompt(
-        stack=stack, failures=failures, issue_filenames=issue_filenames
-    )
-    cmd = build_agent_command(
-        tool=tool,  # type: ignore[arg-type]
-        model=model,
-        max_turns=6,
-    )
-    try:
-        transcript = await stream_claude_process(
-            cmd=cmd,
-            prompt=prompt,
-            cwd=repo_root,
-            active_procs=set(),
-            event_bus=EventBus(),
-            event_data={"source": "prep-agent"},
-            logger=logger,
-            on_output=on_output,
-            timeout=900.0,
-        )
-    except RuntimeError as exc:
-        print(f"Prep agent correction failed: {exc}")  # noqa: T201
-        return False
-    if not transcript.strip():
-        print("Prep agent correction produced no transcript output")  # noqa: T201
-        return False
-    print(  # noqa: T201
-        f"Prep agent correction completed via {tool} ({model})"
-    )
-    return True
-
-
-async def _run_prep_agent_workflow(
-    *,
-    tool: str,
-    model: str,
-    config: HydraFlowConfig,
-    stack: str,
-    local_issue_names: list[str],
-    project_paths: list[str],
-    on_output: Callable[[str], bool] | None = None,
-) -> tuple[bool, str]:
-    """Run an end-to-end prep workflow via Claude/Codex/Pi."""
-    from agent_cli import build_agent_command  # noqa: PLC0415
-    from events import EventBus  # noqa: PLC0415
-    from runner_utils import stream_claude_process  # noqa: PLC0415
-
-    logger = logging.getLogger("hydraflow.prep")
-    issue_list = (
-        "\n".join([f"- .hydraflow/prep/{name}" for name in local_issue_names])
-        or "- none"
-    )
-    fanout_paths = "\n".join([f"- {path}" for path in project_paths]) or "- ."
-    prompt = (
-        "You are the HydraFlow prep operator agent.\n"
-        f"Driver: {tool}\n"
-        f"Stack: {stack}\n\n"
-        "Goal: perform complete repository prep autonomously.\n"
-        "Requirements:\n"
-        "1) Ensure root Makefile has lint/lint-check/lint-fix/typecheck/security/"
-        "test/quality-lite/quality targets.\n"
-        "2) Ensure GitHub CI quality workflow exists for this stack.\n"
-        "3) Ensure test scaffold exists for this stack.\n"
-        "4) Run and fix quality/test/build failures iteratively.\n"
-        "5) Use local `.hydraflow/prep/*.md` files as issue tracker; update and mark done when fixed.\n"
-        "6) Keep changes minimal and safe.\n"
-        "7) End response with EXACTLY one final line in JSON form:\n"
-        'PREP_RESULT_JSON: {"prep_status":"SUCCESS|FAILED","summary":"...","coverage":{"status":"PASS|FAIL","notes":"..."}}\n\n'
-        "8) Prefer Make targets for checks/fixes (lint-fix, lint-check, typecheck, test, "
-        "quality-lite, quality) instead of ad-hoc commands.\n"
-        "8a) If running Vitest directly, always exclude the hydraflow submodule path "
-        "(`--exclude='hydraflow/**'`) unless vitest config already excludes it.\n"
-        "9) Before each Edit, Read that file first. If a tool error says the file was not "
-        "read yet, read it and retry the edit.\n"
-        "10) Continue until `make quality` passes or you can provide a concrete failing "
-        "command and file list, then emit the final PREP_RESULT_JSON line.\n"
-        "11) Keep edits scoped to prep-managed files only (Makefile, .github/workflows/*, "
-        "package manager files, lint/type config, test scaffold, hooks). Avoid refactoring "
-        "existing app source files for pre-existing lint debt.\n"
-        "12) Fan out independent work to sub-agents in parallel whenever possible "
-        "(for example: one track per project path or quality gate; max 4 concurrent tracks).\n"
-        "13) Within each track, keep edits serialized (one file at a time) and verify before "
-        "moving to the next file.\n"
-        "14) Coverage policy for all stacks: enforce at least 70% meaningful coverage; "
-        "coverage should prioritize critical paths, not filler "
-        "tests (for example, property-only inflation).\n"
-        "15) If remaining failures are in existing app source, create/update `.hydraflow/prep` issues "
-        "with command output + affected files, then end with PREP_RESULT_JSON prep_status FAILED.\n\n"
-        "Fan-out project paths (parallelize across these when possible):\n"
-        f"{fanout_paths}\n\n"
-        "Current local prep issues:\n"
-        f"{issue_list}\n"
-    )
-    cmd = build_agent_command(
-        tool=tool,  # type: ignore[arg-type]
-        model=model,
-        max_turns=20,
-    )
-    transcript = await stream_claude_process(
-        cmd=cmd,
-        prompt=prompt,
-        cwd=config.repo_root,
-        active_procs=set(),
-        event_bus=EventBus(),
-        event_data={"source": "prep-workflow-agent"},
-        logger=logger,
-        on_output=on_output,
-        timeout=1800.0,
-    )
-    success, _mode = _parse_prep_result(transcript)
-    return success, transcript
 
 
 async def _run_scaffold(config: HydraFlowConfig) -> bool:

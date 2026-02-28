@@ -28,14 +28,8 @@ class TestEventTypes:
     def test_memory_sync_event_type(self) -> None:
         assert EventType.MEMORY_SYNC == "memory_sync"
 
-    def test_retrospective_event_type(self) -> None:
-        assert EventType.RETROSPECTIVE == "retrospective"
-
     def test_metrics_update_event_type(self) -> None:
         assert EventType.METRICS_UPDATE == "metrics_update"
-
-    def test_review_insight_event_type(self) -> None:
-        assert EventType.REVIEW_INSIGHT == "review_insight"
 
     def test_background_worker_status_event_type(self) -> None:
         assert EventType.BACKGROUND_WORKER_STATUS == "background_worker_status"
@@ -47,6 +41,7 @@ class TestBackgroundWorkerStatusModel:
     def test_default_status_is_disabled(self) -> None:
         status = BackgroundWorkerStatus(name="test", label="Test")
         assert status.status == "disabled"
+        assert status.description == ""
         assert status.last_run is None
         assert status.details == {}
 
@@ -61,6 +56,7 @@ class TestBackgroundWorkerStatusModel:
         data = status.model_dump()
         assert data["name"] == "memory_sync"
         assert data["label"] == "Memory Manager"
+        assert data["description"] == ""
         assert data["status"] == "ok"
         assert data["last_run"] == "2026-02-20T10:30:00Z"
         assert data["details"]["item_count"] == 12
@@ -231,7 +227,7 @@ class TestSystemWorkersEndpoint:
 
         response = await endpoint()
         data = json.loads(response.body)
-        assert len(data["workers"]) == 10
+        assert len(data["workers"]) == 11
         names = [w["name"] for w in data["workers"]]
         assert names == [
             "triage",
@@ -244,7 +240,12 @@ class TestSystemWorkersEndpoint:
             "review_insights",
             "pipeline_poller",
             "pr_unsticker",
+            "report_issue",
         ]
+        assert all(
+            isinstance(w["description"], str) and w["description"]
+            for w in data["workers"]
+        )
 
     @pytest.mark.asyncio
     async def test_returns_disabled_when_no_orchestrator(

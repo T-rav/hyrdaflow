@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
 from typing import Any, TypeVar
@@ -21,6 +22,9 @@ logger = logging.getLogger("hydraflow.phase_utils")
 
 T = TypeVar("T")
 T_Result = TypeVar("T_Result")
+
+_ADR_TITLE_RE = re.compile(r"^\s*\[ADR\]\s+", re.IGNORECASE)
+_ADR_REQUIRED_HEADINGS = ("## Context", "## Decision", "## Consequences")
 
 
 async def run_concurrent_batch(
@@ -50,6 +54,16 @@ async def run_concurrent_batch(
             if not t.done():
                 t.cancel()
     return results
+
+
+def release_batch_in_flight(store: IssueStore, task_ids: set[int]) -> None:
+    """Release in-flight protection for a batch of issues.
+
+    Should be called in a ``finally`` block after ``run_concurrent_batch``
+    to ensure no orphaned in-flight entries survive if a worker exits
+    without reaching ``mark_active`` / ``mark_complete``.
+    """
+    store.release_in_flight(task_ids)
 
 
 async def escalate_to_hitl(
@@ -171,3 +185,21 @@ async def publish_review_status(
             },
         )
     )
+
+
+def is_adr_issue_title(title: str) -> bool:
+    """Return ``True`` when *title* starts with ``[ADR]`` (case-insensitive)."""
+    return bool(_ADR_TITLE_RE.match(title))
+
+
+def adr_validation_reasons(body: str) -> list[str]:
+    """Return shape-validation failures for ADR markdown content."""
+    reasons: list[str] = []
+    text = body.strip()
+    if len(text) < 120:
+        reasons.append("ADR body is too short (minimum 120 characters)")
+    lower = text.lower()
+    missing = [h for h in _ADR_REQUIRED_HEADINGS if h.lower() not in lower]
+    if missing:
+        reasons.append("Missing required ADR sections: " + ", ".join(missing))
+    return reasons

@@ -40,7 +40,6 @@
       --red-subtle: rgba(248,81,73,0.15);
       --overlay: rgba(0,0,0,0.3);
       --intent-bg: rgba(88,166,255,0.06);
-      --card-active-border: rgba(88,166,255,0.4);
     }
     @keyframes stream-pulse {
       0%, 100% { opacity: 1; }
@@ -51,6 +50,48 @@
       font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
       background: var(--bg);
       color: var(--text);
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .metrics-grid > *:last-child:nth-child(odd) {
+      grid-column: span 2;
+    }
+    .metrics-sections {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+      align-items: stretch;
+      margin-bottom: 12px;
+    }
+    .metrics-section-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 92%, black 8%);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .metrics-section-card--full {
+      grid-column: span 2;
+    }
+    @media (max-width: 1180px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+      .metrics-grid > *:last-child:nth-child(odd) {
+        grid-column: span 1;
+      }
+      .metrics-sections {
+        grid-template-columns: 1fr;
+      }
+      .metrics-section-card--full {
+        grid-column: span 1;
+      }
     }
   </style>
 </head>

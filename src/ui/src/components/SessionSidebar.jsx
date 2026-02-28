@@ -8,6 +8,7 @@ export function SessionSidebar() {
     sessions,
     currentSessionId,
     selectedSessionId,
+    stageStatus,
     selectSession,
     deleteSession,
     addRepoShortcut,
@@ -169,7 +170,16 @@ export function SessionSidebar() {
                 const isCurrent = session.id === currentSessionId
                 const isSelected = session.id === selectedSessionId
                 const isHovered = session.id === hoveredSession
-                const issueCount = session.issues_processed?.length ?? 0
+                const isLiveSession = isActive && isCurrent
+                const liveSucceeded = isLiveSession
+                  ? (stageStatus?.workload?.done ?? session.issues_succeeded ?? 0)
+                  : (session.issues_succeeded ?? 0)
+                const liveFailed = isLiveSession
+                  ? (stageStatus?.workload?.failed ?? session.issues_failed ?? 0)
+                  : (session.issues_failed ?? 0)
+                const issueCount = isLiveSession
+                  ? (liveSucceeded + liveFailed)
+                  : (session.issues_processed?.length ?? 0)
 
                 let rowStyle = styles.sessionRow
                 if (isCurrent && isSelected) rowStyle = sessionRowCurrentSelected
@@ -194,11 +204,11 @@ export function SessionSidebar() {
                         {issueCount > 0 && (
                           <span style={styles.issuePill}>{issueCount}</span>
                         )}
-                        {session.issues_succeeded > 0 && (
-                          <span style={styles.successCount}>{session.issues_succeeded}✓</span>
+                        {liveSucceeded > 0 && (
+                          <span style={styles.successCount}>{liveSucceeded}✓</span>
                         )}
-                        {session.issues_failed > 0 && (
-                          <span style={styles.failCount}>{session.issues_failed}✗</span>
+                        {liveFailed > 0 && (
+                          <span style={styles.failCount}>{liveFailed}✗</span>
                         )}
                       </div>
                     </div>

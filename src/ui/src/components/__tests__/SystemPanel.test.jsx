@@ -21,6 +21,9 @@ function defaultMockContext(overrides = {}) {
     orchestratorStatus: 'idle',
     stageStatus: deriveStageStatus(pipelineIssues, workers, backgroundWorkers, {}),
     events: [],
+    metrics: null,
+    metricsHistory: null,
+    githubMetrics: null,
     ...overrides,
   }
 }
@@ -41,6 +44,46 @@ const mockBgWorkers = [
 ]
 
 describe('SystemPanel', () => {
+  describe('Sub-tabs', () => {
+    it('includes Metrics sub-tab when viewing system panel', () => {
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      expect(screen.getByText('Metrics')).toBeInTheDocument()
+    })
+
+    it('renders MetricsPanel content when Metrics sub-tab selected', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        metrics: {
+          lifetime: { issues_completed: 2, prs_merged: 1 },
+        },
+      }))
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      fireEvent.click(screen.getByText('Metrics'))
+      expect(screen.getByText('Lifetime')).toBeInTheDocument()
+    })
+
+    it('mounts MetricsPanel as the direct scroll container (empty state)', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext())
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      fireEvent.click(screen.getByText('Metrics'))
+      const subTabContent = screen.getByTestId('system-subtab-content')
+      const metricsPanel = screen.getByTestId('metrics-panel-root')
+      expect(metricsPanel.parentElement).toBe(subTabContent)
+      expect(metricsPanel.style.overflowY).toBe('auto')
+    })
+
+    it('mounts MetricsPanel as the direct scroll container (populated state)', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        githubMetrics: { total_closed: 10, total_merged: 8, open_by_label: {} },
+      }))
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      fireEvent.click(screen.getByText('Metrics'))
+      const subTabContent = screen.getByTestId('system-subtab-content')
+      const metricsPanel = screen.getByTestId('metrics-panel-root')
+      expect(metricsPanel.parentElement).toBe(subTabContent)
+      expect(metricsPanel.style.overflowY).toBe('auto')
+    })
+  })
+
   describe('Background Workers', () => {
     it('renders all background worker cards (including system workers)', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
@@ -104,6 +147,13 @@ describe('SystemPanel', () => {
       render(<SystemPanel backgroundWorkers={[]} />)
       const neverTexts = screen.getAllByText(/never/)
       expect(neverTexts.length).toBeGreaterThanOrEqual(BACKGROUND_WORKERS.length)
+    })
+
+    it('renders worker descriptions', () => {
+      render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+      for (const def of BACKGROUND_WORKERS) {
+        expect(screen.getByTestId(`desc-${def.key}`)).toHaveTextContent(def.description)
+      }
     })
 
     it('shows detail key-value pairs', () => {
@@ -726,8 +776,13 @@ describe('BackgroundWorkerCard schedule display', () => {
     render(<SystemPanel backgroundWorkers={bgWorkers} onUpdateInterval={() => {}} />)
     fireEvent.click(screen.getByTestId('edit-interval-pipeline_poller'))
     expect(screen.getByTestId('interval-editor-pipeline_poller')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-30m')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-1h')).toBeInTheDocument()
+    expect(screen.getByTestId('preset-5s')).toBeInTheDocument()
+    expect(screen.getByTestId('preset-10s')).toBeInTheDocument()
+    expect(screen.getByTestId('preset-15s')).toBeInTheDocument()
+    expect(screen.queryByTestId('preset-30m')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preset-1h')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preset-2h')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('preset-4h')).not.toBeInTheDocument()
   })
 
   it('calls onUpdateInterval with pipeline_poller when preset clicked', () => {
@@ -738,7 +793,7 @@ describe('BackgroundWorkerCard schedule display', () => {
     ]
     render(<SystemPanel backgroundWorkers={bgWorkers} onUpdateInterval={onUpdate} />)
     fireEvent.click(screen.getByTestId('edit-interval-pipeline_poller'))
-    fireEvent.click(screen.getByTestId('preset-1h'))
-    expect(onUpdate).toHaveBeenCalledWith('pipeline_poller', 3600)
+    fireEvent.click(screen.getByTestId('preset-10s'))
+    expect(onUpdate).toHaveBeenCalledWith('pipeline_poller', 10)
   })
 })

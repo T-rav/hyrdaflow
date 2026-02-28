@@ -18,7 +18,7 @@ from tests.helpers import ConfigFactory
 
 
 def _make_event(
-    event_type: EventType = EventType.BATCH_START,
+    event_type: EventType = EventType.PHASE_CHANGE,
     timestamp: str | None = None,
     data: dict | None = None,
 ) -> HydraFlowEvent:
@@ -49,7 +49,7 @@ class TestEventLogAppend:
         lines = log.path.read_text().strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert parsed["type"] == "batch_start"
+        assert parsed["type"] == "phase_change"
         assert parsed["data"] == {"batch": 1}
 
     @pytest.mark.asyncio

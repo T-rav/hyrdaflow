@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from config import HydraFlowConfig
 from docker_runner import (
     DockerProcess,
     DockerRunner,
@@ -979,6 +980,49 @@ class TestGetDockerRunner:
         ):
             get_docker_runner(config)
         assert "Docker daemon not available" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_resolved_identity_flows_into_container_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Resolved config identity should reach container env for gh + git attribution."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir(parents=True, exist_ok=True)
+        (repo_root / ".env").write_text(
+            "HYDRAFLOW_GH_TOKEN=ghp_bot_token\n"
+            "HYDRAFLOW_GIT_USER_NAME=Hydra Bot\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=hydra-bot@example.com\n"
+        )
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+
+        cfg = HydraFlowConfig(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            docker_enabled=True,
+            docker_image="hydra:latest",
+        ).resolve_defaults()
+
+        mock_client = _make_mock_docker_client()
+        with (
+            patch("docker_runner._check_docker_available", return_value=True),
+            patch("docker.from_env", return_value=mock_client),
+        ):
+            runner = get_docker_runner(cfg)
+            assert isinstance(runner, DockerRunner)
+            await runner.create_streaming_process(["claude", "-p"], cwd=str(repo_root))
+
+        create_call = mock_client.containers.create.call_args
+        env = create_call.kwargs.get("environment", {})
+        assert env.get("GH_TOKEN") == "ghp_bot_token"
+        assert env.get("GIT_AUTHOR_NAME") == "Hydra Bot"
+        assert env.get("GIT_COMMITTER_NAME") == "Hydra Bot"
+        assert env.get("GIT_AUTHOR_EMAIL") == "hydra-bot@example.com"
+        assert env.get("GIT_COMMITTER_EMAIL") == "hydra-bot@example.com"
 
 
 # ---------------------------------------------------------------------------

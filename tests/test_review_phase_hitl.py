@@ -839,3 +839,49 @@ class TestEscalateToHitl:
         history = event_bus.get_history()
         hitl_events = [e for e in history if e.type == EventType.HITL_ESCALATION]
         assert hitl_events[0].data["ci_fix_attempts"] == 3
+
+    @pytest.mark.asyncio
+    async def test_enqueue_transition_called_when_task_provided(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Providing task should enqueue transition immediately."""
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        issue = TaskFactory.create(id=42)
+
+        await phase._escalate_to_hitl(
+            issue.id,
+            101,
+            cause="Test",
+            origin_label="hydraflow-review",
+            comment="Escalation!",
+            task=issue,
+        )
+
+        phase._store.enqueue_transition.assert_called_once_with(issue, "hitl")
+
+    @pytest.mark.asyncio
+    async def test_enqueue_transition_not_called_when_no_task(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Omitting task (default None) should not call enqueue_transition."""
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="Test",
+            origin_label="hydraflow-review",
+            comment="Escalation!",
+        )
+
+        phase._store.enqueue_transition.assert_not_called()

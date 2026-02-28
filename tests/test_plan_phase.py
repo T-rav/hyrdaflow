@@ -85,6 +85,8 @@ class TestPlanPhase:
             success=True,
             plan="Step 1: Do the thing",
             summary="Plan done",
+            actionability_score=87,
+            actionability_rank="high",
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
@@ -98,6 +100,7 @@ class TestPlanPhase:
         assert plan_call.args[0] == 42
         assert "Step 1: Do the thing" in plan_call.args[1]
         assert "agent/issue-42" in plan_call.args[1]
+        assert "Actionability score:** 87/100 (high)" in plan_call.args[1]
 
     @pytest.mark.asyncio
     async def test_plan_issues_swaps_labels_on_success(
@@ -627,6 +630,30 @@ class TestPlanPhaseAlreadySatisfied:
         add_calls = [c.args for c in prs.add_labels.call_args_list]
         ready_calls = [c for c in add_calls if config.ready_label[0] in c[1]]
         assert len(ready_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_epic_child_not_closed_as_already_satisfied(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Epic children should never be auto-closed as already satisfied."""
+        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
+        plan_result = PlanResult(
+            issue_number=42,
+            success=True,
+            already_satisfied=True,
+            summary="The feature is already implemented",
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.plan_issues()
+
+        # Should NOT close the issue
+        prs.close_task.assert_not_awaited()
+        # Should NOT swap to dup label
+        prs.swap_pipeline_labels.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

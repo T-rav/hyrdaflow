@@ -213,3 +213,88 @@ class TestTriagePhase:
 
         assert was_active_during_evaluate, "Issue should be marked active during triage"
         assert not store.is_active(1), "Issue should be released after triage"
+
+    @pytest.mark.asyncio
+    async def test_triage_runs_concurrently_with_semaphore(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Multiple issues should be triaged concurrently up to max_triagers."""
+        from models import TriageResult
+
+        config.max_triagers = 2
+        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        issues = [
+            TaskFactory.create(id=i, title=f"Issue {i}", body="A" * 100)
+            for i in range(1, 4)
+        ]
+
+        concurrency_high_water = 0
+        active_count = 0
+        lock = asyncio.Lock()
+
+        async def track_concurrency(issue: object) -> TriageResult:
+            nonlocal concurrency_high_water, active_count
+            async with lock:
+                active_count += 1
+                concurrency_high_water = max(concurrency_high_water, active_count)
+            await asyncio.sleep(0.01)
+            async with lock:
+                active_count -= 1
+            return TriageResult(issue_number=getattr(issue, "id", 0), ready=True)
+
+        triage.evaluate = AsyncMock(side_effect=track_concurrency)
+        store.get_triageable = lambda _max_count: issues  # type: ignore[method-assign]
+
+        processed = await phase.triage_issues()
+
+        assert processed == 3
+        # Semaphore allows up to 2 concurrent, so high water should be <= 2
+        assert concurrency_high_water <= 2
+        # With 3 issues and semaphore=2, at least 2 should run in parallel
+        assert concurrency_high_water == 2
+
+    @pytest.mark.asyncio
+    async def test_adr_issue_routes_to_ready_when_shape_is_valid(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        issue = TaskFactory.create(
+            id=77,
+            title="[ADR] Adopt event-sourced state snapshots",
+            body=(
+                "## Context\n"
+                "Current pipeline state persistence causes replay costs and stale views.\n\n"
+                "## Decision\n"
+                "Adopt periodic event-sourced snapshots with compaction to reduce replay.\n\n"
+                "## Consequences\n"
+                "Adds compaction complexity but improves startup and dashboard freshness."
+            ),
+        )
+        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.triage_issues()
+
+        triage.evaluate.assert_not_awaited()
+        prs.transition.assert_called_once_with(77, "ready")
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_adr_issue_escalates_to_hitl_when_shape_invalid(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        issue = TaskFactory.create(
+            id=78,
+            title="[ADR] Simplify build graph",
+            body="Need to simplify this soon.",
+        )
+        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.triage_issues()
+
+        triage.evaluate.assert_not_awaited()
+        prs.swap_pipeline_labels.assert_called_once_with(78, config.hitl_label[0])
+        prs.post_comment.assert_called_once()
+        comment = prs.post_comment.call_args.args[1]
+        assert "Needs More Information" in comment
+        assert "Missing required ADR sections" in comment

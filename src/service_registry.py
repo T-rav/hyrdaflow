@@ -33,6 +33,7 @@ from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
+from report_issue_loop import ReportIssueLoop
 from retrospective import RetrospectiveCollector
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
@@ -41,6 +42,7 @@ from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
+from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
 from worktree import WorktreeManager
 
@@ -89,6 +91,7 @@ class ServiceRegistry:
     metrics_sync_bg: MetricsSyncLoop
     pr_unsticker_loop: PRUnstickerLoop
     manifest_refresh_loop: ManifestRefreshLoop
+    report_issue_loop: ReportIssueLoop
 
 
 @dataclass
@@ -133,6 +136,9 @@ def build_services(
 
     # Harness insight store (shared across phases)
     harness_insights = HarnessInsightStore(config.data_path("memory"))
+
+    # Troubleshooting pattern store (CI timeout feedback loop)
+    troubleshooting_store = TroubleshootingPatternStore(config.data_path("memory"))
 
     # Phase coordinators
     triager = TriagePhase(config, state, store, triage, prs, event_bus, stop_event)
@@ -195,12 +201,14 @@ def build_services(
         hitl_runner=hitl_runner,
         stop_event=stop_event,
         resolver=conflict_resolver,
+        troubleshooting_store=troubleshooting_store,
     )
     memory_sync = MemorySyncWorker(
         config,
         state,
         event_bus,
         runner=subprocess_runner,
+        prs=prs,
         manifest_syncer=manifest_syncer,
     )
     retrospective = RetrospectiveCollector(config, state, prs)
@@ -218,6 +226,7 @@ def build_services(
         retrospective=retrospective,
         verification_judge=verification_judge,
         epic_checker=epic_checker,
+        update_bg_worker_status=callbacks.update_bg_worker_status,
     )
     reviewer = ReviewPhase(
         config,
@@ -231,6 +240,7 @@ def build_services(
         harness_insights=harness_insights,
         conflict_resolver=conflict_resolver,
         post_merge=post_merge_handler,
+        update_bg_worker_status=callbacks.update_bg_worker_status,
     )
 
     # Background loops
@@ -280,6 +290,19 @@ def build_services(
         manifest_syncer=manifest_syncer,
     )
 
+    report_issue_loop = ReportIssueLoop(
+        config=config,
+        state=state,
+        pr_manager=prs,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+        runner=subprocess_runner,
+    )
+
     return ServiceRegistry(
         worktrees=worktrees,
         subprocess_runner=subprocess_runner,
@@ -309,4 +332,5 @@ def build_services(
         metrics_sync_bg=metrics_sync_bg,
         pr_unsticker_loop=pr_unsticker_loop,
         manifest_refresh_loop=manifest_refresh_loop,
+        report_issue_loop=report_issue_loop,
     )

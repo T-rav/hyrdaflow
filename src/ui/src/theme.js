@@ -37,5 +37,4 @@ export const theme = {
   redSubtle: 'var(--red-subtle)',
   overlay: 'var(--overlay)',
   intentBg: 'var(--intent-bg)',
-  cardActiveBorder: 'var(--card-active-border)',
 }

@@ -14,7 +14,6 @@ const emptyPipeline = {
 export const initialState = {
   connected: false,
   lastSeenId: -1,  // Monotonic event ID for deduplication on reconnect
-  batchNum: 0,
   phase: 'idle',
   orchestratorStatus: 'idle',
   workers: {},
@@ -63,15 +62,28 @@ function addEvent(state, action) {
   }
 }
 
+function mergeStageIssues(existingIssues, incomingIssues) {
+  // Server snapshot is authoritative: items absent from incoming are removed
+  // (prevents ghost cards) and incoming fields (including status) override
+  // local state for items still present.
+  const existingById = new Map(
+    (existingIssues || [])
+      .filter(item => item?.issue_number != null)
+      .map(item => [item.issue_number, item])
+  )
+  return (incomingIssues || []).map(item => {
+    if (item?.issue_number == null) return item
+    const existing = existingById.get(item.issue_number)
+    return existing ? { ...existing, ...item } : item
+  })
+}
+
 export function reducer(state, action) {
   switch (action.type) {
     case 'CONNECTED':
       return { ...state, connected: true }
     case 'DISCONNECTED':
       return { ...state, connected: false }
-
-    case 'batch_start':
-      return { ...state, batchNum: action.data.batch }
 
     case 'phase_change': {
       const newPhase = action.data.phase
@@ -315,12 +327,6 @@ export function reducer(state, action) {
       return { ...state, humanInputRequests: next }
     }
 
-    case 'batch_complete':
-      return {
-        ...addEvent(state, action),
-        mergedCount: action.data.merged || state.mergedCount,
-      }
-
     case 'hitl_escalation': {
       // Automated escalation: worker is keyed by `review-<pr>`
       // Manual escalation (request-changes): no pr, worker keyed by issue number
@@ -449,17 +455,29 @@ export function reducer(state, action) {
       return { ...state, events: merged }
     }
 
-    case 'PIPELINE_SNAPSHOT':
+    case 'PIPELINE_SNAPSHOT': {
+      const incoming = action.data || {}
+      const openStages = ['triage', 'plan', 'implement', 'review', 'hitl']
+
+      const nextOpen = Object.fromEntries(openStages.map((key) => {
+        if (!Object.prototype.hasOwnProperty.call(incoming, key)) {
+          return [key, state.pipelineIssues[key] || []]
+        }
+        // Server snapshot is authoritative: reconcile stage membership so issues
+        // absent from the snapshot are removed (eliminates ghost cards).
+        return [key, mergeStageIssues(state.pipelineIssues[key], incoming[key] || [])]
+      }))
+
       return {
         ...state,
         pipelineIssues: {
-          ...emptyPipeline,
-          ...action.data,
+          ...nextOpen,
           // Server never sends merged — preserve session-accumulated merged items
           merged: state.pipelineIssues.merged || [],
         },
         pipelinePollerLastRun: new Date().toISOString(),
       }
+    }
 
     case 'WS_PIPELINE_UPDATE': {
       const { issueNumber, fromStage, toStage, status: pipeStatus } = action.data
@@ -771,6 +789,32 @@ export function HydraFlowProvider({ children }) {
     }
   }, [])
 
+  const submitReport = useCallback(async ({ description, screenshot_base64 }) => {
+    const pi = state.pipelineIssues || {}
+    const environment = {
+      source: 'dashboard',
+      app_version: state.config?.app_version || '',
+      orchestrator_status: state.orchestratorStatus || 'unknown',
+      queue_depths: {
+        triage: (pi.triage || []).length,
+        plan: (pi.plan || []).length,
+        implement: (pi.implement || []).length,
+        review: (pi.review || []).length,
+      },
+    }
+    try {
+      const res = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description, screenshot_base64, environment }),
+      })
+      if (!res.ok) return null
+      return await res.json()
+    } catch {
+      return null
+    }
+  }, [state.config, state.orchestratorStatus, state.pipelineIssues])
+
   const resetSession = useCallback(() => {
     dispatch({ type: 'SESSION_RESET' })
   }, [])
@@ -922,7 +966,7 @@ export function HydraFlowProvider({ children }) {
           }
         }
 
-        if (event.type === 'batch_complete' || event.type === 'metrics_update') {
+        if (event.type === 'metrics_update') {
           fetchLifetimeStats()
           fetch('/api/metrics').then(r => r.json()).then(data => dispatch({ type: 'METRICS', data })).catch(() => {})
           fetchGithubMetrics()
@@ -991,8 +1035,9 @@ export function HydraFlowProvider({ children }) {
         sessionReviewed: state.sessionReviewed,
         mergedCount: state.mergedCount,
       },
+      state.config,
     ),
-    [state.pipelineIssues, state.workers, state.backgroundWorkers, state.sessionTriaged, state.sessionPlanned, state.sessionImplemented, state.sessionReviewed, state.mergedCount],
+    [state.pipelineIssues, state.workers, state.backgroundWorkers, state.sessionTriaged, state.sessionPlanned, state.sessionImplemented, state.sessionReviewed, state.mergedCount, state.config],
   )
 
   const selectedSession = useMemo(() => {
@@ -1014,6 +1059,7 @@ export function HydraFlowProvider({ children }) {
     stageStatus,
     resetSession,
     submitIntent,
+    submitReport,
     submitHumanInput,
     requestChanges,
     toggleBgWorker,

@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 import base64
 import io
+import logging
 import tarfile
 from collections.abc import Iterable
-from importlib import resources
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from hf_cli.assets_manifest import ASSET_PATHS
@@ -19,6 +19,16 @@ except ImportError:  # pragma: no cover - optional module
     embedded_assets = None
 
 _GITIGNORE_ENTRY = ".hydraflow/prep"
+logger = logging.getLogger("hydraflow.hf_cli.init")
+
+
+def _detect_repo_root() -> Path:
+    module_path = Path(__file__).resolve()
+    for candidate in module_path.parents:
+        if all((candidate / rel).exists() for rel in ASSET_PATHS):
+            return candidate
+    # Conservative fallback for standard src/hf_cli layout.
+    return module_path.parents[2]
 
 
 def _extract_assets_from_fileobj(
@@ -26,11 +36,29 @@ def _extract_assets_from_fileobj(
 ) -> tuple[int, int]:
     created = 0
     skipped = 0
+    rejected = 0
     with tarfile.open(fileobj=fileobj) as tar:
         for member in tar.getmembers():
-            dest = target / member.name
+            rel = PurePosixPath(member.name)
+            if rel.is_absolute() or ".." in rel.parts:
+                rejected += 1
+                logger.warning("Skipping unsafe archive entry: %s", member.name)
+                continue
+            dest = (target / Path(*rel.parts)).resolve()
+            try:
+                dest.relative_to(target)
+            except ValueError:
+                rejected += 1
+                logger.warning("Skipping escaping archive entry: %s", member.name)
+                continue
             if member.isdir():
                 dest.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                rejected += 1
+                logger.warning(
+                    "Skipping unsupported archive entry type: %s", member.name
+                )
                 continue
             if dest.exists() and not force:
                 skipped += 1
@@ -41,14 +69,9 @@ def _extract_assets_from_fileobj(
             with raw as src, open(dest, "wb") as dst:
                 dst.write(src.read())
             created += 1
+    if rejected:
+        logger.info("Skipped %d unsafe/unsupported archive entries", rejected)
     return created, skipped
-
-
-def _extract_assets_from_archive_path(
-    target: Path, force: bool, asset_path: Path
-) -> tuple[int, int]:
-    with asset_path.open("rb") as fh:
-        return _extract_assets_from_fileobj(target, force, fh)
 
 
 def _extract_assets_from_embedded_data(target: Path, force: bool) -> tuple[int, int]:
@@ -62,7 +85,7 @@ def _extract_assets_from_embedded_data(target: Path, force: bool) -> tuple[int, 
 
 
 def _extract_assets_from_source_tree(target: Path, force: bool) -> tuple[int, int]:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = _detect_repo_root()
     created = 0
     skipped = 0
     for rel_path in ASSET_PATHS:
@@ -97,10 +120,6 @@ def _extract_assets(target: Path, force: bool) -> tuple[int, int]:
     )
     if embedded_created or embedded_skipped:
         return embedded_created, embedded_skipped
-    asset_entry = resources.files("hf_cli").joinpath("assets.tar.gz")
-    if asset_entry.is_file():
-        with resources.as_file(asset_entry) as asset_path:
-            return _extract_assets_from_archive_path(target, force, asset_path)
     return _extract_assets_from_source_tree(target, force)
 
 

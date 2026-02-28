@@ -12,6 +12,7 @@ const mockItems = [
     branch: 'agent/issue-42',
     cause: 'CI failure',
     status: 'from review',
+    llmSummary: 'CI is failing on lint.\nBranch has stale rebase.\nRe-run after pulling main.\nUpdate snapshots for new output.\nThen request retry.',
   },
   {
     issue: 10,
@@ -91,10 +92,53 @@ describe('HITLTable component', () => {
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
     fireEvent.click(screen.getByTestId('hitl-row-42'))
     expect(screen.getByTestId('hitl-detail-42')).toBeInTheDocument()
+    expect(screen.getByTestId('hitl-summary-42')).toBeInTheDocument()
     expect(screen.getByTestId('hitl-textarea-42')).toBeInTheDocument()
     expect(screen.getByTestId('hitl-retry-42')).toBeInTheDocument()
     expect(screen.getByTestId('hitl-skip-42')).toBeInTheDocument()
     expect(screen.getByTestId('hitl-close-42')).toBeInTheDocument()
+  })
+
+  it('toggles summary from collapsed preview to expanded context', () => {
+    render(<HITLTable items={mockItems} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    const summary = screen.getByTestId('hitl-summary-42')
+    expect(summary.textContent).toContain('CI is failing on lint.')
+    expect(screen.getByTestId('hitl-summary-toggle-42')).toHaveTextContent('Show more')
+    fireEvent.click(screen.getByTestId('hitl-summary-toggle-42'))
+    expect(screen.getByTestId('hitl-summary-toggle-42')).toHaveTextContent('Show less')
+  })
+
+  it('fetches summary on expand when not preloaded', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ summary: 'Blocking CI check.\nNeed branch rebase.' }),
+    })
+    global.fetch = fetchMock
+    const items = [{ ...mockItems[1], llmSummary: '' }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+
+    fireEvent.click(screen.getByTestId('hitl-row-10'))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/hitl/10/summary')
+      expect(screen.getByTestId('hitl-summary-10').textContent).toContain(
+        'Blocking CI check.'
+      )
+    })
+  })
+
+  it('shows fallback message when summary fetch fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 })
+    global.fetch = fetchMock
+    const items = [{ ...mockItems[1], llmSummary: '' }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+
+    fireEvent.click(screen.getByTestId('hitl-row-10'))
+    await waitFor(() => {
+      expect(screen.getByTestId('hitl-summary-10').textContent).toContain(
+        'Could not generate context summary yet.'
+      )
+    })
   })
 
   it('collapses row on second click', () => {
@@ -182,8 +226,8 @@ describe('HITLTable component', () => {
     })
   })
 
-  it('calls correct API on close click with confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('calls correct API on close click without confirmation prompt', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm')
     const fetchMock = vi.fn().mockResolvedValue({ ok: true })
     global.fetch = fetchMock
     const onRefresh = vi.fn()
@@ -200,17 +244,24 @@ describe('HITLTable component', () => {
     await waitFor(() => {
       expect(onRefresh).toHaveBeenCalled()
     })
+    expect(confirmSpy).not.toHaveBeenCalled()
   })
 
-  it('does not call close API when confirmation is cancelled', () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const fetchMock = vi.fn()
+  it('removes item from UI immediately after successful close', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
     global.fetch = fetchMock
 
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
+    expect(screen.getByText('#42')).toBeInTheDocument()
+    expect(screen.getByText('3 items awaiting action')).toBeInTheDocument()
+
     fireEvent.click(screen.getByTestId('hitl-row-42'))
     fireEvent.click(screen.getByTestId('hitl-close-42'))
-    expect(fetchMock).not.toHaveBeenCalled()
+
+    await waitFor(() => {
+      expect(screen.queryByText('#42')).not.toBeInTheDocument()
+      expect(screen.getByText('2 items awaiting action')).toBeInTheDocument()
+    })
   })
 
   it('shows item count in header', () => {
@@ -245,6 +296,7 @@ describe('HITLTable component', () => {
   })
 
   it('does not fetch data on mount (no side effects)', () => {
+    if (typeof globalThis.fetch?.mockClear === 'function') globalThis.fetch.mockClear()
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     render(<HITLTable items={[]} onRefresh={() => {}} />)
     expect(fetchSpy).not.toHaveBeenCalled()

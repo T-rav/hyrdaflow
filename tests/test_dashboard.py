@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,6 +21,14 @@ from tests.conftest import EventFactory, make_orchestrator_mock, make_state
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+
+
+@pytest.fixture(autouse=True)
+def _disable_hitl_summary_autowarm(config: HydraFlowConfig) -> None:
+    """Avoid background HITL summary warm tasks in dashboard smoke tests."""
+    config.transcript_summarization_enabled = False
+    config.gh_token = ""
+
 
 # ---------------------------------------------------------------------------
 # create_app
@@ -371,7 +380,7 @@ class TestEventsRoute:
 
         async def publish() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
 
         asyncio.run(publish())
@@ -381,7 +390,7 @@ class TestEventsRoute:
         body = response.json()
 
         assert len(body) == 1
-        assert body[0]["type"] == EventType.BATCH_START.value
+        assert body[0]["type"] == EventType.PHASE_CHANGE.value
 
 
 # ---------------------------------------------------------------------------
@@ -1174,7 +1183,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
             await event_bus.publish(
                 EventFactory.create(
@@ -1192,8 +1201,8 @@ class TestWebSocketEndpoint:
             msg1 = json.loads(ws.receive_text())
             msg2 = json.loads(ws.receive_text())
 
-        assert msg1["type"] == "batch_start"
-        assert msg1["data"]["batch"] == 1
+        assert msg1["type"] == "phase_change"
+        assert msg1["data"]["phase"] == "plan"
         assert msg2["type"] == "phase_change"
         assert msg2["data"]["phase"] == "implement"
 
@@ -1269,7 +1278,7 @@ class TestWebSocketEndpoint:
 
         from dashboard import HydraFlowDashboard
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
 
         original_subscribe = event_bus.subscribe
 
@@ -1293,24 +1302,34 @@ class TestWebSocketEndpoint:
     def test_websocket_unsubscribes_on_disconnect(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:
-        import time
-
         from fastapi.testclient import TestClient
 
         from dashboard import HydraFlowDashboard
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+        unsubscribe_called = threading.Event()
 
         original_subscribe = event_bus.subscribe
+        original_unsubscribe = event_bus.unsubscribe
 
         def subscribe_with_preload(
             *_args: object, **_kwargs: object
         ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
+            # Preload one event so receive_text() returns immediately, ensuring
+            # the handler has entered its live-streaming loop before disconnect.
             queue.put_nowait(event)
             return queue
 
         event_bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
+
+        def unsubscribe_and_signal(
+            queue: asyncio.Queue[HydraFlowEvent],
+        ) -> None:
+            original_unsubscribe(queue)
+            unsubscribe_called.set()
+
+        event_bus.unsubscribe = unsubscribe_and_signal  # type: ignore[assignment]
 
         dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
@@ -1319,13 +1338,14 @@ class TestWebSocketEndpoint:
         with client.websocket_connect("/ws") as ws:
             ws.receive_text()
 
-        # Poll briefly for async cleanup (bounded retry count, not wall-clock)
-        for _ in range(1000):
-            if len(event_bus._subscribers) == 0:
-                break
-            time.sleep(0)
-
-        assert len(event_bus._subscribers) == 0
+        # Wait for the background ASGI thread to unsubscribe its queue deterministically
+        assert unsubscribe_called.wait(timeout=5), (
+            "unsubscribe was not called within 5s"
+        )
+        # Also verify the unsubscribe actually mutated _subscribers (not just that it was called)
+        assert len(event_bus._subscribers) == 0, (
+            f"Expected 0 subscribers after disconnect, got {len(event_bus._subscribers)}"
+        )
 
     def test_multiple_websocket_clients_receive_same_history(
         self, config: HydraFlowConfig, event_bus, state
@@ -1338,7 +1358,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
             await event_bus.publish(
                 EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
@@ -1373,7 +1393,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"step": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 1})
             )
             await event_bus.publish(
                 EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 2})
@@ -1391,7 +1411,7 @@ class TestWebSocketEndpoint:
         with client.websocket_connect("/ws") as ws:
             msgs = [json.loads(ws.receive_text()) for _ in range(3)]
 
-        assert msgs[0]["type"] == "batch_start"
+        assert msgs[0]["type"] == "phase_change"
         assert msgs[1]["type"] == "phase_change"
         assert msgs[2]["type"] == "worker_update"
         assert msgs[0]["data"]["step"] == 1
@@ -2182,7 +2202,7 @@ class TestWebSocketErrorLogging:
         # Publish an event so history is non-empty
         async def publish() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"batch": 1})
             )
 
         asyncio.run(publish())
@@ -2218,7 +2238,7 @@ class TestWebSocketErrorLogging:
         client = TestClient(app)
 
         # Pre-populate a queue with one event so queue.get() returns immediately
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
         pre_populated_queue: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         pre_populated_queue.put_nowait(event)
 

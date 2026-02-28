@@ -54,14 +54,16 @@ MATCHES=$(echo "$ADDED_LINES" | grep -oEn "$COMBINED_PATTERN" 2>/dev/null || tru
 if [ -n "$MATCHES" ]; then
   echo "BLOCKED: Potential secrets detected in staged changes:" >&2
   echo "" >&2
-  # Show which files contain the matches
-  while IFS= read -r file; do
-    [ -f "$file" ] || continue
-    FILE_DIFF=$(git diff --cached -U0 -- "$file" 2>/dev/null | grep -E '^\+[^+]' || true)
-    if echo "$FILE_DIFF" | grep -qE "$COMBINED_PATTERN" 2>/dev/null; then
-      echo "  - $file" >&2
-    fi
-  done <<< "$STAGED_FILES"
+  # Single-pass: parse file headers from the full staged diff to attribute matches
+  FULL_DIFF=$(git diff --cached -U0 2>/dev/null || true)
+  AFFECTED_FILES=$(echo "$FULL_DIFF" | awk -v pat="$COMBINED_PATTERN" '
+    /^diff --git/ { file = $NF; sub(/^b\//, "", file) }
+    /^\+[^+]/ && match($0, pat) { files[file] = 1 }
+    END { for (f in files) print f }
+  ' 2>/dev/null || true)
+  if [ -n "$AFFECTED_FILES" ]; then
+    echo "$AFFECTED_FILES" | sed 's/^/  - /' >&2
+  fi
   echo "" >&2
   echo "Remove secrets and use environment variables instead." >&2
   echo "If this is a false positive (e.g., test fixtures), ask the user to confirm." >&2

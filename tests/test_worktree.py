@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import stat
 import sys
 from pathlib import Path
@@ -197,6 +198,84 @@ class TestCreate:
             pytest.raises(RuntimeError, match="network error"),
         ):
             await manager.create(issue_number=7, branch="agent/issue-7")
+
+    @pytest.mark.asyncio
+    async def test_create_retries_on_origin_main_ref_lock_race(
+        self, config, tmp_path: Path
+    ) -> None:
+        """create should retry when git fetch hits origin/main ref-lock races."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        race_proc = make_proc(
+            returncode=1,
+            stderr=(
+                b"error: cannot lock ref 'refs/remotes/origin/main': is at aaaaaaaa "
+                b"but expected bbbbbbbb\n"
+                b"! bbbbbbbb..aaaaaaaa main -> origin/main (unable to update local ref)"
+            ),
+        )
+        success_proc = make_proc(returncode=0)
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # First fetch races; second fetch succeeds; rest succeed.
+            if call_count == 1:
+                return race_proc
+            return success_proc
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock,
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(manager, "_setup_env"),
+            patch.object(manager, "_create_venv", new_callable=AsyncMock),
+            patch.object(manager, "_install_hooks", new_callable=AsyncMock),
+        ):
+            result = await manager.create(issue_number=7, branch="agent/issue-7")
+
+        assert result == config.worktree_base / "issue-7"
+        assert call_count >= 4  # fetch (fail), fetch (retry), branch, worktree add
+        sleep_mock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_serializes_fetch_when_two_workers_start_together(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Concurrent create() calls should never overlap git fetch origin/main."""
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        fetch_in_flight = 0
+        max_fetch_in_flight = 0
+
+        async def fake_run_subprocess(*cmd, **kwargs):
+            nonlocal fetch_in_flight, max_fetch_in_flight
+            if cmd[:3] == ("git", "fetch", "origin"):
+                fetch_in_flight += 1
+                max_fetch_in_flight = max(max_fetch_in_flight, fetch_in_flight)
+                await asyncio.sleep(0.01)
+                fetch_in_flight -= 1
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run_subprocess),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(manager, "_setup_env"),
+            patch.object(manager, "_create_venv", new_callable=AsyncMock),
+            patch.object(manager, "_install_hooks", new_callable=AsyncMock),
+        ):
+            await asyncio.gather(
+                manager.create(issue_number=7, branch="agent/issue-7"),
+                manager.create(issue_number=8, branch="agent/issue-8"),
+            )
+
+        assert max_fetch_in_flight == 1
 
     @pytest.mark.asyncio
     async def test_create_raises_when_worktree_add_fails_after_branch_created(
@@ -718,6 +797,43 @@ class TestMergeMain:
             result = await manager.merge_main(tmp_path, "agent/issue-7")
 
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_merge_main_retries_ref_lock_fetch_race_and_succeeds(
+        self, config, tmp_path: Path
+    ) -> None:
+        """merge_main should retry fetch lock-race errors and complete successfully."""
+        manager = WorktreeManager(config)
+
+        lock_error = RuntimeError(
+            "Command ('git', 'fetch', 'origin', 'main') failed (rc=1): "
+            "error: cannot lock ref 'refs/remotes/origin/main': is at aaaaaaaa "
+            "but expected bbbbbbbb\n"
+            "! bbbbbbbb..aaaaaaaa main -> origin/main (unable to update local ref)"
+        )
+        calls: list[tuple[str, ...]] = []
+        fetch_failures = 0
+
+        async def fake_run_subprocess(*cmd, **kwargs):
+            nonlocal fetch_failures
+            calls.append(tuple(str(p) for p in cmd))
+            if cmd[:3] == ("git", "fetch", "origin"):
+                if fetch_failures == 0:
+                    fetch_failures += 1
+                    raise lock_error
+                return ""
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run_subprocess),
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock,
+        ):
+            result = await manager.merge_main(tmp_path, "agent/issue-7")
+
+        assert result is True
+        fetch_calls = [c for c in calls if c[:3] == ("git", "fetch", "origin")]
+        assert len(fetch_calls) == 2  # first fetch failed, second fetch retried
+        sleep_mock.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

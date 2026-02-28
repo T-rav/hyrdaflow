@@ -427,7 +427,7 @@ class TestCreditExhaustionPauseResume:
                 )
             return []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = credit_failing_plan  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -483,7 +483,7 @@ class TestCreditExhaustionPauseResume:
                 )
             return []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = credit_failing_then_ok  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -522,7 +522,7 @@ class TestCreditExhaustionPauseResume:
                 raise CreditExhaustedError("credits out", resume_at=None)
             return []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = credit_failing_no_time  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -630,7 +630,7 @@ class TestCreditExhaustionPauseResume:
                 resume_at=datetime.now(UTC) + timedelta(hours=5),
             )
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = credit_failing_implement  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]

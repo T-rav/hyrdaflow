@@ -24,14 +24,15 @@ if ! echo "$FILE_PATH" | grep -qE '\.py$'; then
 fi
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | md5)"
-mkdir -p "$MARKER_DIR"
+MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
 
-# Check if already warned this session (within last 4 hours)
+# Check if already warned this session (within last 4 hours) — before mkdir
 WARNED_MARKER="$MARKER_DIR/warned-cross-service"
 if [ -f "$WARNED_MARKER" ] && [ -n "$(find "$WARNED_MARKER" -mmin -240 2>/dev/null)" ]; then
   exit 0
 fi
+
+mkdir -p "$MARKER_DIR"
 
 # Find which services import from shared/
 SHARED_MODULE=$(echo "$FILE_PATH" | sed -n 's|.*/shared/\(.*\)\.py$|\1|p' | tr '/' '.')

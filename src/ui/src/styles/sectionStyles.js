@@ -1,11 +1,13 @@
 import { PIPELINE_STAGES } from '../constants'
 
+export const WORKSTREAM_SIDE_INSET_PX = 8
+
 const sectionHeaderBase = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
   padding: '8px 12px',
-  margin: '8px 8px 4px',
+  margin: `8px ${WORKSTREAM_SIDE_INSET_PX}px 4px`,
   cursor: 'pointer',
   userSelect: 'none',
   borderRadius: 6,
@@ -25,16 +27,13 @@ const sectionCountBase = {
   marginLeft: 'auto',
 }
 
-// Note: `${s.color}33` appends a hex alpha suffix to the CSS variable reference string
-// (e.g. `var(--accent)33`). After browser CSS variable substitution this becomes a valid
-// 8-digit hex color (e.g. `#58a6ff33`, ~20% opacity) — but only because all stage color
-// CSS variables in index.html are defined as 6-digit hex values.
-// If any variable is changed to rgb() / hsl() format, these borders will silently break.
+const subtleBorder = (color) => `color-mix(in srgb, ${color} 20%, transparent)`
+
 export const sectionHeaderStyles = Object.fromEntries(
   PIPELINE_STAGES.map(s => [s.key, {
     ...sectionHeaderBase,
     background: s.subtleColor,
-    border: `1px solid ${s.color}33`,
+    border: `1px solid ${subtleBorder(s.color)}`,
     borderLeft: `3px solid ${s.color}`,
   }])
 )

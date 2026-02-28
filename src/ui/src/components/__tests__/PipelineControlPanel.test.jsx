@@ -15,11 +15,15 @@ function defaultMockContext(overrides = {}) {
   const pipelineIssues = overrides.pipelineIssues || {}
   const workers = overrides.workers || {}
   const backgroundWorkers = overrides.backgroundWorkers || []
+  const hasConfigOverride = Object.prototype.hasOwnProperty.call(overrides, 'config')
+  const config = hasConfigOverride
+    ? overrides.config
+    : { max_triagers: 1, max_planners: 2, max_workers: 3, max_reviewers: 2 }
   return {
     workers,
     hitlItems: [],
-    config: { max_planners: 2, max_workers: 3, max_reviewers: 2 },
-    stageStatus: deriveStageStatus(pipelineIssues, workers, backgroundWorkers, {}),
+    config,
+    stageStatus: deriveStageStatus(pipelineIssues, workers, backgroundWorkers, {}, config),
     ...overrides,
   }
 }
@@ -46,7 +50,7 @@ describe('PipelineControlPanel', () => {
 
     it('shows worker count of 0 when no active workers', () => {
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0/1')
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('0/2')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/3')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('0/2')
@@ -55,20 +59,19 @@ describe('PipelineControlPanel', () => {
     it('shows worker counts per stage in active/max format', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers }))
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
-      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1/1')
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1/2')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1/3')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1/2')
     })
 
-    it('shows "worker" singular only for triage (no configKey) when count is 1', () => {
+    it('shows triage in active/max format using stage worker cap', () => {
       const singleTriageWorker = {
         'triage-5': { status: 'evaluating', worker: 1, role: 'triage', title: 'Triage #5', branch: '', transcript: [], pr: null },
       }
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: singleTriageWorker }))
       render(<PipelineControlPanel />)
-      expect(screen.getByText('worker')).toBeInTheDocument()
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1/1')
     })
 
     it('shows "workers" plural for non-triage stages even when active count is 1', () => {
@@ -149,51 +152,53 @@ describe('PipelineControlPanel', () => {
       expect(triageLabel.style.color).toBe('var(--text-muted)')
     })
 
-    it('shows only active count for triage (no configKey)', () => {
+    it('shows active/max count for triage from shared worker caps', () => {
       const triageWorker = {
         'triage-5': { status: 'evaluating', worker: 1, role: 'triage', title: 'Triage #5', branch: '', transcript: [], pr: null },
       }
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: triageWorker }))
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
-      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1/1')
     })
 
-    it('shows only active count when config is null', () => {
+    it('falls back to active-only counts when config is null', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers, config: null }))
       render(<PipelineControlPanel />)
       expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1')
-      for (const loop of PIPELINE_LOOPS) {
-        expect(screen.getByTestId(`loop-count-${loop.key}`).textContent).not.toContain('/')
-      }
+      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
+      expect(screen.getByTestId('loop-count-plan').textContent).not.toContain('/')
+      expect(screen.getByTestId('loop-count-implement').textContent).not.toContain('/')
+      expect(screen.getByTestId('loop-count-review').textContent).not.toContain('/')
     })
 
     it('updates display when config max values change', () => {
       const { rerender } = render(<PipelineControlPanel />)
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/3')
-      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_planners: 2, max_workers: 5, max_reviewers: 2 } }))
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_triagers: 1, max_planners: 2, max_workers: 5, max_reviewers: 2 } }))
       rerender(<PipelineControlPanel />)
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/5')
     })
 
-    it('shows active/0 format when config max value is 0', () => {
-      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_planners: 0, max_workers: 0, max_reviewers: 0 } }))
+    it('uses zero worker caps when config max values are zero', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_triagers: 0, max_planners: 0, max_workers: 0, max_reviewers: 0 } }))
       render(<PipelineControlPanel />)
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0/0')
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('0/0')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/0')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('0/0')
-      // Triage still shows no ratio since it has no configKey
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0')
-      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
     })
 
-    it('falls back to active-only count when config is present but missing a key', () => {
+    it('falls back to active-only counts when config is missing keys', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers, config: {} }))
       render(<PipelineControlPanel />)
-      // All non-triage stages fall back gracefully when keys are absent (undefined != null is false)
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
       expect(screen.getByTestId('loop-count-plan').textContent).not.toContain('/')
       expect(screen.getByTestId('loop-count-implement').textContent).not.toContain('/')
       expect(screen.getByTestId('loop-count-review').textContent).not.toContain('/')

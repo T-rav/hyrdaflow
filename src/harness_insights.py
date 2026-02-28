@@ -402,6 +402,7 @@ async def file_harness_suggestions(
     state: StateTracker,
     improve_label: list[str],
     hitl_label: list[str],
+    memory_label: list[str] | None = None,
     *,
     max_per_cycle: int = 1,
 ) -> int:
@@ -430,12 +431,19 @@ async def file_harness_suggestions(
             suggestion.evidence,
             subcategory=suggestion.subcategory,
         )
-        labels = improve_label[:1] + hitl_label[:1]
-        issue_num = await prs.create_issue(title, body, labels)
+        use_memory_flow = bool(memory_label)
+        labels = (
+            improve_label[:1] + memory_label[:1]
+            if use_memory_flow
+            else improve_label[:1] + hitl_label[:1]
+        )
+        issue_title = f"[Memory] {title}" if use_memory_flow else title
+        issue_num = await prs.create_issue(issue_title, body, labels)
         if issue_num:
-            if improve_label:
+            if improve_label and not use_memory_flow:
                 state.set_hitl_origin(issue_num, improve_label[0])
-            state.set_hitl_cause(issue_num, f"Harness pattern detected: {desc}")
+            if not use_memory_flow:
+                state.set_hitl_cause(issue_num, f"Harness pattern detected: {desc}")
             store.mark_pattern_proposed(key)
             filed += 1
 

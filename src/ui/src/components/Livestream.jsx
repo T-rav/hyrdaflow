@@ -1,6 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { theme } from '../theme'
-import { eventSummary, typeSpanStyles, defaultTypeStyle } from './EventLog'
+import { eventMessage, typeSpanStyles, defaultTypeStyle } from './EventLog'
+
+function issueNumberForEvent(event) {
+  const data = event?.data || {}
+  const candidate = data.issue ?? data.issueNumber ?? data.issue_id ?? null
+  if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate
+  if (typeof candidate === 'string' && /^\d+$/.test(candidate)) return Number(candidate)
+  return null
+}
 
 export function Livestream({ events }) {
   const containerRef = useRef(null)
@@ -35,17 +43,26 @@ export function Livestream({ events }) {
       {events.length === 0 && (
         <div style={styles.empty}>Waiting for events...</div>
       )}
-      {events.map((e, i) => (
-        <div key={i} style={styles.item}>
-          <span style={styles.time}>
-            {new Date(e.timestamp).toLocaleTimeString()}
-          </span>
-          <span style={typeSpanStyles[e.type] || defaultTypeStyle}>
-            {e.type.replace(/_/g, ' ')}
-          </span>
-          <span>{eventSummary(e.type, e.data)}</span>
-        </div>
-      ))}
+      {events.map((e, i) => {
+        const issueNumber = issueNumberForEvent(e)
+        const issueLabel = issueNumber != null ? issueNumber : 'n/a'
+        const message = eventMessage(e.type, e.data) || ''
+        const hasMessage = message.trim().length > 0
+        const lineText = hasMessage
+          ? `issue: ${issueLabel} line ${message}`
+          : `issue: ${issueLabel} line`
+        return (
+          <div key={i} style={styles.item}>
+            <span style={styles.time}>
+              {new Date(e.timestamp).toLocaleTimeString()}
+            </span>
+            <span style={typeSpanStyles[e.type] || defaultTypeStyle}>
+              {e.type.replace(/_/g, ' ')}
+            </span>
+            <span>{lineText}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }

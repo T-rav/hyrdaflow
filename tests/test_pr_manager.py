@@ -17,7 +17,7 @@ import pytest
 from events import EventType
 from models import ReviewVerdict
 from pr_manager import PRManager
-from tests.conftest import SubprocessMockBuilder
+from tests.conftest import PRInfoFactory, SubprocessMockBuilder
 from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -576,6 +576,103 @@ async def test_create_issue_no_labels(event_bus, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# upload_screenshot_gist
+# ---------------------------------------------------------------------------
+
+
+class TestUploadScreenshotGist:
+    """Tests for PRManager.upload_screenshot_gist."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_returns_empty_string(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            dry_run=True,
+        )
+        mgr = _make_manager(cfg, event_bus)
+        result = await mgr.upload_screenshot_gist("aGVsbG8=")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_valid_base64_uploads_and_returns_raw_url(self, event_bus, tmp_path):
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        gist_url = "https://gist.github.com/testuser/abc123"
+        mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
+
+        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist(png_b64)
+
+        expected = (
+            "https://gist.githubusercontent.com/testuser/abc123/raw/screenshot.png"
+        )
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_data_uri_prefix_stripped(self, event_bus, tmp_path):
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        gist_url = "https://gist.github.com/user/def456"
+        mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
+
+        raw_bytes = b"\x89PNG prefix test"
+        png_with_prefix = (
+            "data:image/png;base64," + base64.b64encode(raw_bytes).decode()
+        )
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist(png_with_prefix)
+
+        assert result == (
+            "https://gist.githubusercontent.com/user/def456/raw/screenshot.png"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failure_returns_empty_string(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_exec = SubprocessMockBuilder().with_returncode(1).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_unexpected_output_returns_empty_string(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_exec = SubprocessMockBuilder().with_stdout("unexpected output").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
 # push_branch
 # ---------------------------------------------------------------------------
 
@@ -796,6 +893,52 @@ async def test_create_pr_failure_returns_pr_info_with_number_zero(
     assert pr_info.number == 0
     assert pr_info.issue_number == issue.number
     assert pr_info.branch == "agent/issue-42"
+
+
+@pytest.mark.asyncio
+async def test_create_pr_failure_recovers_existing_open_pr(config, event_bus, issue):
+    manager = _make_manager(config, event_bus)
+    manager.find_open_pr_for_branch = AsyncMock(
+        return_value=PRInfoFactory.create(
+            number=222,
+            issue_number=issue.number,
+            branch="agent/issue-42",
+            url="https://github.com/test-org/test-repo/pull/222",
+        )
+    )
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+    )
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        pr_info = await manager.create_pr(issue, "agent/issue-42")
+
+    assert pr_info.number == 222
+    manager.find_open_pr_for_branch.assert_awaited_once_with(
+        "agent/issue-42", issue_number=issue.number
+    )
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_false_when_not_ahead(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":0}').build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is False
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_true_when_ahead(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":3}').build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is True
 
 
 @pytest.mark.asyncio
@@ -1444,10 +1587,12 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         fixed_label=["custom-fixed"],
         improve_label=["custom-improve"],
         memory_label=["custom-memory"],
+        transcript_label=["custom-transcript"],
         manifest_label=["custom-manifest"],
         metrics_label=["custom-metrics"],
         dup_label=["custom-dup"],
         epic_label=["custom-epic"],
+        epic_child_label=["custom-epic-child"],
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1489,10 +1634,12 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         "custom-fixed",
         "custom-improve",
         "custom-memory",
+        "custom-transcript",
         "custom-manifest",
         "custom-metrics",
         "custom-dup",
         "custom-epic",
+        "custom-epic-child",
     }
 
 
@@ -1575,6 +1722,9 @@ def test_makefile_prep_runs_cli_scaffold() -> None:
 
     match = re.search(r"^prep:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "prep target block not found in Makefile"
+    assert "$(MAKE) setup" in match.group(1), (
+        "prep target must run setup first to bootstrap agent assets"
+    )
     assert "--prep" in match.group(1), "prep target must call cli.py --prep"
 
 
@@ -1591,6 +1741,12 @@ def test_makefile_setup_runs_label_bootstrap() -> None:
     assert match is not None, "setup target block not found in Makefile"
     assert "--ensure-labels" in match.group(1), (
         "setup target must ensure labels via cli.py --ensure-labels"
+    )
+    assert "python -m hf_cli init --target" in match.group(1), (
+        "setup target must bootstrap .claude/.codex/.pi/.githooks via hf init"
+    )
+    assert ".hydraflow-managed" in match.group(1), (
+        "setup target should mark managed Codex skills to enable safe stale-skill pruning"
     )
 
 
@@ -2725,6 +2881,28 @@ class TestRemoveLabelHelper:
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
             await mgr._remove_label("issue", 42, "missing-label")
+
+    @pytest.mark.asyncio
+    async def test_remove_label_missing_label_404_is_noop(
+        self, config, event_bus, caplog
+    ):
+        """Missing-label 404 should be treated as expected no-op (not warning)."""
+        mgr = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("gh: Label does not exist (HTTP 404)")
+            .build()
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"),
+        ):
+            await mgr._remove_label("issue", 42, "missing-label")
+
+        assert "Could not remove label" not in caplog.text
+        assert "skipping remove" in caplog.text
 
 
 # ---------------------------------------------------------------------------

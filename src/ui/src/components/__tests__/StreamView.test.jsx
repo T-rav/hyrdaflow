@@ -19,12 +19,20 @@ function defaultHydraFlowContext(overrides = {}) {
     : defaultPipeline
   const workers = overrides.workers || {}
   const backgroundWorkers = overrides.backgroundWorkers || []
+  const config = overrides.config || { max_triagers: 1, max_planners: 2, max_workers: 3, max_reviewers: 2 }
   return {
     pipelineIssues,
     workers,
     prs: [],
+    config,
     backgroundWorkers,
-    stageStatus: deriveStageStatus(pipelineIssues, workers, backgroundWorkers, {}),
+    stageStatus: deriveStageStatus(
+      pipelineIssues,
+      workers,
+      backgroundWorkers,
+      {},
+      config,
+    ),
     ...overrides,
   }
 }
@@ -52,6 +60,21 @@ const basePipeIssue = {
 }
 
 describe('StreamView stage indicators', () => {
+  it('keeps stream card horizontal inset aligned with its stage header', () => {
+    mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
+      pipelineIssues: {
+        review: [{ issue_number: 42, title: 'Review card', status: 'queued' }],
+      },
+    }))
+    render(<StreamView {...defaultProps} />)
+
+    const header = screen.getByTestId('stage-header-review')
+    const card = screen.getByTestId('stream-card-42')
+
+    expect(header.style.margin).toBe('8px 8px 4px')
+    expect(card.style.margin).toBe('0px 8px 8px')
+  })
+
   describe('Status dot colors', () => {
     it('shows green dot when stage has active workers', () => {
       mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
@@ -708,7 +731,7 @@ describe('PipelineFlow failed and hitl dots', () => {
     expect(dot.style.animation).toBe('')
   })
 
-  it('renders queued dots with stage color', () => {
+  it('renders queued dots with subtle stage color', () => {
     mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
       pipelineIssues: {
         triage: [],
@@ -721,7 +744,7 @@ describe('PipelineFlow failed and hitl dots', () => {
     }))
     render(<StreamView {...defaultProps} />)
     const dot = screen.getByTestId('flow-dot-3')
-    expect(dot.style.background).toBe('var(--accent)')
+    expect(dot.style.background).toBe('var(--accent-subtle)')
     expect(dot.style.animation).toBe('')
   })
 
@@ -752,9 +775,9 @@ describe('PipelineFlow failed and hitl dots', () => {
     const hitlDot = screen.getByTestId('flow-dot-12')
     expect(hitlDot.style.background).toBe('var(--yellow)')
     expect(hitlDot.style.animation).toBe('')
-    // Queued: stage color (accent), no animation
+    // Queued: subtle stage color (accent), no animation
     const queuedDot = screen.getByTestId('flow-dot-13')
-    expect(queuedDot.style.background).toBe('var(--accent)')
+    expect(queuedDot.style.background).toBe('var(--accent-subtle)')
     expect(queuedDot.style.animation).toBe('')
   })
 })

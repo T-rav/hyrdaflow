@@ -19,7 +19,11 @@ from models import (
     SessionStatus,
     WorkFn,
 )
-from phase_utils import safe_file_memory_suggestion
+from phase_utils import (
+    is_adr_issue_title,
+    release_batch_in_flight,
+    safe_file_memory_suggestion,
+)
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
@@ -127,6 +131,7 @@ class HydraFlowOrchestrator:
         self._metrics_sync_bg = svc.metrics_sync_bg
         self._pr_unsticker_loop = svc.pr_unsticker_loop
         self._manifest_refresh_loop = svc.manifest_refresh_loop
+        self._report_issue_loop = svc.report_issue_loop
 
     @property
     def event_bus(self) -> EventBus:
@@ -354,6 +359,7 @@ class HydraFlowOrchestrator:
             "pipeline_poller": 5,
             "pr_unsticker": self._config.pr_unstick_interval,
             "manifest_refresh": self._config.manifest_refresh_interval,
+            "report_issue": self._config.report_issue_interval,
         }
         return defaults.get(name, self._config.poll_interval)
 
@@ -414,13 +420,52 @@ class HydraFlowOrchestrator:
     def _restore_bg_worker_states(self) -> None:
         """Hydrate background worker heartbeat cache from persisted state."""
         persisted = self._state.get_bg_worker_states()
+        restored = 0
         if persisted:
             self._bg_worker_states.update(persisted)
+            restored = len(persisted)
             logger.info(
                 "Restored %d background worker heartbeat entr%s from state",
-                len(persisted),
-                "ies" if len(persisted) != 1 else "y",
+                restored,
+                "ies" if restored != 1 else "y",
             )
+        backfilled = self._backfill_bg_worker_states_from_events()
+        if backfilled:
+            logger.info(
+                "Backfilled %d background worker heartbeat entr%s from event history",
+                backfilled,
+                "ies" if backfilled != 1 else "y",
+            )
+
+    def _backfill_bg_worker_states_from_events(self) -> int:
+        """Populate heartbeat cache from recent BACKGROUND_WORKER_STATUS events."""
+        history = list(self._bus.get_history())
+        if not history:
+            return 0
+        latest: dict[str, BackgroundWorkerState] = {}
+        existing = set(self._bg_worker_states)
+        for event in reversed(history):
+            if event.type != EventType.BACKGROUND_WORKER_STATUS:
+                continue
+            worker = event.data.get("worker")
+            if not worker or worker in existing or worker in latest:
+                continue
+            raw_details = event.data.get("details", {}) or {}
+            details = (
+                dict(raw_details)
+                if isinstance(raw_details, dict)
+                else {"raw": raw_details}
+            )
+            latest[worker] = BackgroundWorkerState(
+                name=worker,
+                status=str(event.data.get("status", "disabled")),
+                last_run=event.data.get("last_run"),
+                details=details,
+            )
+        for name, state in latest.items():
+            self._bg_worker_states[name] = state
+            self._state.set_bg_worker_state(name, state)
+        return len(latest)
 
     async def _start_session(self) -> None:
         """Create a new session log and publish SESSION_START."""
@@ -619,6 +664,7 @@ class HydraFlowOrchestrator:
             ("metrics", self._metrics_sync_loop),
             ("pr_unsticker", self._pr_unsticker_loop.run),
             ("manifest_refresh", self._manifest_refresh_bg_loop),
+            ("report_issue", self._report_issue_loop.run),
         ]
         tasks: dict[str, asyncio.Task[None]] = {}
         for name, factory in loop_factories:
@@ -668,7 +714,7 @@ class HydraFlowOrchestrator:
                 await self._sleep_or_stop(interval)
                 continue
             try:
-                await work_fn()
+                did_work = bool(await work_fn())
             except (AuthenticationError, CreditExhaustedError, MemoryError):
                 raise
             except Exception:
@@ -686,6 +732,10 @@ class HydraFlowOrchestrator:
                         },
                     )
                 )
+                await self._sleep_or_stop(interval)
+                continue
+            if did_work:
+                continue
             await self._sleep_or_stop(interval)
 
     async def _triage_loop(self) -> None:
@@ -785,8 +835,9 @@ class HydraFlowOrchestrator:
         path = self._config.log_dir / filename
         return self._config.format_path_for_display(path)
 
-    async def _do_implement_work(self) -> None:
+    async def _do_implement_work(self) -> bool:
         """Work function for the implement loop."""
+        did_work = False
         # After one poll cycle, release crash-recovered issues
         if self._recovered_issues:
             async with self._active_issues_lock:
@@ -799,57 +850,103 @@ class HydraFlowOrchestrator:
                         | self._active_hitl_issues
                     )
                 )
-        results, _ = await self._implementer.run_batch()
-        for result in results:
-            self._session_issue_results[result.issue_number] = result.success
-            if result.transcript:
-                await self._post_run_hooks(
-                    transcript=result.transcript,
-                    source="implementer",
-                    reference=f"issue #{result.issue_number}",
-                    issue_number=result.issue_number,
-                    phase="implement",
-                    status="success" if result.success else "failed",
-                    duration_seconds=result.duration_seconds,
-                    log_file=self._log_reference(f"issue-{result.issue_number}.txt"),
-                )
+        while not self._stop_event.is_set():
+            results, issues = await self._implementer.run_batch()
+            if not issues:
+                break
+            did_work = True
+            for result in results:
+                self._session_issue_results[result.issue_number] = result.success
+                if result.transcript:
+                    await self._post_run_hooks(
+                        transcript=result.transcript,
+                        source="implementer",
+                        reference=f"issue #{result.issue_number}",
+                        issue_number=result.issue_number,
+                        phase="implement",
+                        status="success" if result.success else "failed",
+                        duration_seconds=result.duration_seconds,
+                        log_file=self._log_reference(
+                            f"issue-{result.issue_number}.txt"
+                        ),
+                    )
+        return did_work
 
-    async def _do_review_work(self) -> None:
+    async def _do_review_work(self) -> bool:
         """Work function for the review loop."""
-        review_issues = self._store.get_reviewable(self._config.batch_size)
-        if not review_issues:
-            return
-        active_in_store = set(self._store.get_active_issues().keys())
-        gh_review_issues = [GitHubIssue.from_task(t) for t in review_issues]
-        prs, gh_issues = await self._fetcher.fetch_reviewable_prs(
-            active_in_store, prefetched_issues=gh_review_issues
-        )
-        if not prs:
-            return
-        review_results = await self._reviewer.review_prs(
-            prs, [i.to_task() for i in gh_issues]
-        )
-        for result in review_results:
-            if result.transcript:
-                if result.merged:
-                    review_status = "success"
-                elif result.ci_passed is False:
-                    review_status = "failed"
-                else:
-                    review_status = "completed"
-                await self._post_run_hooks(
-                    transcript=result.transcript,
-                    source="reviewer",
-                    reference=f"PR #{result.pr_number}",
-                    issue_number=result.issue_number,
-                    phase="review",
-                    status=review_status,
-                    duration_seconds=result.duration_seconds,
-                    log_file=self._log_reference(f"review-pr-{result.pr_number}.txt"),
+        did_work = False
+        while not self._stop_event.is_set():
+            review_issues = self._store.get_reviewable(self._config.batch_size)
+            if not review_issues:
+                break
+            try:
+                cycle_did_work = False
+                adr_issues = [
+                    issue for issue in review_issues if is_adr_issue_title(issue.title)
+                ]
+                normal_review_issues = [
+                    issue
+                    for issue in review_issues
+                    if issue.id not in {a.id for a in adr_issues}
+                ]
+
+                if adr_issues:
+                    cycle_did_work = True
+                    await self._reviewer.review_adrs(adr_issues)
+
+                if not normal_review_issues:
+                    did_work = did_work or cycle_did_work
+                    continue
+
+                active_in_store = set(self._store.get_active_issues().keys())
+                gh_review_issues = [
+                    GitHubIssue.from_task(t) for t in normal_review_issues
+                ]
+                prs, gh_issues = await self._fetcher.fetch_reviewable_prs(
+                    active_in_store, prefetched_issues=gh_review_issues
                 )
-        if any(r.merged for r in review_results):
-            await asyncio.sleep(_POST_MERGE_DELAY)
-            await self._prs.pull_main()
+                if not prs:
+                    # Keep review tasks in queue memory when PR visibility lags labels.
+                    for issue in normal_review_issues:
+                        self._store.enqueue_transition(issue, "review")
+                    # Treat as idle so the polling loop applies its normal backoff.
+                    did_work = did_work or cycle_did_work
+                    break
+                cycle_did_work = True
+                review_results = await self._reviewer.review_prs(
+                    prs, [i.to_task() for i in gh_issues]
+                )
+                reviewed_issue_numbers = {pr.issue_number for pr in prs}
+                for issue in normal_review_issues:
+                    if issue.id not in reviewed_issue_numbers:
+                        self._store.enqueue_transition(issue, "review")
+                for result in review_results:
+                    if result.transcript:
+                        if result.merged:
+                            review_status = "success"
+                        elif result.ci_passed is False:
+                            review_status = "failed"
+                        else:
+                            review_status = "completed"
+                        await self._post_run_hooks(
+                            transcript=result.transcript,
+                            source="reviewer",
+                            reference=f"PR #{result.pr_number}",
+                            issue_number=result.issue_number,
+                            phase="review",
+                            status=review_status,
+                            duration_seconds=result.duration_seconds,
+                            log_file=self._log_reference(
+                                f"review-pr-{result.pr_number}.txt"
+                            ),
+                        )
+                if any(r.merged for r in review_results):
+                    await asyncio.sleep(_POST_MERGE_DELAY)
+                    await self._prs.pull_main()
+                did_work = did_work or cycle_did_work
+            finally:
+                release_batch_in_flight(self._store, {i.id for i in review_issues})
+        return did_work
 
     async def _sleep_or_stop(self, seconds: int | float) -> None:
         """Sleep for *seconds*, waking early if stop is requested."""

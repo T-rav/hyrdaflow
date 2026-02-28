@@ -638,6 +638,40 @@ class TestFileHarnessSuggestions:
         mock_prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_memory_label_route_prefixes_memory_and_skips_hitl(
+        self, tmp_path: Path
+    ) -> None:
+        store = HarnessInsightStore(tmp_path / "memory")
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=101)
+        state = StateTracker(tmp_path / "state.json")
+
+        suggestion = ImprovementSuggestion(
+            category=FailureCategory.QUALITY_GATE,
+            occurrence_count=5,
+            window_size=20,
+            description="Quality gate failure",
+            suggestion="Improve lint checks",
+        )
+
+        filed = await file_harness_suggestions(
+            [suggestion],
+            store,
+            mock_prs,
+            state,
+            improve_label=["hydraflow-improve"],
+            hitl_label=["hydraflow-hitl"],
+            memory_label=["hydraflow-memory"],
+        )
+
+        assert filed == 1
+        call_args = mock_prs.create_issue.call_args
+        assert call_args[0][0].startswith("[Memory] [Harness Insight]")
+        assert call_args[0][2] == ["hydraflow-improve", "hydraflow-memory"]
+        assert state.get_hitl_origin(101) is None
+        assert state.get_hitl_cause(101) is None
+
+    @pytest.mark.asyncio
     async def test_create_issue_failure_does_not_mark_proposed(
         self, tmp_path: Path
     ) -> None:

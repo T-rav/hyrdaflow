@@ -49,5 +49,7 @@ class PRUnstickerLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         """Resolve all HITL causes (conflicts, CI failures, generic)."""
         hitl_items = await self._prs.list_hitl_items(self._config.hitl_label)
-        stats = await self._pr_unsticker.unstick(hitl_items)
+        # Only process HITL issues that currently have an open PR.
+        active_pr_items = [item for item in hitl_items if int(item.pr or 0) > 0]
+        stats = await self._pr_unsticker.unstick(active_pr_items)
         return dict(stats)

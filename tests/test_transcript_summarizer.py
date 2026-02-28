@@ -473,11 +473,11 @@ class TestSummarizeAndPublish:
         call_args = prs.create_issue.call_args
         assert call_args[0][0] == "[Transcript Summary] Issue #42 — implement phase"
         assert "hydraflow-improve" in call_args[0][2]
-        assert "hydraflow-hitl" in call_args[0][2]
+        assert "hydraflow-transcript" in call_args[0][2]
         assert "Key Decisions" in call_args[0][1]
 
     @pytest.mark.asyncio
-    async def test_sets_hitl_origin_and_cause(self, tmp_path: Path) -> None:
+    async def test_does_not_set_hitl_origin_or_cause(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(
             repo_root=tmp_path, transcript_summary_as_issue=True
         )
@@ -493,8 +493,8 @@ class TestSummarizeAndPublish:
             transcript="x" * 1000, issue_number=42, phase="implement"
         )
 
-        state.set_hitl_origin.assert_called_once_with(123, "hydraflow-improve")
-        state.set_hitl_cause.assert_called_once_with(123, "Transcript summary")
+        state.set_hitl_origin.assert_not_called()
+        state.set_hitl_cause.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_emits_event(self, tmp_path: Path) -> None:
@@ -687,13 +687,13 @@ class TestSummarizeAndPublish:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_labels_match_memory_suggestion_pattern(self, tmp_path: Path) -> None:
-        """Labels should be improve_label + hitl_label, same as memory suggestions."""
+    async def test_labels_match_transcript_routing(self, tmp_path: Path) -> None:
+        """Labels should be improve_label + transcript_label."""
         config = ConfigFactory.create(
             repo_root=tmp_path,
             transcript_summary_as_issue=True,
             improve_label=["custom-improve"],
-            hitl_label=["custom-hitl"],
+            transcript_label=["custom-transcript"],
         )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=1)
@@ -709,7 +709,7 @@ class TestSummarizeAndPublish:
 
         call_args = prs.create_issue.call_args
         labels = call_args[0][2]
-        assert labels == ["custom-improve", "custom-hitl"]
+        assert labels == ["custom-improve", "custom-transcript"]
 
     @pytest.mark.asyncio
     async def test_empty_model_output(self, tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Hook: Warn if editing source code without prior exploration or planning.
-# Fires on PreToolUse for Edit tool.
+# Fires on PreToolUse for Edit and Write tools.
 # Warns ONCE per session (4-hour window), does not block.
 # Only checks Python source files (skips tests, configs, __init__).
 
@@ -20,14 +20,15 @@ if echo "$FILE_PATH" | grep -qE '(test_|_test\.py|conftest\.py|/tests/|__init__\
 fi
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | md5)"
-mkdir -p "$MARKER_DIR"
+MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
 
-# Check if already warned this session (within last 4 hours)
+# Check if already warned this session (within last 4 hours) — before mkdir
 WARNED_MARKER="$MARKER_DIR/warned"
 if [ -f "$WARNED_MARKER" ] && [ -n "$(find "$WARNED_MARKER" -mmin -240 2>/dev/null)" ]; then
   exit 0
 fi
+
+mkdir -p "$MARKER_DIR"
 
 WARNINGS=""
 

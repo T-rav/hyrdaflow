@@ -279,7 +279,9 @@ class TestWaitAndFixCI:
 
         await phase.review_prs([pr], [issue])
 
-        assert phase._state.get_hitl_cause(42) == "CI failed after 1 fix attempt(s)"
+        cause = phase._state.get_hitl_cause(42)
+        assert cause is not None
+        assert cause.startswith("CI failed after 1 fix attempt(s): ")
 
     @pytest.mark.asyncio
     async def test_ci_failure_escalation_records_hitl_origin(

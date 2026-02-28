@@ -15,6 +15,7 @@ from memory import MemorySyncWorker
 from models import MemoryIssueData, StatusCallback
 
 logger = logging.getLogger("hydraflow.memory_sync_loop")
+_MEMORY_SYNC_FETCH_LIMIT = 500
 
 
 class MemorySyncLoop(BaseBackgroundLoop):
@@ -50,7 +51,7 @@ class MemorySyncLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         issues = await self._fetcher.fetch_issues_by_labels(
-            self._config.memory_label, limit=100
+            self._config.memory_sync_labels, limit=_MEMORY_SYNC_FETCH_LIMIT
         )
         issue_dicts: list[MemoryIssueData] = [
             MemoryIssueData(
@@ -58,6 +59,7 @@ class MemorySyncLoop(BaseBackgroundLoop):
                 title=i.title,
                 body=i.body,
                 createdAt=i.created_at,
+                labels=list(i.labels),
             )
             for i in issues
         ]

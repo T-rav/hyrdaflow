@@ -98,6 +98,20 @@ Do NOT include preamble or closing remarks — output ONLY the markdown sections
 {transcript}
 """
 
+_HITL_CONTEXT_PROMPT = """\
+You are assisting a human operator resolving a stuck software issue in a HITL queue.
+Summarize the context into concise, actionable lines.
+
+Rules:
+- Output plain text only (no markdown, no bullets).
+- Each line should be one sentence and include concrete details.
+- Prefer what is blocked, why it is blocked, and what to do next.
+- Keep to at most 8 lines total.
+
+--- ISSUE CONTEXT ---
+{context}
+"""
+
 
 class TranscriptSummarizer:
     """Summarizes agent transcripts and publishes them as GitHub issues or comments."""
@@ -137,6 +151,16 @@ class TranscriptSummarizer:
             transcript, self._config.max_transcript_summary_chars
         )
         prompt = _SUMMARIZATION_PROMPT.format(transcript=truncated)
+        return await self._call_model(prompt)
+
+    async def summarize_hitl_context(self, context: str) -> str | None:
+        """Generate a compact operator summary for HITL context."""
+        if not context.strip():
+            return None
+        truncated = _truncate_transcript(
+            context, self._config.max_transcript_summary_chars
+        )
+        prompt = _HITL_CONTEXT_PROMPT.format(context=truncated)
         return await self._call_model(prompt)
 
     # --- Comment-based summaries (new default) ---
@@ -271,12 +295,10 @@ class TranscriptSummarizer:
         )
 
         title = f"[Transcript Summary] Issue #{issue_number} — {phase} phase"
-        labels = list(self._config.improve_label) + list(self._config.hitl_label)
+        labels = list(self._config.improve_label) + list(self._config.transcript_label)
 
         issue_num = await self._prs.create_issue(title, body, labels)
         if issue_num:
-            self._state.set_hitl_origin(issue_num, self._config.improve_label[0])
-            self._state.set_hitl_cause(issue_num, "Transcript summary")
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.TRANSCRIPT_SUMMARY,

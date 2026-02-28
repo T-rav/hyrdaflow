@@ -314,7 +314,7 @@ class EventFactory:
         from events import HydraFlowEvent as HE
 
         return HE(
-            type=type if type is not None else ET.BATCH_START,
+            type=type if type is not None else ET.PHASE_CHANGE,
             timestamp=timestamp or "",
             data=data if data is not None else {},
         )

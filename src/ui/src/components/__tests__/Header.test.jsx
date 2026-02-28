@@ -1,15 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { deriveStageStatus } from '../../hooks/useStageStatus'
+import { PIPELINE_STAGES } from '../../constants'
+import { theme } from '../../theme'
 import {
   dotConnected, dotDisconnected,
   startBtnEnabled, startBtnDisabled,
+  stageAbbreviations,
+  pipelineStageStylesMap,
+  pipelineLabelStylesMap,
 } from '../Header'
 
 const mockUseHydraFlow = vi.fn()
+const html2canvasFn = vi.fn()
 
 vi.mock('../../context/HydraFlowContext', () => ({
   useHydraFlow: (...args) => mockUseHydraFlow(...args),
+}))
+vi.mock('html2canvas', () => ({
+  default: (...args) => html2canvasFn(...args),
 }))
 
 const { Header } = await import('../Header')
@@ -18,8 +27,18 @@ function mockStageStatus(workers = {}, sessionCounters = {}) {
   return deriveStageStatus({}, workers, [], sessionCounters)
 }
 
+function createRootContainer() {
+  const existing = document.getElementById('root')
+  if (existing) existing.remove()
+  const root = document.createElement('div')
+  root.id = 'root'
+  document.body.appendChild(root)
+  return root
+}
+
 beforeEach(() => {
-  mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(), config: null })
+  html2canvasFn.mockReset()
+  mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(), config: null, submitReport: vi.fn() })
 })
 
 describe('Header pre-computed styles', () => {
@@ -54,6 +73,46 @@ describe('Header pre-computed styles', () => {
     expect(dotConnected).toBe(dotConnected)
     expect(startBtnEnabled).toBe(startBtnEnabled)
   })
+
+  describe('pipelineStageStylesMap', () => {
+    it('has an entry for every pipeline stage', () => {
+      PIPELINE_STAGES.forEach(stage => {
+        expect(pipelineStageStylesMap[stage.key]).toBeDefined()
+      })
+    })
+
+    it('each entry uses the stage color as borderColor', () => {
+      PIPELINE_STAGES.forEach(stage => {
+        expect(pipelineStageStylesMap[stage.key].borderColor).toBe(stage.color)
+      })
+    })
+
+    it('style objects are referentially stable', () => {
+      PIPELINE_STAGES.forEach(stage => {
+        expect(pipelineStageStylesMap[stage.key]).toBe(pipelineStageStylesMap[stage.key])
+      })
+    })
+  })
+
+  describe('pipelineLabelStylesMap', () => {
+    it('has an entry for every pipeline stage', () => {
+      PIPELINE_STAGES.forEach(stage => {
+        expect(pipelineLabelStylesMap[stage.key]).toBeDefined()
+      })
+    })
+
+    it('each entry uses the stage color as text color', () => {
+      PIPELINE_STAGES.forEach(stage => {
+        expect(pipelineLabelStylesMap[stage.key].color).toBe(stage.color)
+      })
+    })
+
+    it('style objects are referentially stable', () => {
+      PIPELINE_STAGES.forEach(stage => {
+        expect(pipelineLabelStylesMap[stage.key]).toBe(pipelineLabelStylesMap[stage.key])
+      })
+    })
+  })
 })
 
 describe('Header component', () => {
@@ -79,50 +138,16 @@ describe('Header component', () => {
     expect(screen.getByText('Stop')).toBeInTheDocument()
   })
 
-  it('renders workload summary with empty workers', () => {
+  it('does not render workload counters', () => {
+    mockUseHydraFlow.mockReturnValue({
+      stageStatus: { ...mockStageStatus(), workload: { active: 3, done: 2, failed: 1, total: 6 } },
+      config: null,
+    })
     render(<Header {...defaultProps} />)
-    expect(screen.getByText('0 total')).toBeInTheDocument()
-    expect(screen.getByText('0 active')).toBeInTheDocument()
-    expect(screen.getByText('0 done')).toBeInTheDocument()
-    expect(screen.getByText('0 failed')).toBeInTheDocument()
-  })
-
-  it('renders workload summary with workers in various statuses', () => {
-    const workers = {
-      1: { status: 'running', worker: 1, role: 'implementer', title: 'Issue #1', branch: '', transcript: [], pr: null },
-      2: { status: 'running', worker: 2, role: 'implementer', title: 'Issue #2', branch: '', transcript: [], pr: null },
-      3: { status: 'done', worker: 3, role: 'implementer', title: 'Issue #3', branch: '', transcript: [], pr: null },
-      4: { status: 'done', worker: 4, role: 'planner', title: 'Plan #4', branch: '', transcript: [], pr: null },
-      5: { status: 'failed', worker: 5, role: 'implementer', title: 'Issue #5', branch: '', transcript: [], pr: null },
-    }
-    mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(workers, { mergedCount: 1 }) })
-    render(<Header {...defaultProps} />)
-    expect(screen.getByText('5 total')).toBeInTheDocument()
-    expect(screen.getByText('2 active')).toBeInTheDocument()
-    expect(screen.getByText('1 done')).toBeInTheDocument()  // mergedCount, not workers with 'done' status
-    expect(screen.getByText('1 failed')).toBeInTheDocument()
-  })
-
-  it('renders stats in correct order: active, done, failed, total', () => {
-    const workers = {
-      1: { status: 'running', worker: 1, role: 'implementer', title: 'Issue #1', branch: '', transcript: [], pr: null },
-    }
-    mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(workers, { mergedCount: 1 }) })
-    render(<Header {...defaultProps} />)
-    const workloadDiv = screen.getByText('1 active').parentElement
-    const statSpans = Array.from(workloadDiv.children).filter(el => el.textContent !== '|')
-    expect(statSpans.map(s => s.textContent)).toEqual(['1 active', '1 done', '0 failed', '1 total'])
-  })
-
-  it('counts quality_fix workers as active in workload summary', () => {
-    const workers = {
-      1: { status: 'quality_fix', worker: 1, role: 'implementer', title: 'Fix #1', branch: '', transcript: [], pr: null },
-      2: { status: 'queued', worker: 2, role: 'implementer', title: 'Issue #2', branch: '', transcript: [], pr: null },
-    }
-    mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(workers) })
-    render(<Header {...defaultProps} />)
-    expect(screen.getByText('2 total')).toBeInTheDocument()
-    expect(screen.getByText('1 active')).toBeInTheDocument()
+    expect(screen.queryByText(/\d+\s+active/i)).toBeNull()
+    expect(screen.queryByText(/\d+\s+done/i)).toBeNull()
+    expect(screen.queryByText(/\d+\s+failed/i)).toBeNull()
+    expect(screen.queryByText(/\d+\s+total/i)).toBeNull()
   })
 
   it('renders Session label', () => {
@@ -186,6 +211,61 @@ describe('Header component', () => {
     const centerDiv = sessionLabel.closest('div').parentElement
     expect(centerDiv.style.minWidth).toBe('0px')
     expect(centerDiv.style.overflow).toBe('hidden')
+  })
+
+  describe('session pipeline row', () => {
+    const counterFixture = {
+      sessionTriaged: 7,
+      sessionPlanned: 5,
+      sessionImplemented: 4,
+      sessionReviewed: 3,
+      mergedCount: 2,
+    }
+
+    beforeEach(() => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus({}, counterFixture),
+        config: null,
+      })
+    })
+
+    it('renders compact stage pills with arrows separating each stage', () => {
+      render(<Header {...defaultProps} />)
+      const pipelineRow = screen.getByTestId('session-pipeline')
+      expect(pipelineRow).toBeInTheDocument()
+
+      const expectedCounts = {
+        triage: counterFixture.sessionTriaged,
+        plan: counterFixture.sessionPlanned,
+        implement: counterFixture.sessionImplemented,
+        review: counterFixture.sessionReviewed,
+        merged: counterFixture.mergedCount,
+      }
+
+      PIPELINE_STAGES.forEach(stage => {
+        const pill = screen.getByTestId(`session-stage-${stage.key}`)
+        expect(pill).toHaveTextContent(String(expectedCounts[stage.key] ?? 0))
+      })
+
+      const arrows = screen.getAllByText('→')
+      expect(arrows.length).toBe(PIPELINE_STAGES.length - 1)
+    })
+
+    it('shows abbreviated stage labels in each session pill', () => {
+      render(<Header {...defaultProps} />)
+      PIPELINE_STAGES.forEach(stage => {
+        const pill = screen.getByTestId(`session-stage-${stage.key}`)
+        expect(pill).toHaveTextContent(stageAbbreviations[stage.key])
+      })
+    })
+
+    it('uses pipeline stage colors on each session pill border', () => {
+      render(<Header {...defaultProps} />)
+      PIPELINE_STAGES.forEach(stage => {
+        const pill = screen.getByTestId(`session-stage-${stage.key}`)
+        expect(pill.style.borderColor).toBe(stage.color)
+      })
+    })
   })
 
   describe('stopping state with active workers', () => {
@@ -302,6 +382,76 @@ describe('Header component', () => {
       )
       expect(screen.getByText('Stopping\u2026')).toBeInTheDocument()
       expect(screen.queryByText('Start')).toBeNull()
+    })
+  })
+
+  describe('Report button', () => {
+    it('renders in idle state', () => {
+      render(<Header {...defaultProps} orchestratorStatus="idle" />)
+      expect(screen.getByTestId('report-button')).toBeInTheDocument()
+    })
+
+    it('renders in running state', () => {
+      render(<Header {...defaultProps} orchestratorStatus="running" />)
+      expect(screen.getByTestId('report-button')).toBeInTheDocument()
+    })
+
+    it('renders in stopping state', () => {
+      render(<Header {...defaultProps} orchestratorStatus="stopping" />)
+      expect(screen.getByTestId('report-button')).toBeInTheDocument()
+    })
+
+    it('renders in done state', () => {
+      render(<Header {...defaultProps} orchestratorStatus="done" />)
+      expect(screen.getByTestId('report-button')).toBeInTheDocument()
+    })
+
+    it('is disabled when disconnected', () => {
+      render(<Header {...defaultProps} connected={false} />)
+      const btn = screen.getByTestId('report-button')
+      expect(btn).toBeDisabled()
+    })
+
+    it('is enabled when connected', () => {
+      render(<Header {...defaultProps} connected={true} />)
+      const btn = screen.getByTestId('report-button')
+      expect(btn).not.toBeDisabled()
+    })
+
+    it('opens modal with screenshot thumbnail after capture', async () => {
+      html2canvasFn.mockResolvedValue({
+        toDataURL: () => 'data:image/png;base64,header-screenshot',
+      })
+
+      const root = createRootContainer()
+
+      render(<Header {...defaultProps} connected={true} />, { container: root })
+      fireEvent.click(screen.getByTestId('report-button'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('report-modal-overlay')).toBeInTheDocument()
+        expect(screen.getByTestId('screenshot-thumbnail')).toBeInTheDocument()
+      })
+      expect(html2canvasFn).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries screenshot capture with safe mode when first pass fails', async () => {
+      html2canvasFn
+        .mockRejectedValueOnce(new Error('primary failed'))
+        .mockResolvedValueOnce({
+          toDataURL: () => 'data:image/png;base64,safe-mode-screenshot',
+        })
+
+      const root = createRootContainer()
+
+      render(<Header {...defaultProps} connected={true} />, { container: root })
+      fireEvent.click(screen.getByTestId('report-button'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('report-modal-overlay')).toBeInTheDocument()
+        expect(screen.getByTestId('screenshot-thumbnail')).toBeInTheDocument()
+      })
+      expect(html2canvasFn).toHaveBeenCalledTimes(2)
     })
   })
 })

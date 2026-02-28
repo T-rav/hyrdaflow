@@ -1,8 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { StreamCard, StatusDot, dotStyles, badgeStyleMap } from '../StreamCard'
+import {
+  StreamCard,
+  StatusDot,
+  dotStyles,
+  badgeStyleMap,
+  cardActiveStyleMap,
+  cardInactiveStyleMap,
+  activeDotStyleMap,
+} from '../StreamCard'
 import { theme } from '../../theme'
-import { STAGE_KEYS } from '../../hooks/useTimeline'
+import { STAGE_KEYS, STAGE_META } from '../../hooks/useTimeline'
 
 function makeIssue(overrides = {}) {
   const stages = {}
@@ -34,6 +42,13 @@ describe('StatusDot component', () => {
     expect(el.style.background).toBe(theme.accent)
   })
 
+  it('uses phase color for active status when stageKey is provided', () => {
+    const { container } = render(<StatusDot status="active" stageKey="implement" />)
+    const el = container.firstChild
+    expect(el.style.background).toBe(STAGE_META.implement.color)
+    expect(el.style.animation).toContain('stream-pulse')
+  })
+
   it('renders a checkmark for done status', () => {
     const { container } = render(<StatusDot status="done" />)
     expect(container.textContent).toBe('\u2713')
@@ -49,11 +64,20 @@ describe('StatusDot component', () => {
     expect(container.textContent).toBe('!')
   })
 
-  it('renders a static yellow dot for queued status', () => {
+  it('uses the stage subtle color for queued status when stageKey is provided', () => {
+    const { container } = render(<StatusDot status="queued" stageKey="plan" />)
+    const el = container.firstChild
+    expect(el.tagName).toBe('SPAN')
+    expect(el.style.background).toBe(STAGE_META.plan.subtleColor)
+    expect(el.style.border).toContain(STAGE_META.plan.color)
+    expect(el.style.animation).toBe('')
+  })
+
+  it('falls back to the neutral queued style when no stageKey is provided', () => {
     const { container } = render(<StatusDot status="queued" />)
     const el = container.firstChild
     expect(el.tagName).toBe('SPAN')
-    expect(el.style.background).toBe(theme.yellow)
+    expect(el.style.background).toBe(theme.border)
     expect(el.style.animation).toBe('')
   })
 
@@ -95,8 +119,8 @@ describe('dotStyles', () => {
     expect(dotStyles.active.animation).toContain('stream-pulse')
   })
 
-  it('queued style has yellow background and no animation', () => {
-    expect(dotStyles.queued.background).toBe(theme.yellow)
+  it('queued style falls back to neutral background and has no animation', () => {
+    expect(dotStyles.queued.background).toBe(theme.border)
     expect(dotStyles.queued).not.toHaveProperty('animation')
   })
 
@@ -107,16 +131,136 @@ describe('dotStyles', () => {
 })
 
 describe('badgeStyleMap', () => {
-  it('has entries for all supported statuses including queued', () => {
-    const expectedStatuses = ['active', 'done', 'failed', 'hitl', 'queued', 'pending']
+  it('has entries for all non-queued statuses', () => {
+    const expectedStatuses = ['active', 'done', 'failed', 'hitl', 'pending']
     for (const status of expectedStatuses) {
       expect(badgeStyleMap).toHaveProperty(status)
     }
   })
 
-  it('queued badge uses yellow theme colors', () => {
-    expect(badgeStyleMap.queued.background).toBe(theme.yellowSubtle)
-    expect(badgeStyleMap.queued.color).toBe(theme.yellow)
+  it('does not have a queued entry (stage-specific colors are applied inline in StageRow)', () => {
+    expect(badgeStyleMap).not.toHaveProperty('queued')
+  })
+})
+
+describe('StageRow queued presentation', () => {
+  it('uses stage-specific subtle colors for queued nodes and badges', () => {
+    const issue = makeIssue({ overallStatus: 'queued', currentStage: 'plan' })
+    issue.stages.plan = { ...issue.stages.plan, status: 'queued' }
+
+    const { getByTestId } = render(<StreamCard issue={issue} defaultExpanded />)
+    const node = getByTestId('stage-node-plan')
+    const badge = getByTestId('stage-badge-plan')
+
+    expect(node.style.background).toBe(STAGE_META.plan.subtleColor)
+    expect(node.style.borderColor).toBe(STAGE_META.plan.color)
+    expect(badge.style.background).toBe(STAGE_META.plan.subtleColor)
+    expect(badge.style.color).toBe(STAGE_META.plan.color)
+  })
+})
+
+describe('StreamCard phase-aware styling', () => {
+  it('aligns border and accent to stage color when collapsed', () => {
+    const issue = makeIssue({ overallStatus: 'active', currentStage: 'review' })
+    const { container } = render(<StreamCard issue={issue} />)
+    const card = container.firstChild
+    expect(card.style.margin).toBe('0px 8px 8px')
+    expect(card.getAttribute('style') || '').toContain(`border-left: 3px solid ${STAGE_META.review.color}`)
+  })
+
+  it('falls back to subtle border for inactive cards', () => {
+    const issue = makeIssue({ overallStatus: 'queued', currentStage: 'plan' })
+    issue.stages.plan = { ...issue.stages.plan, status: 'queued' }
+    const { container } = render(<StreamCard issue={issue} />)
+    const card = container.firstChild
+    expect(card.getAttribute('style') || '').toContain(`border-left: 3px solid ${STAGE_META.plan.color}`)
+  })
+
+  it('uses cardInactiveStyleMap for done status', () => {
+    const issue = makeIssue({ overallStatus: 'done', currentStage: 'implement' })
+    const { container } = render(<StreamCard issue={issue} />)
+    const card = container.firstChild
+    expect(card.getAttribute('style') || '').toContain(`border-left: 3px solid ${STAGE_META.implement.color}`)
+  })
+
+  it('uses cardInactiveStyleMap for failed status', () => {
+    const issue = makeIssue({ overallStatus: 'failed', currentStage: 'review' })
+    const { container } = render(<StreamCard issue={issue} />)
+    const card = container.firstChild
+    expect(card.getAttribute('style') || '').toContain(`border-left: 3px solid ${STAGE_META.review.color}`)
+  })
+
+  it('uses cardInactiveStyleMap for hitl status', () => {
+    const issue = makeIssue({ overallStatus: 'hitl', currentStage: 'review' })
+    const { container } = render(<StreamCard issue={issue} />)
+    const card = container.firstChild
+    expect(card.getAttribute('style') || '').toContain(`border-left: 3px solid ${STAGE_META.review.color}`)
+  })
+
+  it('falls back to neutral border when currentStage is null', () => {
+    const issue = makeIssue({ overallStatus: 'queued', currentStage: null })
+    const { container } = render(<StreamCard issue={issue} />)
+    const card = container.firstChild
+    // No phase-specific left border — base styles.card border only
+    expect(card.getAttribute('style') || '').not.toContain('border-left')
+  })
+})
+
+describe('phase-specific style maps', () => {
+  it('exports per-stage card and dot styles', () => {
+    for (const key of STAGE_KEYS) {
+      const meta = STAGE_META[key]
+      expect(cardActiveStyleMap[key].border).toBe(`1px solid ${meta.color}`)
+      expect(cardActiveStyleMap[key].borderLeft).toBe(`3px solid ${meta.color}`)
+      expect(cardInactiveStyleMap[key].border).toBe(`1px solid color-mix(in srgb, ${meta.color} 20%, transparent)`)
+      expect(cardInactiveStyleMap[key].borderLeft).toBe(`3px solid ${meta.color}`)
+      expect(activeDotStyleMap[key].background).toBe(meta.color)
+      expect(activeDotStyleMap[key].animation).toContain('stream-pulse')
+    }
+  })
+})
+
+describe('StreamCard auto-collapse on status change', () => {
+  it('collapses when defaultExpanded transitions from true to false', async () => {
+    const issue = makeIssue()
+    const intent = { text: 'Tighten regression coverage' }
+    const { rerender } = render(<StreamCard issue={issue} defaultExpanded intent={intent} />)
+    expect(screen.getByText('Intent:')).toBeInTheDocument()
+
+    rerender(<StreamCard issue={issue} defaultExpanded={false} intent={intent} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Intent:')).toBeNull()
+    })
+  })
+
+  it('does not auto-expand when defaultExpanded transitions from false to true', async () => {
+    const issue = makeIssue()
+    const intent = { text: 'Document auto-collapse behavior' }
+    const { rerender } = render(<StreamCard issue={issue} defaultExpanded={false} intent={intent} />)
+    expect(screen.queryByText('Intent:')).toBeNull()
+
+    rerender(<StreamCard issue={issue} defaultExpanded intent={intent} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Intent:')).toBeNull()
+    })
+  })
+
+  it('allows manual toggle to expand after auto-collapse runs', async () => {
+    const issue = makeIssue()
+    const intent = { text: 'Keep UI clean' }
+    const { rerender } = render(<StreamCard issue={issue} defaultExpanded intent={intent} />)
+    expect(screen.getByText('Intent:')).toBeInTheDocument()
+
+    rerender(<StreamCard issue={issue} defaultExpanded={false} intent={intent} />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Intent:')).toBeNull()
+    })
+
+    fireEvent.click(screen.getByText('Keep UI clean'))
+    expect(screen.getByText('Intent:')).toBeInTheDocument()
   })
 })
 
@@ -485,4 +629,3 @@ describe('StreamCard transcript rendering', () => {
     expect(screen.queryByText('View Transcript')).not.toBeInTheDocument()
   })
 })
-

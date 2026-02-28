@@ -8,5 +8,6 @@ from pathlib import Path
 ASSET_PATHS = [
     Path(".claude"),
     Path(".codex"),
+    Path(".pi"),
     Path(".githooks"),
 ]

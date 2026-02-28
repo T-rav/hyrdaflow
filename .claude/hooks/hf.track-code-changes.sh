@@ -26,8 +26,8 @@ if echo "$FILE_PATH" | grep -qE '\.claude/'; then
 fi
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | md5)"
-mkdir -p "$MARKER_DIR"
+MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
+[ -d "$MARKER_DIR" ] || mkdir -p "$MARKER_DIR"
 touch "$MARKER_DIR/code-changed"
 
 exit 0

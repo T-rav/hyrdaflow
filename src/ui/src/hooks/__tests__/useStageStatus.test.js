@@ -152,8 +152,57 @@ describe('deriveStageStatus', () => {
     expect(result.merged.sessionCount).toBe(0)
   })
 
+  it('derives canonical worker caps from config', () => {
+    const result = deriveStageStatus(
+      emptyPipeline,
+      {},
+      [],
+      {},
+      { max_triagers: 2, max_planners: 3, max_workers: 5, max_reviewers: 4 },
+    )
+    expect(result.workerCaps).toEqual({
+      triage: 2,
+      plan: 3,
+      implement: 5,
+      review: 4,
+    })
+  })
+
+  it('leaves missing/invalid worker caps unset (config drives limits)', () => {
+    const result = deriveStageStatus(
+      emptyPipeline,
+      {},
+      [],
+      {},
+      { max_triagers: 0, max_planners: 0, max_workers: 0, max_reviewers: -2 },
+    )
+    expect(result.workerCaps).toEqual({
+      triage: 0,
+      plan: 0,
+      implement: 0,
+      review: -2,
+    })
+  })
+
+  it('returns null triage cap when max_triagers is absent from config', () => {
+    const result = deriveStageStatus(
+      emptyPipeline,
+      {},
+      [],
+      {},
+      { max_planners: 2, max_workers: 3, max_reviewers: 1 },
+    )
+    expect(result.workerCaps.triage).toBeNull()
+  })
+
   describe('workload aggregate', () => {
-    it('computes workload totals across all workers', () => {
+    it('computes workload totals from pipeline issues plus merged session count', () => {
+      const pipeline = {
+        ...emptyPipeline,
+        triage: [{ issue_number: 1, status: 'active' }],
+        implement: [{ issue_number: 2, status: 'failed' }],
+        review: [{ issue_number: 3, status: 'queued' }],
+      }
       const workers = {
         1: { role: 'implementer', status: 'running' },
         2: { role: 'implementer', status: 'done' },
@@ -162,12 +211,12 @@ describe('deriveStageStatus', () => {
         5: { role: 'reviewer', status: 'queued' },
       }
 
-      const result = deriveStageStatus(emptyPipeline, workers, [], { mergedCount: 2 })
+      const result = deriveStageStatus(pipeline, workers, [], { mergedCount: 2 })
 
       expect(result.workload).toEqual({
-        total: 5,
-        active: 2,  // running + planning
-        done: 2,    // from mergedCount, not workers with status 'done'
+        total: 5,   // 3 open pipeline issues + 2 merged
+        active: 2,  // max(pipeline active=1, worker active=2)
+        done: 2,    // mergedCount from session counters
         failed: 1,
       })
     })
@@ -183,15 +232,15 @@ describe('deriveStageStatus', () => {
 
       const result = deriveStageStatus(emptyPipeline, workers, [], { mergedCount: 2 })
 
-      expect(result.workload.done).toBe(2) // mergedCount, not 5 workers with 'done'
+      expect(result.workload.done).toBe(2)
     })
 
-    it('returns all zeros for empty workers', () => {
+    it('returns all zeros for empty workers and empty pipeline', () => {
       const result = deriveStageStatus(emptyPipeline, {}, [], {})
       expect(result.workload).toEqual({ total: 0, active: 0, done: 0, failed: 0 })
     })
 
-    it('counts quality_fix workers as active', () => {
+    it('keeps active non-zero when workers are active but pipeline snapshot lags', () => {
       const workers = {
         1: { role: 'implementer', status: 'quality_fix' },
         2: { role: 'implementer', status: 'queued' },
@@ -199,17 +248,17 @@ describe('deriveStageStatus', () => {
 
       const result = deriveStageStatus(emptyPipeline, workers, [], {})
       expect(result.workload.active).toBe(1)
-      expect(result.workload.total).toBe(2)
+      expect(result.workload.total).toBe(0)
     })
 
-    it('done is 0 when workers are active but no merges have occurred', () => {
+    it('done is 0 when no merges have occurred', () => {
       const workers = {
         1: { role: 'implementer', status: 'running' },
         2: { role: 'implementer', status: 'testing' },
         3: { role: 'planner', status: 'planning' },
       }
       const result = deriveStageStatus(emptyPipeline, workers, [], {})
-      expect(result.workload).toEqual({ total: 3, active: 3, done: 0, failed: 0 })
+      expect(result.workload).toEqual({ total: 0, active: 3, done: 0, failed: 0 })
     })
   })
 
@@ -264,7 +313,7 @@ describe('deriveStageStatus', () => {
       workerCount: 0, enabled: true, sessionCount: 3,
     })
     expect(result.workload).toEqual({
-      total: 4, active: 3, done: 3, failed: 0,  // done = mergedCount from counters
+      total: 8, active: 3, done: 3, failed: 0,  // 5 open (incl hitl) + 3 merged
     })
   })
 })

@@ -1,0 +1,149 @@
+name: Quality
+# prep-managed: quality-workflow
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  discover-projects:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.scan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discover project paths
+        id: scan
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".")
+          ignored = {
+              ".git", ".github", ".hydraflow", ".idea", ".next", ".pytest_cache", ".turbo", ".venv", "__pycache__", "build", "dist", "hydra", "hydraflow", "node_modules", "target", "venv"
+          }
+          markers = {
+              "Makefile", "makefile", "GNUmakefile",
+              "pyproject.toml", "requirements.txt", "setup.py",
+              "package.json", "go.mod", "Cargo.toml", "pom.xml",
+              "build.gradle", "build.gradle.kts", "Gemfile",
+              "CMakeLists.txt"
+          }
+
+          paths = set()
+          submodule_roots = set()
+          gitmodules = root / ".gitmodules"
+          if gitmodules.is_file():
+              for line in gitmodules.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if not line.startswith("path ="):
+                      continue
+                  rel = line.split("=", 1)[1].strip()
+                  if rel:
+                      submodule_roots.add((root / rel).resolve())
+
+          for path in root.rglob("*"):
+              if any(part in ignored for part in path.parts):
+                  continue
+              resolved = path.resolve()
+              if any(sm == resolved or sm in resolved.parents for sm in submodule_roots):
+                  continue
+              if not path.is_file():
+                  continue
+              if (
+                  path.name in markers
+                  or path.name.endswith(".sln")
+                  or path.name.endswith(".csproj")
+              ):
+                  rel = path.parent.relative_to(root)
+                  paths.add(str(rel) if str(rel) else ".")
+
+          items = [{"project_dir": p} for p in sorted(paths)]
+          payload = json.dumps({"include": items})
+          with open(".github_output", "w", encoding="utf-8") as f:
+              f.write(f"matrix={payload}\n")
+          print(f"matrix={payload}")
+          PY
+          cat .github_output >> "$GITHUB_OUTPUT"
+
+  quality:
+    runs-on: ubuntu-latest
+    needs: discover-projects
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-projects.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        if: ${{ hashFiles(format('{0}/pyproject.toml', matrix.project_dir), format('{0}/requirements.txt', matrix.project_dir), format('{0}/setup.py', matrix.project_dir)) != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up uv
+        if: ${{ hashFiles(format('{0}/Makefile', matrix.project_dir), format('{0}/makefile', matrix.project_dir), format('{0}/GNUmakefile', matrix.project_dir)) != '' }}
+        uses: astral-sh/setup-uv@v5
+      - name: Set up Node
+        if: ${{ hashFiles(format('{0}/package.json', matrix.project_dir)) != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Set up Java
+        if: ${{ hashFiles(format('{0}/pom.xml', matrix.project_dir), format('{0}/build.gradle', matrix.project_dir), format('{0}/build.gradle.kts', matrix.project_dir)) != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Ruby
+        if: ${{ hashFiles(format('{0}/Gemfile', matrix.project_dir)) != '' }}
+        uses: ruby/setup-ruby@v1
+      - name: Set up .NET
+        if: ${{ hashFiles(format('{0}/*.sln', matrix.project_dir), format('{0}/*.csproj', matrix.project_dir)) != '' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Set up Go
+        if: ${{ hashFiles(format('{0}/go.mod', matrix.project_dir)) != '' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Quality Lite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ matrix.project_dir }}"
+          if [ -f Makefile ] || [ -f makefile ] || [ -f GNUmakefile ]; then
+            make quality-lite
+            exit 0
+          fi
+          echo "No Makefile in ${{ matrix.project_dir }}; skipping make quality-lite."
+      - name: Quality Full
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ matrix.project_dir }}"
+          if [ -f Makefile ] || [ -f makefile ] || [ -f GNUmakefile ]; then
+            make quality
+            exit 0
+          fi
+          echo "No Makefile in ${{ matrix.project_dir }}; skipping make quality."
+      - name: Smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ matrix.project_dir }}"
+          if [ -f Makefile ] || [ -f makefile ] || [ -f GNUmakefile ]; then
+            if make -n smoke >/dev/null 2>&1; then
+              make smoke
+            else
+              echo "Smoke target not found in ${{ matrix.project_dir }}; skipping."
+            fi
+            exit 0
+          fi
+          echo "No Makefile in ${{ matrix.project_dir }}; skipping smoke."
