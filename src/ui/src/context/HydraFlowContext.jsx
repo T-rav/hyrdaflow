@@ -62,6 +62,30 @@ function addEvent(state, action) {
   }
 }
 
+function mergeStageIssues(existingIssues, incomingIssues) {
+  const next = [...(existingIssues || [])]
+  const idxByIssue = new Map()
+  next.forEach((item, idx) => {
+    if (item?.issue_number != null && !idxByIssue.has(item.issue_number)) {
+      idxByIssue.set(item.issue_number, idx)
+    }
+  })
+  for (const item of (incomingIssues || [])) {
+    if (item?.issue_number == null) {
+      next.push(item)
+      continue
+    }
+    const existingIdx = idxByIssue.get(item.issue_number)
+    if (existingIdx != null) {
+      next[existingIdx] = { ...next[existingIdx], ...item }
+    } else {
+      idxByIssue.set(item.issue_number, next.length)
+      next.push(item)
+    }
+  }
+  return next
+}
+
 export function reducer(state, action) {
   switch (action.type) {
     case 'CONNECTED':
@@ -442,30 +466,14 @@ export function reducer(state, action) {
     case 'PIPELINE_SNAPSHOT': {
       const incoming = action.data || {}
       const openStages = ['triage', 'plan', 'implement', 'review', 'hitl']
-      const incomingOpenCount = openStages.reduce(
-        (sum, key) => sum + ((incoming[key] || []).length),
-        0,
-      )
-      const existingOpenCount = openStages.reduce(
-        (sum, key) => sum + ((state.pipelineIssues[key] || []).length),
-        0,
-      )
-
-      // Guard against transient empty snapshots while running: preserve prior
-      // open queues to avoid UI queue wipe/reload flicker.
-      const preserveExistingOpen = state.orchestratorStatus === 'running'
-        && incomingOpenCount === 0
-        && existingOpenCount > 0
 
       const nextOpen = Object.fromEntries(openStages.map((key) => {
-        if (preserveExistingOpen) {
-          return [key, state.pipelineIssues[key] || []]
-        }
-        // Partial payloads should not clear stages omitted by backend.
         if (!Object.prototype.hasOwnProperty.call(incoming, key)) {
           return [key, state.pipelineIssues[key] || []]
         }
-        return [key, incoming[key] || []]
+        // Snapshot payloads are additive: upsert known issues by id and keep
+        // existing queue members until an explicit transition/reset removes them.
+        return [key, mergeStageIssues(state.pipelineIssues[key], incoming[key] || [])]
       }))
 
       return {
