@@ -11,8 +11,6 @@ export function SessionSidebar() {
     stageStatus,
     selectSession,
     deleteSession,
-    addRepoShortcut,
-    removeRepoShortcut,
     supervisedRepos = [],
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
@@ -81,21 +79,6 @@ export function SessionSidebar() {
     deleteSession(sessionId)
   }
 
-  const repoIdentifier = (entry) => {
-    if (entry.sessions.length > 0) return entry.displayName
-    return entry.slug || entry.displayName
-  }
-
-  const handleAddRepo = (e, entry) => {
-    e.stopPropagation()
-    addRepoShortcut?.(repoIdentifier(entry))
-  }
-
-  const handleRemoveRepo = (e, entry) => {
-    e.stopPropagation()
-    removeRepoShortcut?.(repoIdentifier(entry))
-  }
-
   return (
     <div style={styles.sidebar}>
       <div style={styles.header}>
@@ -142,26 +125,6 @@ export function SessionSidebar() {
                     </span>
                   )}
                   <span style={styles.repoCount}>{repoSessions.length}</span>
-                </div>
-                <div style={styles.repoActions}>
-                  <button
-                    type="button"
-                    aria-label={`Add repo ${entry.displayName}`}
-                    title="Add repo"
-                    onClick={(e) => handleAddRepo(e, entry)}
-                    style={styles.repoActionButton}
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Remove repo ${entry.displayName}`}
-                    title="Remove repo"
-                    onClick={(e) => handleRemoveRepo(e, entry)}
-                    style={styles.repoActionButton}
-                  >
-                    −
-                  </button>
                 </div>
               </div>
 
@@ -297,7 +260,7 @@ const styles = {
   },
   repoHeader: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
     alignItems: 'flex-start',
     gap: 6,
     padding: '8px 12px',
@@ -316,22 +279,6 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minWidth: 0,
-  },
-  repoActions: {
-    display: 'flex',
-    gap: 4,
-    justifyContent: 'flex-end',
-  },
-  repoActionButton: {
-    border: `1px solid ${theme.border}`,
-    borderRadius: 4,
-    width: 20,
-    height: 20,
-    fontSize: 12,
-    fontWeight: 700,
-    background: theme.surfaceAlt ?? theme.surface,
-    color: theme.text,
-    cursor: 'pointer',
   },
   arrow: {
     fontSize: 9,

@@ -17,8 +17,6 @@ function defaultContext(overrides = {}) {
     stageStatus: { workload: { total: 0, active: 0, done: 0, failed: 0 } },
     selectSession: vi.fn(),
     deleteSession: vi.fn(),
-    addRepoShortcut: vi.fn(),
-    removeRepoShortcut: vi.fn(),
     supervisedRepos: [],
     ...overrides,
   }
@@ -152,24 +150,13 @@ describe('SessionSidebar with multiple repos', () => {
     expect(screen.getByText('other-org/other-repo')).toBeDefined()
   })
 
-  it('fires addRepoShortcut when clicking the add button', () => {
-    const addRepoShortcut = vi.fn()
+  it('does not render add/remove repo action buttons', () => {
     mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], addRepoShortcut })
+      defaultContext({ sessions: [SESSION_A] })
     )
     render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo org/repo'))
-    expect(addRepoShortcut).toHaveBeenCalledWith('org/repo')
-  })
-
-  it('fires removeRepoShortcut when clicking the remove button', () => {
-    const removeRepoShortcut = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], removeRepoShortcut })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Remove repo org/repo'))
-    expect(removeRepoShortcut).toHaveBeenCalledWith('org/repo')
+    expect(screen.queryByLabelText(/Add repo/)).toBeNull()
+    expect(screen.queryByLabelText(/Remove repo/)).toBeNull()
   })
 })
 
@@ -188,22 +175,16 @@ describe('SessionSidebar supervised repo state', () => {
     expect(screen.getByText('RUNNING')).toBeDefined()
   })
 
-  it('uses slug when firing add/remove shortcuts for supervised-only repo', () => {
-    const addRepoShortcut = vi.fn()
-    const removeRepoShortcut = vi.fn()
+  it('shows STOPPED status for non-running supervised repo', () => {
     mockUseHydraFlow.mockReturnValue(
       defaultContext({
         supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
-        addRepoShortcut,
-        removeRepoShortcut,
       })
     )
     render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo demo'))
-    fireEvent.click(screen.getByLabelText('Remove repo demo'))
-    expect(addRepoShortcut).toHaveBeenCalledWith('demo')
-    expect(removeRepoShortcut).toHaveBeenCalledWith('demo')
     expect(screen.getByText('STOPPED')).toBeDefined()
+    expect(screen.queryByLabelText(/Add repo/)).toBeNull()
+    expect(screen.queryByLabelText(/Remove repo/)).toBeNull()
   })
 })
 
