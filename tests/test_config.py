@@ -688,17 +688,17 @@ class TestHydraFlowConfigPathResolution:
         assert cfg.worktree_base == git_root.parent / "hydraflow-worktrees"
 
     def test_default_state_file_derived_from_repo_root(self, tmp_path: Path) -> None:
-        """When state_file is left as Path('.'), it should resolve to repo_root / '.hydraflow/state.json'."""
+        """state_file should resolve to repo_root / '.hydraflow/<slug>/state.json'."""
         # Arrange
         git_root = tmp_path / "hydra"
         git_root.mkdir()
         (git_root / ".git").mkdir()
 
         # Act
-        cfg = HydraFlowConfig(repo_root=git_root)
+        cfg = HydraFlowConfig(repo_root=git_root, repo="org/my-repo")
 
         # Assert
-        assert cfg.state_file == git_root / ".hydraflow" / "state.json"
+        assert cfg.state_file == git_root / ".hydraflow" / "org-my-repo" / "state.json"
 
     def test_auto_detected_repo_root_is_absolute(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -735,7 +735,7 @@ class TestHydraFlowConfigPathResolution:
     def test_auto_detected_state_file_named_hydraflow_state_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Auto-derived state_file should be inside .hydraflow/ and named 'state.json'."""
+        """Auto-derived state_file should be inside .hydraflow/<slug>/ and named 'state.json'."""
         # Arrange
         git_root = tmp_path / "repo"
         git_root.mkdir()
@@ -747,7 +747,8 @@ class TestHydraFlowConfigPathResolution:
 
         # Assert
         assert cfg.state_file.name == "state.json"
-        assert cfg.state_file.parent.name == ".hydraflow"
+        # state_file is at .hydraflow/<repo_slug>/state.json
+        assert cfg.state_file.parent.parent.name == ".hydraflow"
 
 
 # ---------------------------------------------------------------------------
@@ -2414,8 +2415,11 @@ class TestResolveDefaults:
     """Tests for the resolve_defaults model validator."""
 
     def test_resolve_defaults_sets_event_log_path(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(repo_root=tmp_path)
-        assert cfg.event_log_path == tmp_path / ".hydraflow" / "events.jsonl"
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/my-repo")
+        assert (
+            cfg.event_log_path
+            == tmp_path / ".hydraflow" / "org-my-repo" / "events.jsonl"
+        )
 
     def test_resolve_defaults_repo_from_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4646,3 +4650,101 @@ class TestLabelsMustNotBeEmpty:
         )
         assert cfg.ready_label == ["valid"]
         assert cfg.review_label == ["valid"]
+
+
+# ---------------------------------------------------------------------------
+# Repo-namespaced persistence (_namespace_repo_paths)
+# ---------------------------------------------------------------------------
+
+
+class TestNamespaceRepoPaths:
+    """Tests for repo-scoped persistence path namespacing."""
+
+    def test_state_file_namespaced_by_repo_slug(self, tmp_path: Path) -> None:
+        """Default state_file should be under data_root/<slug>/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        expected = tmp_path / ".hydraflow" / "acme-widgets" / "state.json"
+        assert cfg.state_file == expected
+
+    def test_event_log_namespaced_by_repo_slug(self, tmp_path: Path) -> None:
+        """Default event_log_path should be under data_root/<slug>/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        expected = tmp_path / ".hydraflow" / "acme-widgets" / "events.jsonl"
+        assert cfg.event_log_path == expected
+
+    def test_config_file_namespaced_when_default(self, tmp_path: Path) -> None:
+        """Default config_file should be under data_root/<slug>/."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            repo="acme/widgets",
+            config_file=data_root / "config.json",
+        )
+        # config_file was explicitly set to the flat path, so it stays
+        assert cfg.config_file == data_root / "config.json"
+
+    def test_explicit_state_file_not_namespaced(self, tmp_path: Path) -> None:
+        """Explicitly-set state_file should not be repo-scoped."""
+        custom = tmp_path / "custom" / "state.json"
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="acme/widgets", state_file=custom
+        )
+        assert cfg.state_file == custom.resolve()
+
+    def test_explicit_event_log_not_namespaced(self, tmp_path: Path) -> None:
+        """Explicitly-set event_log_path should not be repo-scoped."""
+        custom = tmp_path / "custom" / "events.jsonl"
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="acme/widgets", event_log_path=custom
+        )
+        assert cfg.event_log_path == custom.resolve()
+
+    def test_repo_data_root_property(self, tmp_path: Path) -> None:
+        """repo_data_root should return data_root / repo_slug."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.repo_data_root == tmp_path / ".hydraflow" / "acme-widgets"
+
+    def test_two_repos_get_separate_state_files(self, tmp_path: Path) -> None:
+        """Two configs with different repos should have different state files."""
+        cfg_a = HydraFlowConfig(repo_root=tmp_path, repo="org/alpha")
+        cfg_b = HydraFlowConfig(repo_root=tmp_path, repo="org/beta")
+        assert cfg_a.state_file != cfg_b.state_file
+        assert "org-alpha" in str(cfg_a.state_file)
+        assert "org-beta" in str(cfg_b.state_file)
+
+    def test_legacy_state_file_migrated(self, tmp_path: Path) -> None:
+        """If legacy flat state.json exists, it should be copied to scoped path."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        legacy_state = data_root / "state.json"
+        legacy_state.write_text('{"processed_issues": [1, 2]}')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.state_file.exists()
+        assert cfg.state_file.read_text() == '{"processed_issues": [1, 2]}'
+
+    def test_legacy_sessions_migrated(self, tmp_path: Path) -> None:
+        """If legacy flat sessions.jsonl exists, it should be copied."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        flat_sessions = data_root / "sessions.jsonl"
+        flat_sessions.write_text('{"id":"s1"}\n')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        scoped_sessions = cfg.state_file.parent / "sessions.jsonl"
+        assert scoped_sessions.exists()
+        assert scoped_sessions.read_text() == '{"id":"s1"}\n'
+
+    def test_no_migration_when_scoped_already_exists(self, tmp_path: Path) -> None:
+        """If scoped state already exists, legacy file should not overwrite it."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        legacy_state = data_root / "state.json"
+        legacy_state.write_text('{"old": true}')
+        scoped_dir = data_root / "acme-widgets"
+        scoped_dir.mkdir(parents=True)
+        (scoped_dir / "state.json").write_text('{"new": true}')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.state_file.read_text() == '{"new": true}'

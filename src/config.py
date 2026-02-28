@@ -948,6 +948,11 @@ class HydraFlowConfig(BaseModel):
         """Normalized repo identifier for path namespacing (e.g. ``org-repo``)."""
         return self.repo.replace("/", "-") if self.repo else self.repo_root.name
 
+    @property
+    def repo_data_root(self) -> Path:
+        """Return the repo-scoped data directory (``data_root / repo_slug``)."""
+        return self.data_root / self.repo_slug
+
     def branch_for_issue(self, issue_number: int) -> str:
         """Return the canonical branch name for a given issue number."""
         return f"agent/issue-{issue_number}"
@@ -982,6 +987,7 @@ class HydraFlowConfig(BaseModel):
         """
         _resolve_paths(self)
         _resolve_repo_and_identity(self)
+        _namespace_repo_paths(self)
         _apply_env_overrides(self)
         _apply_profile_overrides(self)
         _harmonize_tool_model_defaults(self)
@@ -1141,6 +1147,67 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
         )
         if env_email:
             object.__setattr__(config, "git_user_email", env_email)
+
+
+def _namespace_repo_paths(config: HydraFlowConfig) -> None:
+    """Move state, event-log, and config paths under a repo-scoped subdirectory.
+
+    Called after ``_resolve_repo_and_identity`` so that ``repo_slug`` is available.
+    Only adjusts paths that are still at their default (flat) locations —
+    explicitly-provided paths are left untouched.
+
+    Legacy flat files are migrated on first run: if the repo-scoped file does not
+    exist but the legacy flat file does, a copy is made so no data is lost.
+    """
+    import shutil  # noqa: PLC0415
+
+    slug = config.repo_slug
+    if not slug:
+        return
+
+    explicit = config.__pydantic_fields_set__
+    repo_dir = config.data_root / slug
+
+    # --- state_file (only namespace auto-resolved paths) ---
+    if "state_file" not in explicit:
+        default_flat = config.data_root / "state.json"
+        if config.state_file == default_flat:
+            scoped = repo_dir / "state.json"
+            if not scoped.exists() and default_flat.exists():
+                scoped.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(default_flat, scoped)
+            object.__setattr__(config, "state_file", scoped)
+
+    # --- event_log_path ---
+    if "event_log_path" not in explicit:
+        default_events = config.data_root / "events.jsonl"
+        if config.event_log_path == default_events:
+            scoped = repo_dir / "events.jsonl"
+            if not scoped.exists() and default_events.exists():
+                scoped.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(default_events, scoped)
+            object.__setattr__(config, "event_log_path", scoped)
+
+    # --- config_file ---
+    if "config_file" not in explicit:
+        default_cfg = config.data_root / "config.json"
+        if config.config_file is not None and config.config_file == default_cfg:
+            scoped = repo_dir / "config.json"
+            if not scoped.exists() and default_cfg.exists():
+                scoped.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(default_cfg, scoped)
+            object.__setattr__(config, "config_file", scoped)
+
+    # --- sessions.jsonl (derived from state_file parent, migrate if needed) ---
+    flat_sessions = config.data_root / "sessions.jsonl"
+    scoped_sessions = config.state_file.parent / "sessions.jsonl"
+    if (
+        scoped_sessions != flat_sessions
+        and not scoped_sessions.exists()
+        and flat_sessions.exists()
+    ):
+        scoped_sessions.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(flat_sessions, scoped_sessions)
 
 
 def _dotenv_lookup(repo_root: Path, *keys: str) -> str:

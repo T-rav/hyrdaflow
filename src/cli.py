@@ -580,6 +580,7 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
     file_kwargs = load_config_file(Path(config_file_path))
 
     kwargs: dict[str, Any] = {}
+    cli_explicit: set[str] = set()  # fields explicitly provided via CLI
 
     # Start from config file values, then overlay CLI args
     # Filter config file values to known HydraFlowConfig fields
@@ -644,6 +645,7 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
         val = getattr(args, field)
         if val is not None:
             kwargs[field] = val
+            cli_explicit.add(field)
 
     # 2) Label fields: CLI string → list[str]
     for field in (
@@ -666,18 +668,50 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
         val = getattr(args, field)
         if val is not None:
             kwargs[field] = _parse_label_arg(val)
+            cli_explicit.add(field)
 
     # 3) Boolean flags (only pass when explicitly set)
     if args.no_dashboard:
         kwargs["dashboard_enabled"] = False
+        cli_explicit.add("dashboard_enabled")
     if args.dry_run:
         kwargs["dry_run"] = True
+        cli_explicit.add("dry_run")
     if args.docker_read_only_root is True:
         kwargs["docker_read_only_root"] = True
+        cli_explicit.add("docker_read_only_root")
     if args.docker_no_new_privileges is True:
         kwargs["docker_no_new_privileges"] = True
+        cli_explicit.add("docker_no_new_privileges")
 
-    return HydraFlowConfig(**kwargs)
+    config = HydraFlowConfig(**kwargs)
+
+    # 4) Overlay repo-scoped config file (higher priority than shared config,
+    #    lower priority than env vars and CLI args).  After model validation,
+    #    config.config_file may point to a repo-scoped path.
+    _apply_repo_config_overlay(config, cli_explicit)
+
+    return config
+
+
+def _apply_repo_config_overlay(config: HydraFlowConfig, cli_explicit: set[str]) -> None:
+    """Load the repo-scoped config file and overlay non-CLI values.
+
+    After model validation, ``config.config_file`` may point to a repo-scoped
+    path (``data_root / repo_slug / config.json``).  This function loads that
+    file and applies values that were NOT explicitly provided via CLI args,
+    giving repo-scoped config higher priority than the shared config file but
+    lower priority than env vars and CLI args.
+    """
+    if config.config_file is None:
+        return
+    repo_cfg = load_config_file(config.config_file)
+    if not repo_cfg:
+        return
+    _known_fields = set(HydraFlowConfig.model_fields.keys())
+    for key, val in repo_cfg.items():
+        if key in _known_fields and key not in cli_explicit:
+            object.__setattr__(config, key, val)
 
 
 async def _run_prep(config: HydraFlowConfig) -> bool:
