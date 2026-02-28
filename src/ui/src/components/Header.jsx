@@ -51,35 +51,46 @@ export function Header({
 
   const handleReportClick = useCallback(async () => {
     // Capture screenshot BEFORE opening the modal so the overlay isn't in the shot.
-    // html2canvas cannot resolve CSS custom properties (var(--xxx)), so we
-    // inline-resolve them on every element in the cloned DOM via onclone.
     let dataUrl = null
     try {
       const mod = await import('html2canvas')
       const html2canvas = mod.default || mod
       const root = document.getElementById('root')
       if (root) {
+        // html2canvas cannot resolve CSS custom properties (var(--xxx)).
+        // Pre-compute resolved styles from the live DOM so we can apply
+        // them to the cloned elements inside onclone.
+        const STYLE_PROPS = [
+          'background-color', 'color', 'border-color', 'box-shadow',
+          'border-bottom-color', 'border-top-color',
+          'border-left-color', 'border-right-color',
+        ]
+        const liveElements = root.querySelectorAll('*')
+        const resolvedStyles = new Map()
+        liveElements.forEach((el, i) => {
+          const cs = getComputedStyle(el)
+          const styles = {}
+          STYLE_PROPS.forEach((prop) => {
+            styles[prop] = cs.getPropertyValue(prop)
+          })
+          resolvedStyles.set(i, styles)
+        })
+
         const canvas = await html2canvas(root, {
           useCORS: true,
           logging: false,
+          backgroundColor: '#0d1117',
           scale: window.devicePixelRatio || 1,
-          onclone: (_doc, clonedRoot) => {
-            // Walk every element and resolve CSS variable references
-            // so html2canvas can render them correctly.
-            const allElements = clonedRoot.querySelectorAll('*')
-            const resolveVars = (el) => {
-              const computed = window.getComputedStyle(el)
-              const inline = el.style
-              for (let i = 0; i < inline.length; i++) {
-                const prop = inline[i]
-                const val = inline.getPropertyValue(prop)
-                if (val && val.includes('var(')) {
-                  inline.setProperty(prop, computed.getPropertyValue(prop))
-                }
+          onclone: (_doc, clonedEl) => {
+            const clonedChildren = clonedEl.querySelectorAll('*')
+            clonedChildren.forEach((el, i) => {
+              const styles = resolvedStyles.get(i)
+              if (styles) {
+                STYLE_PROPS.forEach((prop) => {
+                  if (styles[prop]) el.style.setProperty(prop, styles[prop])
+                })
               }
-            }
-            resolveVars(clonedRoot)
-            allElements.forEach(resolveVars)
+            })
           },
         })
         dataUrl = canvas.toDataURL('image/png')
