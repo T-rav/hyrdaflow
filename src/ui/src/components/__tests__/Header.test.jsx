@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { deriveStageStatus } from '../../hooks/useStageStatus'
 import { PIPELINE_STAGES } from '../../constants'
 import { theme } from '../../theme'
@@ -12,9 +12,13 @@ import {
 } from '../Header'
 
 const mockUseHydraFlow = vi.fn()
+const html2canvasFn = vi.fn()
 
 vi.mock('../../context/HydraFlowContext', () => ({
   useHydraFlow: (...args) => mockUseHydraFlow(...args),
+}))
+vi.mock('html2canvas', () => ({
+  default: (...args) => html2canvasFn(...args),
 }))
 
 const { Header } = await import('../Header')
@@ -23,7 +27,17 @@ function mockStageStatus(workers = {}, sessionCounters = {}) {
   return deriveStageStatus({}, workers, [], sessionCounters)
 }
 
+function createRootContainer() {
+  const existing = document.getElementById('root')
+  if (existing) existing.remove()
+  const root = document.createElement('div')
+  root.id = 'root'
+  document.body.appendChild(root)
+  return root
+}
+
 beforeEach(() => {
+  html2canvasFn.mockReset()
   mockUseHydraFlow.mockReturnValue({ stageStatus: mockStageStatus(), config: null, submitReport: vi.fn() })
 })
 
@@ -402,6 +416,42 @@ describe('Header component', () => {
       render(<Header {...defaultProps} connected={true} />)
       const btn = screen.getByTestId('report-button')
       expect(btn).not.toBeDisabled()
+    })
+
+    it('opens modal with screenshot thumbnail after capture', async () => {
+      html2canvasFn.mockResolvedValue({
+        toDataURL: () => 'data:image/png;base64,header-screenshot',
+      })
+
+      const root = createRootContainer()
+
+      render(<Header {...defaultProps} connected={true} />, { container: root })
+      fireEvent.click(screen.getByTestId('report-button'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('report-modal-overlay')).toBeInTheDocument()
+        expect(screen.getByTestId('screenshot-thumbnail')).toBeInTheDocument()
+      })
+      expect(html2canvasFn).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries screenshot capture with safe mode when first pass fails', async () => {
+      html2canvasFn
+        .mockRejectedValueOnce(new Error('primary failed'))
+        .mockResolvedValueOnce({
+          toDataURL: () => 'data:image/png;base64,safe-mode-screenshot',
+        })
+
+      const root = createRootContainer()
+
+      render(<Header {...defaultProps} connected={true} />, { container: root })
+      fireEvent.click(screen.getByTestId('report-button'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('report-modal-overlay')).toBeInTheDocument()
+        expect(screen.getByTestId('screenshot-thumbnail')).toBeInTheDocument()
+      })
+      expect(html2canvasFn).toHaveBeenCalledTimes(2)
     })
   })
 })
