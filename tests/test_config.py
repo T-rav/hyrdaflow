@@ -1629,6 +1629,50 @@ class TestHydraFlowConfigImproveLabel:
         assert cfg.improve_label == ["explicit-improve"]
 
 
+class TestHydraFlowConfigEpicChildLabel:
+    """Tests for epic_child_label default, custom value, and env var override."""
+
+    def test_epic_child_label_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["hydraflow-epic-child"]
+
+    def test_epic_child_label_custom_value(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            epic_child_label=["my-epic-child"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["my-epic-child"]
+
+    def test_epic_child_label_env_var_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "custom-epic-child")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["custom-epic-child"]
+
+    def test_epic_child_label_env_var_not_applied_when_explicit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "env-epic-child")
+        cfg = HydraFlowConfig(
+            epic_child_label=["explicit-epic-child"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["explicit-epic-child"]
+
+
 # ---------------------------------------------------------------------------
 # HydraFlowConfig – min_plan_words env var override
 # ---------------------------------------------------------------------------
@@ -4169,6 +4213,7 @@ class TestLabelValidation:
             "metrics_label",
             "dup_label",
             "epic_label",
+            "epic_child_label",
             "find_label",
             "planner_label",
         ],

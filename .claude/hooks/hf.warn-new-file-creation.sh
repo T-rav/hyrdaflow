@@ -26,9 +26,9 @@ if git -C "$PROJECT_DIR" ls-files --error-unmatch "$FILE_PATH" > /dev/null 2>&1;
 fi
 
 # File is new (untracked) — soft warning
-MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | md5)"
-mkdir -p "$MARKER_DIR"
-WARNED_MARKER="$MARKER_DIR/warned-newfile-$(echo -n "$FILE_PATH" | md5)"
+MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
+[ -d "$MARKER_DIR" ] || mkdir -p "$MARKER_DIR"
+WARNED_MARKER="$MARKER_DIR/warned-newfile-$(echo -n "$FILE_PATH" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
 
 if [ -f "$WARNED_MARKER" ]; then
   exit 0

@@ -158,6 +158,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
+    "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
 }
 
 
@@ -330,6 +331,10 @@ class HydraFlowConfig(BaseModel):
     epic_label: list[str] = Field(
         default=["hydraflow-epic"],
         description="Labels for epic tracking issues with linked sub-issues (OR logic)",
+    )
+    epic_child_label: list[str] = Field(
+        default=["hydraflow-epic-child"],
+        description="Labels for child issues linked to epics (OR logic)",
     )
 
     # Discovery / planner configuration
@@ -855,6 +860,7 @@ class HydraFlowConfig(BaseModel):
         "metrics_label",
         "dup_label",
         "epic_label",
+        "epic_child_label",
         "find_label",
         "planner_label",
     )
@@ -958,6 +964,8 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_IMPROVE     → improve_label
             HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label
+            HYDRAFLOW_LABEL_EPIC        → epic_label
+            HYDRAFLOW_LABEL_EPIC_CHILD  → epic_child_label
         """
         _resolve_paths(self)
         _resolve_repo_and_identity(self)

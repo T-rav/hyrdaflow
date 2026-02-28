@@ -33,15 +33,15 @@ SESSION_ID="${CLAUDE_SESSION_ID:-${PPID:-default}}"
 COUNTER_FILE="/tmp/claude-tool-count-${SESSION_ID}"
 THRESHOLD=${COMPACT_THRESHOLD:-50}
 
-# Initialize or increment counter
+# Initialize or increment counter (atomic write via temp file)
 if [ -f "$COUNTER_FILE" ]; then
-  count=$(cat "$COUNTER_FILE")
+  count=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
   count=$((count + 1))
-  echo "$count" > "$COUNTER_FILE"
 else
-  echo "1" > "$COUNTER_FILE"
   count=1
 fi
+TMP_COUNTER="${COUNTER_FILE}.$$"
+echo "$count" > "$TMP_COUNTER" && mv "$TMP_COUNTER" "$COUNTER_FILE"
 
 # Suggest compact after threshold tool calls
 if [ "$count" -eq "$THRESHOLD" ]; then

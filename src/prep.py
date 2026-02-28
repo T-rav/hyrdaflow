@@ -30,6 +30,7 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("manifest_label", "1185fe", "Manifest persistence issue"),
     ("dup_label", "cfd3d7", "Issue already satisfied — no changes needed"),
     ("epic_label", "5319e7", "Epic tracking issue with linked sub-issues"),
+    ("epic_child_label", "9b59b6", "Child issue linked to a HydraFlow epic"),
 )
 
 
@@ -169,6 +170,7 @@ _LABEL_FIELDS: tuple[str, ...] = (
     "metrics_label",
     "dup_label",
     "epic_label",
+    "epic_child_label",
 )
 
 

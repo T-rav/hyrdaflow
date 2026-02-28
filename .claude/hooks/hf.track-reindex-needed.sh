@@ -15,7 +15,7 @@ fi
 # Detect git operations that change the working tree
 if echo "$COMMAND" | grep -qE 'git\s+(pull|merge|checkout|switch|rebase|cherry-pick|stash\s+pop|stash\s+apply)'; then
   PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-  MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | md5)"
-  mkdir -p "$MARKER_DIR"
+  MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
+  [ -d "$MARKER_DIR" ] || mkdir -p "$MARKER_DIR"
   touch "$MARKER_DIR/needs-reindex"
 fi

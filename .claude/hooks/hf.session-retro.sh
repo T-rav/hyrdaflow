@@ -5,6 +5,13 @@
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+# Skip retro if no code was changed this session
+MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
+if [ ! -f "$MARKER_DIR/code-changed" ]; then
+  exit 0
+fi
+
 STATE_DIR="${PROJECT_DIR}/.claude/state/self-improve"
 OBS_FILE="${STATE_DIR}/observations.jsonl"
 RETRO_DIR="${STATE_DIR}/session-retros"
@@ -33,13 +40,14 @@ if [ "${event_count}" -eq 0 ]; then
   exit 0
 fi
 
-write_count=$(jq -s '[.[] | select(.tool == "Write")] | length' "${SESSION_EVENTS_FILE}")
-edit_count=$(jq -s '[.[] | select(.tool == "Edit")] | length' "${SESSION_EVENTS_FILE}")
-read_count=$(jq -s '[.[] | select(.tool == "Read")] | length' "${SESSION_EVENTS_FILE}")
-bash_count=$(jq -s '[.[] | select(.tool == "Bash")] | length' "${SESSION_EVENTS_FILE}")
-task_count=$(jq -s '[.[] | select(.tool == "TaskCreate")] | length' "${SESSION_EVENTS_FILE}")
-
-unique_files=$(jq -s '[.[] | select(.file_path != "") | .file_path] | unique | length' "${SESSION_EVENTS_FILE}")
+eval $(jq -s '{
+  write_count: [.[] | select(.tool == "Write")] | length,
+  edit_count: [.[] | select(.tool == "Edit")] | length,
+  read_count: [.[] | select(.tool == "Read")] | length,
+  bash_count: [.[] | select(.tool == "Bash")] | length,
+  task_count: [.[] | select(.tool == "TaskCreate")] | length,
+  unique_files: [.[] | select(.file_path != "") | .file_path] | unique | length
+} | to_entries | .[] | "\(.key)=\(.value)"' "${SESSION_EVENTS_FILE}")
 top_bash_verbs=$(jq -r 'select(.bash_verb != "n/a") | .bash_verb' "${SESSION_EVENTS_FILE}" | sort | uniq -c | sort -nr | head -n 5 || true)
 
 ts_slug=$(date -u +"%Y%m%dT%H%M%SZ")

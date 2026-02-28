@@ -15,7 +15,7 @@ ARCHIVE_DIR="${STATE_DIR}/archive"
 OBS_FILE="${STATE_DIR}/observations.jsonl"
 MAX_BYTES=$((5 * 1024 * 1024))
 
-mkdir -p "${STATE_DIR}" "${ARCHIVE_DIR}"
+[ -d "${ARCHIVE_DIR}" ] || mkdir -p "${STATE_DIR}" "${ARCHIVE_DIR}"
 
 tool_name=$(echo "${INPUT}" | jq -r '.tool_name // .tool // "unknown"')
 session_id=$(echo "${INPUT}" | jq -r '.session_id // empty')
@@ -25,11 +25,12 @@ fi
 
 file_path=$(echo "${INPUT}" | jq -r '.tool_input.file_path // empty')
 bash_command=$(echo "${INPUT}" | jq -r '.tool_input.command // empty')
-bash_verb=$(printf '%s' "${bash_command}" | awk '{print $1}')
+bash_verb="${bash_command%% *}"
 if [ -z "${bash_verb}" ]; then
   bash_verb="n/a"
 fi
 
+# Rotate log only when file exists and exceeds threshold
 if [ -f "${OBS_FILE}" ]; then
   current_size=$(wc -c < "${OBS_FILE}" | tr -d ' ')
   if [ "${current_size}" -ge "${MAX_BYTES}" ]; then

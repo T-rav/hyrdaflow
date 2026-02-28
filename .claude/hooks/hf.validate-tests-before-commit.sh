@@ -92,9 +92,14 @@ for dir in $TOP_DIRS; do
   fi
 done
 
-# Also check root-level test directory
-if echo "$STAGED_FILES" | grep -q "^tests/"; then
-  SERVICES_TO_TEST="$SERVICES_TO_TEST root"
+# Check for root-level source files (e.g., src/orchestrator.py, cli.py)
+# or staged test files in tests/
+ROOT_SOURCE=$(echo "$STAGED_FILES" | grep -E '^(src/)?[^/]*\.py$' || true)
+ROOT_TESTS=$(echo "$STAGED_FILES" | grep -q "^tests/" && echo "yes" || true)
+if [ -n "$ROOT_SOURCE" ] || [ -n "$ROOT_TESTS" ]; then
+  if [ -d "$PROJECT_ROOT/tests" ]; then
+    SERVICES_TO_TEST="$SERVICES_TO_TEST root"
+  fi
 fi
 
 if [ -z "$SERVICES_TO_TEST" ]; then
