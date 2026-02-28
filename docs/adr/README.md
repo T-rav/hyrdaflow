@@ -17,6 +17,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0004](0004-agent-cli-as-runtime.md) | CLI-based Agent Runtime (Claude / Codex / Pi.dev) | Accepted |
 | [0005](0005-pr-recovery-and-zero-diff-branch-handling.md) | PR Recovery and Zero-Diff Branch Handling in Implement Phase | Accepted |
 | [0006](0006-repo-runtime-isolation.md) | RepoRuntime Isolation Architecture | Proposed |
+| [0007](0007-dashboard-api-multi-repo-scoping.md) | Dashboard API Architecture for Multi-Repo Scoping | Proposed |
 
 ## Adding a new ADR
 
