@@ -288,6 +288,66 @@ function MemoryAutoApproveToggle() {
   )
 }
 
+function ToggleRow({ label, hint, enabled, onToggle, testId }) {
+  return (
+    <div style={styles.autoApproveRow}>
+      <div style={styles.autoApproveLabel}>
+        <span style={styles.autoApproveText}>{label}</span>
+        <span style={styles.autoApproveHint}>{hint}</span>
+      </div>
+      <button
+        style={enabled ? styles.toggleOn : styles.toggleOff}
+        onClick={onToggle}
+        data-testid={testId}
+      >
+        {enabled ? 'On' : 'Off'}
+      </button>
+    </div>
+  )
+}
+
+function ProcessToggles() {
+  const { config } = useHydraFlow()
+  const [localEpics, setLocalEpics] = useState(null)
+  const [localBugs, setLocalBugs] = useState(null)
+
+  const epicsOn = localEpics !== null ? localEpics : (config?.auto_process_epics ?? false)
+  const bugsOn = localBugs !== null ? localBugs : (config?.auto_process_bug_reports ?? false)
+
+  const toggle = useCallback(async (field, current, setLocal) => {
+    const next = !current
+    setLocal(next)
+    try {
+      const resp = await fetch('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: next, persist: true }),
+      })
+      if (!resp.ok) setLocal(current)
+    } catch { setLocal(current) }
+  }, [])
+
+  return (
+    <div style={styles.processTogglesSection}>
+      <h3 style={styles.sectionHeading}>Process Toggles</h3>
+      <ToggleRow
+        label="Auto Process Epics"
+        hint="When off, epics go to HITL for review"
+        enabled={epicsOn}
+        onToggle={() => toggle('auto_process_epics', epicsOn, setLocalEpics)}
+        testId="auto-process-epics-toggle"
+      />
+      <ToggleRow
+        label="Auto Process Bug Reports"
+        hint="When off, bug reports go to HITL for review"
+        enabled={bugsOn}
+        onToggle={() => toggle('auto_process_bug_reports', bugsOn, setLocalBugs)}
+        testId="auto-process-bugs-toggle"
+      />
+    </div>
+  )
+}
+
 function UnstickWorkersDropdown() {
   const { config } = useHydraFlow()
   const [localValue, setLocalValue] = useState(null)
@@ -395,6 +455,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
                 )
               })}
             </div>
+            <ProcessToggles />
           </div>
         )}
         {activeSubTab === 'pipeline' && (
@@ -651,6 +712,11 @@ const styles = {
     color: theme.accent,
     cursor: 'pointer',
     transition: 'all 0.15s',
+  },
+  processTogglesSection: {
+    marginTop: 24,
+    borderTop: `1px solid ${theme.border}`,
+    paddingTop: 16,
   },
   autoApproveRow: {
     display: 'flex',

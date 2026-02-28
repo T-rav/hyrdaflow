@@ -22,7 +22,7 @@ export function HITLTable({ items, onRefresh }) {
   const [corrections, setCorrections] = useState({})
   const [actionLoading, setActionLoading] = useState(null)
   const [closedIssues, setClosedIssues] = useState(() => new Set())
-  const { submitCorrection, skipIssue, closeIssue, approveAsMemory } = useHITLCorrection()
+  const { submitCorrection, skipIssue, closeIssue, approveAsMemory, approveProcess } = useHITLCorrection()
 
   useEffect(() => {
     setSummaries(prev => {
@@ -136,6 +136,14 @@ export function HITLTable({ items, onRefresh }) {
   const handleApproveMemory = async (issueNum) => {
     setActionLoading({ issue: issueNum, action: 'approve' })
     await approveAsMemory(issueNum)
+    setActionLoading(null)
+    setExpandedIssue(null)
+    onRefresh()
+  }
+
+  const handleApproveProcess = async (issueNum) => {
+    setActionLoading({ issue: issueNum, action: 'approve-process' })
+    await approveProcess(issueNum)
     setActionLoading(null)
     setExpandedIssue(null)
     onRefresh()
@@ -286,6 +294,16 @@ export function HITLTable({ items, onRefresh }) {
                               data-testid={`hitl-approve-memory-${item.issue}`}
                             >
                               {isActionLoading(item.issue, 'approve') ? 'Approving...' : 'Approve as Memory'}
+                            </button>
+                          )}
+                          {item.issueTypeReview && (
+                            <button
+                              style={styles.approveProcessBtn}
+                              disabled={isAnyActionLoading(item.issue)}
+                              onClick={e => { e.stopPropagation(); handleApproveProcess(item.issue) }}
+                              data-testid={`hitl-approve-process-${item.issue}`}
+                            >
+                              {isActionLoading(item.issue, 'approve-process') ? 'Approving...' : 'Approve'}
                             </button>
                           )}
                         </div>
@@ -442,5 +460,6 @@ const styles = {
   skipBtn: { ...btnBase, background: theme.surfaceInset, color: theme.text, border: `1px solid ${theme.border}` },
   closeBtn: { ...btnBase, background: theme.btnRed, color: theme.white },
   approveMemoryBtn: { ...btnBase, background: theme.purple, color: theme.white },
+  approveProcessBtn: { ...btnBase, background: theme.green, color: '#fff' },
   memoryCauseBadge: { ...badgeBase, background: theme.purpleSubtle, color: theme.purple },
 }

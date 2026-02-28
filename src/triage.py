@@ -200,6 +200,13 @@ Evaluate the issue against these four criteria:
 3. **Actionability**: Is there enough context to start planning? (expected behavior, affected area, reproduction steps for bugs)
 4. **Scope**: Is it a single, bounded unit of work? (not an unstructured epic or multiple unrelated requests)
 
+## Issue Type Classification
+
+Also classify the issue as one of:
+- **"feature"**: A new capability, enhancement, or improvement request
+- **"bug"**: A defect report — something broken, incorrect, or failing
+- **"epic"**: A large, multi-step initiative that should be decomposed into smaller issues
+
 ## Instructions
 
 - If ALL criteria are met, return `"ready": true`
@@ -210,13 +217,13 @@ Evaluate the issue against these four criteria:
 Return ONLY a JSON object in this exact format, with no other text:
 
 ```json
-{{"ready": true, "reasons": []}}
+{{"ready": true, "reasons": [], "issue_type": "feature"}}
 ```
 
 or
 
 ```json
-{{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"]}}
+{{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"], "issue_type": "bug"}}
 ```
 """
         stats = build_prompt_stats(
@@ -269,11 +276,16 @@ or
         raw = data.get("reasons", [])
         complexity = data.get("complexity_score", 0)
         score = int(complexity) if isinstance(complexity, (int, float)) else 0
+        issue_type_raw = data.get("issue_type", "feature")
+        issue_type = str(issue_type_raw).lower() if issue_type_raw else "feature"
+        if issue_type not in ("feature", "bug", "epic"):
+            issue_type = "feature"
         return TriageResult(
             issue_number=issue_number,
             ready=_coerce_ready(data["ready"]),
             reasons=_coerce_reasons(raw),
             complexity_score=max(0, min(score, 10)),
+            issue_type=issue_type,
         )
 
     @staticmethod

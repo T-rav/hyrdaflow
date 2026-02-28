@@ -267,6 +267,8 @@ class ConfigFactory:
         max_troubleshooting_prompt_chars: int = 3000,
         epic_auto_decompose: bool = False,
         epic_decompose_complexity_threshold: int = 8,
+        auto_process_epics: bool = False,
+        auto_process_bug_reports: bool = False,
         epic_monitor_interval: int = 1800,
         epic_stale_days: int = 7,
     ):
@@ -425,6 +427,8 @@ class ConfigFactory:
             epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
             epic_monitor_interval=epic_monitor_interval,
             epic_stale_days=epic_stale_days,
+            auto_process_epics=auto_process_epics,
+            auto_process_bug_reports=auto_process_bug_reports,
         )
 
 

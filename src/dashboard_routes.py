@@ -606,6 +606,12 @@ def create_router(
                 data["cause"] = cause
             if origin and origin in config.improve_label:
                 data["isMemorySuggestion"] = True
+            # Flag items held for issue type review
+            if cause and (
+                "epic detected" in cause.lower()
+                or "bug report detected" in cause.lower()
+            ):
+                data["issueTypeReview"] = True
             cached_summary = state.get_hitl_summary(item.issue)
             data["llmSummary"] = cached_summary or ""
             data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
@@ -816,6 +822,46 @@ def create_router(
         )
         return JSONResponse({"status": "ok"})
 
+    @router.post("/api/hitl/{issue_number}/approve-process")
+    async def hitl_approve_process(issue_number: int) -> JSONResponse:
+        """Approve a HITL item held for issue type review — send to planning."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"status": "no orchestrator"}, status_code=400)
+
+        orch.skip_hitl_issue(issue_number)
+        state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
+
+        # Issue was already triaged as ready — send directly to planning
+        await pr_manager.swap_pipeline_labels(issue_number, config.planner_label[0])
+
+        try:
+            await pr_manager.post_comment(
+                issue_number,
+                "**Approved for processing** — Operator approved this issue.\n\n"
+                "---\n*HydraFlow Dashboard*",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to post approval comment for #%d",
+                issue_number,
+                exc_info=True,
+            )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "resolved",
+                    "action": "approved_for_processing",
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
     @router.get("/api/human-input")
     async def get_human_input_requests() -> JSONResponse:
         orch = get_orchestrator()
@@ -935,6 +981,8 @@ def create_router(
         "memory_auto_approve",
         "unstick_auto_merge",
         "unstick_all_causes",
+        "auto_process_epics",
+        "auto_process_bug_reports",
     }
 
     @router.patch("/api/control/config")
