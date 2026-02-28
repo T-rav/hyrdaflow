@@ -79,7 +79,7 @@ export function ReportIssueModal({ isOpen, screenshotDataUrl, onSubmit, onClose 
     ctx.moveTo(lastPoint.current.x, lastPoint.current.y)
     ctx.lineTo(point.x, point.y)
     ctx.strokeStyle = resolveColor(selectedColor)
-    ctx.lineWidth = 3
+    ctx.lineWidth = 6
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.stroke()
