@@ -540,11 +540,12 @@ class TestGenerate:
             "acceptance_criteria.stream_claude_process",
             new_callable=AsyncMock,
             return_value=transcript,
-        ):
+        ) as mock_stream:
             await gen.generate(
                 issue_number=42, pr_number=101, issue=issue, diff=SAMPLE_DIFF
             )
 
+        assert mock_stream.call_args[1]["gh_token"] == config.gh_token
         mock_prs.post_comment.assert_awaited_once()
         call_args = mock_prs.post_comment.call_args
         assert call_args[0][0] == 42  # issue number

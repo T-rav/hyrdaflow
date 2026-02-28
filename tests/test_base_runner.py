@@ -160,6 +160,7 @@ class TestExecute:
         assert call_kwargs["cwd"] == tmp_path
         assert call_kwargs["event_data"] == {"issue": 42}
         assert call_kwargs["on_output"] is None
+        assert call_kwargs["gh_token"] == config.gh_token
 
     @pytest.mark.asyncio
     async def test_passes_on_output_callback(

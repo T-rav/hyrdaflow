@@ -10,9 +10,10 @@ from typing import TYPE_CHECKING, Any
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from agent import AgentRunner
 from config import HydraFlowConfig
+from docker_runner import get_docker_runner
 from epic import EpicCompletionChecker
 from events import EventBus
-from execution import SubprocessRunner, get_default_runner
+from execution import SubprocessRunner
 from harness_insights import HarnessInsightStore
 from hitl_phase import HITLPhase
 from hitl_runner import HITLRunner
@@ -118,7 +119,7 @@ def build_services(
     """
     # Core runners
     worktrees = WorktreeManager(config)
-    subprocess_runner = get_default_runner()
+    subprocess_runner = get_docker_runner(config)
     agents = AgentRunner(config, event_bus, runner=subprocess_runner)
     planners = PlannerRunner(config, event_bus, runner=subprocess_runner)
     prs = PRManager(config, event_bus)

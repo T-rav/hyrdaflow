@@ -79,6 +79,7 @@ class TestReportIssueLoopDoWork:
         assert result["processed"] == 1
         assert result["report_id"] == report.id
         mock_stream.assert_awaited_once()
+        assert mock_stream.call_args[1]["gh_token"] == loop._config.gh_token
         # Queue should be empty after processing
         assert state.dequeue_report() is None
 

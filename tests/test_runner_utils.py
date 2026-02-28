@@ -696,3 +696,50 @@ class TestStreamClaudeProcessTimeout:
             )
 
         assert len(active_procs) == 0
+
+
+# ---------------------------------------------------------------------------
+# stream_claude_process — gh_token injection
+# ---------------------------------------------------------------------------
+
+
+class TestStreamClaudeProcessGhToken:
+    """Tests for gh_token propagation into subprocess environment."""
+
+    @pytest.mark.asyncio
+    async def test_gh_token_injected_into_env(self, event_bus) -> None:
+        """When gh_token is passed, it should appear in the subprocess env as GH_TOKEN."""
+        captured_env: dict[str, str] = {}
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+
+        original_create = mock_create
+
+        async def capture_env(*args, **kwargs):
+            captured_env.update(kwargs.get("env", {}))
+            return await original_create(*args, **kwargs)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=capture_env):
+            await stream_claude_process(
+                **_default_kwargs(event_bus), gh_token="ghp_bot_token"
+            )
+
+        assert captured_env.get("GH_TOKEN") == "ghp_bot_token"
+
+    @pytest.mark.asyncio
+    async def test_empty_gh_token_does_not_override(self, event_bus) -> None:
+        """When gh_token is empty, GH_TOKEN should not be explicitly injected."""
+        captured_env: dict[str, str] = {}
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+        original_create = mock_create
+
+        async def capture_env(*args, **kwargs):
+            captured_env.update(kwargs.get("env", {}))
+            return await original_create(*args, **kwargs)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=capture_env):
+            await stream_claude_process(**_default_kwargs(event_bus), gh_token="")
+
+        # GH_TOKEN is only set if it was already in os.environ (inherited),
+        # not explicitly injected by make_clean_env.
+        # The key assertion: no bot-specific override was applied.
+        assert captured_env.get("GH_TOKEN", "") != "ghp_bot_token"

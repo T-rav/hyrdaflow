@@ -104,7 +104,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_ENABLE_FRESH_BRANCH_REBUILD",
         True,
     ),
-    ("docker_enabled", "HYDRAFLOW_DOCKER_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -132,7 +131,6 @@ _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
 # During the deprecation period, old names are promoted to canonical names
 # with a warning at startup.
 _DEPRECATED_ENV_ALIASES: dict[str, str] = {
-    "HYDRA_DOCKER_ENABLED": "HYDRAFLOW_DOCKER_ENABLED",
     "HYDRA_DOCKER_IMAGE": "HYDRAFLOW_DOCKER_IMAGE",
     "HYDRA_DOCKER_NETWORK": "HYDRAFLOW_DOCKER_NETWORK",
     "HYDRA_DOCKER_SPAWN_DELAY": "HYDRAFLOW_DOCKER_SPAWN_DELAY",
@@ -827,11 +825,6 @@ class HydraFlowConfig(BaseModel):
         description="Tmpfs size for /tmp in containers",
     )
 
-    # Docker execution (PR #545)
-    docker_enabled: bool = Field(
-        default=False,
-        description="Run agent subprocesses inside Docker containers",
-    )
     docker_network: str = Field(
         default="",
         description="Docker network name (empty = default bridge)",
@@ -1253,6 +1246,26 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                         allowed,
                     )
 
+    # Backward-compat bridge: promote legacy HYDRAFLOW_DOCKER_ENABLED /
+    # HYDRA_DOCKER_ENABLED to execution_mode="docker" when the canonical
+    # HYDRAFLOW_EXECUTION_MODE env var was not explicitly set.
+    if config.execution_mode == "host":
+        _docker_enabled_raw = os.environ.get(
+            "HYDRAFLOW_DOCKER_ENABLED"
+        ) or os.environ.get("HYDRA_DOCKER_ENABLED")
+        if _docker_enabled_raw is not None:
+            _execution_mode_explicit = os.environ.get("HYDRAFLOW_EXECUTION_MODE")
+            if _execution_mode_explicit is None and _docker_enabled_raw.lower() not in (
+                "0",
+                "false",
+                "no",
+            ):
+                object.__setattr__(config, "execution_mode", "docker")
+                logger.warning(
+                    "HYDRAFLOW_DOCKER_ENABLED / HYDRA_DOCKER_ENABLED is deprecated; "
+                    "use HYDRAFLOW_EXECUTION_MODE=docker instead."
+                )
+
     # Lite plan labels (comma-separated list, special-case)
     env_lite_labels = os.environ.get("HYDRAFLOW_LITE_PLAN_LABELS")
     if env_lite_labels is not None and config.lite_plan_labels == [
@@ -1313,11 +1326,10 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
-    docker_active = config.execution_mode == "docker" or config.docker_enabled
-    if docker_active:
+    if config.execution_mode == "docker":
         import shutil  # noqa: PLC0415
 
-        if config.execution_mode == "docker" and shutil.which("docker") is None:
+        if shutil.which("docker") is None:
             msg = (
                 "execution_mode is 'docker' but the 'docker' command "
                 "was not found on PATH"

@@ -640,14 +640,6 @@ class TestDockerConfigEnvVarOverrides:
 class TestDockerConfig:
     """Tests for Docker-related configuration fields."""
 
-    def test_docker_disabled_by_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is False
-
     def test_docker_image_has_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -679,44 +671,6 @@ class TestDockerConfig:
             state_file=tmp_path / "s.json",
         )
         assert cfg.docker_extra_mounts == []
-
-    def test_docker_enabled_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is True
-
-    def test_docker_enabled_env_var_false(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "false")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is False
-
-    def test_deprecated_hydra_docker_enabled_alias(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "true")
-        with caplog.at_level(logging.WARNING, logger="hydraflow.config"):
-            cfg = HydraFlowConfig(
-                repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
-                state_file=tmp_path / "s.json",
-            )
-        assert cfg.docker_enabled is True
-        assert "Deprecated env var HYDRA_DOCKER_ENABLED" in caplog.text
 
     def test_deprecated_hydra_docker_image_alias(
         self,
@@ -784,18 +738,6 @@ class TestDockerConfig:
         )
         assert cfg.docker_network == "explicit-net"
 
-    def test_docker_enabled_explicit_overrides_env(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-            docker_enabled=True,
-        )
-        assert cfg.docker_enabled is True
-
     def test_deprecated_hydra_docker_network_alias(
         self,
         tmp_path: Path,
@@ -812,30 +754,16 @@ class TestDockerConfig:
         assert cfg.docker_network == "my-net"
         assert "Deprecated env var HYDRA_DOCKER_NETWORK" in caplog.text
 
-    def test_hydraflow_prefix_takes_precedence_over_hydra(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "false")
-        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is True
-
     def test_docker_custom_values(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
-            docker_enabled=True,
             docker_image="hydra-agent:latest",
             docker_spawn_delay=3.5,
             docker_network="my-network",
             docker_extra_mounts=["/host:/container:rw"],
         )
-        assert cfg.docker_enabled is True
         assert cfg.docker_image == "hydra-agent:latest"
         assert cfg.docker_spawn_delay == 3.5
         assert cfg.docker_network == "my-network"
@@ -862,3 +790,79 @@ class TestDockerConfig:
                 state_file=tmp_path / "s.json",
                 docker_spawn_delay=31.0,
             )
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat bridge: HYDRAFLOW_DOCKER_ENABLED → execution_mode
+# ---------------------------------------------------------------------------
+
+
+class TestDockerEnabledDeprecation:
+    """Tests that legacy HYDRAFLOW_DOCKER_ENABLED env var promotes to execution_mode."""
+
+    def test_docker_enabled_env_promotes_to_execution_mode(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """HYDRAFLOW_DOCKER_ENABLED=true should set execution_mode='docker'."""
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
+        with caplog.at_level(logging.WARNING, logger="hydraflow.config"):
+            cfg = HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        assert cfg.execution_mode == "docker"
+        assert "HYDRAFLOW_DOCKER_ENABLED" in caplog.text
+        assert "deprecated" in caplog.text.lower()
+
+    def test_docker_enabled_false_does_not_promote(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_DOCKER_ENABLED=false should leave execution_mode='host'."""
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "false")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.execution_mode == "host"
+
+    def test_explicit_execution_mode_wins_over_docker_enabled(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """HYDRAFLOW_EXECUTION_MODE takes precedence over HYDRAFLOW_DOCKER_ENABLED."""
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_EXECUTION_MODE", "host")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.execution_mode == "host"
+
+    def test_legacy_hydra_prefix_promotes_to_execution_mode(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """HYDRA_DOCKER_ENABLED=true should also promote to execution_mode='docker'."""
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "true")
+        with caplog.at_level(logging.WARNING, logger="hydraflow.config"):
+            cfg = HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        assert cfg.execution_mode == "docker"

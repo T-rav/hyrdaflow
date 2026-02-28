@@ -94,6 +94,7 @@ class AcceptanceCriteriaGenerator:
             logger=logger,
             timeout=self._config.agent_timeout,
             runner=self._runner,
+            gh_token=self._config.gh_token,
         )
 
         criteria = self._extract_criteria(transcript, issue_number, pr_number)
@@ -221,6 +222,7 @@ Diff summary:
                 logger=logger,
                 timeout=self._config.agent_timeout,
                 runner=self._runner,
+                gh_token=self._config.gh_token,
             )
 
         async def execute_debug(cmd: list[str], p: str) -> str:
@@ -238,6 +240,7 @@ Diff summary:
                 logger=logger,
                 timeout=self._config.agent_timeout,
                 runner=self._runner,
+                gh_token=self._config.gh_token,
             )
 
         return await run_precheck_context(

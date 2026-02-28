@@ -581,16 +581,16 @@ def get_docker_runner(config: HydraFlowConfig) -> SubprocessRunner:
     Returns a ``DockerRunner`` when Docker is available and configured,
     otherwise falls back to a ``HostRunner`` with a warning if:
 
-    - ``docker_enabled`` is False
+    - ``execution_mode`` is not ``"docker"``
     - ``docker_image`` is not configured
     - Docker daemon is not available
     """
-    if not config.docker_enabled:
+    if config.execution_mode != "docker":
         return get_default_runner()
 
     if not config.docker_image:
         logger.warning(
-            "docker_enabled=True but no docker_image configured; "
+            "execution_mode='docker' but no docker_image configured; "
             "falling back to host runner"
         )
         return get_default_runner()

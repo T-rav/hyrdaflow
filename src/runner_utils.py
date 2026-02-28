@@ -35,6 +35,7 @@ async def stream_claude_process(
     timeout: float = 3600.0,
     runner: SubprocessRunner | None = None,
     usage_stats: dict[str, object] | None = None,
+    gh_token: str = "",
 ) -> str:
     """Run an agent subprocess and stream its output.
 
@@ -69,7 +70,7 @@ async def stream_claude_process(
         The transcript string, using the fallback chain:
         result_text → accumulated_text → raw_lines.
     """
-    env = make_clean_env()
+    env = make_clean_env(gh_token)
 
     if runner is None:
         runner = get_default_runner()

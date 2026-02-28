@@ -81,6 +81,7 @@ class BaseRunner:
                 timeout=self._config.agent_timeout,
                 runner=self._runner,
                 usage_stats=usage_stats,
+                gh_token=self._config.gh_token,
             )
             succeeded = True
             return transcript

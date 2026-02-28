@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
+from unittest.mock import patch
+
 from events import EventBus
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
 from state import StateTracker
@@ -82,3 +84,18 @@ class TestBuildServices:
 
         assert isinstance(registry.store._fetcher, GitHubTaskFetcher)
         assert registry.store._fetcher._fetcher is registry.fetcher
+
+    def test_uses_get_docker_runner(self, config: HydraFlowConfig) -> None:
+        """build_services should use get_docker_runner to create the subprocess runner."""
+        bus = EventBus()
+        state = StateTracker(config.state_file)
+        stop_event = asyncio.Event()
+        callbacks = _make_callbacks()
+
+        with patch("service_registry.get_docker_runner") as mock_factory:
+            from execution import get_default_runner
+
+            mock_factory.return_value = get_default_runner()
+            build_services(config, bus, state, stop_event, callbacks)
+
+        mock_factory.assert_called_once_with(config)

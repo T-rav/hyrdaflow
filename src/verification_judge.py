@@ -560,6 +560,7 @@ Diff excerpt:
             logger=logger,
             timeout=self._config.agent_timeout,
             runner=self._runner,
+            gh_token=self._config.gh_token,
         )
 
     def terminate(self) -> None:

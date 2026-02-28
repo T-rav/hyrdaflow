@@ -137,6 +137,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 event_data=event_data,
                 logger=logger,
                 runner=self._runner,
+                gh_token=self._config.gh_token,
             )
         except Exception:
             logger.exception("Report issue agent failed for report %s", report.id)

@@ -1320,3 +1320,22 @@ class TestRunPrecheckContext:
 
         assert result == "transcript"
         mock_self_execute.assert_called_once_with(["cmd"], "prompt", 42)
+
+
+class TestExecuteGhToken:
+    """Tests for gh_token propagation in VerificationJudge._execute."""
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_gh_token_to_stream(self, tmp_path, event_bus):
+        """_execute should pass config.gh_token to stream_claude_process."""
+        cfg = ConfigFactory.create(repo_root=tmp_path, gh_token="ghp_bot_judge")
+        judge = VerificationJudge(cfg, event_bus)
+
+        with patch(
+            "verification_judge.stream_claude_process",
+            new_callable=AsyncMock,
+            return_value="transcript",
+        ) as mock_stream:
+            await judge._execute(["claude", "-p"], "prompt", 42)
+
+        assert mock_stream.call_args[1]["gh_token"] == "ghp_bot_judge"
