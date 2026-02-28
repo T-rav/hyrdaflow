@@ -39,7 +39,6 @@ export const initialState = {
   githubMetrics: null,
   metricsHistory: null,
   pipelineIssues: { ...emptyPipeline },
-  emptyPipelineSnapshotStreak: 0,
   pipelinePollerLastRun: null,
   sessions: [],
   currentSessionId: null,
@@ -61,6 +60,30 @@ function addEvent(state, action) {
     lastSeenId: eventId !== -1 ? eventId : state.lastSeenId,
     events: [event, ...state.events].slice(0, MAX_EVENTS),
   }
+}
+
+function mergeStageIssues(existingIssues, incomingIssues) {
+  const next = [...(existingIssues || [])]
+  const idxByIssue = new Map()
+  next.forEach((item, idx) => {
+    if (item?.issue_number != null && !idxByIssue.has(item.issue_number)) {
+      idxByIssue.set(item.issue_number, idx)
+    }
+  })
+  for (const item of (incomingIssues || [])) {
+    if (item?.issue_number == null) {
+      next.push(item)
+      continue
+    }
+    const existingIdx = idxByIssue.get(item.issue_number)
+    if (existingIdx != null) {
+      next[existingIdx] = { ...next[existingIdx], ...item }
+    } else {
+      idxByIssue.set(item.issue_number, next.length)
+      next.push(item)
+    }
+  }
+  return next
 }
 
 export function reducer(state, action) {
@@ -125,7 +148,6 @@ export function reducer(state, action) {
           hitlEscalation: null,
           lastSeenId: -1,
           pipelineIssues: { ...emptyPipeline },
-          emptyPipelineSnapshotStreak: 0,
           intents: [],
           humanInputRequests: {},
         } : {}),
@@ -444,33 +466,14 @@ export function reducer(state, action) {
     case 'PIPELINE_SNAPSHOT': {
       const incoming = action.data || {}
       const openStages = ['triage', 'plan', 'implement', 'review', 'hitl']
-      const incomingOpenCount = openStages.reduce(
-        (sum, key) => sum + ((incoming[key] || []).length),
-        0,
-      )
-      const existingOpenCount = openStages.reduce(
-        (sum, key) => sum + ((state.pipelineIssues[key] || []).length),
-        0,
-      )
-      const nextEmptyStreak = incomingOpenCount === 0
-        ? (state.emptyPipelineSnapshotStreak || 0) + 1
-        : 0
-
-      // Guard against transient empty snapshots: require 3 consecutive empty
-      // polls before clearing non-empty open queues.
-      const preserveExistingOpen = (state.emptyPipelineSnapshotStreak || 0) < 2
-        && incomingOpenCount === 0
-        && existingOpenCount > 0
 
       const nextOpen = Object.fromEntries(openStages.map((key) => {
-        if (preserveExistingOpen) {
-          return [key, state.pipelineIssues[key] || []]
-        }
-        // Partial payloads should not clear stages omitted by backend.
         if (!Object.prototype.hasOwnProperty.call(incoming, key)) {
           return [key, state.pipelineIssues[key] || []]
         }
-        return [key, incoming[key] || []]
+        // Snapshot payloads are additive: upsert known issues by id and keep
+        // existing queue members until an explicit transition/reset removes them.
+        return [key, mergeStageIssues(state.pipelineIssues[key], incoming[key] || [])]
       }))
 
       return {
@@ -480,7 +483,6 @@ export function reducer(state, action) {
           // Server never sends merged — preserve session-accumulated merged items
           merged: state.pipelineIssues.merged || [],
         },
-        emptyPipelineSnapshotStreak: nextEmptyStreak,
         pipelinePollerLastRun: new Date().toISOString(),
       }
     }
@@ -524,11 +526,7 @@ export function reducer(state, action) {
         }
       }
 
-      return {
-        ...state,
-        pipelineIssues: next,
-        emptyPipelineSnapshotStreak: 0,
-      }
+      return { ...state, pipelineIssues: next }
     }
 
     case 'SESSION_RESET': {
@@ -548,7 +546,6 @@ export function reducer(state, action) {
         humanInputRequests: {},
         lastSeenId: -1,
         pipelineIssues: { ...emptyPipeline },
-        emptyPipelineSnapshotStreak: 0,
         intents: [],
       }
     }

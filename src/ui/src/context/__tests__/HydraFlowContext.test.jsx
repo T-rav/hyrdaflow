@@ -133,17 +133,28 @@ describe('HydraFlowContext reducer', () => {
 })
 
 describe('PIPELINE_SNAPSHOT reducer', () => {
-  it('replaces provided stages with server data', () => {
+  it('additively upserts provided stages with server data', () => {
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        triage: [{ issue_number: 1, title: 'Old title', url: '/old', status: 'active' }],
+      },
+    }
     const data = {
-      triage: [{ issue_number: 1, title: 'Bug', url: '', status: 'queued' }],
+      triage: [
+        { issue_number: 1, title: 'Bug', url: '', status: 'queued' },
+        { issue_number: 9, title: 'New', url: '', status: 'queued' },
+      ],
       plan: [],
       implement: [{ issue_number: 2, title: 'Feature', url: '', status: 'active' }],
       review: [],
       hitl: [],
     }
-    const next = reducer(initialState, { type: 'PIPELINE_SNAPSHOT', data })
-    expect(next.pipelineIssues.triage).toHaveLength(1)
-    expect(next.pipelineIssues.triage[0].issue_number).toBe(1)
+    const next = reducer(state, { type: 'PIPELINE_SNAPSHOT', data })
+    expect(next.pipelineIssues.triage).toHaveLength(2)
+    expect(next.pipelineIssues.triage.find(i => i.issue_number === 1)?.title).toBe('Bug')
+    expect(next.pipelineIssues.triage.find(i => i.issue_number === 9)).toBeTruthy()
     expect(next.pipelineIssues.implement).toHaveLength(1)
     expect(next.pipelineIssues.implement[0].status).toBe('active')
   })
@@ -168,7 +179,7 @@ describe('PIPELINE_SNAPSHOT reducer', () => {
     expect(next.pipelineIssues.hitl).toEqual([])
   })
 
-  it('ignores transient empty snapshots', () => {
+  it('does not clear existing queues on empty snapshots', () => {
     const state = {
       ...initialState,
       pipelineIssues: {
@@ -183,23 +194,6 @@ describe('PIPELINE_SNAPSHOT reducer', () => {
     })
     expect(next.pipelineIssues.triage).toHaveLength(1)
     expect(next.pipelineIssues.implement).toHaveLength(1)
-  })
-
-  it('clears open queues after 3 consecutive empty snapshots', () => {
-    const state = {
-      ...initialState,
-      pipelineIssues: {
-        ...emptyPipeline,
-        triage: [{ issue_number: 10, title: 'Queued', url: '', status: 'queued' }],
-      },
-    }
-    const emptyData = { triage: [], plan: [], implement: [], review: [], hitl: [] }
-    const after1 = reducer(state, { type: 'PIPELINE_SNAPSHOT', data: emptyData })
-    const after2 = reducer(after1, { type: 'PIPELINE_SNAPSHOT', data: emptyData })
-    const after3 = reducer(after2, { type: 'PIPELINE_SNAPSHOT', data: emptyData })
-    expect(after1.pipelineIssues.triage).toHaveLength(1)
-    expect(after2.pipelineIssues.triage).toHaveLength(1)
-    expect(after3.pipelineIssues.triage).toHaveLength(0)
   })
 })
 
