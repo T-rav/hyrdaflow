@@ -256,18 +256,18 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Pipeline Poller')).toBeInTheDocument()
       expect(screen.getByText('Memory Manager')).toBeInTheDocument()
       expect(screen.getByText('Metrics Munger')).toBeInTheDocument()
-      // Count On/Off buttons — should be non-system bg workers + memory auto-approve toggle (inside memory_sync card)
+      // Count On/Off buttons — should be non-system bg workers + memory auto-approve + 2 process toggles
       const allToggleButtons = [...screen.getAllByText('On'), ...screen.getAllByText('Off')]
       const nonSystemBgCount = BACKGROUND_WORKERS.filter(w => !w.system).length
-      expect(allToggleButtons.length).toBe(nonSystemBgCount + 1)
+      expect(allToggleButtons.length).toBe(nonSystemBgCount + 3)
     })
 
     it('does not show toggle buttons when onToggleBgWorker is not provided', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-      // No worker toggle On buttons, but memory auto-approve toggle shows Off
+      // No worker toggle On buttons, but memory auto-approve + 2 process toggles show Off
       expect(screen.queryByText('On')).not.toBeInTheDocument()
       const offButtons = screen.getAllByText('Off')
-      expect(offButtons.length).toBe(1) // only memory auto-approve toggle
+      expect(offButtons.length).toBe(3) // memory auto-approve + 2 process toggles
     })
 
     it('shows Off button for disabled workers when orchestrator running', () => {
@@ -315,8 +315,8 @@ describe('SystemPanel', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ backgroundWorkers: disabledWorkers }))
       render(<SystemPanel backgroundWorkers={disabledWorkers} onToggleBgWorker={onToggle} />)
       const offButtons = screen.getAllByText('Off')
-      // 2 disabled background workers + 1 memory auto-approve toggle (default off, inside memory_sync card)
-      expect(offButtons.length).toBe(3)
+      // 2 disabled workers + 1 memory auto-approve + 2 process toggles (all default off)
+      expect(offButtons.length).toBe(5)
     })
   })
 
