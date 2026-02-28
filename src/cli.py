@@ -17,7 +17,6 @@ from typing import Any
 from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
-from orchestrator import HydraFlowOrchestrator
 
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
@@ -1316,24 +1315,15 @@ async def _run_main(config: HydraFlowConfig) -> None:
                 await dashboard._orchestrator.stop()
             await dashboard.stop()
     else:
-        from events import EventBus, EventLog
+        from repo_runtime import RepoRuntime
 
-        event_log = EventLog(config.event_log_path)
-        bus = EventBus(event_log=event_log)
-        await bus.rotate_log(
-            config.event_log_max_size_mb * 1024 * 1024,
-            config.event_log_retention_days,
-        )
-        await bus.load_history_from_disk()
-        orchestrator = HydraFlowOrchestrator(config, event_bus=bus)
+        runtime = await RepoRuntime.create(config)
 
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(
-                sig, lambda: asyncio.create_task(orchestrator.stop())
-            )
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(runtime.stop()))
 
-        await orchestrator.run()
+        await runtime.run()
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -584,6 +584,16 @@ class PipelineStats(BaseModel):
     uptime_seconds: float = 0.0
 
 
+class RepoRuntimeInfo(BaseModel):
+    """Snapshot of a single repo runtime for API/dashboard consumption."""
+
+    slug: str
+    repo: str = ""
+    running: bool = False
+    session_id: str | None = None
+    uptime_seconds: float = 0.0
+
+
 class IssueOutcomeType(StrEnum):
     """How an issue was ultimately resolved."""
 

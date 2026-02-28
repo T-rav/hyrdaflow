@@ -718,12 +718,16 @@ class TestRunMainSignalHandlers:
             side_effect=lambda sig, cb: registered_signals.append(sig)
         )
 
-        mock_orch = AsyncMock()
-        mock_orch.run = AsyncMock()
-        mock_orch.stop = AsyncMock()
+        mock_runtime = AsyncMock()
+        mock_runtime.run = AsyncMock()
+        mock_runtime.stop = AsyncMock()
 
         with (
-            patch("cli.HydraFlowOrchestrator", return_value=mock_orch),
+            patch(
+                "repo_runtime.RepoRuntime.create",
+                new_callable=AsyncMock,
+                return_value=mock_runtime,
+            ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             await _run_main(config)
@@ -733,7 +737,7 @@ class TestRunMainSignalHandlers:
 
     @pytest.mark.asyncio
     async def test_headless_sigint_calls_orchestrator_stop(self) -> None:
-        """Simulating SIGINT callback should trigger orchestrator.stop()."""
+        """Simulating SIGINT callback should trigger runtime.stop()."""
         from tests.helpers import ConfigFactory
 
         config = ConfigFactory.create(dashboard_enabled=False)
@@ -746,8 +750,8 @@ class TestRunMainSignalHandlers:
         mock_loop = MagicMock()
         mock_loop.add_signal_handler = MagicMock(side_effect=capture_handler)
 
-        mock_orch = AsyncMock()
-        mock_orch.stop = AsyncMock()
+        mock_runtime = AsyncMock()
+        mock_runtime.stop = AsyncMock()
 
         async def fake_run() -> None:
             # Simulate signal arriving during run
@@ -757,15 +761,19 @@ class TestRunMainSignalHandlers:
             # Give the stop task a chance to run
             await asyncio.sleep(0)
 
-        mock_orch.run = fake_run
+        mock_runtime.run = fake_run
 
         with (
-            patch("cli.HydraFlowOrchestrator", return_value=mock_orch),
+            patch(
+                "repo_runtime.RepoRuntime.create",
+                new_callable=AsyncMock,
+                return_value=mock_runtime,
+            ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             await _run_main(config)
 
-        mock_orch.stop.assert_called_once()
+        mock_runtime.stop.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_dashboard_registers_signal_handlers(self) -> None:
