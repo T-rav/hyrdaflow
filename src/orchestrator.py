@@ -411,7 +411,7 @@ class HydraFlowOrchestrator:
             self._state.clear_interrupted_issues()
 
     def _restore_state(self) -> None:
-        """Restore worker intervals, crash-recovered issues, and background worker heartbeats."""
+        """Restore worker intervals, crash-recovered issues, interrupted issues, and background worker heartbeats."""
         self._restore_worker_intervals()
         self._restore_crash_recovered_issues()
         self._restore_interrupted_issues()

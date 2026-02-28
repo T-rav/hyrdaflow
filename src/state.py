@@ -66,13 +66,12 @@ class StateTracker:
             "details": dict(details),
         }
         self._data.worker_heartbeats[name] = heartbeat
-        stored: BackgroundWorkerState = {
-            "name": name,
-            "status": status,
-            "last_run": last_run,
-            "details": dict(details),
-        }
-        self._data.bg_worker_states[name] = stored  # type: ignore[assignment]
+        self._data.bg_worker_states[name] = BackgroundWorkerState(
+            name=name,
+            status=status,
+            last_run=last_run,
+            details=dict(details),
+        )
 
     def _maybe_migrate_worker_states(self) -> None:
         """Copy legacy bg_worker_states entries into worker_heartbeats if needed."""

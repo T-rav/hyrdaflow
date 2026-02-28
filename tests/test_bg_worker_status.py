@@ -166,6 +166,37 @@ class TestOrchestratorBgWorkerTracking:
         assert states["memory_sync"]["last_run"] == "2026-02-20T10:00:00Z"
         assert states["memory_sync"]["details"]["item_count"] == 5
 
+    def test_backfill_bg_worker_states_from_events(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Verify _restore_state backfills missing workers from event bus history."""
+        from events import EventType, HydraFlowEvent
+        from orchestrator import HydraFlowOrchestrator
+
+        # Arrange: inject a BACKGROUND_WORKER_STATUS event into the bus history
+        event_bus._history.append(
+            HydraFlowEvent(
+                type=EventType.BACKGROUND_WORKER_STATUS,
+                data={
+                    "worker": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-20T09:00:00Z",
+                    "details": {"item_count": 3},
+                },
+            )
+        )
+
+        # Act: create orchestrator with empty persisted state and restore
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus)
+        orch._restore_state()
+
+        # Assert: state was backfilled from event history
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["last_run"] == "2026-02-20T09:00:00Z"
+        assert states["memory_sync"]["details"]["item_count"] == 3
+
 
 class TestBgWorkerEnabled:
     """Tests for is_bg_worker_enabled / set_bg_worker_enabled."""
