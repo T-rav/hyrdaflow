@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
+import random
 import shutil
 import stat
 from pathlib import Path
@@ -12,6 +14,8 @@ from config import HydraFlowConfig
 from subprocess_util import run_subprocess
 
 logger = logging.getLogger("hydraflow.worktree")
+
+_FETCH_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 class WorktreeManager:
@@ -53,6 +57,53 @@ class WorktreeManager:
             logger.info("Auto-detected UI dirs: %s", detected)
             return sorted(detected)
         return list(self._config.ui_dirs)
+
+    def _repo_fetch_lock(self) -> asyncio.Lock:
+        """Return a shared lock for git fetch operations in this repo."""
+        key = str(self._repo_root.resolve())
+        lock = _FETCH_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _FETCH_LOCKS[key] = lock
+        return lock
+
+    def _is_main_ref_lock_error(self, message: str) -> bool:
+        """Return True when *message* matches git remote-ref lock races."""
+        main_ref = f"refs/remotes/origin/{self._config.main_branch}"
+        return (
+            f"cannot lock ref '{main_ref}'" in message
+            and "unable to update local ref" in message
+        )
+
+    async def _fetch_origin_with_retry(self, cwd: Path, *refs: str) -> None:
+        """Run ``git fetch origin <refs...>`` with lock + targeted race retry."""
+        attempts = 3
+        async with self._repo_fetch_lock():
+            for attempt in range(1, attempts + 1):
+                try:
+                    await run_subprocess(
+                        "git",
+                        "fetch",
+                        "origin",
+                        *refs,
+                        cwd=cwd,
+                        gh_token=self._config.gh_token,
+                    )
+                    return
+                except RuntimeError as exc:
+                    msg = str(exc)
+                    if attempt < attempts and self._is_main_ref_lock_error(msg):
+                        delay = 0.2 * (2 ** (attempt - 1)) + random.uniform(0, 0.15)  # noqa: S311
+                        logger.warning(
+                            "git fetch race on origin/%s (attempt %d/%d) — retrying in %.2fs",
+                            self._config.main_branch,
+                            attempt,
+                            attempts,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise
 
     async def _delete_local_branch(self, branch: str) -> None:
         """Delete a local branch if it exists, ignoring errors."""
@@ -115,13 +166,8 @@ class WorktreeManager:
 
         try:
             # Fetch latest main so we branch from the latest state
-            await run_subprocess(
-                "git",
-                "fetch",
-                "origin",
-                self._config.main_branch,
-                cwd=self._repo_root,
-                gh_token=self._config.gh_token,
+            await self._fetch_origin_with_retry(
+                self._repo_root, self._config.main_branch
             )
 
             # Check if the branch already exists on the remote (resumable work)
@@ -263,14 +309,8 @@ class WorktreeManager:
 
         Returns *True* on success.
         """
-        await run_subprocess(
-            "git",
-            "fetch",
-            "origin",
-            self._config.main_branch,
-            branch,
-            cwd=worktree_path,
-            gh_token=self._config.gh_token,
+        await self._fetch_origin_with_retry(
+            worktree_path, self._config.main_branch, branch
         )
         await run_subprocess(
             "git",
@@ -411,14 +451,7 @@ class WorktreeManager:
         newline-separated string.  Returns an empty string on failure.
         """
         try:
-            await run_subprocess(
-                "git",
-                "fetch",
-                "origin",
-                self._config.main_branch,
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
+            await self._fetch_origin_with_retry(worktree_path, self._config.main_branch)
             output = await run_subprocess(
                 "git",
                 "log",
