@@ -104,6 +104,10 @@ class TestCreateRouter:
             "/api/runs",
             "/api/runs/{issue_number}",
             "/api/runs/{issue_number}/{timestamp}/{filename}",
+            "/api/runtimes",
+            "/api/runtimes/{slug}",
+            "/api/runtimes/{slug}/start",
+            "/api/runtimes/{slug}/stop",
             "/ws",
             "/{path:path}",
         }
@@ -5233,3 +5237,230 @@ class TestIssueHistoryCache:
         assert len(issue["linked_issues"]) == 2
         ids = {li["target_id"] for li in issue["linked_issues"]}
         assert ids == {5, 10}
+
+
+# ---------------------------------------------------------------------------
+# Repo-scoped API contract tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRuntime:
+    """Tests for the _resolve_runtime helper inside create_router."""
+
+    def _make_router_with_registry(self, config, event_bus, state, tmp_path, registry):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            registry=registry,
+        )
+
+    @pytest.mark.asyncio
+    async def test_state_endpoint_without_repo_param_uses_default(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """GET /api/state with no repo param returns default state."""
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=None
+        )
+        ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/state")
+        resp = await ep.endpoint()
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_state_endpoint_with_unknown_repo_raises(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """GET /api/state?repo=unknown should raise ValueError."""
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None  # Unknown repo
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/state")
+        with pytest.raises(ValueError, match="Unknown repo"):
+            await ep.endpoint(repo="unknown-slug")
+
+    @pytest.mark.asyncio
+    async def test_state_endpoint_with_valid_repo_uses_runtime(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """GET /api/state?repo=slug should use the runtime's state."""
+        mock_state = MagicMock()
+        mock_state.to_dict.return_value = {"repo_state": True}
+
+        mock_runtime = MagicMock()
+        mock_runtime.config = config
+        mock_runtime.state = mock_state
+        mock_runtime.event_bus = event_bus
+        mock_runtime.orchestrator = None
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
+
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/state")
+        resp = await ep.endpoint(repo="org-repo")
+        assert resp.status_code == 200
+        mock_state.to_dict.assert_called_once()
+
+
+class TestRuntimeLifecycleEndpoints:
+    """Tests for /api/runtimes/* lifecycle endpoints."""
+
+    def _make_router_with_registry(self, config, event_bus, state, tmp_path, registry):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            registry=registry,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_runtimes_empty_without_registry(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=None
+        )
+        ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/runtimes")
+        resp = await ep.endpoint()
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_list_runtimes_returns_registered(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_orch = MagicMock()
+        mock_orch.current_session_id = "sess-1"
+
+        mock_runtime = MagicMock()
+        mock_runtime.slug = "org-repo"
+        mock_runtime.config.repo = "org/repo"
+        mock_runtime.running = True
+        mock_runtime.orchestrator = mock_orch
+
+        mock_registry = MagicMock()
+        mock_registry.all = [mock_runtime]
+
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/runtimes")
+        resp = await ep.endpoint()
+        import json
+
+        data = json.loads(resp.body)
+        assert len(data["runtimes"]) == 1
+        assert data["runtimes"][0]["slug"] == "org-repo"
+        assert data["runtimes"][0]["running"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_runtime_status_not_found(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None
+
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(
+            r
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/runtimes/{slug}"
+            and "GET" in getattr(r, "methods", set())
+        )
+        resp = await ep.endpoint(slug="nonexistent")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_start_runtime_already_running(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_runtime = MagicMock()
+        mock_runtime.running = True
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
+
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(
+            r
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/runtimes/{slug}/start"
+        )
+        resp = await ep.endpoint(slug="org-repo")
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_stop_runtime_success(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_runtime = MagicMock()
+        mock_runtime.running = True
+        mock_runtime.stop = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
+
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(
+            r
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/runtimes/{slug}/stop"
+        )
+        resp = await ep.endpoint(slug="org-repo")
+        assert resp.status_code == 200
+        mock_runtime.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_remove_runtime_stops_and_removes(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_runtime = MagicMock()
+        mock_runtime.running = True
+        mock_runtime.stop = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
+
+        router = self._make_router_with_registry(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        ep = next(
+            r
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/runtimes/{slug}"
+            and "DELETE" in getattr(r, "methods", set())
+        )
+        resp = await ep.endpoint(slug="org-repo")
+        assert resp.status_code == 200
+        mock_runtime.stop.assert_awaited_once()
+        mock_registry.remove.assert_called_once_with("org-repo")

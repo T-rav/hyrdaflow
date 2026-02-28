@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
@@ -59,6 +59,7 @@ from transcript_summarizer import TranscriptSummarizer
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
+    from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 
 logger = logging.getLogger("hydraflow.dashboard")
 
@@ -222,13 +223,43 @@ def create_router(
     set_run_task: Callable[[asyncio.Task[None]], None],
     ui_dist_dir: Path,
     template_dir: Path,
+    *,
+    registry: RepoRuntimeRegistry | None = None,
 ) -> APIRouter:
-    """Create an APIRouter with all dashboard route handlers."""
+    """Create an APIRouter with all dashboard route handlers.
+
+    When *registry* is provided, operational endpoints accept an optional
+    ``repo`` query parameter to target a specific repo runtime.  When the
+    parameter is omitted, the single-repo defaults (closure-captured
+    *config*, *state*, *event_bus*, and *get_orchestrator*) are used for
+    backward compatibility.
+    """
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
 
     class RepoAddRequest(BaseModel):
         slug: str | None = None
+
+    def _resolve_runtime(
+        slug: str | None,
+    ) -> tuple[
+        HydraFlowConfig,
+        StateTracker,
+        EventBus,
+        Callable[[], HydraFlowOrchestrator | None],
+    ]:
+        """Resolve per-repo dependencies from the registry.
+
+        When *slug* is ``None`` or no registry is configured, returns the
+        single-repo closure defaults for backward compatibility.
+        """
+        if slug and registry is not None:
+            rt: RepoRuntime | None = registry.get(slug)
+            if rt is None:
+                msg = f"Unknown repo: {slug}"
+                raise ValueError(msg)
+            return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
+        return config, state, event_bus, get_orchestrator
 
     try:
         supervisor_client = importlib.import_module("hf_cli.supervisor_client")
@@ -446,21 +477,36 @@ def create_router(
         return _serve_spa_index()
 
     @router.get("/api/state")
-    async def get_state() -> JSONResponse:
-        return JSONResponse(state.to_dict())
+    async def get_state(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        return JSONResponse(_state.to_dict())
 
     @router.get("/api/stats")
-    async def get_stats() -> JSONResponse:
-        data: dict[str, Any] = state.get_lifetime_stats().model_dump()
-        orch = get_orchestrator()
+    async def get_stats(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        data: dict[str, Any] = _state.get_lifetime_stats().model_dump()
+        orch = _get_orch()
         if orch:
             data["queue"] = orch.issue_store.get_queue_stats().model_dump()
         return JSONResponse(data)
 
     @router.get("/api/queue")
-    async def get_queue() -> JSONResponse:
+    async def get_queue(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
         """Return current queue depths, active counts, and throughput."""
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch:
             return JSONResponse(orch.issue_store.get_queue_stats().model_dump())
         return JSONResponse(QueueStats().model_dump())
@@ -507,9 +553,14 @@ def create_router(
         return JSONResponse({"status": "ok"})
 
     @router.get("/api/pipeline")
-    async def get_pipeline() -> JSONResponse:
+    async def get_pipeline(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
         """Return current pipeline snapshot with issues per stage."""
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch:
             raw = orch.issue_store.get_pipeline_snapshot()
             mapped: dict[str, list[PipelineSnapshotEntry]] = {}
@@ -560,13 +611,16 @@ def create_router(
         return JSONResponse([item.model_dump() for item in items])
 
     @router.get("/api/hitl")
-    async def get_hitl() -> JSONResponse:
+    async def get_hitl(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
         """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
-        hitl_labels = list(
-            dict.fromkeys([*config.hitl_label, *config.hitl_active_label])
-        )
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        hitl_labels = list(dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label]))
         items = await pr_manager.list_hitl_items(hitl_labels)
-        orch = get_orchestrator()
+        orch = _get_orch()
         enriched = []
         for item in items:
             data = item.model_dump()
@@ -847,8 +901,13 @@ def create_router(
         return JSONResponse({"status": "stopping"})
 
     @router.get("/api/control/status")
-    async def get_control_status() -> JSONResponse:
-        orch = get_orchestrator()
+    async def get_control_status(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         status = "idle"
         current_session = None
         latest_version = ""
@@ -872,26 +931,26 @@ def create_router(
                 app_version=get_app_version(),
                 latest_version=latest_version,
                 update_available=update_available,
-                repo=config.repo,
-                ready_label=config.ready_label,
-                find_label=config.find_label,
-                planner_label=config.planner_label,
-                review_label=config.review_label,
-                hitl_label=config.hitl_label,
-                hitl_active_label=config.hitl_active_label,
-                fixed_label=config.fixed_label,
-                improve_label=config.improve_label,
-                memory_label=config.memory_label,
-                transcript_label=config.transcript_label,
-                max_triagers=config.max_triagers,
-                max_workers=config.max_workers,
-                max_planners=config.max_planners,
-                max_reviewers=config.max_reviewers,
-                max_hitl_workers=config.max_hitl_workers,
-                batch_size=config.batch_size,
-                model=config.model,
-                memory_auto_approve=config.memory_auto_approve,
-                pr_unstick_batch_size=config.pr_unstick_batch_size,
+                repo=_cfg.repo,
+                ready_label=_cfg.ready_label,
+                find_label=_cfg.find_label,
+                planner_label=_cfg.planner_label,
+                review_label=_cfg.review_label,
+                hitl_label=_cfg.hitl_label,
+                hitl_active_label=_cfg.hitl_active_label,
+                fixed_label=_cfg.fixed_label,
+                improve_label=_cfg.improve_label,
+                memory_label=_cfg.memory_label,
+                transcript_label=_cfg.transcript_label,
+                max_triagers=_cfg.max_triagers,
+                max_workers=_cfg.max_workers,
+                max_planners=_cfg.max_planners,
+                max_reviewers=_cfg.max_reviewers,
+                max_hitl_workers=_cfg.max_hitl_workers,
+                batch_size=_cfg.batch_size,
+                model=_cfg.model,
+                memory_auto_approve=_cfg.memory_auto_approve,
+                pr_unstick_batch_size=_cfg.pr_unstick_batch_size,
             ),
         )
         data = response.model_dump()
@@ -1883,6 +1942,94 @@ def create_router(
         if timeline is None:
             return JSONResponse({"error": "Issue not found"}, status_code=404)
         return JSONResponse(timeline.model_dump())
+
+    # --- Repo runtime lifecycle endpoints ---
+
+    @router.get("/api/runtimes")
+    async def list_runtimes() -> JSONResponse:
+        """List all registered repo runtimes with status."""
+        from models import RepoRuntimeInfo
+
+        if registry is None:
+            return JSONResponse({"runtimes": []})
+        infos = []
+        for rt in registry.all:
+            infos.append(
+                RepoRuntimeInfo(
+                    slug=rt.slug,
+                    repo=rt.config.repo,
+                    running=rt.running,
+                    session_id=rt.orchestrator.current_session_id
+                    if rt.running
+                    else None,
+                ).model_dump()
+            )
+        return JSONResponse({"runtimes": infos})
+
+    @router.get("/api/runtimes/{slug}")
+    async def get_runtime_status(slug: str) -> JSONResponse:
+        """Get status of a specific repo runtime."""
+        from models import RepoRuntimeInfo
+
+        if registry is None:
+            return JSONResponse(
+                {"error": "No runtime registry configured"}, status_code=501
+            )
+        rt = registry.get(slug)
+        if rt is None:
+            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
+        info = RepoRuntimeInfo(
+            slug=rt.slug,
+            repo=rt.config.repo,
+            running=rt.running,
+            session_id=rt.orchestrator.current_session_id if rt.running else None,
+        )
+        return JSONResponse(info.model_dump())
+
+    @router.post("/api/runtimes/{slug}/start")
+    async def start_runtime(slug: str) -> JSONResponse:
+        """Start a specific repo runtime."""
+        if registry is None:
+            return JSONResponse(
+                {"error": "No runtime registry configured"}, status_code=501
+            )
+        rt = registry.get(slug)
+        if rt is None:
+            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
+        if rt.running:
+            return JSONResponse({"error": "Already running"}, status_code=409)
+        await rt.start()
+        return JSONResponse({"status": "started", "slug": slug})
+
+    @router.post("/api/runtimes/{slug}/stop")
+    async def stop_runtime(slug: str) -> JSONResponse:
+        """Stop a specific repo runtime."""
+        if registry is None:
+            return JSONResponse(
+                {"error": "No runtime registry configured"}, status_code=501
+            )
+        rt = registry.get(slug)
+        if rt is None:
+            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
+        if not rt.running:
+            return JSONResponse({"error": "Not running"}, status_code=400)
+        await rt.stop()
+        return JSONResponse({"status": "stopped", "slug": slug})
+
+    @router.delete("/api/runtimes/{slug}")
+    async def remove_runtime(slug: str) -> JSONResponse:
+        """Stop and unregister a repo runtime."""
+        if registry is None:
+            return JSONResponse(
+                {"error": "No runtime registry configured"}, status_code=501
+            )
+        rt = registry.get(slug)
+        if rt is None:
+            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
+        if rt.running:
+            await rt.stop()
+        registry.remove(slug)
+        return JSONResponse({"status": "removed", "slug": slug})
 
     # --- Multi-repo supervisor endpoints ---
 
