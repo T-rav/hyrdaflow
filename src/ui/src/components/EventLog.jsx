@@ -95,7 +95,7 @@ const styles = {
     color: theme.textMuted,
     letterSpacing: 0.5,
   },
-  log: { padding: 8, flex: 1, overflowY: 'auto' },
+  log: { padding: 8, flex: 1, minHeight: 0, overflowY: 'auto' },
   empty: {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     height: 200, color: theme.textMuted, fontSize: 13,
