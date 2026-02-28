@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1301,24 +1302,34 @@ class TestWebSocketEndpoint:
     def test_websocket_unsubscribes_on_disconnect(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:
-        import time
-
         from fastapi.testclient import TestClient
 
         from dashboard import HydraFlowDashboard
 
         event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+        unsubscribe_called = threading.Event()
 
         original_subscribe = event_bus.subscribe
+        original_unsubscribe = event_bus.unsubscribe
 
         def subscribe_with_preload(
             *_args: object, **_kwargs: object
         ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
+            # Preload one event so receive_text() returns immediately, ensuring
+            # the handler has entered its live-streaming loop before disconnect.
             queue.put_nowait(event)
             return queue
 
         event_bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
+
+        def unsubscribe_and_signal(
+            queue: asyncio.Queue[HydraFlowEvent],
+        ) -> None:
+            original_unsubscribe(queue)
+            unsubscribe_called.set()
+
+        event_bus.unsubscribe = unsubscribe_and_signal  # type: ignore[assignment]
 
         dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
@@ -1327,13 +1338,14 @@ class TestWebSocketEndpoint:
         with client.websocket_connect("/ws") as ws:
             ws.receive_text()
 
-        # Poll briefly for async cleanup (bounded retry count, not wall-clock)
-        for _ in range(1000):
-            if len(event_bus._subscribers) == 0:
-                break
-            time.sleep(0)
-
-        assert len(event_bus._subscribers) == 0
+        # Wait for the background ASGI thread to unsubscribe its queue deterministically
+        assert unsubscribe_called.wait(timeout=5), (
+            "unsubscribe was not called within 5s"
+        )
+        # Also verify the unsubscribe actually mutated _subscribers (not just that it was called)
+        assert len(event_bus._subscribers) == 0, (
+            f"Expected 0 subscribers after disconnect, got {len(event_bus._subscribers)}"
+        )
 
     def test_multiple_websocket_clients_receive_same_history(
         self, config: HydraFlowConfig, event_bus, state
