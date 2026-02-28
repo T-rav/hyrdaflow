@@ -62,7 +62,7 @@ function ThresholdStatus({ thresholds }) {
   )
 }
 
-function TimeToMerge({ data }) {
+function TimeToMerge({ data, dataTestId }) {
   if (!data || Object.keys(data).length === 0) return null
   const fmt = (s) => {
     if (s < 60) return `${Math.round(s)}s`
@@ -70,7 +70,7 @@ function TimeToMerge({ data }) {
     return `${(s / 3600).toFixed(1)}h`
   }
   return (
-    <div style={styles.row}>
+    <div className="metrics-grid" data-testid={dataTestId}>
       <StatCard label="Avg Time to Merge" value={fmt(data.avg)} subtle />
       <StatCard label="Median (p50)" value={fmt(data.p50)} subtle />
       <StatCard label="p90" value={fmt(data.p90)} subtle />
@@ -152,7 +152,7 @@ export function MetricsPanel() {
   return (
     <div style={styles.container} data-testid="metrics-panel-root">
       <h3 style={styles.heading}>Lifetime</h3>
-      <div style={styles.row}>
+      <div className="metrics-grid" data-testid="metrics-grid-lifetime">
         <StatCard
           label="Issues Completed"
           value={github.total_closed ?? lifetime.issues_completed ?? 0}
@@ -180,7 +180,7 @@ export function MetricsPanel() {
       {(current || prev) && (
         <>
           <h3 style={styles.heading}>Rates</h3>
-          <div style={styles.row}>
+          <div className="metrics-grid" data-testid="metrics-grid-rates">
             <RateCard
               label="Merge Rate"
               value={current?.merge_rate ?? 0}
@@ -215,14 +215,14 @@ export function MetricsPanel() {
       {Object.keys(timeToMerge).length > 0 && (
         <>
           <h3 style={styles.heading}>Time to Merge</h3>
-          <TimeToMerge data={timeToMerge} />
+          <TimeToMerge data={timeToMerge} dataTestId="metrics-grid-time-to-merge" />
         </>
       )}
 
       {hasSession && (
         <>
           <h3 style={styles.heading}>Session</h3>
-          <div style={styles.row}>
+          <div className="metrics-grid" data-testid="metrics-grid-session">
             <StatCard label="Triaged" value={sessionTriaged || 0} subtle />
             <StatCard label="Planned" value={sessionPlanned || 0} subtle />
             <StatCard label="Implemented" value={sessionImplemented || 0} subtle />
@@ -233,7 +233,7 @@ export function MetricsPanel() {
       )}
 
       <h3 style={styles.heading}>Inference</h3>
-      <div style={styles.row}>
+      <div className="metrics-grid" data-testid="metrics-grid-inference">
         <StatCard
           label="Session Tokens"
           value={formatTokens(inferenceSession.total_tokens || 0)}
@@ -288,18 +288,11 @@ const styles = {
     marginBottom: 16,
     marginTop: 0,
   },
-  row: {
-    display: 'flex',
-    gap: 16,
-    marginBottom: 24,
-    flexWrap: 'wrap',
-  },
   card: {
     border: `1px solid ${theme.border}`,
     borderRadius: 8,
     padding: 20,
     background: theme.surface,
-    minWidth: 140,
     textAlign: 'center',
   },
   cardSubtle: {
@@ -307,7 +300,6 @@ const styles = {
     borderRadius: 8,
     padding: 16,
     background: theme.surfaceInset,
-    minWidth: 100,
     textAlign: 'center',
   },
   valueRow: {
@@ -341,7 +333,6 @@ const styles = {
     borderRadius: 8,
     padding: 16,
     background: theme.surface,
-    minWidth: 120,
     textAlign: 'center',
   },
   rateValue: {

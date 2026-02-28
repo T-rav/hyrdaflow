@@ -174,4 +174,59 @@ describe('MetricsPanel', () => {
     expect(screen.getByText('8,000')).toBeInTheDocument()
     expect(screen.getByText('400')).toBeInTheDocument()
   })
+
+  it('uses metrics-grid layout wrappers with data test ids', () => {
+    mockUseHydraFlow.mockReturnValue(defaultContext({
+      githubMetrics: {
+        open_by_label: { ready: 1 },
+        total_closed: 2,
+        total_merged: 1,
+      },
+      metricsHistory: {
+        current: {
+          merge_rate: 0.8,
+          first_pass_approval_rate: 0.7,
+          quality_fix_rate: 0.2,
+          hitl_escalation_rate: 0.1,
+          issues_completed: 4,
+          prs_merged: 3,
+        },
+        snapshots: [{
+          merge_rate: 0.7,
+          first_pass_approval_rate: 0.6,
+          quality_fix_rate: 0.1,
+          hitl_escalation_rate: 0.05,
+          issues_completed: 3,
+          prs_merged: 2,
+        }],
+      },
+      stageStatus: mockStageStatusFromSession({
+        triaged: 1,
+        planned: 1,
+        implemented: 1,
+        reviewed: 1,
+        merged: 1,
+      }),
+      metrics: {
+        lifetime: { issues_completed: 2, prs_merged: 1 },
+        inference_lifetime: { total_tokens: 100, inference_calls: 2, pruned_chars_total: 3 },
+        inference_session: { total_tokens: 10, inference_calls: 1, pruned_chars_total: 1 },
+        time_to_merge: { avg: 50, p50: 40, p90: 65 },
+      },
+    }))
+
+    render(<MetricsPanel />)
+
+    const lifetimeGrid = screen.getByTestId('metrics-grid-lifetime')
+    const ratesGrid = screen.getByTestId('metrics-grid-rates')
+    const sessionGrid = screen.getByTestId('metrics-grid-session')
+    const inferenceGrid = screen.getByTestId('metrics-grid-inference')
+    const mergeTimeGrid = screen.getByTestId('metrics-grid-time-to-merge')
+
+    expect(lifetimeGrid.className).toContain('metrics-grid')
+    expect(ratesGrid.className).toContain('metrics-grid')
+    expect(sessionGrid.className).toContain('metrics-grid')
+    expect(inferenceGrid.className).toContain('metrics-grid')
+    expect(mergeTimeGrid.className).toContain('metrics-grid')
+  })
 })
