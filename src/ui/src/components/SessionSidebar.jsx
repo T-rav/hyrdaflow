@@ -8,10 +8,15 @@ export function SessionSidebar() {
     sessions,
     currentSessionId,
     selectedSessionId,
+    selectedRepoSlug,
     stageStatus,
     selectSession,
+    selectRepo,
     deleteSession,
     supervisedRepos = [],
+    runtimes = [],
+    startRuntime,
+    stopRuntime,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
   const [hoveredSession, setHoveredSession] = useState(null)
@@ -65,10 +70,16 @@ export function SessionSidebar() {
       }
     }
 
+    // Merge runtime status into entries
+    const runtimeMap = new Map((runtimes || []).map(rt => [rt.slug, rt]))
+    for (const entry of entries.values()) {
+      entry.runtime = runtimeMap.get(entry.slug) || null
+    }
+
     return Array.from(entries.values()).sort((a, b) =>
       (a.displayName || '').localeCompare(b.displayName || '')
     )
-  }, [sessions, supervisedRepos])
+  }, [sessions, supervisedRepos, runtimes])
 
   const toggleRepo = (repoKey) => {
     setExpandedRepos(prev => ({ ...prev, [repoKey]: prev[repoKey] === false }))
@@ -89,25 +100,33 @@ export function SessionSidebar() {
       </div>
 
       <div
-        onClick={() => selectSession(null)}
-        style={selectedSessionId === null ? styles.allButtonActive : styles.allButton}
+        onClick={() => { selectRepo(null); selectSession(null) }}
+        style={selectedRepoSlug === null && selectedSessionId === null ? styles.allButtonActive : styles.allButton}
       >
-        All
+        All Repos
       </div>
 
       <div style={styles.list}>
         {repoEntries.map(entry => {
           const repoSessions = entry.sessions
           const isExpanded = expandedRepos[entry.key] !== false
+          const isRepoSelected = selectedRepoSlug === entry.slug
+          const rt = entry.runtime
+          const isRunning = rt?.running ?? entry.info?.running ?? false
 
           return (
             <div key={entry.key}>
               <div
-                onClick={() => toggleRepo(entry.key)}
-                style={styles.repoHeader}
+                onClick={() => selectRepo(entry.slug)}
+                style={isRepoSelected ? repoHeaderSelected : styles.repoHeader}
               >
                 <div style={styles.repoTitle}>
-                  <span style={styles.arrow}>{isExpanded ? '▾' : '▸'}</span>
+                  <span
+                    onClick={(e) => { e.stopPropagation(); toggleRepo(entry.key) }}
+                    style={styles.arrow}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </span>
                   <div style={styles.repoText}>
                     <span style={styles.repoName}>{entry.displayName}</span>
                     {entry.info?.path && entry.info.path !== entry.displayName && (
@@ -116,12 +135,21 @@ export function SessionSidebar() {
                   </div>
                 </div>
                 <div style={styles.repoMeta}>
-                  {entry.info && (
-                    <span
-                      style={entry.info.running ? styles.repoStatusRunning : styles.repoStatusStopped}
-                      title={entry.info.running ? 'Repo is running under hf supervisor' : 'Repo is registered but not running'}
+                  {rt && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); isRunning ? stopRuntime(entry.slug) : startRuntime(entry.slug) }}
+                      style={isRunning ? styles.repoStopBtn : styles.repoStartBtn}
+                      title={isRunning ? 'Stop this repo runtime' : 'Start this repo runtime'}
                     >
-                      {entry.info.running ? 'RUNNING' : 'STOPPED'}
+                      {isRunning ? 'Stop' : 'Start'}
+                    </button>
+                  )}
+                  {!rt && entry.info && (
+                    <span
+                      style={isRunning ? styles.repoStatusRunning : styles.repoStatusStopped}
+                      title={isRunning ? 'Repo is running' : 'Repo is stopped'}
+                    >
+                      {isRunning ? 'RUNNING' : 'STOPPED'}
                     </span>
                   )}
                   <span style={styles.repoCount}>{repoSessions.length}</span>
@@ -328,6 +356,28 @@ const styles = {
     borderRadius: 6,
     padding: '0 6px',
   },
+  repoStartBtn: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: theme.green,
+    background: theme.greenSubtle ?? theme.accentSubtle,
+    border: 'none',
+    borderRadius: 6,
+    padding: '1px 8px',
+    cursor: 'pointer',
+    transition: 'opacity 0.15s',
+  },
+  repoStopBtn: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: theme.red,
+    background: theme.redSubtle ?? theme.surface,
+    border: 'none',
+    borderRadius: 6,
+    padding: '1px 8px',
+    cursor: 'pointer',
+    transition: 'opacity 0.15s',
+  },
   sessionRow: {
     display: 'flex',
     alignItems: 'center',
@@ -420,6 +470,7 @@ const styles = {
 }
 
 // Pre-computed row style variants (avoids object spread in .map())
+const repoHeaderSelected = { ...styles.repoHeader, background: theme.accentSubtle }
 const sessionRowSelected = { ...styles.sessionRow, background: theme.accentSubtle }
 const sessionRowCurrent = { ...styles.sessionRow, borderLeft: `3px solid ${theme.accent}` }
 const sessionRowCurrentSelected = { ...sessionRowCurrent, background: theme.accentSubtle }

@@ -14,10 +14,15 @@ function defaultContext(overrides = {}) {
     sessions: [],
     currentSessionId: null,
     selectedSessionId: null,
+    selectedRepoSlug: null,
     stageStatus: { workload: { total: 0, active: 0, done: 0, failed: 0 } },
     selectSession: vi.fn(),
+    selectRepo: vi.fn(),
     deleteSession: vi.fn(),
     supervisedRepos: [],
+    runtimes: [],
+    startRuntime: vi.fn(),
+    stopRuntime: vi.fn(),
     ...overrides,
   }
 }
@@ -75,9 +80,9 @@ describe('SessionSidebar with no sessions', () => {
     expect(screen.getByText('Sessions')).toBeDefined()
   })
 
-  it('renders "All" button', () => {
+  it('renders "All Repos" button', () => {
     render(<SessionSidebar />)
-    expect(screen.getByText('All')).toBeDefined()
+    expect(screen.getByText('All Repos')).toBeDefined()
   })
 
   it('shows empty state message when no sessions', () => {
@@ -193,14 +198,16 @@ describe('SessionSidebar supervised repo state', () => {
 // ---------------------------------------------------------------------------
 
 describe('SessionSidebar selection', () => {
-  it('calls selectSession(null) when clicking All button', () => {
+  it('calls selectSession(null) and selectRepo(null) when clicking All Repos button', () => {
     const selectSession = vi.fn()
+    const selectRepo = vi.fn()
     mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], selectSession })
+      defaultContext({ sessions: [SESSION_A], selectSession, selectRepo })
     )
     render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('All'))
+    fireEvent.click(screen.getByText('All Repos'))
     expect(selectSession).toHaveBeenCalledWith(null)
+    expect(selectRepo).toHaveBeenCalledWith(null)
   })
 
   it('calls selectSession with session id when clicking a session row', () => {
@@ -238,8 +245,8 @@ describe('SessionSidebar collapsible repo sections', () => {
 
   it('sessions are hidden after collapsing repo section', () => {
     render(<SessionSidebar />)
-    // Click repo header to collapse
-    fireEvent.click(screen.getByText('org/repo'))
+    // Click arrow to collapse (arrow is in its own clickable span)
+    fireEvent.click(screen.getByText('▾'))
     // Issue count pill should no longer be in the DOM
     expect(screen.queryByText('3')).toBeNull()
   })
@@ -248,7 +255,7 @@ describe('SessionSidebar collapsible repo sections', () => {
     render(<SessionSidebar />)
     // Initially expanded — down arrow
     expect(screen.getByText('▾')).toBeDefined()
-    fireEvent.click(screen.getByText('org/repo'))
+    fireEvent.click(screen.getByText('▾'))
     // After collapse — right arrow
     expect(screen.getByText('▸')).toBeDefined()
   })
