@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1301,8 +1302,6 @@ class TestWebSocketEndpoint:
     def test_websocket_unsubscribes_on_disconnect(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:
-        import threading
-
         from fastapi.testclient import TestClient
 
         from dashboard import HydraFlowDashboard
@@ -1339,7 +1338,9 @@ class TestWebSocketEndpoint:
 
         # Wait for the background ASGI thread to unsubscribe its queue deterministically
         assert unsubscribed.wait(timeout=5), "unsubscribe was not called within 5s"
-        assert len(event_bus._subscribers) == 0
+        assert len(event_bus._subscribers) == 0, (
+            f"Expected 0 subscribers after disconnect, got {len(event_bus._subscribers)}"
+        )
 
     def test_multiple_websocket_clients_receive_same_history(
         self, config: HydraFlowConfig, event_bus, state
