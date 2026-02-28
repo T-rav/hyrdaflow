@@ -4,6 +4,77 @@ import { useHydraFlow } from '../context/HydraFlowContext'
 import { PIPELINE_STAGES } from '../constants'
 import { ReportIssueModal } from './ReportIssueModal'
 
+function isCrossOriginImage(el) {
+  if (!el || el.tagName !== 'IMG') return false
+  const src = el.getAttribute('src') || ''
+  if (!src || src.startsWith('data:') || src.startsWith('blob:')) return false
+  try {
+    const url = new URL(src, window.location.href)
+    return url.origin !== window.location.origin
+  } catch {
+    return false
+  }
+}
+
+async function captureDashboardScreenshot(root, html2canvas) {
+  if (!root) return null
+  const STYLE_PROPS = [
+    'background-color', 'color', 'border-color', 'box-shadow',
+    'border-bottom-color', 'border-top-color',
+    'border-left-color', 'border-right-color',
+  ]
+
+  // Attempt 1: full fidelity capture with resolved CSS vars + cross-origin IMG filtering.
+  try {
+    const liveElements = root.querySelectorAll('*')
+    const resolvedStyles = new Map()
+    liveElements.forEach((el, i) => {
+      const cs = getComputedStyle(el)
+      const styles = {}
+      STYLE_PROPS.forEach((prop) => {
+        styles[prop] = cs.getPropertyValue(prop)
+      })
+      resolvedStyles.set(i, styles)
+    })
+
+    const first = await html2canvas(root, {
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#0d1117',
+      scale: window.devicePixelRatio || 1,
+      ignoreElements: isCrossOriginImage,
+      onclone: (_doc, clonedEl) => {
+        const clonedChildren = clonedEl.querySelectorAll('*')
+        clonedChildren.forEach((el, i) => {
+          const styles = resolvedStyles.get(i)
+          if (!styles) return
+          STYLE_PROPS.forEach((prop) => {
+            if (styles[prop]) el.style.setProperty(prop, styles[prop])
+          })
+        })
+      },
+    })
+    return first.toDataURL('image/png')
+  } catch (firstErr) {
+    console.warn('Primary screenshot capture failed, retrying with safe mode.', firstErr)
+  }
+
+  // Attempt 2: simpler safe-mode capture that skips style cloning complexity.
+  try {
+    const second = await html2canvas(root, {
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#0d1117',
+      scale: 1,
+      ignoreElements: isCrossOriginImage,
+    })
+    return second.toDataURL('image/png')
+  } catch (secondErr) {
+    console.error('Safe-mode screenshot capture failed:', secondErr)
+    return null
+  }
+}
+
 export function Header({
   connected, orchestratorStatus,
   onStart, onStop,
@@ -56,45 +127,7 @@ export function Header({
       const mod = await import('html2canvas')
       const html2canvas = mod.default || mod
       const root = document.getElementById('root')
-      if (root) {
-        // html2canvas cannot resolve CSS custom properties (var(--xxx)).
-        // Pre-compute resolved styles from the live DOM so we can apply
-        // them to the cloned elements inside onclone.
-        const STYLE_PROPS = [
-          'background-color', 'color', 'border-color', 'box-shadow',
-          'border-bottom-color', 'border-top-color',
-          'border-left-color', 'border-right-color',
-        ]
-        const liveElements = root.querySelectorAll('*')
-        const resolvedStyles = new Map()
-        liveElements.forEach((el, i) => {
-          const cs = getComputedStyle(el)
-          const styles = {}
-          STYLE_PROPS.forEach((prop) => {
-            styles[prop] = cs.getPropertyValue(prop)
-          })
-          resolvedStyles.set(i, styles)
-        })
-
-        const canvas = await html2canvas(root, {
-          useCORS: true,
-          logging: false,
-          backgroundColor: '#0d1117',
-          scale: window.devicePixelRatio || 1,
-          onclone: (_doc, clonedEl) => {
-            const clonedChildren = clonedEl.querySelectorAll('*')
-            clonedChildren.forEach((el, i) => {
-              const styles = resolvedStyles.get(i)
-              if (styles) {
-                STYLE_PROPS.forEach((prop) => {
-                  if (styles[prop]) el.style.setProperty(prop, styles[prop])
-                })
-              }
-            })
-          },
-        })
-        dataUrl = canvas.toDataURL('image/png')
-      }
+      dataUrl = await captureDashboardScreenshot(root, html2canvas)
     } catch (err) {
       console.error('Screenshot capture failed:', err)
     }
