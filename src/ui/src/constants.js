@@ -19,7 +19,7 @@ export const MAX_EVENTS = 5000
  * Components derive their own views (uppercase labels, filtered subsets, etc.) from this array.
  */
 export const PIPELINE_STAGES = [
-  { key: 'triage',    label: 'Triage',    color: theme.yellow,      subtleColor: theme.yellowSubtle,  role: 'triage',      configKey: null },
+  { key: 'triage',    label: 'Triage',    color: theme.yellow,      subtleColor: theme.yellowSubtle,  role: 'triage',      configKey: 'max_triagers' },
   { key: 'plan',      label: 'Plan',      color: theme.purple,      subtleColor: theme.purpleSubtle, role: 'planner',     configKey: 'max_planners' },
   { key: 'implement', label: 'Implement', color: theme.accent,      subtleColor: theme.accentSubtle, role: 'implementer', configKey: 'max_workers' },
   { key: 'review',    label: 'Review',    color: theme.orange,      subtleColor: theme.orangeSubtle, role: 'reviewer',    configKey: 'max_reviewers' },

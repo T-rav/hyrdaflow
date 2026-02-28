@@ -756,6 +756,7 @@ class ControlStatusConfig(BaseModel):
     memory_label: list[str] = Field(default_factory=list)
     transcript_label: list[str] = Field(default_factory=list)
     manifest_label: list[str] = Field(default_factory=list)
+    max_triagers: int = 0
     max_workers: int = 0
     max_planners: int = 0
     max_reviewers: int = 0

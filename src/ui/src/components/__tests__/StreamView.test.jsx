@@ -19,7 +19,7 @@ function defaultHydraFlowContext(overrides = {}) {
     : defaultPipeline
   const workers = overrides.workers || {}
   const backgroundWorkers = overrides.backgroundWorkers || []
-  const config = overrides.config || { max_planners: 2, max_workers: 3, max_reviewers: 2 }
+  const config = overrides.config || { max_triagers: 1, max_planners: 2, max_workers: 3, max_reviewers: 2 }
   return {
     pipelineIssues,
     workers,

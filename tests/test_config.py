@@ -384,6 +384,25 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.max_reviewers == 2
 
+    def test_max_triagers_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 1
+
+    def test_max_triagers_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_MAX_TRIAGERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 4
+
     def test_max_hitl_workers_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -810,6 +829,44 @@ class TestHydraFlowConfigValidationConstraints:
         with pytest.raises(ValueError):
             HydraFlowConfig(
                 max_workers=11,
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    # max_triagers: ge=1, le=10
+
+    def test_max_triagers_minimum_boundary(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            max_triagers=1,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 1
+
+    def test_max_triagers_maximum_boundary(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            max_triagers=10,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 10
+
+    def test_max_triagers_below_minimum_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            HydraFlowConfig(
+                max_triagers=0,
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    def test_max_triagers_above_maximum_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            HydraFlowConfig(
+                max_triagers=11,
                 repo_root=tmp_path,
                 worktree_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",

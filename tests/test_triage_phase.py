@@ -215,6 +215,45 @@ class TestTriagePhase:
         assert not store.is_active(1), "Issue should be released after triage"
 
     @pytest.mark.asyncio
+    async def test_triage_runs_concurrently_with_semaphore(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Multiple issues should be triaged concurrently up to max_triagers."""
+        from models import TriageResult
+
+        config.max_triagers = 2
+        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        issues = [
+            TaskFactory.create(id=i, title=f"Issue {i}", body="A" * 100)
+            for i in range(1, 4)
+        ]
+
+        concurrency_high_water = 0
+        active_count = 0
+        lock = asyncio.Lock()
+
+        async def track_concurrency(issue: object) -> TriageResult:
+            nonlocal concurrency_high_water, active_count
+            async with lock:
+                active_count += 1
+                concurrency_high_water = max(concurrency_high_water, active_count)
+            await asyncio.sleep(0.01)
+            async with lock:
+                active_count -= 1
+            return TriageResult(issue_number=getattr(issue, "id", 0), ready=True)
+
+        triage.evaluate = AsyncMock(side_effect=track_concurrency)
+        store.get_triageable = lambda _max_count: issues  # type: ignore[method-assign]
+
+        processed = await phase.triage_issues()
+
+        assert processed == 3
+        # Semaphore allows up to 2 concurrent, so high water should be <= 2
+        assert concurrency_high_water <= 2
+        # With 3 issues and semaphore=2, at least 2 should run in parallel
+        assert concurrency_high_water == 2
+
+    @pytest.mark.asyncio
     async def test_adr_issue_routes_to_ready_when_shape_is_valid(
         self, config: HydraFlowConfig
     ) -> None:

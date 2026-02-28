@@ -72,7 +72,7 @@ describe('PIPELINE_STAGES', () => {
   it('assigns configKeys to plan, implement, review and null to triage/merged', () => {
     const configMap = Object.fromEntries(PIPELINE_STAGES.map(s => [s.key, s.configKey]))
     expect(configMap).toEqual({
-      triage: null,
+      triage: 'max_triagers',
       plan: 'max_planners',
       implement: 'max_workers',
       review: 'max_reviewers',

@@ -8,11 +8,13 @@ import logging
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
+from models import Task
 from phase_utils import (
     adr_validation_reasons,
     escalate_to_hitl,
     is_adr_issue_title,
     release_batch_in_flight,
+    run_concurrent_batch,
     store_lifecycle,
 )
 from pr_manager import PRManager
@@ -58,20 +60,22 @@ class TriagePhase:
             return 0
 
         logger.info("Triaging %d found issues", len(issues))
-        processed = 0
-        try:
-            for issue in issues:
+        semaphore = asyncio.Semaphore(self._config.max_triagers)
+
+        async def _triage_one(idx: int, issue: Task) -> int:
+            if self._stop_event.is_set():
+                return 0
+
+            async with semaphore:
                 if self._stop_event.is_set():
-                    logger.info("Stop requested — aborting triage loop")
-                    return processed
+                    return 0
 
                 async with store_lifecycle(self._store, issue.id, "find"):
                     # ADR draft issues are already scoped/planned; validate shape and
                     # route directly to implementation (ready queue).
                     if is_adr_issue_title(issue.title):
-                        processed += 1
                         if self._config.dry_run:
-                            continue
+                            return 1
                         reasons = adr_validation_reasons(issue.body)
                         if reasons:
                             await self._escalate_triage_issue(issue.id, reasons)
@@ -89,13 +93,12 @@ class TriagePhase:
                                 issue.id,
                                 self._config.ready_label[0],
                             )
-                        continue
+                        return 1
 
                     result = await self._triage.evaluate(issue)
-                    processed += 1
 
                     if self._config.dry_run:
-                        continue
+                        return 1
 
                     if result.ready:
                         await self._transitioner.transition(issue.id, "plan")
@@ -123,9 +126,13 @@ class TriagePhase:
                             self._config.hitl_label[0],
                             "; ".join(result.reasons),
                         )
+                    return 1
+
+        try:
+            results = await run_concurrent_batch(issues, _triage_one, self._stop_event)
         finally:
             release_batch_in_flight(self._store, {i.id for i in issues})
-        return processed
+        return sum(results)
 
     async def _escalate_triage_issue(self, issue_id: int, reasons: list[str]) -> None:
         await escalate_to_hitl(

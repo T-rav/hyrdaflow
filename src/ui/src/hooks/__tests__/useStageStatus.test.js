@@ -158,10 +158,10 @@ describe('deriveStageStatus', () => {
       {},
       [],
       {},
-      { max_planners: 3, max_workers: 5, max_reviewers: 4 },
+      { max_triagers: 2, max_planners: 3, max_workers: 5, max_reviewers: 4 },
     )
     expect(result.workerCaps).toEqual({
-      triage: 1,
+      triage: 2,
       plan: 3,
       implement: 5,
       review: 4,
@@ -174,14 +174,25 @@ describe('deriveStageStatus', () => {
       {},
       [],
       {},
-      { max_planners: 0, max_workers: 0, max_reviewers: -2 },
+      { max_triagers: 0, max_planners: 0, max_workers: 0, max_reviewers: -2 },
     )
     expect(result.workerCaps).toEqual({
-      triage: 1,
+      triage: 0,
       plan: 0,
       implement: 0,
       review: -2,
     })
+  })
+
+  it('returns null triage cap when max_triagers is absent from config', () => {
+    const result = deriveStageStatus(
+      emptyPipeline,
+      {},
+      [],
+      {},
+      { max_planners: 2, max_workers: 3, max_reviewers: 1 },
+    )
+    expect(result.workerCaps.triage).toBeNull()
   })
 
   describe('workload aggregate', () => {

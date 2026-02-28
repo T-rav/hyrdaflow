@@ -38,6 +38,9 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, se
 
   const stageStatus = {}
 
+  const triageCap = Number.isFinite(Number(cfg.max_triagers))
+    ? Number(cfg.max_triagers)
+    : null
   const plannerCap = Number.isFinite(Number(cfg.max_planners))
     ? Number(cfg.max_planners)
     : null
@@ -49,7 +52,7 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, se
     : null
 
   const workerCaps = {
-    triage: 1,
+    triage: triageCap,
     plan: plannerCap,
     implement: implementCap,
     review: reviewCap,
