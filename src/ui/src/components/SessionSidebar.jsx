@@ -205,14 +205,16 @@ export function SessionSidebar() {
                     {isRunning ? 'Stop' : 'Start'}
                   </button>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
-                  <button
-                    onClick={(e) => handleDisconnect(e, entry.slug, isRunning)}
-                    style={styles.disconnectBtn}
-                    aria-label="Disconnect repo"
-                    title="Disconnect repo"
-                  >
-                    −
-                  </button>
+                  {entry.info && (
+                    <button
+                      onClick={(e) => handleDisconnect(e, entry.slug, isRunning)}
+                      style={styles.disconnectBtn}
+                      aria-label="Disconnect repo"
+                      title="Disconnect repo"
+                    >
+                      −
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -334,19 +336,6 @@ const styles = {
     borderBottom: `1px solid ${theme.border}`,
     transition: 'background 0.15s',
   },
-  allButtonActive: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '8px 12px',
-    fontSize: 11,
-    fontWeight: 600,
-    color: theme.accent,
-    cursor: 'pointer',
-    borderBottom: `1px solid ${theme.border}`,
-    background: theme.accentSubtle,
-    transition: 'background 0.15s',
-  },
   addRepoBtn: {
     background: 'none',
     border: `1px solid ${theme.border}`,
@@ -438,7 +427,7 @@ const styles = {
     fontWeight: 700,
     borderRadius: 8,
     padding: '0 6px',
-    background: theme.surfaceAlt ?? theme.surface,
+    background: theme.surface,
     border: `1px solid ${theme.border}`,
   },
   repoMeta: {
@@ -560,6 +549,7 @@ const styles = {
 }
 
 // Pre-computed row style variants (avoids object spread in .map())
+const allButtonActive = { ...styles.allButton, color: theme.accent, background: theme.accentSubtle }
 const repoHeaderSelected = { ...styles.repoHeader, background: theme.accentSubtle }
 const sessionRowSelected = { ...styles.sessionRow, background: theme.accentSubtle }
 const sessionRowCurrent = { ...styles.sessionRow, borderLeft: `3px solid ${theme.accent}` }
