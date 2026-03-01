@@ -234,6 +234,48 @@ describe('Start button dispatches session reset', () => {
   })
 })
 
+describe('EventLog panel', () => {
+  it('renders EventLog panel with data-testid', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByTestId('event-log-panel')).toBeInTheDocument()
+  })
+
+  it('EventLog panel is visible on all main tabs', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    const tabs = ['Work Stream', 'Outcomes', 'HITL', 'Work Log', 'System']
+    for (const tabLabel of tabs) {
+      fireEvent.click(screen.getByText(tabLabel))
+      expect(screen.getByTestId('event-log-panel')).toBeInTheDocument()
+    }
+  })
+
+  it('EventLog panel has fixed 320px width', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    const wrapper = screen.getByTestId('event-log-panel').parentElement
+    expect(wrapper.style.width).toBe('320px')
+    expect(wrapper.style.flexShrink).toBe('0')
+  })
+
+  it('shows empty state when no events', async () => {
+    mockState.events = []
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText('Waiting for events...')).toBeInTheDocument()
+  })
+
+  it('renders events passed from context', async () => {
+    mockState.events = [
+      { type: 'error', timestamp: new Date().toISOString(), data: { message: 'test error' } },
+    ]
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText('test error')).toBeInTheDocument()
+  })
+})
+
 describe('Pipeline sub-tab under System', () => {
   it('Pipeline is accessible as a sub-tab under System', async () => {
     const { default: App } = await import('../../App')

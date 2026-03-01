@@ -8,6 +8,7 @@ import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import { SessionSidebar } from './components/SessionSidebar'
+import { EventLog } from './components/EventLog'
 import { theme } from './theme'
 
 const TABS = ['issues', 'outcomes', 'hitl', 'worklog', 'system']
@@ -64,6 +65,7 @@ function AppContent() {
     stageStatus,
     requestChanges, resetSession,
     creditsPausedUntil,
+    events,
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
@@ -162,6 +164,9 @@ function AppContent() {
               />
             )}
           </div>
+          <div style={styles.eventLogWrapper}>
+            <EventLog events={events} />
+          </div>
         </div>
       </div>
 
@@ -224,6 +229,13 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
+  },
+  eventLogWrapper: {
+    width: 320,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
   },
   hitlBadge: {
     background: theme.red,
