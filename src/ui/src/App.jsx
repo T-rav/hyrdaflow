@@ -7,15 +7,18 @@ import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { WorkLogPanel } from './components/WorkLogPanel'
+import { EpicDashboard } from './components/EpicDashboard'
 import { SessionSidebar } from './components/SessionSidebar'
+import { EventLog } from './components/EventLog'
 import { theme } from './theme'
 
-const TABS = ['issues', 'outcomes', 'hitl', 'worklog', 'system']
+const TABS = ['issues', 'outcomes', 'hitl', 'epics', 'worklog', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
+  epics: 'Epics',
   worklog: 'Work Log',
   system: 'System',
 }
@@ -64,9 +67,12 @@ function AppContent() {
     stageStatus,
     requestChanges, resetSession,
     creditsPausedUntil,
+    events,
+    epics,
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
+  const activeEpicsCount = (epics || []).filter(e => e.status === 'active').length
 
   const handleStart = useCallback(async () => {
     resetSession()
@@ -136,6 +142,8 @@ function AppContent() {
             >
               {tab === 'hitl' ? (
                 <>HITL{hitlItems?.length > 0 && <span style={hitlBadgeStyle}>{hitlItems.length}</span>}</>
+              ) : tab === 'epics' ? (
+                <>{TAB_LABELS[tab]}{activeEpicsCount > 0 && <span style={epicsBadgeStyle}>{activeEpicsCount}</span>}</>
               ) : TAB_LABELS[tab]}
             </div>
           ))}
@@ -153,6 +161,7 @@ function AppContent() {
             )}
             {activeTab === 'outcomes' && <OutcomesPanel />}
             {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
+            {activeTab === 'epics' && <EpicDashboard />}
             {activeTab === 'worklog' && <WorkLogPanel />}
             {activeTab === 'system' && (
               <SystemPanel
@@ -161,6 +170,9 @@ function AppContent() {
                 onUpdateInterval={updateBgWorkerInterval}
               />
             )}
+          </div>
+          <div style={styles.eventLogWrapper} data-testid="event-log-wrapper">
+            <EventLog events={events} />
           </div>
         </div>
       </div>
@@ -221,12 +233,29 @@ const styles = {
   },
   tabContent: {
     flex: 1,
+    minWidth: 0,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
   },
+  eventLogWrapper: {
+    width: 320,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
   hitlBadge: {
     background: theme.red,
+    color: theme.white,
+    fontSize: 10,
+    fontWeight: 700,
+    borderRadius: 10,
+    padding: '1px 6px',
+    marginLeft: 6,
+  },
+  epicsBadge: {
+    background: theme.purple,
     color: theme.white,
     fontSize: 10,
     fontWeight: 700,
@@ -308,3 +337,4 @@ const styles = {
 export const tabInactiveStyle = styles.tab
 export const tabActiveStyle = { ...styles.tab, ...styles.tabActive }
 export const hitlBadgeStyle = styles.hitlBadge
+export const epicsBadgeStyle = styles.epicsBadge

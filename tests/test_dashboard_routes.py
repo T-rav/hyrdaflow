@@ -5771,6 +5771,133 @@ class TestMemoriesEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/troubleshooting
+# ---------------------------------------------------------------------------
+
+
+class TestTroubleshootingEndpoint:
+    """Tests for the /api/troubleshooting endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_troubleshooting_returns_empty(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/troubleshooting")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_patterns"] == 0
+        assert data["patterns"] == []
+
+    @pytest.mark.asyncio
+    async def test_troubleshooting_with_patterns(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from troubleshooting_store import (
+            TroubleshootingPattern,
+            TroubleshootingPatternStore,
+        )
+
+        memory_dir = config.data_path("memory")
+        store = TroubleshootingPatternStore(memory_dir)
+        store.append_pattern(
+            TroubleshootingPattern(
+                language="python",
+                pattern_name="truthy_asyncmock",
+                description="AsyncMock is always truthy",
+                fix_strategy="Use .called or .call_count instead",
+                frequency=3,
+                source_issues=[10, 20, 30],
+            )
+        )
+        store.append_pattern(
+            TroubleshootingPattern(
+                language="node",
+                pattern_name="jest_open_handles",
+                description="Jest hangs due to open handles",
+                fix_strategy="Use --forceExit or close resources",
+                frequency=1,
+                source_issues=[42],
+            )
+        )
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/troubleshooting")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_patterns"] == 2
+        assert len(data["patterns"]) == 2
+        # Sorted by frequency desc — python pattern first
+        assert data["patterns"][0]["pattern_name"] == "truthy_asyncmock"
+        assert data["patterns"][0]["frequency"] == 3
+        assert data["patterns"][0]["language"] == "python"
+        assert data["patterns"][0]["source_issues"] == [10, 20, 30]
+        assert data["patterns"][1]["pattern_name"] == "jest_open_handles"
+
+    @pytest.mark.asyncio
+    async def test_troubleshooting_caps_at_100(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from troubleshooting_store import (
+            TroubleshootingPattern,
+            TroubleshootingPatternStore,
+        )
+
+        memory_dir = config.data_path("memory")
+        store = TroubleshootingPatternStore(memory_dir)
+        for i in range(110):
+            store.append_pattern(
+                TroubleshootingPattern(
+                    language="python",
+                    pattern_name=f"pattern_{i}",
+                    description=f"Description {i}",
+                    fix_strategy=f"Fix {i}",
+                    source_issues=[i],
+                )
+            )
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/troubleshooting")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_patterns"] == 110
+        assert len(data["patterns"]) == 100
+
+
+# ---------------------------------------------------------------------------
 # GET /api/retrospectives — edge cases
 # ---------------------------------------------------------------------------
 
