@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { EpicCard } from '../EpicCard'
 
 const baseEpic = {
@@ -214,7 +214,8 @@ describe('EpicCard', () => {
     const releasing = { epicNumber: 100, progress: 2, total: 5 }
     render(<EpicCard epic={bundledEpic} onRelease={vi.fn()} releasing={releasing} />)
     fireEvent.click(screen.getByText('Epic: Build dashboard'))
-    expect(screen.getByText('Releasing...')).toBeInTheDocument()
-    expect(screen.getByText('2/5')).toBeInTheDocument()
+    const releaseBtn = screen.getByTestId('release-button')
+    expect(within(releaseBtn).getByText('Releasing...')).toBeInTheDocument()
+    expect(within(releaseBtn).getByText('2/5')).toBeInTheDocument()
   })
 })
