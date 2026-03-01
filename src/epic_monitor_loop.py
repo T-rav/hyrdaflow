@@ -49,5 +49,6 @@ class EpicMonitorLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         stale = await self._epic_manager.check_stale_epics()
+        await self._epic_manager.refresh_cache()
         all_progress = self._epic_manager.get_all_progress()
         return {"stale_count": len(stale), "tracked_epics": len(all_progress)}

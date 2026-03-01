@@ -1178,6 +1178,33 @@ class PRManager:
             logger.warning("Could not fetch reviews for PR #%d: %s", pr_number, exc)
             return []
 
+    async def get_pr_mergeable(self, pr_number: int) -> bool | None:
+        """Return whether *pr_number* is mergeable (no conflicts).
+
+        Returns ``True`` if mergeable, ``False`` if there are conflicts,
+        or ``None`` if the status is unknown or cannot be determined.
+        """
+        if self._config.dry_run:
+            return None
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/pulls/{pr_number}",
+                "--jq",
+                ".mergeable",
+            )
+            value = raw.strip()
+            if value == "true":
+                return True
+            if value == "false":
+                return False
+            return None
+        except RuntimeError:
+            logger.debug("Could not fetch mergeable status for PR #%d", pr_number)
+            return None
+
     async def get_pr_comments(self, pr_number: int) -> list[dict[str, str]]:
         """Fetch issue-level comments for *pr_number* with author info.
 

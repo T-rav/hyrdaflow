@@ -1,4 +1,4 @@
-"""Tests for ADR-0009: autoApproveRow borderTop Context Awareness."""
+"""Tests for ADR-0020: autoApproveRow borderTop Context Awareness."""
 
 from pathlib import Path
 
@@ -8,11 +8,11 @@ from phase_utils import adr_validation_reasons
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ADR_DIR = REPO_ROOT / "docs" / "adr"
-ADR_FILE = ADR_DIR / "0009-autoApproveRow-border-context-awareness.md"
+ADR_FILE = ADR_DIR / "0020-autoApproveRow-border-context-awareness.md"
 README_FILE = ADR_DIR / "README.md"
 
 
-class TestADR0009Exists:
+class TestADR0020Exists:
     """Verify the ADR file exists and is registered in the index."""
 
     def test_adr_file_exists(self) -> None:
@@ -20,11 +20,11 @@ class TestADR0009Exists:
 
     def test_adr_listed_in_readme_index(self) -> None:
         readme = README_FILE.read_text()
-        assert "0009" in readme
+        assert "0020" in readme
         assert "autoApproveRow" in readme
 
 
-class TestADR0009Format:
+class TestADR0020Format:
     """Verify the ADR passes shape validation and has required metadata."""
 
     @pytest.fixture()
@@ -57,7 +57,7 @@ class TestADR0009Format:
         assert "## Related" in content
 
 
-class TestADR0009Content:
+class TestADR0020Content:
     """Verify the ADR references the correct source memory and code paths."""
 
     @pytest.fixture()

@@ -488,6 +488,7 @@ class ReviewResult(BaseModel):
     ci_passed: bool | None = None  # None = not checked, True/False = outcome
     ci_fix_attempts: int = 0
     duration_seconds: float = 0.0
+    visual_passed: bool | None = None  # None = not checked, True/False = outcome
 
 
 # --- Visual Validation ---
@@ -921,9 +922,32 @@ class EpicChildInfo(BaseModel):
     url: str = ""
     state: str = "open"  # "open", "closed"
     stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
+    current_stage: str = ""  # UI-facing alias of stage
+    status: str = "queued"  # done, running, queued, failed
     is_completed: bool = False
     is_failed: bool = False
     is_approved: bool = False
+    pr_number: int | None = None
+    pr_url: str = ""
+    pr_state: str | None = None  # open, merged, draft
+    branch: str = ""
+    ci_status: str | None = None  # passing, failing, pending
+    review_status: str | None = None  # approved, changes_requested, pending
+    time_in_stage_seconds: int = 0
+    stage_entered_at: str = ""
+    worker: str | None = None
+    mergeable: bool | None = None
+
+
+class EpicReadiness(BaseModel):
+    """Readiness checks for an epic before release."""
+
+    all_implemented: bool = False
+    all_approved: bool = False
+    all_ci_passing: bool = False
+    no_conflicts: bool = False
+    changelog_ready: bool = False
+    version: str | None = None
 
 
 class EpicDetail(BaseModel):
@@ -936,15 +960,20 @@ class EpicDetail(BaseModel):
     completed: int = 0
     failed: int = 0
     in_progress: int = 0
+    merged_children: int = 0
+    active_children: int = 0
+    queued_children: int = 0
     approved: int = 0
     ready_to_merge: bool = False
-    merge_strategy: str = "independent"
     status: str = "active"
     percent_complete: float = 0.0
     last_activity: str = ""
     created_at: str = ""
     auto_decomposed: bool = False
+    merge_strategy: str = "independent"
     children: list[EpicChildInfo] = Field(default_factory=list)
+    readiness: EpicReadiness = Field(default_factory=EpicReadiness)
+    release: dict | None = None
 
 
 class Crate(BaseModel):
@@ -1801,6 +1830,21 @@ class CiGateFn(Protocol):
         result: ReviewResult,
         worker_id: int,
         code_scanning_alerts: list[dict] | None = None,
+    ) -> bool: ...
+
+
+class VisualGateFn(Protocol):
+    """Async callback for visual validation gate checks.
+
+    Matches ``ReviewPhase.check_visual_gate``.
+    """
+
+    async def __call__(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        result: ReviewResult,
+        worker_id: int,
     ) -> bool: ...
 
 

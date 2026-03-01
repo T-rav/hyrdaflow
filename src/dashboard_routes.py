@@ -630,12 +630,12 @@ def create_router(
 
     @router.get("/api/epics")
     async def get_epics() -> JSONResponse:
-        """Return all tracked epics with progress."""
+        """Return all tracked epics with enriched sub-issue progress."""
         orch = get_orchestrator()
         if orch is None:
             return JSONResponse([])
-        progress = orch._epic_manager.get_all_progress()
-        return JSONResponse([p.model_dump() for p in progress])
+        details = await orch._epic_manager.get_all_detail()
+        return JSONResponse([d.model_dump() for d in details])
 
     @router.get("/api/epics/{epic_number}")
     async def get_epic_detail(epic_number: int) -> JSONResponse:
@@ -649,15 +649,16 @@ def create_router(
         return JSONResponse(detail.model_dump())
 
     @router.post("/api/epics/{epic_number}/release")
-    async def release_epic(epic_number: int) -> JSONResponse:
-        """Trigger sequential merge for a bundled epic.
+    async def trigger_epic_release(epic_number: int) -> JSONResponse:
+        """Trigger async merge sequence and release creation for an epic.
 
-        Called from the dashboard "Merge & Release" button or externally.
+        Returns a job_id. Completion is signalled via the EPIC_RELEASED WebSocket
+        event — there is no REST polling endpoint for job status.
         """
         orch = get_orchestrator()
         if orch is None:
             return JSONResponse({"error": "orchestrator not running"}, status_code=503)
-        result = await orch._epic_manager.release_epic(epic_number)
+        result = await orch._epic_manager.trigger_release(epic_number)
         if "error" in result:
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)

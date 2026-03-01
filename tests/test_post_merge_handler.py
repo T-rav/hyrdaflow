@@ -25,6 +25,7 @@ from models import (
 from post_merge_handler import PostMergeHandler
 from state import StateTracker
 from tests.conftest import PRInfoFactory, ReviewResultFactory, TaskFactory
+from tests.helpers import ConfigFactory
 
 
 def _make_handler(
@@ -833,3 +834,174 @@ class TestSafeHookRecovery:
         event_data = handler._bus.publish.call_args.args[0].data
         assert event_data["hook_name"] == "test_hook"
         assert event_data["issue"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Visual gate in handle_approved
+# ---------------------------------------------------------------------------
+
+
+class TestVisualGateInHandleApproved:
+    """Tests for visual gate integration in handle_approved."""
+
+    @pytest.mark.asyncio
+    async def test_visual_gate_disabled_skips_check(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual_gate_enabled is False, merge proceeds without calling gate fn."""
+        handler = _make_handler(config)
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        ci_gate_fn = AsyncMock(return_value=True)
+        visual_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            PRInfoFactory.create(),
+            TaskFactory.create(),
+            ReviewResultFactory.create(),
+            "diff",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+            visual_gate_fn=visual_gate_fn,
+        )
+
+        # Gate disabled by default — visual_gate_fn should not be called
+        visual_gate_fn.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_visual_gate_enabled_pass_allows_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual gate is enabled and passes, merge proceeds."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        handler = _make_handler(cfg)
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        result = ReviewResultFactory.create()
+        visual_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            PRInfoFactory.create(),
+            TaskFactory.create(),
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+            visual_gate_fn=visual_gate_fn,
+        )
+
+        visual_gate_fn.assert_awaited_once()
+        assert result.merged is True
+
+    @pytest.mark.asyncio
+    async def test_visual_gate_enabled_fail_blocks_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual gate is enabled and fails, merge is blocked."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        handler = _make_handler(cfg)
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        result = ReviewResultFactory.create()
+        visual_gate_fn = AsyncMock(return_value=False)
+
+        await handler.handle_approved(
+            PRInfoFactory.create(),
+            TaskFactory.create(),
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+            visual_gate_fn=visual_gate_fn,
+        )
+
+        visual_gate_fn.assert_awaited_once()
+        assert result.merged is False
+        handler._prs.merge_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_visual_gate_enabled_no_fn_blocks_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual gate enabled but no fn provided, merge is blocked."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        handler = _make_handler(cfg)
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        result = ReviewResultFactory.create()
+
+        await handler.handle_approved(
+            PRInfoFactory.create(),
+            TaskFactory.create(),
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+            # No visual_gate_fn provided
+        )
+
+        assert result.merged is False
+        handler._prs.merge_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_visual_gate_enabled_no_fn_emits_audit_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual gate enabled but no fn provided, an audit event is emitted."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        handler = _make_handler(cfg)
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._bus.publish = AsyncMock()
+        result = ReviewResultFactory.create()
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+            # No visual_gate_fn provided
+        )
+
+        # Merge is blocked when no visual_gate_fn is provided
+        assert result.merged is False
+        handler._prs.merge_pr.assert_not_awaited()
+        # Verify an audit event was published for the blocked gate
+        published_events = [
+            call.args[0] for call in handler._bus.publish.call_args_list
+        ]
+        gate_events = [
+            e for e in published_events if e.data.get("verdict") == "blocked"
+        ]
+        assert len(gate_events) == 1, "Expected one VISUAL_GATE blocked audit event"
+        assert gate_events[0].data["pr"] == pr.number
+        assert gate_events[0].data["issue"] == issue.id
