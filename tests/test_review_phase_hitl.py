@@ -21,6 +21,10 @@ from models import (
     ReviewResult,
     ReviewVerdict,
     Task,
+    VisualFailureClass,
+    VisualScreenResult,
+    VisualScreenVerdict,
+    VisualValidationReport,
 )
 from review_phase import ReviewPhase
 from tests.conftest import (
@@ -885,3 +889,300 @@ class TestEscalateToHitl:
         )
 
         phase._store.enqueue_transition.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Visual validation HITL escalation
+# ---------------------------------------------------------------------------
+
+
+class TestHandleVisualFailure:
+    """Tests for _handle_visual_failure HITL escalation for each failure class."""
+
+    @pytest.mark.asyncio
+    async def test_infra_only_failure_uses_infra_cause(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Infra-only failures should escalate with infrastructure-specific cause."""
+        # Arrange
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+        result = ReviewResultFactory.create()
+        report = VisualValidationReport(
+            screens=[
+                VisualScreenResult(
+                    screen_name="login",
+                    failure_class=VisualFailureClass.INFRA_FAILURE,
+                    verdict=VisualScreenVerdict.FAIL,
+                    error="service unavailable",
+                    retries_used=2,
+                ),
+            ],
+            overall_verdict=VisualScreenVerdict.FAIL,
+            total_retries=2,
+            infra_failures=1,
+            visual_diffs=0,
+        )
+
+        # Act
+        updated = await phase._handle_visual_failure(pr, task, result, report, 0)
+
+        # Assert
+        assert updated.verdict == ReviewVerdict.REQUEST_CHANGES
+        assert "infrastructure failure" in updated.summary.lower()
+        assert "not a visual diff" in updated.summary.lower()
+
+    @pytest.mark.asyncio
+    async def test_visual_diff_failure_uses_generic_cause(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Visual diff failures should escalate with generic failure cause."""
+        # Arrange
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+        result = ReviewResultFactory.create()
+        report = VisualValidationReport(
+            screens=[
+                VisualScreenResult(
+                    screen_name="dashboard",
+                    diff_ratio=0.25,
+                    failure_class=VisualFailureClass.VISUAL_DIFF,
+                    verdict=VisualScreenVerdict.FAIL,
+                ),
+            ],
+            overall_verdict=VisualScreenVerdict.FAIL,
+            visual_diffs=1,
+        )
+
+        # Act
+        updated = await phase._handle_visual_failure(pr, task, result, report, 0)
+
+        # Assert
+        assert updated.verdict == ReviewVerdict.REQUEST_CHANGES
+        assert "detected failures" in updated.summary.lower()
+
+    @pytest.mark.asyncio
+    async def test_mixed_failures_uses_generic_cause(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Mixed infra + visual diff failures should use the generic cause."""
+        # Arrange
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+        result = ReviewResultFactory.create()
+        report = VisualValidationReport(
+            screens=[
+                VisualScreenResult(
+                    screen_name="login",
+                    failure_class=VisualFailureClass.INFRA_FAILURE,
+                    verdict=VisualScreenVerdict.FAIL,
+                ),
+                VisualScreenResult(
+                    screen_name="dashboard",
+                    failure_class=VisualFailureClass.VISUAL_DIFF,
+                    verdict=VisualScreenVerdict.FAIL,
+                ),
+            ],
+            overall_verdict=VisualScreenVerdict.FAIL,
+            infra_failures=1,
+            visual_diffs=1,
+        )
+
+        # Act
+        updated = await phase._handle_visual_failure(pr, task, result, report, 0)
+
+        # Assert — mixed = generic cause, not infra-only
+        assert updated.verdict == ReviewVerdict.REQUEST_CHANGES
+        assert "detected failures" in updated.summary.lower()
+        assert "infrastructure" not in updated.summary.lower()
+
+    @pytest.mark.asyncio
+    async def test_escalation_emits_hitl_event_with_visual_metadata(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Should emit HITL_ESCALATION event with visual-specific metadata."""
+        # Arrange
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+        result = ReviewResultFactory.create()
+        report = VisualValidationReport(
+            screens=[
+                VisualScreenResult(
+                    screen_name="page",
+                    failure_class=VisualFailureClass.TIMEOUT,
+                    verdict=VisualScreenVerdict.FAIL,
+                    retries_used=2,
+                ),
+            ],
+            overall_verdict=VisualScreenVerdict.FAIL,
+            total_retries=2,
+            infra_failures=1,
+        )
+
+        # Act
+        await phase._handle_visual_failure(pr, task, result, report, 0)
+
+        # Assert
+        escalation_events = [
+            e for e in event_bus.get_history() if e.type == EventType.HITL_ESCALATION
+        ]
+        assert len(escalation_events) == 1
+        data = escalation_events[0].data
+        assert data["cause"] == "visual_validation_failed"
+        assert data["visual_verdict"] == "fail"
+        assert data["visual_retries"] == 2
+        assert data["infra_failures"] == 1
+        assert data["visual_diffs"] == 0
+
+    @pytest.mark.asyncio
+    async def test_escalation_posts_comment_with_report_summary(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Should post a PR comment containing the visual validation report."""
+        # Arrange
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+        result = ReviewResultFactory.create()
+        report = VisualValidationReport(
+            screens=[
+                VisualScreenResult(
+                    screen_name="homepage",
+                    diff_ratio=0.25,
+                    failure_class=VisualFailureClass.VISUAL_DIFF,
+                    verdict=VisualScreenVerdict.FAIL,
+                ),
+            ],
+            overall_verdict=VisualScreenVerdict.FAIL,
+            visual_diffs=1,
+        )
+
+        # Act
+        await phase._handle_visual_failure(pr, task, result, report, 0)
+
+        # Assert
+        phase._prs.post_pr_comment.assert_awaited()
+        comment = phase._prs.post_pr_comment.call_args[0][1]
+        assert "Visual validation failed" in comment
+        assert "homepage" in comment
+
+    @pytest.mark.asyncio
+    async def test_escalation_transitions_to_hitl(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Should transition the issue to HITL."""
+        # Arrange
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+        result = ReviewResultFactory.create()
+        report = VisualValidationReport(
+            overall_verdict=VisualScreenVerdict.FAIL,
+            visual_diffs=1,
+        )
+
+        # Act
+        await phase._handle_visual_failure(pr, task, result, report, 0)
+
+        # Assert
+        phase._prs.transition.assert_awaited_once_with(42, "hitl", pr_number=101)
+
+
+# ---------------------------------------------------------------------------
+# _run_visual_validation integration
+# ---------------------------------------------------------------------------
+
+
+class TestRunVisualValidation:
+    """Tests for the _run_visual_validation method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_disabled(self, config: HydraFlowConfig) -> None:
+        """Should return None when visual validation is disabled."""
+        # Arrange
+        cfg = ConfigFactory.create(
+            visual_validation_enabled=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg)
+        pr = PRInfoFactory.create()
+
+        # Act
+        result = await phase._run_visual_validation(pr, config.worktree_base, 0)
+
+        # Assert
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_report_when_enabled(self, config: HydraFlowConfig) -> None:
+        """Should return a report (empty screens by default) when enabled."""
+        # Arrange
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+
+        # Act
+        result = await phase._run_visual_validation(pr, config.worktree_base, 0)
+
+        # Assert
+        assert result is not None
+        assert result.overall_verdict == VisualScreenVerdict.PASS
+        assert result.screens == []
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_exception(self, config: HydraFlowConfig) -> None:
+        """Should catch exceptions and return None."""
+        # Arrange
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create()
+        # Force an exception by breaking the validator
+        phase._visual_validator.validate_screens = AsyncMock(
+            side_effect=RuntimeError("boom"),
+        )
+
+        # Act
+        result = await phase._run_visual_validation(pr, config.worktree_base, 0)
+
+        # Assert
+        assert result is None
