@@ -104,6 +104,33 @@ class PostMergeHandler:
         self._prompt_telemetry = PromptTelemetry(config)
         self._epic_manager = epic_manager
 
+    def _should_defer_merge(self, issue_number: int) -> bool:
+        """Return True if merge should be deferred for bundled epic strategy."""
+        if self._epic_manager is None:
+            return False
+        parent_epics = self._epic_manager.find_parent_epics(issue_number)
+        for epic_num in parent_epics:
+            epic = self._state.get_epic_state(epic_num)
+            if epic is not None and epic.merge_strategy != "independent":
+                return True
+        return False
+
+    async def _notify_epic_approval(self, issue_number: int) -> None:
+        """Notify EpicManager that a child issue's PR was approved."""
+        if self._epic_manager is None:
+            return
+        parent_epics = self._epic_manager.find_parent_epics(issue_number)
+        for epic_num in parent_epics:
+            try:
+                await self._epic_manager.on_child_approved(epic_num, issue_number)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Epic approval notification failed for child #%d of epic #%d",
+                    issue_number,
+                    epic_num,
+                    exc_info=True,
+                )
+
     async def handle_approved(
         self,
         pr: PRInfo,
@@ -117,7 +144,25 @@ class PostMergeHandler:
         code_scanning_alerts: list[dict] | None = None,
         visual_decision: VisualValidationDecision | None = None,
     ) -> None:
-        """Attempt merge for an approved PR (with optional CI gate)."""
+        """Attempt merge for an approved PR (with optional CI gate).
+
+        For epic children with bundled merge strategies, the PR is approved
+        but merge is deferred until all siblings are ready.
+        """
+        # Notify EpicManager of approval (for bundled merge coordination)
+        if self._epic_manager is not None:
+            await self._notify_epic_approval(pr.issue_number)
+
+        # Check if merge should be deferred for bundled epic strategy
+        if self._should_defer_merge(pr.issue_number):
+            logger.info(
+                "PR #%d (issue #%d): deferring merge — "
+                "bundled epic strategy requires all siblings to be approved",
+                pr.number,
+                pr.issue_number,
+            )
+            return
+
         should_merge = True
         if self._config.max_ci_fix_attempts > 0:
             should_merge = await ci_gate_fn(

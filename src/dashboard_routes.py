@@ -648,6 +648,20 @@ def create_router(
             return JSONResponse({"error": "epic not found"}, status_code=404)
         return JSONResponse(detail.model_dump())
 
+    @router.post("/api/epics/{epic_number}/release")
+    async def release_epic(epic_number: int) -> JSONResponse:
+        """Trigger sequential merge for a bundled epic.
+
+        Called from the dashboard "Merge & Release" button or externally.
+        """
+        orch = get_orchestrator()
+        if orch is None:
+            return JSONResponse({"error": "orchestrator not running"}, status_code=503)
+        result = await orch._epic_manager.release_epic(epic_number)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
+
     # --- Crate (milestone) routes ---
 
     @router.get("/api/crates")

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { theme } from '../theme'
-import { PIPELINE_LOOPS, PIPELINE_STAGES, ACTIVE_STATUSES } from '../constants'
+import { PIPELINE_LOOPS, PIPELINE_STAGES, ACTIVE_STATUSES, WORKER_COUNT_MIN, WORKER_COUNT_MAX } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 
 function formatDuration(startTime) {
@@ -97,6 +97,48 @@ function PipelineWorkerCard({ workerKey, worker }) {
 
 export function PipelineControlPanel({ onToggleBgWorker }) {
   const { workers, stageStatus, hitlItems } = useHydraFlow()
+  const workerCaps = stageStatus?.workerCaps || {}
+
+  const [localCaps, setLocalCaps] = useState({})
+
+  const workerCapsKey = JSON.stringify(workerCaps)
+  useEffect(() => {
+    const serverCaps = JSON.parse(workerCapsKey)
+    setLocalCaps(caps => {
+      if (Object.keys(caps).length === 0) return caps
+      const next = {}
+      for (const [key, val] of Object.entries(caps)) {
+        if (serverCaps[key] !== val) {
+          next[key] = val
+        }
+      }
+      return Object.keys(next).length > 0 ? next : {}
+    })
+  }, [workerCapsKey])
+
+  const updateWorkerCount = useCallback(async (loopKey, configKey, newValue) => {
+    setLocalCaps(caps => ({ ...caps, [loopKey]: newValue }))
+    try {
+      const res = await fetch('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [configKey]: newValue, persist: true }),
+      })
+      if (!res.ok) {
+        setLocalCaps(caps => {
+          const next = { ...caps }
+          delete next[loopKey]
+          return next
+        })
+      }
+    } catch {
+      setLocalCaps(caps => {
+        const next = { ...caps }
+        delete next[loopKey]
+        return next
+      })
+    }
+  }, [])
 
   const pipelineWorkers = Object.entries(workers || {}).filter(
     ([, w]) => w.role && ACTIVE_STATUSES.includes(w.status)
@@ -110,23 +152,50 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
 
       <div style={styles.loopStack}>
         {PIPELINE_LOOPS.map((loop) => {
-          const status = stageStatus[loop.key] || {}
+          const status = stageStatus?.[loop.key] || {}
           const enabled = status.enabled !== false
           const activeCount = status.workerCount || 0
-          const maxWorkers = stageStatus?.workerCaps?.[loop.key] ?? null
+          const effectiveMax = localCaps[loop.key] ?? workerCaps[loop.key] ?? null
           return (
             <div key={loop.key} style={styles.loopChip}>
               <span style={enabled ? loopDotLit[loop.key] : loopDotDim[loop.key]} />
               <span style={enabled ? styles.loopLabel : styles.loopLabelDim}>{loop.label}</span>
-              <span
-                style={enabled && activeCount > 0 ? loopCountActive[loop.key] : loopCountDim}
-                data-testid={`loop-count-${loop.key}`}
-              >
-                {maxWorkers != null ? `${activeCount}/${maxWorkers}` : activeCount}
-              </span>
-              <span style={styles.loopCountLabel}>
-                {activeCount === 1 && maxWorkers == null ? 'worker' : 'workers'}
-              </span>
+              {loop.configKey && effectiveMax != null ? (
+                <>
+                  <button
+                    style={effectiveMax <= WORKER_COUNT_MIN ? capBtnDisabled : capBtn}
+                    disabled={effectiveMax <= WORKER_COUNT_MIN}
+                    onClick={() => updateWorkerCount(loop.key, loop.configKey, effectiveMax - 1)}
+                    data-testid={`dec-${loop.key}`}
+                    aria-label={`Decrease ${loop.label} workers`}
+                  >
+                    −
+                  </button>
+                  <span
+                    style={enabled && activeCount > 0 ? loopCountActive[loop.key] : loopCountDim}
+                    data-testid={`loop-count-${loop.key}`}
+                  >
+                    {effectiveMax}
+                  </span>
+                  <button
+                    style={effectiveMax >= WORKER_COUNT_MAX ? capBtnDisabled : capBtn}
+                    disabled={effectiveMax >= WORKER_COUNT_MAX}
+                    onClick={() => updateWorkerCount(loop.key, loop.configKey, effectiveMax + 1)}
+                    data-testid={`inc-${loop.key}`}
+                    aria-label={`Increase ${loop.label} workers`}
+                  >
+                    +
+                  </button>
+                </>
+              ) : (
+                <span
+                  style={enabled && activeCount > 0 ? loopCountActive[loop.key] : loopCountDim}
+                  data-testid={`loop-count-${loop.key}`}
+                >
+                  {activeCount}
+                </span>
+              )}
+              <span style={styles.loopCountLabel}>workers</span>
               {onToggleBgWorker && (
                 <button
                   style={enabled ? styles.toggleOn : styles.toggleOff}
@@ -241,6 +310,17 @@ const styles = {
     background: theme.surface,
     color: theme.textMuted,
     cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  capBtnBase: {
+    padding: '0 4px',
+    fontSize: 11,
+    fontWeight: 700,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 4,
+    lineHeight: '18px',
+    minWidth: 20,
+    textAlign: 'center',
     transition: 'all 0.15s',
   },
   statusRow: {
@@ -374,3 +454,6 @@ const loopDotLit = Object.fromEntries(PIPELINE_LOOPS.map(l => [l.key, { ...style
 const loopDotDim = Object.fromEntries(PIPELINE_LOOPS.map(l => [l.key, { ...styles.dot, background: l.dimColor }]))
 const loopCountActive = Object.fromEntries(PIPELINE_LOOPS.map(l => [l.key, { ...styles.loopCount, color: l.color }]))
 const loopCountDim = { ...styles.loopCount, color: theme.textMuted }
+// Pre-computed cap button style variants
+const capBtn = { ...styles.capBtnBase, background: theme.surface, color: theme.text, cursor: 'pointer' }
+const capBtnDisabled = { ...styles.capBtnBase, background: theme.bg, color: theme.textInactive, cursor: 'default' }

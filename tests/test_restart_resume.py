@@ -205,3 +205,48 @@ class TestProcessedIssuesPersistence:
 
         assert str(42) in processed or 42 in processed
         assert str(99) in processed or 99 in processed
+
+
+# ---------------------------------------------------------------------------
+# Worker enabled/disabled persistence
+# ---------------------------------------------------------------------------
+
+
+class TestWorkerEnabledPersistence:
+    def test_disabled_workers_survive_restart(self, tmp_path: Path) -> None:
+        """Disabled worker set should persist across StateTracker recreation."""
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        st1 = StateTracker(state_file)
+        st1.set_disabled_workers({"memory_sync", "metrics"})
+
+        st2 = StateTracker(state_file)
+        assert st2.get_disabled_workers() == {"memory_sync", "metrics"}
+
+    def test_empty_disabled_workers_after_reenabling(self, tmp_path: Path) -> None:
+        """Re-enabling all workers should persist as empty set."""
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        st1 = StateTracker(state_file)
+        st1.set_disabled_workers({"memory_sync"})
+        st1.set_disabled_workers(set())
+
+        st2 = StateTracker(state_file)
+        assert st2.get_disabled_workers() == set()
+
+    def test_disabled_workers_coexist_with_worker_intervals(
+        self, tmp_path: Path
+    ) -> None:
+        """Disabled workers and custom intervals should both persist independently."""
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        st1 = StateTracker(state_file)
+        st1.set_disabled_workers({"memory_sync"})
+        st1.set_worker_intervals({"memory_sync": 7200})
+
+        st2 = StateTracker(state_file)
+        assert st2.get_disabled_workers() == {"memory_sync"}
+        assert st2.get_worker_intervals() == {"memory_sync": 7200}

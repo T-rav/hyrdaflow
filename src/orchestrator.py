@@ -343,8 +343,10 @@ class HydraFlowOrchestrator:
         self._state.set_bg_worker_state(name, self._bg_worker_states[name])
 
     def set_bg_worker_enabled(self, name: str, enabled: bool) -> None:
-        """Enable or disable a background worker by name."""
+        """Enable or disable a background worker by name and persist to state."""
         self._bg_worker_enabled[name] = enabled
+        disabled = {n for n, e in self._bg_worker_enabled.items() if not e}
+        self._state.set_disabled_workers(disabled)
 
     def is_bg_worker_enabled(self, name: str) -> bool:
         """Return whether a background worker is enabled (defaults to True)."""
@@ -553,11 +555,46 @@ class HydraFlowOrchestrator:
             )
             self._state.clear_interrupted_issues()
 
+    def _restore_disabled_workers(self) -> None:
+        """Restore persisted disabled-worker flags into the in-memory map."""
+        disabled = self._state.get_disabled_workers()
+        if disabled:
+            for name in disabled:
+                self._bg_worker_enabled[name] = False
+            logger.info(
+                "Restored %d disabled worker(s) from state: %s",
+                len(disabled),
+                sorted(disabled),
+            )
+
+    def _prune_stale_disabled_workers(self, known_names: set[str]) -> None:
+        """Remove disabled-worker entries for workers that no longer exist.
+
+        Called after loop factories are defined so we know the full set of
+        valid worker names.  Stale entries accumulate when workers are renamed
+        or removed between releases.
+        """
+        if not known_names:
+            return
+        disabled = self._state.get_disabled_workers()
+        stale = disabled - known_names
+        if not stale:
+            return
+        logger.info(
+            "Pruning %d stale disabled-worker name(s) from state: %s",
+            len(stale),
+            sorted(stale),
+        )
+        for name in stale:
+            self._bg_worker_enabled.pop(name, None)
+        self._state.set_disabled_workers(disabled - stale)
+
     def _restore_state(self) -> None:
-        """Restore worker intervals, crash-recovered issues, interrupted issues, and background worker heartbeats."""
+        """Restore worker intervals, crash-recovered issues, interrupted issues, disabled workers, and background worker heartbeats."""
         self._restore_worker_intervals()
         self._restore_crash_recovered_issues()
         self._restore_interrupted_issues()
+        self._restore_disabled_workers()
         self._restore_bg_worker_states()
 
     def _restore_bg_worker_states(self) -> None:
@@ -813,6 +850,7 @@ class HydraFlowOrchestrator:
             ("worktree_gc", self._worktree_gc_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),
         ]
+        self._prune_stale_disabled_workers({n for n, _ in loop_factories})
         tasks: dict[str, asyncio.Task[None]] = {}
         for name, factory in loop_factories:
             tasks[name] = asyncio.create_task(factory(), name=f"hydraflow-{name}")
