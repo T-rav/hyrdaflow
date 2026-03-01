@@ -416,6 +416,7 @@ class ImplementPhase:
                         pr_number=pr.number if pr and pr.number > 0 else None,
                     )
                     self._store.enqueue_transition(issue, "review")
+                    self._state.increment_session_counter("implemented")
 
         status = "success" if result.success else "failed"
         self._state.mark_issue(issue.id, status)

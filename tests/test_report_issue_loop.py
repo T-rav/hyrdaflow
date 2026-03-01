@@ -187,6 +187,92 @@ class TestReportIssueLoopDoWork:
         assert "monitoring" in prompt
         assert "2.0.0" in prompt
 
+    @pytest.mark.asyncio
+    async def test_screenshot_with_secrets_is_stripped(self, tmp_path: Path) -> None:
+        """When the screenshot contains a secret pattern, it is not uploaded."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        # Include a GitHub PAT pattern in the screenshot payload
+        report = PendingReport(
+            description="UI glitch",
+            screenshot_base64="ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        # Screenshot should NOT have been uploaded
+        pr_mgr.upload_screenshot_gist.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_screenshot_without_secrets_is_uploaded(self, tmp_path: Path) -> None:
+        """A clean screenshot (no secrets) is still uploaded normally."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="Normal bug",
+            screenshot_base64="iVBORw0KGgoAAAANSUhEUgAA",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        pr_mgr.upload_screenshot_gist.assert_awaited_once_with(
+            "iVBORw0KGgoAAAANSUhEUgAA"
+        )
+
+    @pytest.mark.asyncio
+    async def test_screenshot_with_secrets_still_creates_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """Even when the screenshot is stripped, the issue is still created."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="Secrets in screenshot",
+            screenshot_base64="ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        # The prompt should not include a screenshot URL
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert "Screenshot" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_scanner_disabled_uploads_screenshot_with_secrets(
+        self, tmp_path: Path
+    ) -> None:
+        """When screenshot_redaction_enabled=False, scan is skipped and secrets are uploaded."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        object.__setattr__(loop._config, "screenshot_redaction_enabled", False)
+        report = PendingReport(
+            description="UI glitch",
+            screenshot_base64="ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        # Scan is disabled — screenshot should be uploaded despite containing a token
+        pr_mgr.upload_screenshot_gist.assert_awaited_once()
+
 
 class TestReportIssueLoopInterval:
     """Tests for interval configuration."""

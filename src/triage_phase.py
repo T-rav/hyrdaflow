@@ -94,6 +94,7 @@ class TriagePhase:
                         else:
                             await self._transitioner.transition(issue.id, "ready")
                             self._store.enqueue_transition(issue, "ready")
+                            self._state.increment_session_counter("triaged")
                             logger.info(
                                 "Issue #%d ADR triage → %s (validated ADR shape)",
                                 issue.id,
@@ -117,6 +118,7 @@ class TriagePhase:
                         ):
                             await self._transitioner.transition(issue.id, "plan")
                             self._store.enqueue_transition(issue, "plan")
+                            self._state.increment_session_counter("triaged")
                             logger.info(
                                 "Issue #%d triaged → %s (ready for planning)",
                                 issue.id,

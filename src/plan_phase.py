@@ -117,6 +117,7 @@ class PlanPhase:
             reason=result.summary,
             phase="plan",
         )
+        self._state.increment_session_counter("planned")
         logger.info("Issue #%d closed as already satisfied", issue.id)
         if self._summarizer and result.transcript:
             try:
@@ -176,6 +177,7 @@ class PlanPhase:
             )
             self._state.record_issue_created()
 
+        self._state.increment_session_counter("planned")
         logger.info("Plan posted and labels swapped for issue #%d", issue.id)
 
     async def _handle_plan_failure(self, issue: Task, result: PlanResult) -> None:

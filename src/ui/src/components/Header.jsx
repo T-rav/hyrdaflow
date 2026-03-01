@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
-import { PIPELINE_STAGES } from '../constants'
+import { PIPELINE_STAGES, SENSITIVE_SELECTORS } from '../constants'
 import { ReportIssueModal } from './ReportIssueModal'
 
 function isCrossOriginImage(el) {
@@ -19,6 +19,27 @@ function isCrossOriginImage(el) {
 function stripUnsupportedColorFunctions(value, fallback) {
   if (typeof value !== 'string') return value
   return value.includes('color(') ? fallback : value
+}
+
+/**
+ * Redact elements marked with data-sensitive in a cloned DOM tree.
+ * Replaces their innerHTML with a placeholder overlay so sensitive
+ * content (transcripts, event logs) never appears in screenshots.
+ */
+function redactSensitiveElements(clonedRoot) {
+  const selector = SENSITIVE_SELECTORS.join(',')
+  clonedRoot.querySelectorAll(selector).forEach((el) => {
+    el.innerHTML = ''
+    el.style.setProperty('background', '#1a1a2e')
+    el.style.setProperty('color', '#555')
+    el.style.setProperty('display', 'flex')
+    el.style.setProperty('align-items', 'center')
+    el.style.setProperty('justify-content', 'center')
+    el.style.setProperty('min-height', '40px')
+    el.style.setProperty('font-size', '11px')
+    el.style.setProperty('font-style', 'italic')
+    el.textContent = '[Content redacted for security]'
+  })
 }
 
 function sanitizeClonedDocumentForHtml2Canvas(clonedDoc) {
@@ -85,6 +106,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
       scale: window.devicePixelRatio || 1,
       ignoreElements: isCrossOriginImage,
       onclone: (_doc, clonedEl) => {
+        redactSensitiveElements(clonedEl)
         const clonedChildren = clonedEl.querySelectorAll('*')
         clonedChildren.forEach((el, i) => {
           const styles = resolvedStyles.get(i)
@@ -108,6 +130,9 @@ async function captureDashboardScreenshot(root, html2canvas) {
       backgroundColor: '#0d1117',
       scale: 1,
       ignoreElements: isCrossOriginImage,
+      onclone: (_doc, clonedEl) => {
+        redactSensitiveElements(clonedEl)
+      },
     })
     return second.toDataURL('image/png')
   } catch (secondErr) {
@@ -124,6 +149,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
       foreignObjectRendering: true,
       ignoreElements: isCrossOriginImage,
       onclone: (clonedDoc) => {
+        redactSensitiveElements(clonedDoc)
         sanitizeClonedDocumentForHtml2Canvas(clonedDoc)
       },
     })

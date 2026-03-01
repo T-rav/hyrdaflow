@@ -591,6 +591,22 @@ class TestRunVisualDiff:
         assert report.is_error is True
         assert report.errored == 1
 
+    def test_error_missing_candidate_classification(self, tmp_path: Path) -> None:
+        """ERROR from unreadable candidate → failure_category = IMAGE_LOAD_ERROR."""
+        baseline_dir = tmp_path / "baseline"
+        candidate_dir = tmp_path / "candidate"
+        baseline_dir.mkdir()
+        candidate_dir.mkdir()
+        _write_png(baseline_dir / "s.png")
+        # No candidate file — compare_screen returns ERROR with "Cannot load candidate"
+        # which does not match "baseline", "size mismatch", or "budget", so it
+        # falls through to IMAGE_LOAD_ERROR.
+
+        report = run_visual_diff(baseline_dir, candidate_dir)
+        assert report.aggregate_verdict == ScreenVerdict.ERROR
+        assert report.failure_category == FailureCategory.IMAGE_LOAD_ERROR
+        assert report.errored == 1
+
 
 # ---------------------------------------------------------------------------
 # write_visual_report
@@ -660,7 +676,7 @@ class TestVisualValidationConfig:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.visual_validation_enabled is False
+        assert cfg.visual_validation_enabled is True
         assert cfg.visual_diff_threshold == 0.01
         assert cfg.visual_warn_threshold == 0.005
         assert cfg.visual_max_screens == 20
@@ -681,13 +697,13 @@ class TestVisualValidationConfig:
     ) -> None:
         from config import HydraFlowConfig
 
-        monkeypatch.setenv("HYDRAFLOW_VISUAL_VALIDATION_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_VALIDATION_ENABLED", "false")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.visual_validation_enabled is True
+        assert cfg.visual_validation_enabled is False
 
     def test_env_override_diff_threshold(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

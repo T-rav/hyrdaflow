@@ -772,15 +772,16 @@ class PRManager:
             with os.fdopen(fd, "wb") as f:
                 f.write(base64.b64decode(png_base64))
 
-            output = await self._run_gh(
+            gist_args = [
                 "gh",
                 "gist",
                 "create",
-                "--public",
-                "--filename",
-                "screenshot.png",
-                tmp_path,
-            )
+            ]
+            if self._config.screenshot_gist_public:
+                gist_args.append("--public")
+            gist_args += ["--filename", "screenshot.png", tmp_path]
+
+            output = await self._run_gh(*gist_args)
             # gh gist create prints the gist URL, e.g.
             # https://gist.github.com/user/abc123
             gist_url = output.strip()

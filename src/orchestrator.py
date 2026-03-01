@@ -438,8 +438,15 @@ class HydraFlowOrchestrator:
             "hitl": "hitl",
         }
 
-        # Session completions from _session_issue_results
-        session_succeeded = sum(1 for s in self._session_issue_results.values() if s)
+        # Session counters from persisted state
+        session_counters = self._state.get_session_counters()
+        session_counter_map: dict[str, str] = {
+            "triage": "triaged",
+            "plan": "planned",
+            "implement": "implemented",
+            "review": "reviewed",
+            "hitl": "",  # HITL has no dedicated counter; shows 0
+        }
 
         stages: dict[str, StageStats] = {}
         for stage_key in ("triage", "plan", "implement", "review", "hitl"):
@@ -449,7 +456,10 @@ class HydraFlowOrchestrator:
             )
             queued = queue_stats.queue_depth.get(store_key, 0)
             active = queue_stats.active_count.get(store_key, 0)
-            session_processed = queue_stats.total_processed.get(store_key, 0)
+            counter_field = session_counter_map.get(stage_key, "")
+            session_processed = (
+                getattr(session_counters, counter_field, 0) if counter_field else 0
+            )
             completed_lt = queue_stats.total_processed.get(store_key, 0)
 
             stages[stage_key] = StageStats(
@@ -461,23 +471,21 @@ class HydraFlowOrchestrator:
                 worker_cap=stage_caps.get(stage_key),
             )
 
-        # Add a merged pseudo-stage from lifetime stats
+        # Add a merged pseudo-stage from session counters and lifetime stats
         stages["merged"] = StageStats(
-            completed_session=session_succeeded,
+            completed_session=session_counters.merged,
             completed_lifetime=lifetime.prs_merged,
         )
 
-        # Compute throughput (issues/hour) from session processed / uptime
-        hours = uptime / 3600.0 if uptime > 0 else 0.0
-        throughput = ThroughputStats()
-        if hours > 0:
-            for stage_key in ("triage", "plan", "implement", "review", "hitl"):
-                store_key = next(
-                    (k for k, v in store_stage_map.items() if v == stage_key),
-                    stage_key,
-                )
-                processed = queue_stats.total_processed.get(store_key, 0)
-                setattr(throughput, stage_key, round(processed / hours, 2))
+        # Compute throughput (issues/hour) from session counters / uptime
+        session_throughput = self._state.compute_session_throughput()
+        throughput = ThroughputStats(
+            triage=session_throughput.get("triaged", 0.0),
+            plan=session_throughput.get("planned", 0.0),
+            implement=session_throughput.get("implemented", 0.0),
+            review=session_throughput.get("reviewed", 0.0),
+            hitl=0.0,
+        )
 
         return PipelineStats(
             timestamp=datetime.now(UTC).isoformat(),
@@ -613,6 +621,7 @@ class HydraFlowOrchestrator:
             started_at=session_start_time.isoformat(),
         )
         self._session_issue_results = {}
+        self._state.reset_session_counters(session_start_time.isoformat())
         self._state.save_session(self._current_session)
         self._bus.set_session_id(session_id)
         await self._bus.publish(
