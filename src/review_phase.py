@@ -313,8 +313,8 @@ class ReviewPhase:
                 pr_approvers=pr_approvers,
             )
         except Exception:  # noqa: BLE001
-            logger.debug(
-                "Baseline policy check failed for PR #%d",
+            logger.warning(
+                "Baseline policy check failed for PR #%d — proceeding without baseline enforcement",
                 pr.number,
                 exc_info=True,
             )

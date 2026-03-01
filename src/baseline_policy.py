@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+from datetime import datetime
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
@@ -216,7 +217,7 @@ class BaselinePolicy:
 
         lines = [f"### Baseline Audit Trail (issue #{issue_number})\n"]
         for record in records:
-            ts = record.timestamp[:19]  # Trim to seconds
+            ts = datetime.fromisoformat(record.timestamp).strftime("%Y-%m-%dT%H:%M:%S")
             action = record.change_type.value.upper()
             approver = record.approver or "unknown"
             files = ", ".join(record.changed_files[:3])
