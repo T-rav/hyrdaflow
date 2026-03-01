@@ -140,6 +140,7 @@ class GitHubIssue(BaseModel):
     labels: list[str] = Field(default_factory=list)
     comments: list[str] = Field(default_factory=list)
     url: HttpUrl = ""
+    author: str = ""
     created_at: str = Field(
         default="",
         validation_alias=AliasChoices("createdAt", "created_at"),
@@ -163,6 +164,9 @@ class GitHubIssue(BaseModel):
 
     def to_task(self) -> Task:
         """Convert to a source-agnostic :class:`Task`."""
+        metadata: dict[str, Any] = {}
+        if self.author:
+            metadata["author"] = self.author
         return Task(
             id=self.number,
             title=self.title,
@@ -172,6 +176,7 @@ class GitHubIssue(BaseModel):
             source_url=self.url,
             created_at=self.created_at,
             links=parse_task_links(self.body),
+            metadata=metadata,
         )
 
     @classmethod
@@ -185,6 +190,7 @@ class GitHubIssue(BaseModel):
             comments=list(task.comments),
             url=task.source_url,
             created_at=task.created_at,
+            author=task.metadata.get("author", ""),
         )
 
 
@@ -818,6 +824,43 @@ class EpicDetail(BaseModel):
     created_at: str = ""
     auto_decomposed: bool = False
     children: list[EpicChildInfo] = Field(default_factory=list)
+
+
+class Crate(BaseModel):
+    """A GitHub milestone used as a delivery work package (crate)."""
+
+    number: int
+    title: str
+    description: str = ""
+    due_on: str | None = None
+    state: str = "open"
+    open_issues: int = 0
+    closed_issues: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class CrateCreateRequest(BaseModel):
+    """Request body for POST /api/crates."""
+
+    title: str
+    description: str = ""
+    due_on: str | None = None
+
+
+class CrateUpdateRequest(BaseModel):
+    """Request body for PATCH /api/crates/{number}."""
+
+    title: str | None = None
+    description: str | None = None
+    due_on: str | None = None
+    state: str | None = None
+
+
+class CrateItemsRequest(BaseModel):
+    """Request body for POST/DELETE /api/crates/{number}/items."""
+
+    issue_numbers: list[int] = Field(default_factory=list)
 
 
 class PipelineIssueStatus(StrEnum):
