@@ -1689,6 +1689,7 @@ class EscalateFn(Protocol):
         event_cause: str = ...,
         extra_event_data: dict[str, object] | None = ...,
         task: Task | None = ...,
+        visual_evidence: VisualEvidence | None = ...,
     ) -> None: ...
 
 

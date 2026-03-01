@@ -885,3 +885,311 @@ class TestEscalateToHitl:
         )
 
         phase._store.enqueue_transition.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Visual evidence escalation
+# ---------------------------------------------------------------------------
+
+
+class TestVisualEvidenceEscalation:
+    """Tests for visual evidence wiring in _escalate_to_hitl and escalate_visual_failure."""
+
+    @pytest.mark.asyncio
+    async def test_escalate_to_hitl_persists_visual_evidence(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual_evidence is provided, it should be persisted in state."""
+        from models import VisualEvidence, VisualEvidenceItem
+
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        evidence = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="login", diff_percent=12.5, status="fail"
+                )
+            ],
+            summary="1 screen exceeded threshold",
+        )
+
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="Visual validation failed",
+            origin_label="hydraflow-review",
+            comment="Visual failure",
+            visual_evidence=evidence,
+        )
+
+        stored = phase._state.get_hitl_visual_evidence(42)
+        assert stored is not None
+        assert len(stored.items) == 1
+        assert stored.items[0].screen_name == "login"
+        assert stored.items[0].diff_percent == 12.5
+
+    @pytest.mark.asyncio
+    async def test_escalate_to_hitl_skips_evidence_when_none(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When visual_evidence is None, no evidence should be persisted."""
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="CI failed",
+            origin_label="hydraflow-review",
+            comment="CI failure",
+        )
+
+        assert phase._state.get_hitl_visual_evidence(42) is None
+
+    @pytest.mark.asyncio
+    async def test_escalate_to_hitl_includes_evidence_in_event(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """Visual evidence should be included in the HITL_ESCALATION event data."""
+        from models import VisualEvidence, VisualEvidenceItem
+
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        evidence = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="dashboard", diff_percent=5.0, status="warn"
+                )
+            ],
+            summary="Minor visual diff",
+        )
+
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="Visual validation warning",
+            origin_label="hydraflow-review",
+            comment="Visual warning",
+            visual_evidence=evidence,
+        )
+
+        hitl_events = [
+            e for e in event_bus.get_history() if e.type == EventType.HITL_ESCALATION
+        ]
+        assert len(hitl_events) == 1
+        assert "visual_evidence" in hitl_events[0].data
+        ev_data = hitl_events[0].data["visual_evidence"]
+        assert ev_data["items"][0]["screen_name"] == "dashboard"
+
+    @pytest.mark.asyncio
+    async def test_escalate_visual_failure_full_flow(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """escalate_visual_failure should persist evidence, record harness failure, and escalate."""
+        from models import VisualEvidence, VisualEvidenceItem
+
+        phase = make_review_phase(config, event_bus=event_bus)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        issue = TaskFactory.create(id=42)
+
+        evidence = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="login", diff_percent=15.0, status="fail"
+                ),
+                VisualEvidenceItem(
+                    screen_name="settings", diff_percent=3.0, status="warn"
+                ),
+            ],
+            summary="1 fail, 1 warn",
+            run_url="https://ci.example.com/run/123",
+        )
+
+        await phase.escalate_visual_failure(42, 101, evidence, task=issue)
+
+        # Verify visual evidence persisted
+        stored = phase._state.get_hitl_visual_evidence(42)
+        assert stored is not None
+        assert len(stored.items) == 2
+
+        # Verify HITL state was set
+        assert phase._state.get_hitl_origin(42) == config.review_label[0]
+        cause = phase._state.get_hitl_cause(42)
+        assert cause is not None
+        assert "Visual validation failed" in cause
+
+        # Verify escalation event was published
+        hitl_events = [
+            e for e in event_bus.get_history() if e.type == EventType.HITL_ESCALATION
+        ]
+        assert len(hitl_events) == 1
+        assert hitl_events[0].data["cause"] == "visual_validation_failed"
+        assert "visual_evidence" in hitl_events[0].data
+
+        # Verify comment was posted on PR
+        phase._prs.post_pr_comment.assert_awaited_once()
+        comment = phase._prs.post_pr_comment.call_args[0][1]
+        assert "Visual Validation Failed" in comment
+        assert "login" in comment
+        assert "15.0% diff" in comment
+
+    @pytest.mark.asyncio
+    async def test_escalate_visual_failure_warn_only(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When all items are warnings, category should be VISUAL_WARN."""
+        from models import VisualEvidence, VisualEvidenceItem
+
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        evidence = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="header", diff_percent=2.0, status="warn"
+                ),
+            ],
+            summary="Minor diff detected",
+        )
+
+        await phase.escalate_visual_failure(42, 101, evidence)
+
+        # Should still escalate and persist
+        stored = phase._state.get_hitl_visual_evidence(42)
+        assert stored is not None
+        assert stored.items[0].status == "warn"
+
+    @pytest.mark.asyncio
+    async def test_escalate_visual_failure_no_pr(self, config: HydraFlowConfig) -> None:
+        """When pr_number is None, comment should go to issue instead."""
+        from models import VisualEvidence, VisualEvidenceItem
+
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.post_comment = AsyncMock()
+
+        evidence = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="login", diff_percent=10.0, status="fail"
+                ),
+            ],
+            summary="Visual fail",
+        )
+
+        await phase.escalate_visual_failure(42, None, evidence)
+
+        # Comment should go to issue since pr_number is None
+        phase._prs.post_comment.assert_awaited_once()
+        phase._prs.post_pr_comment.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_escalate_visual_failure_empty_evidence(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Empty evidence items should still escalate with minimal comment."""
+        from models import VisualEvidence
+
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        evidence = VisualEvidence(items=[], summary="No details available")
+
+        await phase.escalate_visual_failure(42, 101, evidence)
+
+        stored = phase._state.get_hitl_visual_evidence(42)
+        assert stored is not None
+        assert len(stored.items) == 0
+
+    @pytest.mark.asyncio
+    async def test_requeue_preserves_visual_evidence(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Visual evidence should survive across requeue attempts (HITL failure → retry)."""
+        from models import VisualEvidence, VisualEvidenceItem
+
+        phase = make_review_phase(config)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.remove_pr_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.add_pr_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        evidence = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="login", diff_percent=12.0, status="fail"
+                )
+            ],
+            summary="Login page regression",
+            attempt=1,
+        )
+
+        # First escalation
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="Visual validation failed",
+            origin_label="hydraflow-review",
+            comment="Visual failure",
+            visual_evidence=evidence,
+        )
+
+        # Evidence should be stored
+        stored = phase._state.get_hitl_visual_evidence(42)
+        assert stored is not None
+        assert stored.attempt == 1
+
+        # Overwrite with updated attempt (simulates requeue)
+        evidence_v2 = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="login", diff_percent=8.0, status="fail")
+            ],
+            summary="Login page regression (retry)",
+            attempt=2,
+        )
+
+        await phase._escalate_to_hitl(
+            42,
+            101,
+            cause="Visual validation failed (retry)",
+            origin_label="hydraflow-review",
+            comment="Visual failure retry",
+            visual_evidence=evidence_v2,
+        )
+
+        # Updated evidence should be stored
+        stored = phase._state.get_hitl_visual_evidence(42)
+        assert stored is not None
+        assert stored.attempt == 2
+        assert stored.items[0].diff_percent == 8.0

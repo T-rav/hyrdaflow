@@ -1708,7 +1708,7 @@ class TestHITLEndpointCause:
 
         items = json.loads(response.body)
         assert len(items) == 1
-        assert "visualEvidence" not in items[0]
+        assert items[0].get("visualEvidence") is None
 
 
 # ---------------------------------------------------------------------------
