@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { PIPELINE_STAGES, SENSITIVE_SELECTORS } from '../constants'
@@ -225,8 +225,14 @@ export function Header({
   }, [submitReport])
 
   const totalRepos = supervisedRepos.length
-  const supervisedSlugs = new Set(supervisedRepos.map(r => r.slug))
-  const runningRepos = runtimes.filter(rt => rt.running && supervisedSlugs.has(rt.slug)).length
+  const supervisedSlugs = useMemo(
+    () => new Set(supervisedRepos.map(r => r.slug)),
+    [supervisedRepos]
+  )
+  const runningRepos = useMemo(
+    () => runtimes.filter(rt => rt.running && supervisedSlugs.has(rt.slug)).length,
+    [runtimes, supervisedSlugs]
+  )
 
   const sessionStages = PIPELINE_STAGES.map((stage) => ({
     key: stage.key,
