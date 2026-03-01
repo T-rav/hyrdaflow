@@ -401,6 +401,7 @@ class EpicManager:
             "Merging all PRs automatically (bundled strategy).\n\n"
             "---\n*HydraFlow Epic Coordinator*",
         )
+        await self.release_epic(epic_number)
 
     async def _handle_bundled_hitl_ready(self, epic_number: int) -> None:
         """All siblings approved — pause and notify for human review."""
@@ -438,6 +439,7 @@ class EpicManager:
             "Merging PRs in dependency order.\n\n"
             "---\n*HydraFlow Epic Coordinator*",
         )
+        await self.release_epic(epic_number)
 
     async def release_epic(self, epic_number: int) -> dict[str, object]:
         """Trigger sequential merge for a bundled epic (called from API).
