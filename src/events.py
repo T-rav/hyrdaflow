@@ -77,6 +77,7 @@ class EventType(StrEnum):
     SESSION_START = "session_start"
     SESSION_END = "session_end"
     EPIC_UPDATE = "epic_update"
+    EPIC_READY = "epic_ready"
     PIPELINE_STATS = "pipeline_stats"
 
 
