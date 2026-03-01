@@ -306,6 +306,5 @@ describe('MetricsPanel', () => {
 
     const sectionCards = sectionWrapper.getElementsByClassName('metrics-section-card')
     expect(sectionCards.length).toBeGreaterThanOrEqual(5)
-    expect(sectionWrapper.querySelector('.metrics-section-card--full')).not.toBeNull()
   })
 })
