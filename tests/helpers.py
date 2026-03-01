@@ -30,7 +30,7 @@ class AsyncLineIter:
 
 def make_proc(
     returncode: int = 0, stdout: bytes = b"", stderr: bytes = b""
-) -> AsyncMock:
+) -> MagicMock:
     """Build a minimal mock subprocess object (communicate style).
 
     Unlike ``make_streaming_proc`` (which returns a callable factory mock that
@@ -46,9 +46,12 @@ def make_proc(
     suitable for code paths that call ``await proc.communicate()`` rather than
     iterating ``proc.stdout`` line by line.
     """
-    proc = AsyncMock()
+    proc = MagicMock()
     proc.returncode = returncode
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    # kill/terminate are synchronous on asyncio subprocesses.
+    proc.kill = MagicMock()
+    proc.terminate = MagicMock()
     return proc
 
 
@@ -56,7 +59,7 @@ def make_streaming_proc(
     returncode: int = 0, stdout: str = "", stderr: str = ""
 ) -> AsyncMock:
     """Build a mock for asyncio.create_subprocess_exec with streaming stdout."""
-    mock_proc = AsyncMock()
+    mock_proc = MagicMock()
     mock_proc.returncode = returncode
     # stdin.write and stdin.close are sync on StreamWriter; drain is async
     mock_proc.stdin = MagicMock()
@@ -145,9 +148,13 @@ class ConfigFactory:
         max_workers: int = 2,
         max_planners: int = 1,
         max_reviewers: int = 1,
-        implementation_tool: Literal["claude", "codex"] = "claude",
+        system_tool: Literal["inherit", "claude", "codex", "pi"] = "inherit",
+        system_model: str = "",
+        background_tool: Literal["inherit", "claude", "codex", "pi"] = "inherit",
+        background_model: str = "",
+        implementation_tool: Literal["claude", "codex", "pi"] = "claude",
         model: str = "sonnet",
-        review_tool: Literal["claude", "codex"] = "claude",
+        review_tool: Literal["claude", "codex", "pi"] = "claude",
         review_model: str = "sonnet",
         ci_check_timeout: int = 600,
         ci_poll_interval: int = 30,
@@ -157,6 +164,7 @@ class ConfigFactory:
         max_review_fix_attempts: int = 2,
         min_review_findings: int = 3,
         max_merge_conflict_fix_attempts: int = 3,
+        max_ci_timeout_fix_attempts: int = 2,
         max_issue_attempts: int = 3,
         review_label: list[str] | None = None,
         hitl_label: list[str] | None = None,
@@ -164,14 +172,17 @@ class ConfigFactory:
         fixed_label: list[str] | None = None,
         improve_label: list[str] | None = None,
         memory_label: list[str] | None = None,
+        transcript_label: list[str] | None = None,
+        manifest_label: list[str] | None = None,
         metrics_label: list[str] | None = None,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
+        epic_child_label: list[str] | None = None,
         find_label: list[str] | None = None,
         planner_label: list[str] | None = None,
-        planner_tool: Literal["claude", "codex"] = "claude",
+        planner_tool: Literal["claude", "codex", "pi"] = "claude",
         planner_model: str = "opus",
-        triage_tool: Literal["claude", "codex"] = "claude",
+        triage_tool: Literal["claude", "codex", "pi"] = "claude",
         triage_model: str = "haiku",
         min_plan_words: int = 200,
         max_new_files_warning: int = 5,
@@ -185,20 +196,20 @@ class ConfigFactory:
         dashboard_port: int = 15555,
         review_insight_window: int = 10,
         review_pattern_threshold: int = 3,
-        subskill_tool: Literal["claude", "codex"] = "claude",
+        subskill_tool: Literal["claude", "codex", "pi"] = "claude",
         subskill_model: str = "haiku",
         max_subskill_attempts: int = 0,
         debug_escalation_enabled: bool = True,
-        debug_tool: Literal["claude", "codex"] = "claude",
+        debug_tool: Literal["claude", "codex", "pi"] = "claude",
         debug_model: str = "opus",
         max_debug_attempts: int = 1,
         subskill_confidence_threshold: float = 0.7,
         poll_interval: int = 5,
-        data_poll_interval: int = 60,
+        data_poll_interval: int = 300,
         gh_max_retries: int = 3,
         ac_model: str = "sonnet",
-        ac_tool: Literal["claude", "codex"] = "claude",
-        verification_judge_tool: Literal["claude", "codex"] = "claude",
+        ac_tool: Literal["claude", "codex", "pi"] = "claude",
+        verification_judge_tool: Literal["claude", "codex", "pi"] = "claude",
         test_command: str = "make test",
         max_issue_body_chars: int = 10_000,
         max_review_diff_chars: int = 15_000,
@@ -208,6 +219,7 @@ class ConfigFactory:
         event_log_path: Path | None = None,
         config_file: Path | None = None,
         memory_compaction_model: str = "haiku",
+        memory_compaction_tool: Literal["claude", "codex", "pi"] = "claude",
         max_memory_chars: int = 4000,
         max_memory_prompt_chars: int = 4000,
         memory_sync_interval: int = 120,
@@ -217,6 +229,7 @@ class ConfigFactory:
         credit_pause_buffer_minutes: int = 1,
         transcript_summarization_enabled: bool = True,
         transcript_summary_model: str = "haiku",
+        transcript_summary_tool: Literal["claude", "codex", "pi"] = "claude",
         max_transcript_summary_chars: int = 50_000,
         pr_unstick_interval: int = 3600,
         pr_unstick_batch_size: int = 10,
@@ -232,16 +245,18 @@ class ConfigFactory:
         docker_read_only_root: bool = True,
         docker_no_new_privileges: bool = True,
         ui_dirs: list[str] | None = None,
-        docker_enabled: bool = False,
         docker_network: str = "",
         docker_extra_mounts: list[str] | None = None,
         memory_auto_approve: bool = False,
+        memory_prune_stale_items: bool = True,
         transcript_summary_as_issue: bool = False,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
         inject_runtime_logs: bool = False,
         max_runtime_log_chars: int = 8_000,
         max_ci_log_chars: int = 12_000,
+        code_scanning_enabled: bool = False,
+        max_code_scanning_chars: int = 6_000,
         agent_timeout: int = 3600,
         transcript_summary_timeout: int = 120,
         memory_compaction_timeout: int = 60,
@@ -252,6 +267,16 @@ class ConfigFactory:
         unstick_auto_merge: bool = True,
         unstick_all_causes: bool = True,
         enable_fresh_branch_rebuild: bool = True,
+        max_troubleshooting_prompt_chars: int = 3000,
+        epic_auto_decompose: bool = False,
+        epic_decompose_complexity_threshold: int = 8,
+        auto_process_epics: bool = False,
+        auto_process_bug_reports: bool = False,
+        epic_monitor_interval: int = 1800,
+        worktree_gc_interval: int = 1800,
+        epic_stale_days: int = 7,
+        collaborator_check_enabled: bool = False,
+        collaborator_cache_ttl: int = 600,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -264,6 +289,10 @@ class ConfigFactory:
             max_workers=max_workers,
             max_planners=max_planners,
             max_reviewers=max_reviewers,
+            system_tool=system_tool,
+            system_model=system_model,
+            background_tool=background_tool,
+            background_model=background_model,
             implementation_tool=implementation_tool,
             model=model,
             review_tool=review_tool,
@@ -276,6 +305,7 @@ class ConfigFactory:
             max_review_fix_attempts=max_review_fix_attempts,
             min_review_findings=min_review_findings,
             max_merge_conflict_fix_attempts=max_merge_conflict_fix_attempts,
+            max_ci_timeout_fix_attempts=max_ci_timeout_fix_attempts,
             max_issue_attempts=max_issue_attempts,
             review_label=review_label
             if review_label is not None
@@ -291,11 +321,22 @@ class ConfigFactory:
             memory_label=memory_label
             if memory_label is not None
             else ["hydraflow-memory"],
+            transcript_label=transcript_label
+            if transcript_label is not None
+            else ["hydraflow-transcript"],
+            manifest_label=manifest_label
+            if manifest_label is not None
+            else ["hydraflow-manifest"],
             metrics_label=metrics_label
             if metrics_label is not None
             else ["hydraflow-metrics"],
             dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
             epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
+            epic_child_label=(
+                epic_child_label
+                if epic_child_label is not None
+                else ["hydraflow-epic-child"]
+            ),
             find_label=find_label if find_label is not None else ["hydraflow-find"],
             planner_label=planner_label
             if planner_label is not None
@@ -340,6 +381,7 @@ class ConfigFactory:
             state_file=state_file or root / ".hydraflow-state.json",
             event_log_path=event_log_path or root / ".hydraflow-events.jsonl",
             memory_compaction_model=memory_compaction_model,
+            memory_compaction_tool=memory_compaction_tool,
             max_memory_chars=max_memory_chars,
             max_memory_prompt_chars=max_memory_prompt_chars,
             memory_sync_interval=memory_sync_interval,
@@ -349,6 +391,7 @@ class ConfigFactory:
             credit_pause_buffer_minutes=credit_pause_buffer_minutes,
             transcript_summarization_enabled=transcript_summarization_enabled,
             transcript_summary_model=transcript_summary_model,
+            transcript_summary_tool=transcript_summary_tool,
             max_transcript_summary_chars=max_transcript_summary_chars,
             pr_unstick_interval=pr_unstick_interval,
             pr_unstick_batch_size=pr_unstick_batch_size,
@@ -364,18 +407,20 @@ class ConfigFactory:
             docker_read_only_root=docker_read_only_root,
             docker_no_new_privileges=docker_no_new_privileges,
             ui_dirs=ui_dirs if ui_dirs is not None else ["ui"],
-            docker_enabled=docker_enabled,
             docker_network=docker_network,
             docker_extra_mounts=docker_extra_mounts
             if docker_extra_mounts is not None
             else [],
             memory_auto_approve=memory_auto_approve,
+            memory_prune_stale_items=memory_prune_stale_items,
             transcript_summary_as_issue=transcript_summary_as_issue,
             harness_insight_window=harness_insight_window,
             harness_pattern_threshold=harness_pattern_threshold,
             inject_runtime_logs=inject_runtime_logs,
             max_runtime_log_chars=max_runtime_log_chars,
             max_ci_log_chars=max_ci_log_chars,
+            code_scanning_enabled=code_scanning_enabled,
+            max_code_scanning_chars=max_code_scanning_chars,
             agent_timeout=agent_timeout,
             transcript_summary_timeout=transcript_summary_timeout,
             memory_compaction_timeout=memory_compaction_timeout,
@@ -386,6 +431,16 @@ class ConfigFactory:
             unstick_auto_merge=unstick_auto_merge,
             unstick_all_causes=unstick_all_causes,
             enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
+            max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
+            epic_auto_decompose=epic_auto_decompose,
+            epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
+            epic_monitor_interval=epic_monitor_interval,
+            worktree_gc_interval=worktree_gc_interval,
+            epic_stale_days=epic_stale_days,
+            auto_process_epics=auto_process_epics,
+            auto_process_bug_reports=auto_process_bug_reports,
+            collaborator_check_enabled=collaborator_check_enabled,
+            collaborator_cache_ttl=collaborator_cache_ttl,
         )
 
 
@@ -474,8 +529,9 @@ def make_plan_phase(
     prs.remove_label = AsyncMock()
     prs.add_labels = AsyncMock()
     prs.swap_pipeline_labels = AsyncMock()
-    prs.create_issue = AsyncMock(return_value=99)
-    prs.close_issue = AsyncMock()
+    prs.transition = AsyncMock()
+    prs.create_task = AsyncMock(return_value=99)
+    prs.close_task = AsyncMock()
     stop_event = asyncio.Event()
     phase = PlanPhase(
         config,
@@ -507,7 +563,7 @@ def make_implement_phase(
     """
     from implement_phase import ImplementPhase
     from issue_store import IssueStore
-    from models import GitHubIssue, WorkerResult
+    from models import Task, WorkerResult
     from state import StateTracker
     from tests.conftest import PRInfoFactory, WorkerResultFactory
 
@@ -517,15 +573,14 @@ def make_implement_phase(
     if agent_run is None:
 
         async def _default_agent_run(
-            issue: GitHubIssue,
+            issue: Task,
             wt_path: Path,
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
-                issue_number=issue.number,
-                branch=branch,
+                issue_number=issue.id,
                 success=success,
                 worktree_path=str(wt_path),
             )
@@ -554,10 +609,14 @@ def make_implement_phase(
         if create_pr_return is not None
         else PRInfoFactory.create()
     )
+    mock_prs.find_open_pr_for_branch = AsyncMock(return_value=PRInfoFactory.create())
+    mock_prs.branch_has_diff_from_main = AsyncMock(return_value=True)
     mock_prs.add_labels = AsyncMock()
     mock_prs.remove_label = AsyncMock()
     mock_prs.swap_pipeline_labels = AsyncMock()
+    mock_prs.transition = AsyncMock()
     mock_prs.post_comment = AsyncMock()
+    mock_prs.close_task = AsyncMock()
     mock_prs.add_pr_labels = AsyncMock()
 
     phase = ImplementPhase(
@@ -667,16 +726,36 @@ def make_conflict_resolver(config, *, agents=None):
 def make_review_phase(
     config,
     *,
-    agents=None,
     event_bus=None,
+    agents=None,
     ac_generator=None,
+    default_mocks: bool = False,
+    review_result=None,
+    issue_number: int = 42,
 ):
     """Build a ReviewPhase with standard mock dependencies.
 
     Promoted from test_review_phase._make_phase() for reuse across test files.
+
+    Args:
+        agents: Optional AgentRunner mock; wired into a MergeConflictResolver.
+        ac_generator: Optional AcceptanceCriteriaGenerator mock; wired into a
+            PostMergeHandler.
+
+    When ``default_mocks=True``, the phase is returned with the standard happy-path
+    mocks pre-wired so tests only need to override the specific mocks they care about:
+
+    * ``_reviewers.review`` → returns *review_result* (default ``ReviewResultFactory.create()``)
+    * ``_prs.get_pr_diff`` → ``"diff text"``
+    * ``_prs.push_branch`` → ``True``
+    * ``_prs.merge_pr`` → ``True``
+    * ``_prs.remove_label`` / ``add_labels`` / ``post_pr_comment`` / ``submit_review``
+    * worktree directory ``issue-{issue_number}`` created under ``config.worktree_base``
     """
     from events import EventBus
     from issue_store import IssueStore
+    from merge_conflict_resolver import MergeConflictResolver
+    from post_merge_handler import PostMergeHandler
     from review_phase import ReviewPhase
     from state import StateTracker
 
@@ -689,12 +768,39 @@ def make_review_phase(
     mock_reviewers = AsyncMock()
     mock_prs = AsyncMock()
 
-    mock_store = AsyncMock(spec=IssueStore)
+    mock_store = MagicMock(spec=IssueStore)
     mock_store.mark_active = lambda _num, _stage: None
     mock_store.mark_complete = lambda _num: None
     mock_store.is_active = lambda _num: False
 
-    return ReviewPhase(
+    bus = event_bus or EventBus()
+
+    conflict_resolver = None
+    if agents is not None:
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            worktrees=mock_wt,
+            agents=agents,
+            prs=mock_prs,
+            event_bus=bus,
+            state=state,
+            summarizer=None,
+        )
+
+    post_merge = None
+    if ac_generator is not None:
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=bus,
+            ac_generator=ac_generator,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+
+    phase = ReviewPhase(
         config=config,
         state=state,
         worktrees=mock_wt,
@@ -702,7 +808,26 @@ def make_review_phase(
         prs=mock_prs,
         stop_event=stop_event,
         store=mock_store,
-        agents=agents,
-        event_bus=event_bus or EventBus(),
-        ac_generator=ac_generator,
+        event_bus=bus,
+        conflict_resolver=conflict_resolver,
+        post_merge=post_merge,
     )
+
+    if default_mocks:
+        from tests.conftest import ReviewResultFactory
+
+        phase._reviewers.review = AsyncMock(
+            return_value=review_result or ReviewResultFactory.create()
+        )
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        phase._prs.merge_pr = AsyncMock(return_value=True)
+        phase._prs.remove_label = AsyncMock()
+        phase._prs.add_labels = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._prs.submit_review = AsyncMock(return_value=True)
+
+        wt = config.worktree_base / f"issue-{issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+
+    return phase

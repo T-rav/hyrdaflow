@@ -17,7 +17,6 @@ from tests.conftest import EventFactory
 # ---------------------------------------------------------------------------
 
 _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
-    (EventType.BATCH_START, "batch_start"),
     (EventType.PHASE_CHANGE, "phase_change"),
     (EventType.WORKER_UPDATE, "worker_update"),
     (EventType.TRANSCRIPT_LINE, "transcript_line"),
@@ -29,15 +28,11 @@ _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
     (EventType.CI_CHECK, "ci_check"),
     (EventType.HITL_ESCALATION, "hitl_escalation"),
     (EventType.ISSUE_CREATED, "issue_created"),
-    (EventType.BATCH_COMPLETE, "batch_complete"),
     (EventType.HITL_UPDATE, "hitl_update"),
     (EventType.ORCHESTRATOR_STATUS, "orchestrator_status"),
     (EventType.ERROR, "error"),
     (EventType.MEMORY_SYNC, "memory_sync"),
-    (EventType.RETROSPECTIVE, "retrospective"),
     (EventType.METRICS_UPDATE, "metrics_update"),
-    (EventType.REVIEW_INSIGHT, "review_insight"),
-    (EventType.HARNESS_INSIGHT, "harness_insight"),
     (EventType.BACKGROUND_WORKER_STATUS, "background_worker_status"),
     (EventType.QUEUE_UPDATE, "queue_update"),
     (EventType.SYSTEM_ALERT, "system_alert"),
@@ -45,13 +40,14 @@ _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
     (EventType.TRANSCRIPT_SUMMARY, "transcript_summary"),
     (EventType.SESSION_START, "session_start"),
     (EventType.SESSION_END, "session_end"),
+    (EventType.EPIC_UPDATE, "epic_update"),
+    (EventType.PIPELINE_STATS, "pipeline_stats"),
 ]
 
 
 class TestEventTypeEnum:
     def test_all_expected_values_exist(self) -> None:
         expected = {
-            "BATCH_START",
             "PHASE_CHANGE",
             "WORKER_UPDATE",
             "TRANSCRIPT_LINE",
@@ -63,15 +59,11 @@ class TestEventTypeEnum:
             "CI_CHECK",
             "HITL_ESCALATION",
             "ISSUE_CREATED",
-            "BATCH_COMPLETE",
             "HITL_UPDATE",
             "ORCHESTRATOR_STATUS",
             "ERROR",
             "MEMORY_SYNC",
-            "RETROSPECTIVE",
             "METRICS_UPDATE",
-            "REVIEW_INSIGHT",
-            "HARNESS_INSIGHT",
             "BACKGROUND_WORKER_STATUS",
             "QUEUE_UPDATE",
             "SYSTEM_ALERT",
@@ -79,6 +71,8 @@ class TestEventTypeEnum:
             "TRANSCRIPT_SUMMARY",
             "SESSION_START",
             "SESSION_END",
+            "EPIC_UPDATE",
+            "PIPELINE_STATS",
         }
         actual = {member.name for member in EventType}
         assert expected == actual
@@ -109,11 +103,11 @@ class TestEventTypeEnum:
 class TestHydraFlowEvent:
     def test_creation_with_explicit_values(self) -> None:
         event = EventFactory.create(
-            type=EventType.BATCH_START,
+            type=EventType.PHASE_CHANGE,
             timestamp="2024-01-01T00:00:00+00:00",
             data={"batch": 1},
         )
-        assert event.type == EventType.BATCH_START
+        assert event.type == EventType.PHASE_CHANGE
         assert event.timestamp == "2024-01-01T00:00:00+00:00"
         assert event.data == {"batch": 1}
 
@@ -151,21 +145,21 @@ class TestHydraFlowEvent:
 
 class TestHydraFlowEventId:
     def test_event_id_auto_generated(self) -> None:
-        event = HydraFlowEvent(type=EventType.BATCH_START)
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE)
         assert isinstance(event.id, int)
 
     def test_event_ids_are_unique(self) -> None:
-        events = [HydraFlowEvent(type=EventType.BATCH_START) for _ in range(10)]
+        events = [HydraFlowEvent(type=EventType.PHASE_CHANGE) for _ in range(10)]
         ids = [e.id for e in events]
         assert len(set(ids)) == 10
 
     def test_event_ids_are_monotonically_increasing(self) -> None:
-        events = [HydraFlowEvent(type=EventType.BATCH_START) for _ in range(5)]
+        events = [HydraFlowEvent(type=EventType.PHASE_CHANGE) for _ in range(5)]
         for i in range(1, len(events)):
             assert events[i].id > events[i - 1].id
 
     def test_event_id_included_in_serialization(self) -> None:
-        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         dumped = event.model_dump()
         assert "id" in dumped
         assert isinstance(dumped["id"], int)
@@ -174,7 +168,7 @@ class TestHydraFlowEventId:
         assert '"id"' in json_str
 
     def test_explicit_event_id_preserved(self) -> None:
-        event = HydraFlowEvent(id=999, type=EventType.BATCH_START)
+        event = HydraFlowEvent(id=999, type=EventType.PHASE_CHANGE)
         assert event.id == 999
 
 
@@ -189,7 +183,7 @@ class TestEventBusPublishSubscribe:
         bus = EventBus()
         queue = bus.subscribe()
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"batch": 1})
         await bus.publish(event)
 
         received = queue.get_nowait()
@@ -231,7 +225,7 @@ class TestEventBusPublishSubscribe:
     @pytest.mark.asyncio
     async def test_no_subscribers_publish_does_not_raise(self) -> None:
         bus = EventBus()
-        event = EventFactory.create(type=EventType.BATCH_COMPLETE)
+        event = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(event)  # should not raise
 
     @pytest.mark.asyncio
@@ -323,8 +317,8 @@ class TestEventBusHistory:
     @pytest.mark.asyncio
     async def test_get_history_returns_published_events(self) -> None:
         bus = EventBus()
-        e1 = EventFactory.create(type=EventType.BATCH_START)
-        e2 = EventFactory.create(type=EventType.BATCH_COMPLETE)
+        e1 = EventFactory.create(type=EventType.PHASE_CHANGE)
+        e2 = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(e1)
         await bus.publish(e2)
 
@@ -405,8 +399,8 @@ class TestEventBusHistoryCap:
     @pytest.mark.asyncio
     async def test_max_history_one_keeps_latest(self) -> None:
         bus = EventBus(max_history=1)
-        e1 = EventFactory.create(type=EventType.BATCH_START)
-        e2 = EventFactory.create(type=EventType.BATCH_COMPLETE)
+        e1 = EventFactory.create(type=EventType.PHASE_CHANGE)
+        e2 = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(e1)
         await bus.publish(e2)
 
@@ -432,7 +426,7 @@ class TestEventBusClear:
     @pytest.mark.asyncio
     async def test_clear_removes_history(self) -> None:
         bus = EventBus()
-        await bus.publish(EventFactory.create(type=EventType.BATCH_START))
+        await bus.publish(EventFactory.create(type=EventType.PHASE_CHANGE))
         bus.clear()
         assert bus.get_history() == []
 
@@ -443,7 +437,7 @@ class TestEventBusClear:
         bus.clear()
 
         # After clearing, publishing should not deliver to the old queue
-        await bus.publish(EventFactory.create(type=EventType.BATCH_COMPLETE))
+        await bus.publish(EventFactory.create(type=EventType.ORCHESTRATOR_STATUS))
         assert queue.empty()
 
     @pytest.mark.asyncio
@@ -454,11 +448,11 @@ class TestEventBusClear:
     @pytest.mark.asyncio
     async def test_bus_usable_after_clear(self) -> None:
         bus = EventBus()
-        await bus.publish(EventFactory.create(type=EventType.BATCH_START))
+        await bus.publish(EventFactory.create(type=EventType.PHASE_CHANGE))
         bus.clear()
 
         queue = bus.subscribe()
-        event = EventFactory.create(type=EventType.BATCH_COMPLETE)
+        event = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(event)
 
         assert queue.get_nowait() is event
@@ -549,7 +543,7 @@ class TestEventBusSubscription:
     async def test_subscription_yields_queue_that_receives_events(self) -> None:
         bus = EventBus()
         async with bus.subscription() as queue:
-            event = EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"batch": 1})
             await bus.publish(event)
             received = queue.get_nowait()
             assert received is event
@@ -603,7 +597,7 @@ class TestRotateSyncUsesAtomicWrite:
     def test_rotate_sync_calls_atomic_write(self, tmp_path: Path) -> None:
         """_rotate_sync should delegate file writing to atomic_write."""
         log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         # Write enough data to exceed max_size_bytes
         log_path.write_text((event.model_dump_json() + "\n") * 100)
 
@@ -618,7 +612,7 @@ class TestRotateSyncUsesAtomicWrite:
     def test_rotate_sync_passes_joined_content(self, tmp_path: Path) -> None:
         """_rotate_sync should pass newline-joined kept lines to atomic_write."""
         log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         log_path.write_text((event.model_dump_json() + "\n") * 5)
 
         event_log = EventLog(log_path)
@@ -648,7 +642,7 @@ class TestRotateSyncCorruptLines:
         import logging
 
         log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         valid_line = event.model_dump_json()
         # Write a mix of valid and corrupt lines (enough to exceed size threshold)
         lines = [valid_line, "corrupt garbage", valid_line, "also bad"]
@@ -674,7 +668,7 @@ class TestRotateSyncCorruptLines:
         import logging
 
         log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         valid_line = event.model_dump_json()
         # Build a line that passes Pydantic validation but has an invalid timestamp
         bad_ts_data = json.loads(valid_line)
@@ -700,7 +694,7 @@ class TestLoadSyncCorruptLines:
         import logging
 
         log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.BATCH_START, data={"batch": 1})
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         valid_line = event.model_dump_json()
         lines = [valid_line, "corrupt garbage", valid_line]
         log_path.write_text("\n".join(lines) + "\n")
@@ -742,7 +736,7 @@ class TestPersistEventErrorHandling:
             ),
             caplog.at_level(logging.WARNING, logger="hydraflow.events"),
         ):
-            event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
             await bus.publish(event)
             await bus.flush_persists()
 
@@ -766,7 +760,7 @@ class TestPersistEventErrorHandling:
             patch.object(event_log, "append", side_effect=OSError("disk full")),
             caplog.at_level(logging.WARNING, logger="hydraflow.events"),
         ):
-            event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
             await bus.publish(event)
             await bus.flush_persists()
 
@@ -916,3 +910,73 @@ class TestLoadSyncOSError:
 
         assert result == []
         assert "Could not read event log" in caplog.text
+
+
+# --- _Counter.advance ---
+
+
+class TestCounterAdvance:
+    """Tests for _Counter.advance."""
+
+    def test_advance_sets_minimum(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        counter.advance(100)
+        assert next(counter) == 100
+
+    def test_advance_to_higher_value(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        # Consume a few values
+        next(counter)
+        next(counter)
+        counter.advance(50)
+        assert next(counter) == 50
+
+    def test_advance_replaces_iterator(self) -> None:
+        from events import _Counter
+
+        counter = _Counter()
+        counter.advance(10)
+        first = next(counter)
+        second = next(counter)
+        assert first == 10
+        assert second == 11
+
+
+# --- EventLog.append ---
+
+
+class TestEventLogAppend:
+    """Tests for EventLog.append."""
+
+    @pytest.mark.asyncio
+    async def test_append_writes_jsonl_line(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "events.jsonl")
+        event = EventFactory.create()
+        await event_log.append(event)
+
+        content = (tmp_path / "events.jsonl").read_text()
+        assert content.strip()  # Not empty
+        assert content.count("\n") == 1
+
+    @pytest.mark.asyncio
+    async def test_append_multiple_events(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "events.jsonl")
+        e1 = EventFactory.create(data={"n": 1})
+        e2 = EventFactory.create(data={"n": 2})
+        await event_log.append(e1)
+        await event_log.append(e2)
+
+        lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2
+
+    @pytest.mark.asyncio
+    async def test_append_creates_parent_dir(self, tmp_path: Path) -> None:
+        event_log = EventLog(tmp_path / "deep" / "nested" / "events.jsonl")
+        event = EventFactory.create()
+        await event_log.append(event)
+
+        assert (tmp_path / "deep" / "nested" / "events.jsonl").exists()

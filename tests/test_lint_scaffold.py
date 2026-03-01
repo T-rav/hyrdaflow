@@ -113,7 +113,9 @@ class TestHasTypescriptFiles:
         (hydraflow / "index.ts").write_text("export {};")
         assert has_typescript_files(tmp_path) is False
 
-    def test_no_ts_files(self, tmp_path: Path) -> None:
+    def test_has_typescript_files_returns_false_without_ts_files(
+        self, tmp_path: Path
+    ) -> None:
         src = tmp_path / "src"
         src.mkdir()
         (src / "app.js").write_text("const x = 1;")
@@ -140,11 +142,13 @@ class TestHasRuffConfig:
         _make_pyproject(tmp_path, "[tool.ruff]\nline-length = 80\n")
         assert _has_ruff_config(tmp_path) is True
 
-    def test_no_ruff_config(self, tmp_path: Path) -> None:
+    def test_has_ruff_config_returns_false_when_absent(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         assert _has_ruff_config(tmp_path) is False
 
-    def test_no_pyproject(self, tmp_path: Path) -> None:
+    def test_has_ruff_config_returns_false_without_pyproject(
+        self, tmp_path: Path
+    ) -> None:
         assert _has_ruff_config(tmp_path) is False
 
     def test_malformed_pyproject_with_ruff_string(self, tmp_path: Path) -> None:
@@ -169,11 +173,15 @@ class TestHasPyrightConfig:
         _make_pyproject(tmp_path, '[tool.pyright]\npythonVersion = "3.11"\n')
         assert _has_pyright_config(tmp_path) is True
 
-    def test_no_pyright_config(self, tmp_path: Path) -> None:
+    def test_has_pyright_config_returns_false_when_missing(
+        self, tmp_path: Path
+    ) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         assert _has_pyright_config(tmp_path) is False
 
-    def test_no_pyproject(self, tmp_path: Path) -> None:
+    def test_has_pyright_config_returns_false_without_pyproject(
+        self, tmp_path: Path
+    ) -> None:
         assert _has_pyright_config(tmp_path) is False
 
 
@@ -201,7 +209,7 @@ class TestHasEslintConfig:
         (tmp_path / ".eslintrc.yaml").write_text("rules: {}")
         assert _has_eslint_config(tmp_path) is True
 
-    def test_no_eslint_config(self, tmp_path: Path) -> None:
+    def test_has_eslint_config_returns_false_when_absent(self, tmp_path: Path) -> None:
         assert _has_eslint_config(tmp_path) is False
 
 
@@ -217,7 +225,7 @@ class TestHasTsconfig:
         (tmp_path / "tsconfig.json").write_text("{}")
         assert _has_tsconfig(tmp_path) is True
 
-    def test_no_tsconfig(self, tmp_path: Path) -> None:
+    def test_has_tsconfig_returns_false_when_absent(self, tmp_path: Path) -> None:
         assert _has_tsconfig(tmp_path) is False
 
 
@@ -426,7 +434,7 @@ class TestScaffoldTsconfig:
         assert created == ["tsconfig.json"]
         assert (tmp_path / "tsconfig.json").exists()
 
-    def test_strict_is_false(self, tmp_path: Path) -> None:
+    def test_scaffold_tsconfig_sets_strict_to_false(self, tmp_path: Path) -> None:
         _scaffold_tsconfig(tmp_path)
         data = json.loads((tmp_path / "tsconfig.json").read_text())
         assert data["compilerOptions"]["strict"] is False

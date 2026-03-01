@@ -75,12 +75,14 @@ class TestGenerateWorkflow:
         assert "prep-managed: quality-workflow" in wf
         assert "make quality-lite" in wf
         assert "make quality" in wf
+        assert "make smoke" in wf
         assert "|| true" not in wf
 
     def test_unknown_workflow_fallback(self) -> None:
         wf = generate_workflow("some-new-lang")
         assert "make quality-lite" in wf
         assert "make quality" in wf
+        assert "make smoke" in wf
 
     def test_workflow_discovery_ignores_hydra_folders(self) -> None:
         wf = generate_workflow("python")
@@ -108,6 +110,7 @@ class TestScaffoldCI:
         content = (tmp_path / ".github" / "workflows" / "quality.yml").read_text()
         assert "make quality-lite" in content
         assert "make quality" in content
+        assert "make smoke" in content
 
     def test_creates_workflow_for_go_repo(self, tmp_path: Path) -> None:
         (tmp_path / "go.mod").touch()
@@ -119,6 +122,7 @@ class TestScaffoldCI:
         content = (tmp_path / ".github" / "workflows" / "quality.yml").read_text()
         assert "make quality-lite" in content
         assert "make quality" in content
+        assert "make smoke" in content
 
     def test_creates_workflow_for_rust_repo(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").touch()
@@ -130,6 +134,7 @@ class TestScaffoldCI:
         content = (tmp_path / ".github" / "workflows" / "quality.yml").read_text()
         assert "make quality-lite" in content
         assert "make quality" in content
+        assert "make smoke" in content
 
     def test_skips_when_quality_workflow_exists(self, tmp_path: Path) -> None:
         wf_dir = tmp_path / ".github" / "workflows"

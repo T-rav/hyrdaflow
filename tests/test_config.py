@@ -350,7 +350,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_workers == 3
+        assert cfg.max_workers == 2
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -382,7 +382,26 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_reviewers == 5
+        assert cfg.max_reviewers == 2
+
+    def test_max_triagers_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 1
+
+    def test_max_triagers_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_MAX_TRIAGERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 4
 
     def test_max_hitl_workers_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -669,17 +688,17 @@ class TestHydraFlowConfigPathResolution:
         assert cfg.worktree_base == git_root.parent / "hydraflow-worktrees"
 
     def test_default_state_file_derived_from_repo_root(self, tmp_path: Path) -> None:
-        """When state_file is left as Path('.'), it should resolve to repo_root / '.hydraflow/state.json'."""
+        """state_file should resolve to repo_root / '.hydraflow/<slug>/state.json'."""
         # Arrange
         git_root = tmp_path / "hydra"
         git_root.mkdir()
         (git_root / ".git").mkdir()
 
         # Act
-        cfg = HydraFlowConfig(repo_root=git_root)
+        cfg = HydraFlowConfig(repo_root=git_root, repo="org/my-repo")
 
         # Assert
-        assert cfg.state_file == git_root / ".hydraflow" / "state.json"
+        assert cfg.state_file == git_root / ".hydraflow" / "org-my-repo" / "state.json"
 
     def test_auto_detected_repo_root_is_absolute(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -716,7 +735,7 @@ class TestHydraFlowConfigPathResolution:
     def test_auto_detected_state_file_named_hydraflow_state_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Auto-derived state_file should be inside .hydraflow/ and named 'state.json'."""
+        """Auto-derived state_file should be inside .hydraflow/<slug>/ and named 'state.json'."""
         # Arrange
         git_root = tmp_path / "repo"
         git_root.mkdir()
@@ -728,7 +747,8 @@ class TestHydraFlowConfigPathResolution:
 
         # Assert
         assert cfg.state_file.name == "state.json"
-        assert cfg.state_file.parent.name == ".hydraflow"
+        # state_file is at .hydraflow/<repo_slug>/state.json
+        assert cfg.state_file.parent.parent.name == ".hydraflow"
 
 
 # ---------------------------------------------------------------------------
@@ -810,6 +830,44 @@ class TestHydraFlowConfigValidationConstraints:
         with pytest.raises(ValueError):
             HydraFlowConfig(
                 max_workers=11,
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    # max_triagers: ge=1, le=10
+
+    def test_max_triagers_minimum_boundary(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            max_triagers=1,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 1
+
+    def test_max_triagers_maximum_boundary(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            max_triagers=10,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_triagers == 10
+
+    def test_max_triagers_below_minimum_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            HydraFlowConfig(
+                max_triagers=0,
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+    def test_max_triagers_above_maximum_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            HydraFlowConfig(
+                max_triagers=11,
                 repo_root=tmp_path,
                 worktree_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
@@ -1263,6 +1321,8 @@ class TestHydraFlowConfigGhToken:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1301,6 +1361,36 @@ class TestHydraFlowConfigGhToken:
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_explicit"
+
+    def test_gh_token_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        (tmp_path / ".env").write_text("HYDRAFLOW_GH_TOKEN=ghp_from_dotenv\n")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.gh_token == "ghp_from_dotenv"
+
+    def test_gh_token_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GH_TOKEN=ghp_from_dotenv # bot token\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.gh_token == "ghp_from_dotenv"
 
 
 # ---------------------------------------------------------------------------
@@ -1396,6 +1486,40 @@ class TestHydraFlowConfigGitIdentity:
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == "explicit@example.com"
+
+    def test_git_identity_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_user_name == "Dotenv Bot"
+        assert cfg.git_user_email == "dotenv-bot@example.com"
+
+    def test_git_identity_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        (tmp_path / ".env").write_text(
+            "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot # preferred\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com # notifications\n"
+        )
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.git_user_name == "Dotenv Bot"
+        assert cfg.git_user_email == "dotenv-bot@example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -1504,6 +1628,50 @@ class TestHydraFlowConfigImproveLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.improve_label == ["explicit-improve"]
+
+
+class TestHydraFlowConfigEpicChildLabel:
+    """Tests for epic_child_label default, custom value, and env var override."""
+
+    def test_epic_child_label_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["hydraflow-epic-child"]
+
+    def test_epic_child_label_custom_value(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            epic_child_label=["my-epic-child"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["my-epic-child"]
+
+    def test_epic_child_label_env_var_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "custom-epic-child")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["custom-epic-child"]
+
+    def test_epic_child_label_env_var_not_applied_when_explicit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "env-epic-child")
+        cfg = HydraFlowConfig(
+            epic_child_label=["explicit-epic-child"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.epic_child_label == ["explicit-epic-child"]
 
 
 # ---------------------------------------------------------------------------
@@ -1716,12 +1884,12 @@ class TestHydraFlowConfigLitePlanLabels:
 
 
 # ---------------------------------------------------------------------------
-# HydraFlowConfig – improve_label / memory_label env var overrides
+# HydraFlowConfig – improve_label / memory/transcript label env var overrides
 # ---------------------------------------------------------------------------
 
 
 class TestHydraFlowConfigImproveLabelAndMemoryLabel:
-    """Tests for improve_label and memory_label fields and env var overrides."""
+    """Tests for improve_label, memory_label, and transcript_label."""
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1738,6 +1906,14 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["hydraflow-memory"]
+
+    def test_transcript_label_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["hydraflow-transcript"]
 
     def test_improve_label_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1760,6 +1936,17 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["custom-memory"]
+
+    def test_transcript_label_env_var_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "custom-transcript")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["custom-transcript"]
 
     def test_improve_label_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1784,6 +1971,18 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_label == ["explicit-memory"]
+
+    def test_transcript_label_explicit_overrides_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "env-transcript")
+        cfg = HydraFlowConfig(
+            transcript_label=["explicit-transcript"],
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.transcript_label == ["explicit-transcript"]
 
     def test_metrics_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1909,28 +2108,55 @@ class TestWorktreePathForIssue:
 
     def test_returns_path_under_worktree_base(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
+            repo="org/my-repo",
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(42) == tmp_path / "wt" / "issue-42"
+        assert (
+            cfg.worktree_path_for_issue(42)
+            == tmp_path / "wt" / "org-my-repo" / "issue-42"
+        )
 
     def test_single_digit_issue(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
+            repo="org/my-repo",
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(1) == tmp_path / "wt" / "issue-1"
+        assert (
+            cfg.worktree_path_for_issue(1)
+            == tmp_path / "wt" / "org-my-repo" / "issue-1"
+        )
 
     def test_uses_configured_worktree_base(self, tmp_path: Path) -> None:
         custom_base = tmp_path / "custom-worktrees"
         cfg = HydraFlowConfig(
+            repo="org/proj",
             repo_root=tmp_path,
             worktree_base=custom_base,
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(7) == custom_base / "issue-7"
+        assert cfg.worktree_path_for_issue(7) == custom_base / "org-proj" / "issue-7"
+
+    def test_repo_slug_from_repo(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo="acme/widgets",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.repo_slug == "acme-widgets"
+
+    def test_repo_slug_fallback_to_dir_name(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo="",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.repo_slug == tmp_path.name
 
 
 # ---------------------------------------------------------------------------
@@ -2189,8 +2415,11 @@ class TestResolveDefaults:
     """Tests for the resolve_defaults model validator."""
 
     def test_resolve_defaults_sets_event_log_path(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(repo_root=tmp_path)
-        assert cfg.event_log_path == tmp_path / ".hydraflow" / "events.jsonl"
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/my-repo")
+        assert (
+            cfg.event_log_path
+            == tmp_path / ".hydraflow" / "org-my-repo" / "events.jsonl"
+        )
 
     def test_resolve_defaults_repo_from_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3285,6 +3514,53 @@ class TestDockerConfigValidation:
         )
         assert cfg.execution_mode == "host"
 
+    def test_docker_mode_warns_when_identity_missing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="hydraflow.config"):
+            HydraFlowConfig(
+                execution_mode="docker",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        warnings = "\n".join(rec.getMessage() for rec in caplog.records)
+        assert "without GH token configured" in warnings
+        assert "git identity not configured" in warnings
+
+    def test_docker_mode_warns_on_partial_git_identity(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="hydraflow.config"):
+            HydraFlowConfig(
+                execution_mode="docker",
+                gh_token="ghp_bot",
+                git_user_name="Bot Name",
+                git_user_email="",
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+        warnings = "\n".join(rec.getMessage() for rec in caplog.records)
+        assert "git identity is incomplete" in warnings
+
 
 # ---------------------------------------------------------------------------
 # Docker size notation validator – targeted tests for validate_docker_size_notation
@@ -3642,14 +3918,6 @@ class TestDockerConfigEnvVarOverrides:
 class TestDockerConfig:
     """Tests for Docker-related configuration fields."""
 
-    def test_docker_disabled_by_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is False
-
     def test_docker_image_has_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -3682,54 +3950,10 @@ class TestDockerConfig:
         )
         assert cfg.docker_extra_mounts == []
 
-    def test_docker_enabled_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "true")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is True
-
-    def test_docker_enabled_env_var_false(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "no")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_enabled is False
-
-    def test_docker_image_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_IMAGE", "hydra:v2")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_image == "hydra:v2"
-
-    def test_docker_spawn_delay_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_SPAWN_DELAY", "5.0")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.docker_spawn_delay == 5.0
-
     def test_docker_spawn_delay_invalid_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_SPAWN_DELAY", "not-a-number")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_SPAWN_DELAY", "not-a-number")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3740,7 +3964,7 @@ class TestDockerConfig:
     def test_docker_network_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_NETWORK", "hydra-net")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_NETWORK", "hydra-net")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3751,7 +3975,7 @@ class TestDockerConfig:
     def test_docker_network_env_var_not_applied_when_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_NETWORK", "from-env")
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_NETWORK", "from-env")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -3760,30 +3984,16 @@ class TestDockerConfig:
         )
         assert cfg.docker_network == "explicit-net"
 
-    def test_docker_enabled_explicit_overrides_env(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRA_DOCKER_ENABLED", "true")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-            docker_enabled=True,
-        )
-        assert cfg.docker_enabled is True
-
     def test_docker_custom_values(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
-            docker_enabled=True,
             docker_image="hydra-agent:latest",
             docker_spawn_delay=3.5,
             docker_network="my-network",
             docker_extra_mounts=["/host:/container:rw"],
         )
-        assert cfg.docker_enabled is True
         assert cfg.docker_image == "hydra-agent:latest"
         assert cfg.docker_spawn_delay == 3.5
         assert cfg.docker_network == "my-network"
@@ -3823,8 +4033,12 @@ class TestAgentToolFields:
         assert cfg.review_tool == "claude"
         assert cfg.planner_tool == "claude"
         assert cfg.triage_tool == "claude"
+        assert cfg.transcript_summary_tool == "claude"
+        assert cfg.memory_compaction_tool == "claude"
         assert cfg.ac_tool == "claude"
         assert cfg.verification_judge_tool == "claude"
+        assert cfg.system_tool == "inherit"
+        assert cfg.background_tool == "inherit"
 
     def test_tool_env_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3833,6 +4047,8 @@ class TestAgentToolFields:
         monkeypatch.setenv("HYDRAFLOW_REVIEW_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "codex")
+        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "codex")
+        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "codex")
         cfg = HydraFlowConfig(
@@ -3841,11 +4057,106 @@ class TestAgentToolFields:
             state_file=tmp_path / "s.json",
         )
         assert cfg.implementation_tool == "codex"
+        assert cfg.model == "gpt-5-codex"
         assert cfg.review_tool == "codex"
         assert cfg.planner_tool == "codex"
         assert cfg.triage_tool == "codex"
+        assert cfg.transcript_summary_tool == "codex"
+        assert cfg.memory_compaction_tool == "codex"
         assert cfg.ac_tool == "codex"
         assert cfg.verification_judge_tool == "codex"
+
+    def test_tool_env_overrides_accept_pi(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_IMPLEMENTATION_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_SUBSKILL_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_DEBUG_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_SYSTEM_TOOL", "pi")
+        monkeypatch.setenv("HYDRAFLOW_BACKGROUND_TOOL", "pi")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.implementation_tool == "pi"
+        assert cfg.review_tool == "pi"
+        assert cfg.planner_tool == "pi"
+        assert cfg.triage_tool == "pi"
+        assert cfg.transcript_summary_tool == "pi"
+        assert cfg.memory_compaction_tool == "pi"
+        assert cfg.ac_tool == "pi"
+        assert cfg.verification_judge_tool == "pi"
+        assert cfg.subskill_tool == "pi"
+        assert cfg.debug_tool == "pi"
+        assert cfg.system_tool == "pi"
+        assert cfg.background_tool == "pi"
+
+    def test_profile_tool_overrides_apply_to_defaults(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            system_tool="codex",
+            background_tool="codex",
+        )
+        assert cfg.implementation_tool == "codex"
+        assert cfg.model == "gpt-5-codex"
+        assert cfg.review_tool == "codex"
+        assert cfg.planner_tool == "codex"
+        assert cfg.ac_tool == "codex"
+        assert cfg.verification_judge_tool == "codex"
+        assert cfg.subskill_tool == "codex"
+        assert cfg.debug_tool == "codex"
+        assert cfg.triage_tool == "codex"
+        assert cfg.transcript_summary_tool == "codex"
+        assert cfg.memory_compaction_tool == "codex"
+
+    def test_profile_model_overrides_apply_to_defaults(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            system_model="gpt-5-codex",
+            background_model="gpt-5-codex",
+        )
+        assert cfg.model == "gpt-5-codex"
+        assert cfg.review_model == "gpt-5-codex"
+        assert cfg.planner_model == "gpt-5-codex"
+        assert cfg.ac_model == "gpt-5-codex"
+        assert cfg.subskill_model == "gpt-5-codex"
+        assert cfg.debug_model == "gpt-5-codex"
+        assert cfg.triage_model == "gpt-5-codex"
+        assert cfg.transcript_summary_model == "gpt-5-codex"
+        assert cfg.memory_compaction_model == "gpt-5-codex"
+
+    def test_profile_overrides_do_not_clobber_explicit_per_field(
+        self, tmp_path: Path
+    ) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            system_tool="codex",
+            background_tool="codex",
+            system_model="gpt-5-codex",
+            background_model="gpt-5-codex",
+            review_tool="claude",
+            review_model="sonnet",
+            transcript_summary_tool="claude",
+            transcript_summary_model="haiku",
+        )
+        assert cfg.review_tool == "claude"
+        assert cfg.review_model == "sonnet"
+        assert cfg.transcript_summary_tool == "claude"
+        assert cfg.transcript_summary_model == "haiku"
 
 
 class TestTieringFields:
@@ -3885,9 +4196,11 @@ class TestLabelValidation:
             "fixed_label",
             "improve_label",
             "memory_label",
+            "transcript_label",
             "metrics_label",
             "dup_label",
             "epic_label",
+            "epic_child_label",
             "find_label",
             "planner_label",
         ],
@@ -4259,3 +4572,179 @@ class TestUnstickConfigFields:
             state_file=tmp_path / "s.json",
         )
         assert cfg.unstick_all_causes is False
+
+
+# --- all_pipeline_labels ---
+
+
+class TestAllPipelineLabels:
+    """Tests for HydraFlowConfig.all_pipeline_labels property."""
+
+    def test_returns_all_label_fields(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(repo_root=tmp_path / "repo")
+        labels = cfg.all_pipeline_labels
+        # Should include labels from all pipeline stages
+        assert cfg.ready_label[0] in labels
+        assert cfg.review_label[0] in labels
+        assert cfg.hitl_label[0] in labels
+        assert cfg.planner_label[0] in labels
+        assert cfg.find_label[0] in labels
+        assert cfg.hitl_active_label[0] in labels
+        assert cfg.fixed_label[0] in labels
+        assert cfg.improve_label[0] in labels
+        assert cfg.transcript_label[0] in labels
+
+    def test_returns_flat_list(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(repo_root=tmp_path / "repo")
+        labels = cfg.all_pipeline_labels
+        assert isinstance(labels, list)
+        for label in labels:
+            assert isinstance(label, str)
+
+    def test_custom_labels_included(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            ready_label=["custom-ready"],
+            review_label=["custom-review"],
+        )
+        labels = cfg.all_pipeline_labels
+        assert "custom-ready" in labels
+        assert "custom-review" in labels
+
+
+# --- labels_must_not_be_empty ---
+
+
+class TestLabelsMustNotBeEmpty:
+    """Tests for the labels_must_not_be_empty validator."""
+
+    def test_rejects_empty_ready_label(self, tmp_path: Path) -> None:
+        from pydantic import ValidationError
+
+        from tests.helpers import ConfigFactory
+
+        with pytest.raises(ValidationError):
+            ConfigFactory.create(repo_root=tmp_path / "repo", ready_label=[])
+
+    def test_rejects_empty_review_label(self, tmp_path: Path) -> None:
+        from pydantic import ValidationError
+
+        from tests.helpers import ConfigFactory
+
+        with pytest.raises(ValidationError):
+            ConfigFactory.create(repo_root=tmp_path / "repo", review_label=[])
+
+    def test_accepts_non_empty_labels(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            ready_label=["valid"],
+            review_label=["valid"],
+        )
+        assert cfg.ready_label == ["valid"]
+        assert cfg.review_label == ["valid"]
+
+
+# ---------------------------------------------------------------------------
+# Repo-namespaced persistence (_namespace_repo_paths)
+# ---------------------------------------------------------------------------
+
+
+class TestNamespaceRepoPaths:
+    """Tests for repo-scoped persistence path namespacing."""
+
+    def test_state_file_namespaced_by_repo_slug(self, tmp_path: Path) -> None:
+        """Default state_file should be under data_root/<slug>/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        expected = tmp_path / ".hydraflow" / "acme-widgets" / "state.json"
+        assert cfg.state_file == expected
+
+    def test_event_log_namespaced_by_repo_slug(self, tmp_path: Path) -> None:
+        """Default event_log_path should be under data_root/<slug>/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        expected = tmp_path / ".hydraflow" / "acme-widgets" / "events.jsonl"
+        assert cfg.event_log_path == expected
+
+    def test_config_file_namespaced_when_default(self, tmp_path: Path) -> None:
+        """Default config_file should be under data_root/<slug>/."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            repo="acme/widgets",
+            config_file=data_root / "config.json",
+        )
+        # config_file was explicitly set to the flat path, so it stays
+        assert cfg.config_file == data_root / "config.json"
+
+    def test_explicit_state_file_not_namespaced(self, tmp_path: Path) -> None:
+        """Explicitly-set state_file should not be repo-scoped."""
+        custom = tmp_path / "custom" / "state.json"
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="acme/widgets", state_file=custom
+        )
+        assert cfg.state_file == custom.resolve()
+
+    def test_explicit_event_log_not_namespaced(self, tmp_path: Path) -> None:
+        """Explicitly-set event_log_path should not be repo-scoped."""
+        custom = tmp_path / "custom" / "events.jsonl"
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="acme/widgets", event_log_path=custom
+        )
+        assert cfg.event_log_path == custom.resolve()
+
+    def test_repo_data_root_property(self, tmp_path: Path) -> None:
+        """repo_data_root should return data_root / repo_slug."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.repo_data_root == tmp_path / ".hydraflow" / "acme-widgets"
+
+    def test_two_repos_get_separate_state_files(self, tmp_path: Path) -> None:
+        """Two configs with different repos should have different state files."""
+        cfg_a = HydraFlowConfig(repo_root=tmp_path, repo="org/alpha")
+        cfg_b = HydraFlowConfig(repo_root=tmp_path, repo="org/beta")
+        assert cfg_a.state_file != cfg_b.state_file
+        assert "org-alpha" in str(cfg_a.state_file)
+        assert "org-beta" in str(cfg_b.state_file)
+
+    def test_legacy_state_file_migrated(self, tmp_path: Path) -> None:
+        """If legacy flat state.json exists, it should be copied to scoped path."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        legacy_state = data_root / "state.json"
+        legacy_state.write_text('{"processed_issues": [1, 2]}')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.state_file.exists()
+        assert cfg.state_file.read_text() == '{"processed_issues": [1, 2]}'
+
+    def test_legacy_sessions_migrated(self, tmp_path: Path) -> None:
+        """If legacy flat sessions.jsonl exists, it should be copied."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        flat_sessions = data_root / "sessions.jsonl"
+        flat_sessions.write_text('{"id":"s1"}\n')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        scoped_sessions = cfg.state_file.parent / "sessions.jsonl"
+        assert scoped_sessions.exists()
+        assert scoped_sessions.read_text() == '{"id":"s1"}\n'
+
+    def test_no_migration_when_scoped_already_exists(self, tmp_path: Path) -> None:
+        """If scoped state already exists, legacy file should not overwrite it."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        legacy_state = data_root / "state.json"
+        legacy_state.write_text('{"old": true}')
+        scoped_dir = data_root / "acme-widgets"
+        scoped_dir.mkdir(parents=True)
+        (scoped_dir / "state.json").write_text('{"new": true}')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.state_file.read_text() == '{"new": true}'

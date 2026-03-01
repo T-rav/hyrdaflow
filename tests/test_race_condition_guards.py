@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from events import EventBus, EventType
-from tests.conftest import EventFactory, IssueFactory, WorkerResultFactory
+from tests.conftest import EventFactory, TaskFactory, WorkerResultFactory
 from tests.helpers import ConfigFactory, make_implement_phase, make_review_phase
 
 # ---------------------------------------------------------------------------
@@ -99,13 +99,11 @@ class TestImplementPhaseActiveIssuesLock:
             stop_event=asyncio.Event(),
         )
 
-        issues = [
-            IssueFactory.create(number=i, labels=["test-label"]) for i in range(1, 4)
-        ]
+        issues = [TaskFactory.create(id=i) for i in range(1, 4)]
 
         # Create worktree dirs so the phase finds them
         for issue in issues:
-            wt = tmp_path / "worktrees" / f"issue-{issue.number}"
+            wt = tmp_path / "worktrees" / f"issue-{issue.id}"
             wt.mkdir(parents=True, exist_ok=True)
 
         await phase.run_batch(issues)
@@ -154,7 +152,7 @@ class TestEventBusPublishSafeDuringUnsubscribe:
 
         # Unsubscribe q1 while iterating (simulated by removing it before
         # publish completes — the snapshot ensures this is safe)
-        event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
 
         # Patch put_nowait on q1 to unsubscribe itself mid-iteration
         original_put = q1.put_nowait
@@ -190,7 +188,7 @@ class TestEventBusPublishSafeDuringUnsubscribe:
 
         q1.put_nowait = subscribe_on_put  # type: ignore[assignment]
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"n": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
         await bus.publish(event)
 
         # The new subscriber was added after the snapshot, so it should not
@@ -213,10 +211,14 @@ class TestPRManagerLabelCachePerInstance:
         pm1 = _make_pr_manager(config, bus)
         pm2 = _make_pr_manager(config, bus)
 
-        pm1._label_counts_cache["key"] = "value"
+        pm1._label_counts_cache = {
+            "open_by_label": {},
+            "total_closed": 0,
+            "total_merged": 0,
+        }
         pm1._label_counts_ts = 99.0
 
-        assert pm2._label_counts_cache == {}
+        assert pm2._label_counts_cache is None
         assert pm2._label_counts_ts == 0.0
 
     def test_cache_not_class_attribute(self) -> None:

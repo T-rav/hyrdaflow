@@ -11,7 +11,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType
-from models import BackgroundWorkersResponse, BackgroundWorkerStatus, MetricsResponse
+from models import (
+    BackgroundWorkersResponse,
+    BackgroundWorkerState,
+    BackgroundWorkerStatus,
+    BGWorkerHealth,
+    MetricsResponse,
+)
 from state import StateTracker
 from tests.conftest import make_state
 
@@ -22,14 +28,8 @@ class TestEventTypes:
     def test_memory_sync_event_type(self) -> None:
         assert EventType.MEMORY_SYNC == "memory_sync"
 
-    def test_retrospective_event_type(self) -> None:
-        assert EventType.RETROSPECTIVE == "retrospective"
-
     def test_metrics_update_event_type(self) -> None:
         assert EventType.METRICS_UPDATE == "metrics_update"
-
-    def test_review_insight_event_type(self) -> None:
-        assert EventType.REVIEW_INSIGHT == "review_insight"
 
     def test_background_worker_status_event_type(self) -> None:
         assert EventType.BACKGROUND_WORKER_STATUS == "background_worker_status"
@@ -41,6 +41,7 @@ class TestBackgroundWorkerStatusModel:
     def test_default_status_is_disabled(self) -> None:
         status = BackgroundWorkerStatus(name="test", label="Test")
         assert status.status == "disabled"
+        assert status.description == ""
         assert status.last_run is None
         assert status.details == {}
 
@@ -48,13 +49,14 @@ class TestBackgroundWorkerStatusModel:
         status = BackgroundWorkerStatus(
             name="memory_sync",
             label="Memory Manager",
-            status="ok",
+            status=BGWorkerHealth.OK,
             last_run="2026-02-20T10:30:00Z",
             details={"item_count": 12, "digest_chars": 2400},
         )
         data = status.model_dump()
         assert data["name"] == "memory_sync"
         assert data["label"] == "Memory Manager"
+        assert data["description"] == ""
         assert data["status"] == "ok"
         assert data["last_run"] == "2026-02-20T10:30:00Z"
         assert data["details"]["item_count"] == 12
@@ -62,7 +64,7 @@ class TestBackgroundWorkerStatusModel:
     def test_workers_response_model(self) -> None:
         resp = BackgroundWorkersResponse(
             workers=[
-                BackgroundWorkerStatus(name="a", label="A", status="ok"),
+                BackgroundWorkerStatus(name="a", label="A", status=BGWorkerHealth.OK),
                 BackgroundWorkerStatus(name="b", label="B"),
             ]
         )
@@ -134,6 +136,66 @@ class TestOrchestratorBgWorkerTracking:
 
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch.get_bg_worker_states() == {}
+
+    def test_restore_bg_worker_states_from_state_on_startup(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Verify _restore_state hydrates in-memory heartbeat cache from persisted state."""
+        from orchestrator import HydraFlowOrchestrator
+
+        # Arrange: pre-populate a StateTracker with a persisted heartbeat
+        state = StateTracker(tmp_path / "state.json")
+        state.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:00:00Z",
+                details={"item_count": 5},
+            ),
+        )
+
+        # Act: create a new orchestrator with the same state, then restore
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._restore_state()
+
+        # Assert: in-memory states reflect persisted data
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["last_run"] == "2026-02-20T10:00:00Z"
+        assert states["memory_sync"]["details"]["item_count"] == 5
+
+    def test_backfill_bg_worker_states_from_events(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Verify _restore_state backfills missing workers from event bus history."""
+        from events import EventType, HydraFlowEvent
+        from orchestrator import HydraFlowOrchestrator
+
+        # Arrange: inject a BACKGROUND_WORKER_STATUS event into the bus history
+        event_bus._history.append(
+            HydraFlowEvent(
+                type=EventType.BACKGROUND_WORKER_STATUS,
+                data={
+                    "worker": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-20T09:00:00Z",
+                    "details": {"item_count": 3},
+                },
+            )
+        )
+
+        # Act: create orchestrator with empty persisted state and restore
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus)
+        orch._restore_state()
+
+        # Assert: state was backfilled from event history
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["last_run"] == "2026-02-20T09:00:00Z"
+        assert states["memory_sync"]["details"]["item_count"] == 3
 
 
 class TestBgWorkerEnabled:
@@ -225,7 +287,7 @@ class TestSystemWorkersEndpoint:
 
         response = await endpoint()
         data = json.loads(response.body)
-        assert len(data["workers"]) == 10
+        assert len(data["workers"]) == 11
         names = [w["name"] for w in data["workers"]]
         assert names == [
             "triage",
@@ -238,7 +300,12 @@ class TestSystemWorkersEndpoint:
             "review_insights",
             "pipeline_poller",
             "pr_unsticker",
+            "report_issue",
         ]
+        assert all(
+            isinstance(w["description"], str) and w["description"]
+            for w in data["workers"]
+        )
 
     @pytest.mark.asyncio
     async def test_returns_disabled_when_no_orchestrator(
@@ -274,6 +341,30 @@ class TestSystemWorkersEndpoint:
         # Others should still be disabled
         retro = next(w for w in data["workers"] if w["name"] == "retrospective")
         assert retro["status"] == "disabled"
+
+    @pytest.mark.asyncio
+    async def test_returns_persisted_state_without_orchestrator(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        state.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:00:00Z",
+                details={"count": 7},
+            ),
+        )
+
+        router = self._make_router(config, event_bus, state, tmp_path, orch=None)
+        endpoint = self._find_endpoint(router, "/api/system/workers")
+        response = await endpoint()
+        data = json.loads(response.body)
+
+        ms = next(w for w in data["workers"] if w["name"] == "memory_sync")
+        assert ms["status"] == "ok"
+        assert ms["last_run"] == "2026-02-20T10:00:00Z"
+        assert ms["details"]["count"] == 7
 
 
 class TestMetricsEndpoint:
@@ -392,7 +483,7 @@ class TestBackgroundWorkerStatusIntervalFields:
         status = BackgroundWorkerStatus(
             name="memory_sync",
             label="Memory Manager",
-            status="ok",
+            status=BGWorkerHealth.OK,
             interval_seconds=3600,
             next_run="2026-02-20T11:30:00+00:00",
         )

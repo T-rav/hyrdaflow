@@ -192,7 +192,7 @@ def test_all_signals_active_simultaneously_escalates_with_all_five_reasons() -> 
     }
 
 
-def test_risk_normalization_whitespace_and_case() -> None:
+def test_risk_field_normalized_ignoring_whitespace_and_case() -> None:
     decision = should_escalate_debug(
         enabled=True,
         confidence=0.9,

@@ -16,7 +16,7 @@ from base_runner import BaseRunner
 from events import EventBus, EventType
 from models import TriageResult
 from subprocess_util import CreditExhaustedError
-from tests.conftest import IssueFactory
+from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
 from triage import TriageRunner
 
@@ -62,8 +62,8 @@ class TestPreFilter:
     async def test_not_ready_when_body_empty(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1, title="A good descriptive title", body="", labels=[], url=""
+        issue = TaskFactory.create(
+            id=1, title="A good descriptive title", body="", tags=[], source_url=""
         )
         result = await runner.evaluate(issue)
         assert result.ready is False
@@ -74,8 +74,12 @@ class TestPreFilter:
     async def test_not_ready_when_body_too_short(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1, title="A good descriptive title", body="Fix it", labels=[], url=""
+        issue = TaskFactory.create(
+            id=1,
+            title="A good descriptive title",
+            body="Fix it",
+            tags=[],
+            source_url="",
         )
         result = await runner.evaluate(issue)
         assert result.ready is False
@@ -86,8 +90,8 @@ class TestPreFilter:
     async def test_not_ready_when_title_too_short(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1, title="Fix", body="A" * 100, labels=[], url=""
+        issue = TaskFactory.create(
+            id=1, title="Fix", body="A" * 100, tags=[], source_url=""
         )
         result = await runner.evaluate(issue)
         assert result.ready is False
@@ -98,8 +102,8 @@ class TestPreFilter:
     async def test_not_ready_when_both_insufficient(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1, title="Bug", body="short", labels=[], url=""
+        issue = TaskFactory.create(
+            id=1, title="Bug", body="short", tags=[], source_url=""
         )
         result = await runner.evaluate(issue)
         assert result.ready is False
@@ -119,12 +123,12 @@ class TestLLMEvaluation:
     async def test_ready_when_llm_approves(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1,
+        issue = TaskFactory.create(
+            id=1,
             title="Implement feature X for module Y",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
@@ -137,13 +141,13 @@ class TestLLMEvaluation:
     async def test_not_ready_when_llm_rejects(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=2,
+        issue = TaskFactory.create(
+            id=2,
             title="Fix the thing that is broken",
             body="Please fix the thing that is broken somewhere in the code somehow maybe. "
             * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         reasons = [
             "Issue lacks specificity — no concrete error or expected behavior described",
@@ -160,12 +164,12 @@ class TestLLMEvaluation:
     async def test_llm_returns_malformed_json(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=3,
+        issue = TaskFactory.create(
+            id=3,
             title="Implement feature X for module Y",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         # Return garbage text that can't be parsed as JSON
         garbage = "This is not JSON at all, just some random text without any structure"
@@ -190,12 +194,12 @@ class TestLLMEvaluation:
     async def test_llm_process_failure(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=4,
+        issue = TaskFactory.create(
+            id=4,
             title="Implement feature X for module Y",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         mock_runner.create_streaming_process = AsyncMock(
             side_effect=RuntimeError("Process crashed")
@@ -209,12 +213,12 @@ class TestLLMEvaluation:
     async def test_credit_exhausted_propagates(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=5,
+        issue = TaskFactory.create(
+            id=5,
             title="Implement feature X for module Y",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         mock_runner.create_streaming_process = AsyncMock(
             side_effect=CreditExhaustedError("Credits exhausted")
@@ -227,12 +231,12 @@ class TestLLMEvaluation:
     async def test_returns_triage_result_type(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1,
+        issue = TaskFactory.create(
+            id=1,
             title="A descriptive title",
             body="A" * 100,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
@@ -246,12 +250,12 @@ class TestLLMEvaluation:
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
         """LLM wraps JSON in markdown code fences — parser should handle it."""
-        issue = IssueFactory.create(
-            number=6,
+        issue = TaskFactory.create(
+            id=6,
             title="Add user authentication flow",
             body="We need OAuth2 login with Google and GitHub providers. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         fenced = '```json\n{"ready": true, "reasons": []}\n```'
         assistant_event = json.dumps(
@@ -386,8 +390,8 @@ class TestBuildPrompt:
     """Tests for TriageRunner._build_prompt."""
 
     def test_prompt_contains_issue_title_and_body(self) -> None:
-        issue = IssueFactory.create(
-            number=42,
+        issue = TaskFactory.create(
+            id=42,
             title="Add dark mode toggle",
             body="The app should support dark mode in settings.",
         )
@@ -397,12 +401,19 @@ class TestBuildPrompt:
         assert "#42" in prompt
 
     def test_prompt_contains_evaluation_criteria(self) -> None:
-        issue = IssueFactory.create(number=1)
+        issue = TaskFactory.create(id=1)
         prompt = TriageRunner._build_prompt(issue)
         assert "Clarity" in prompt
         assert "Specificity" in prompt
         assert "Actionability" in prompt
         assert "Scope" in prompt
+
+    def test_build_prompt_with_stats_tracks_body_pruning(self) -> None:
+        issue = TaskFactory.create(id=9, body="a" * 200)
+        _prompt, stats = TriageRunner._build_prompt_with_stats(issue, max_body=50)
+        assert stats["context_chars_before"] == 200
+        assert stats["context_chars_after"] > 50
+        assert stats["pruned_chars_total"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -417,12 +428,12 @@ class TestTriageEvents:
     async def test_evaluate_publishes_evaluating_and_done_events(
         self, runner: TriageRunner, event_bus: EventBus, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=1,
+        issue = TaskFactory.create(
+            id=1,
             title="A descriptive title",
             body="A" * 100,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
@@ -446,12 +457,12 @@ class TestTriageEvents:
     async def test_evaluate_events_carry_issue_number(
         self, runner: TriageRunner, event_bus: EventBus, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=99,
+        issue = TaskFactory.create(
+            id=99,
             title="A descriptive title here",
             body="A" * 100,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
@@ -471,12 +482,12 @@ class TestTriageEvents:
     async def test_evaluate_emits_transcript_lines(
         self, runner: TriageRunner, event_bus: EventBus, mock_runner: AsyncMock
     ) -> None:
-        issue = IssueFactory.create(
-            number=42,
+        issue = TaskFactory.create(
+            id=42,
             title="Implement feature X for module Y",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
@@ -500,8 +511,8 @@ class TestTriageEvents:
         self, runner: TriageRunner, event_bus: EventBus
     ) -> None:
         """Pre-filter failures show reasons in transcript."""
-        issue = IssueFactory.create(
-            number=7, title="Bug", body="short", labels=[], url=""
+        issue = TaskFactory.create(
+            id=7, title="Bug", body="short", tags=[], source_url=""
         )
         received: list = []
         queue = event_bus.subscribe()
@@ -520,12 +531,12 @@ class TestTriageEvents:
         self, runner: TriageRunner, event_bus: EventBus, mock_runner: AsyncMock
     ) -> None:
         """When pre-filter passes, a transcript line about LLM evaluation is emitted."""
-        issue = IssueFactory.create(
-            number=10,
+        issue = TaskFactory.create(
+            id=10,
             title="Add new feature for users",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
+            tags=[],
+            source_url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
@@ -557,7 +568,7 @@ class TestTriageDryRun:
     ) -> None:
         config = ConfigFactory.create(dry_run=True)
         runner = TriageRunner(config, event_bus, runner=mock_runner)
-        issue = IssueFactory.create(number=1, title="Bug", body="", labels=[], url="")
+        issue = TaskFactory.create(id=1, title="Bug", body="", tags=[], source_url="")
 
         result = await runner.evaluate(issue)
         assert result.ready is True
@@ -624,12 +635,10 @@ class TestTriageSaveTranscript:
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
         """_save_transcript should be called with the LLM transcript after evaluation."""
-        issue = IssueFactory.create(
-            number=77,
+        issue = TaskFactory.create(
+            id=77,
             title="Implement feature X for module Y",
             body="Detailed description of what needs to happen. " * 3,
-            labels=[],
-            url="",
         )
         stdout = _make_llm_verdict(ready=True)
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)

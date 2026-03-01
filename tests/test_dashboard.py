@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,6 +21,14 @@ from tests.conftest import EventFactory, make_orchestrator_mock, make_state
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+
+
+@pytest.fixture(autouse=True)
+def _disable_hitl_summary_autowarm(config: HydraFlowConfig) -> None:
+    """Avoid background HITL summary warm tasks in dashboard smoke tests."""
+    config.transcript_summarization_enabled = False
+    config.gh_token = ""
+
 
 # ---------------------------------------------------------------------------
 # create_app
@@ -371,7 +380,7 @@ class TestEventsRoute:
 
         async def publish() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
 
         asyncio.run(publish())
@@ -381,7 +390,7 @@ class TestEventsRoute:
         body = response.json()
 
         assert len(body) == 1
-        assert body[0]["type"] == EventType.BATCH_START.value
+        assert body[0]["type"] == EventType.PHASE_CHANGE.value
 
 
 # ---------------------------------------------------------------------------
@@ -1087,6 +1096,24 @@ class TestControlStatusEndpoint:
         assert response.status_code == 200
         assert response.json()["status"] == "running"
 
+    def test_status_includes_app_version(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from app_version import get_app_version
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/control/status")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["config"]["app_version"] == get_app_version()
+
     _STATUS_CONFIG_FIELDS = [
         "repo",
         "ready_label",
@@ -1156,7 +1183,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
             await event_bus.publish(
                 EventFactory.create(
@@ -1174,8 +1201,8 @@ class TestWebSocketEndpoint:
             msg1 = json.loads(ws.receive_text())
             msg2 = json.loads(ws.receive_text())
 
-        assert msg1["type"] == "batch_start"
-        assert msg1["data"]["batch"] == 1
+        assert msg1["type"] == "phase_change"
+        assert msg1["data"]["phase"] == "plan"
         assert msg2["type"] == "phase_change"
         assert msg2["data"]["phase"] == "implement"
 
@@ -1251,7 +1278,7 @@ class TestWebSocketEndpoint:
 
         from dashboard import HydraFlowDashboard
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
 
         original_subscribe = event_bus.subscribe
 
@@ -1275,24 +1302,34 @@ class TestWebSocketEndpoint:
     def test_websocket_unsubscribes_on_disconnect(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:
-        import time
-
         from fastapi.testclient import TestClient
 
         from dashboard import HydraFlowDashboard
 
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+        unsubscribe_called = threading.Event()
 
         original_subscribe = event_bus.subscribe
+        original_unsubscribe = event_bus.unsubscribe
 
         def subscribe_with_preload(
             *_args: object, **_kwargs: object
         ) -> asyncio.Queue[HydraFlowEvent]:
             queue = original_subscribe()
+            # Preload one event so receive_text() returns immediately, ensuring
+            # the handler has entered its live-streaming loop before disconnect.
             queue.put_nowait(event)
             return queue
 
         event_bus.subscribe = subscribe_with_preload  # type: ignore[assignment]
+
+        def unsubscribe_and_signal(
+            queue: asyncio.Queue[HydraFlowEvent],
+        ) -> None:
+            original_unsubscribe(queue)
+            unsubscribe_called.set()
+
+        event_bus.unsubscribe = unsubscribe_and_signal  # type: ignore[assignment]
 
         dashboard = HydraFlowDashboard(config, event_bus, state)
         app = dashboard.create_app()
@@ -1301,14 +1338,14 @@ class TestWebSocketEndpoint:
         with client.websocket_connect("/ws") as ws:
             ws.receive_text()
 
-        # Poll briefly for async cleanup
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline:
-            if len(event_bus._subscribers) == 0:
-                break
-            time.sleep(0.05)
-
-        assert len(event_bus._subscribers) == 0
+        # Wait for the background ASGI thread to unsubscribe its queue deterministically
+        assert unsubscribe_called.wait(timeout=5), (
+            "unsubscribe was not called within 5s"
+        )
+        # Also verify the unsubscribe actually mutated _subscribers (not just that it was called)
+        assert len(event_bus._subscribers) == 0, (
+            f"Expected 0 subscribers after disconnect, got {len(event_bus._subscribers)}"
+        )
 
     def test_multiple_websocket_clients_receive_same_history(
         self, config: HydraFlowConfig, event_bus, state
@@ -1321,7 +1358,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
             )
             await event_bus.publish(
                 EventFactory.create(type=EventType.PHASE_CHANGE, data={"phase": "plan"})
@@ -1356,7 +1393,7 @@ class TestWebSocketEndpoint:
 
         async def publish_events() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"step": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 1})
             )
             await event_bus.publish(
                 EventFactory.create(type=EventType.PHASE_CHANGE, data={"step": 2})
@@ -1374,7 +1411,7 @@ class TestWebSocketEndpoint:
         with client.websocket_connect("/ws") as ws:
             msgs = [json.loads(ws.receive_text()) for _ in range(3)]
 
-        assert msgs[0]["type"] == "batch_start"
+        assert msgs[0]["type"] == "phase_change"
         assert msgs[1]["type"] == "phase_change"
         assert msgs[2]["type"] == "worker_update"
         assert msgs[0]["data"]["step"] == 1
@@ -1683,8 +1720,11 @@ class TestHITLSkipEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock):
-            response = client.post("/api/hitl/42/skip")
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            response = client.post("/api/hitl/42/skip", json={"reason": "not needed"})
 
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
@@ -1702,8 +1742,11 @@ class TestHITLSkipEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock):
-            client.post("/api/hitl/42/skip")
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/skip", json={"reason": "not needed"})
 
         orch.skip_hitl_issue.assert_called_once_with(42)
 
@@ -1718,7 +1761,7 @@ class TestHITLSkipEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        response = client.post("/api/hitl/42/skip")
+        response = client.post("/api/hitl/42/skip", json={"reason": "not needed"})
 
         assert response.status_code == 400
         assert response.json() == {"status": "no orchestrator"}
@@ -1736,8 +1779,11 @@ class TestHITLSkipEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock):
-            client.post("/api/hitl/42/skip")
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/skip", json={"reason": "not needed"})
 
         history = event_bus.get_history()
         hitl_events = [e for e in history if e.type.value == "hitl_update"]
@@ -1760,8 +1806,11 @@ class TestHITLSkipEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock):
-            client.post("/api/hitl/42/skip")
+        with (
+            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/skip", json={"reason": "not needed"})
 
         assert state.get_hitl_origin(42) is None
 
@@ -1787,8 +1836,11 @@ class TestHITLCloseEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock):
-            response = client.post("/api/hitl/42/close")
+        with (
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            response = client.post("/api/hitl/42/close", json={"reason": "duplicate"})
 
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
@@ -1806,8 +1858,11 @@ class TestHITLCloseEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock):
-            client.post("/api/hitl/42/close")
+        with (
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/close", json={"reason": "duplicate"})
 
         orch.skip_hitl_issue.assert_called_once_with(42)
 
@@ -1822,7 +1877,7 @@ class TestHITLCloseEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        response = client.post("/api/hitl/42/close")
+        response = client.post("/api/hitl/42/close", json={"reason": "duplicate"})
 
         assert response.status_code == 400
         assert response.json() == {"status": "no orchestrator"}
@@ -1840,8 +1895,11 @@ class TestHITLCloseEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock):
-            client.post("/api/hitl/42/close")
+        with (
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/close", json={"reason": "duplicate"})
 
         history = event_bus.get_history()
         hitl_events = [e for e in history if e.type.value == "hitl_update"]
@@ -1864,8 +1922,11 @@ class TestHITLCloseEndpoint:
         app = dashboard.create_app()
 
         client = TestClient(app)
-        with patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock):
-            client.post("/api/hitl/42/close")
+        with (
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            client.post("/api/hitl/42/close", json={"reason": "duplicate"})
 
         assert state.get_hitl_origin(42) is None
 
@@ -2165,7 +2226,7 @@ class TestWebSocketErrorLogging:
         # Publish an event so history is non-empty
         async def publish() -> None:
             await event_bus.publish(
-                EventFactory.create(type=EventType.BATCH_START, data={"batch": 1})
+                EventFactory.create(type=EventType.PHASE_CHANGE, data={"batch": 1})
             )
 
         asyncio.run(publish())
@@ -2201,7 +2262,7 @@ class TestWebSocketErrorLogging:
         client = TestClient(app)
 
         # Pre-populate a queue with one event so queue.get() returns immediately
-        event = EventFactory.create(type=EventType.BATCH_START, data={"x": 1})
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
         pre_populated_queue: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         pre_populated_queue.put_nowait(event)
 
@@ -2530,3 +2591,114 @@ class TestSPACatchAll:
         assert response.status_code == 200
         body = response.json()
         assert isinstance(body, dict)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/pipeline/stats
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineStatsRoute:
+    """Tests for the GET /api/pipeline/stats endpoint."""
+
+    def test_pipeline_stats_returns_empty_dict_without_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats")
+
+        assert response.json() == {}
+
+    def test_pipeline_stats_returns_valid_pipeline_stats_with_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+        from models import PipelineStats, StageStats, ThroughputStats
+
+        stats = PipelineStats(
+            timestamp="2026-02-28T00:00:00Z",
+            stages={"triage": StageStats(queued=3, active=1)},
+            throughput=ThroughputStats(triage=2.5),
+            uptime_seconds=120.0,
+        )
+        orch = make_orchestrator_mock()
+        orch.build_pipeline_stats = MagicMock(return_value=stats)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats")
+
+        body = response.json()
+        assert body["timestamp"] == "2026-02-28T00:00:00Z"
+        assert body["stages"]["triage"]["queued"] == 3
+        assert body["stages"]["triage"]["active"] == 1
+        assert body["throughput"]["triage"] == 2.5
+        assert body["uptime_seconds"] == 120.0
+
+    def test_pipeline_stats_includes_queue_field(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+        from models import PipelineStats
+
+        stats = PipelineStats(timestamp="2026-02-28T00:00:00Z")
+        orch = make_orchestrator_mock()
+        orch.build_pipeline_stats = MagicMock(return_value=stats)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats")
+
+        body = response.json()
+        assert "queue" in body
+        assert "throughput" in body
+
+    def test_pipeline_stats_repo_param_ignored_without_registry(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Without a registry, the ?repo= param is silently ignored (backward compat)."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats?repo=some-org/some-repo")
+
+        assert response.status_code == 200
+        assert response.json() == {}
+
+
+class TestPipelineStatsWebSocketForwarding:
+    """Tests that PIPELINE_STATS events are forwarded via WebSocket."""
+
+    def test_pipeline_stats_event_type_exists(self) -> None:
+        assert hasattr(EventType, "PIPELINE_STATS")
+        assert EventType.PIPELINE_STATS.value == "pipeline_stats"
+
+    def test_pipeline_stats_event_can_be_published(self, event_bus: EventBus) -> None:
+        from models import PipelineStats
+
+        stats = PipelineStats(timestamp="2026-02-28T00:00:00Z")
+        event = HydraFlowEvent(
+            type=EventType.PIPELINE_STATS,
+            data=stats.model_dump(),
+        )
+        # Should not raise
+        assert event.type == EventType.PIPELINE_STATS
+        assert event.data["timestamp"] == "2026-02-28T00:00:00Z"

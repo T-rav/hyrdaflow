@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -19,16 +19,18 @@ from state import StateTracker
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 from models import (
+    BackgroundWorkerState,
     GitHubIssue,
     PlanResult,
     PRInfo,
     ReviewResult,
     ReviewVerdict,
+    Task,
     WorkerResult,
 )
 from orchestrator import HydraFlowOrchestrator
 from subprocess_util import AuthenticationError
-from tests.conftest import IssueFactory, PRInfoFactory, WorkerResultFactory
+from tests.conftest import IssueFactory, PRInfoFactory, TaskFactory, WorkerResultFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -361,7 +363,7 @@ class TestRunLoop:
             orch._stop_event.set()
             return []
 
-        async def fake_implement() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def fake_implement() -> tuple[list[WorkerResult], list[Task]]:
             started.append("implement")
             await asyncio.sleep(0)
             return [], []
@@ -672,7 +674,7 @@ class TestStopMechanism:
         _mock_fetcher_noop(orch)
         observed_running = False
 
-        async def spy_implement() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def spy_implement() -> tuple[list[WorkerResult], list[Task]]:
             nonlocal observed_running
             observed_running = orch.running
             orch._stop_event.set()
@@ -713,11 +715,11 @@ class TestStopMechanism:
 
         call_count = 0
 
-        async def counting_implement() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def counting_implement() -> tuple[list[WorkerResult], list[Task]]:
             nonlocal call_count
             call_count += 1
             await orch.request_stop()
-            return [make_worker_result(42)], [IssueFactory.create(number=42)]
+            return [make_worker_result(42)], [TaskFactory.create(id=42)]
 
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = counting_implement  # type: ignore[method-assign]
@@ -758,9 +760,9 @@ class TestStopMechanism:
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
         _mock_fetcher_noop(orch)
 
-        async def stop_on_implement() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def stop_on_implement() -> tuple[list[WorkerResult], list[Task]]:
             await orch.request_stop()
-            return [make_worker_result(42)], [IssueFactory.create(number=42)]
+            return [make_worker_result(42)], [TaskFactory.create(id=42)]
 
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = stop_on_implement  # type: ignore[method-assign]
@@ -991,7 +993,7 @@ class TestConcurrentLoops:
             orch._stop_event.set()
             return []
 
-        async def fake_implement() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def fake_implement() -> tuple[list[WorkerResult], list[Task]]:
             execution_order.append("implement_start")
             await asyncio.sleep(0)
             execution_order.append("implement_end")
@@ -1049,7 +1051,7 @@ class TestManifestRefreshIntegration:
             orch._stop_event.set()
 
         orch._manifest_refresh_bg_loop = tracking_manifest_loop  # type: ignore[method-assign]
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
@@ -1266,7 +1268,7 @@ class TestLoopExceptionIsolation:
         orch = HydraFlowOrchestrator(config)
         call_count = 0
 
-        async def failing_batch() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def failing_batch() -> tuple[list[WorkerResult], list[Task]]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1288,7 +1290,7 @@ class TestLoopExceptionIsolation:
         orch = HydraFlowOrchestrator(config)
         call_count = 0
 
-        def failing_get_reviewable(_max_count: int) -> list[GitHubIssue]:
+        def failing_get_reviewable(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1334,7 +1336,7 @@ class TestLoopExceptionIsolation:
         orch = HydraFlowOrchestrator(config)
         call_count = 0
 
-        async def failing_batch() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def failing_batch() -> tuple[list[WorkerResult], list[Task]]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1358,7 +1360,7 @@ class TestLoopExceptionIsolation:
         orch = HydraFlowOrchestrator(config)
         call_count = 0
 
-        def failing_get_reviewable(_max_count: int) -> list[GitHubIssue]:
+        def failing_get_reviewable(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1381,7 +1383,7 @@ class TestLoopExceptionIsolation:
         """CancelledError should NOT be caught — it propagates for clean shutdown."""
         orch = HydraFlowOrchestrator(config)
 
-        async def cancelling_batch() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def cancelling_batch() -> tuple[list[WorkerResult], list[Task]]:
             raise asyncio.CancelledError()
 
         orch._implementer.run_batch = cancelling_batch  # type: ignore[method-assign]
@@ -1428,7 +1430,7 @@ class TestSupervisorLoops:
 
         implement_calls = 0
 
-        async def failing_implement() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             nonlocal implement_calls
             implement_calls += 1
             if implement_calls == 1:
@@ -1436,7 +1438,7 @@ class TestSupervisorLoops:
             orch._stop_event.set()
             return [], []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = failing_implement  # type: ignore[method-assign]
         orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
@@ -1478,7 +1480,7 @@ class TestSupervisorLoops:
         # supervised task completes normally from _supervise_loops' perspective.
         orch._implement_loop = completing_then_stopping  # type: ignore[method-assign]
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
         orch._store.start = AsyncMock()  # type: ignore[method-assign]
@@ -1540,7 +1542,7 @@ class TestStoreBasedActiveIssueTracking:
     ) -> None:
         """_review_loop should pass store active issues to fetch_reviewable_prs."""
         orch = HydraFlowOrchestrator(config)
-        review_issue = IssueFactory.create(number=42)
+        review_issue = TaskFactory.create(id=42)
         captured_active: set[int] | None = None
 
         orch._store.get_reviewable = lambda _max_count: [review_issue]  # type: ignore[method-assign]
@@ -1610,7 +1612,7 @@ class TestHITLLoop:
             orch._stop_event.set()
 
         orch._hitl_loop = tracking_hitl_loop  # type: ignore[method-assign]
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
@@ -1736,7 +1738,7 @@ class TestAuthFailure:
         async def auth_failing_plan() -> list[PlanResult]:
             raise AuthenticationError("401 Unauthorized")
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = auth_failing_plan  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -1763,12 +1765,10 @@ class TestAuthFailure:
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
 
-        async def auth_failing_implement() -> tuple[
-            list[WorkerResult], list[GitHubIssue]
-        ]:
+        async def auth_failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             raise AuthenticationError("401 Unauthorized")
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = auth_failing_implement  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -1893,9 +1893,9 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         result = make_worker_result(issue_number=42, transcript=MEMORY_TRANSCRIPT)
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
-            return [result], [IssueFactory.create(number=42)]
+            return [result], [TaskFactory.create(id=42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
 
@@ -1917,9 +1917,9 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         result = make_worker_result(issue_number=42, transcript="")
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
-            return [result], [IssueFactory.create(number=42)]
+            return [result], [TaskFactory.create(id=42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
 
@@ -1939,12 +1939,12 @@ class TestMemorySuggestionFiling:
         r2 = make_worker_result(issue_number=20, transcript="")
         r3 = make_worker_result(issue_number=30, transcript=MEMORY_TRANSCRIPT)
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
             return [r1, r2, r3], [
-                IssueFactory.create(number=10),
-                IssueFactory.create(number=20),
-                IssueFactory.create(number=30),
+                TaskFactory.create(id=10),
+                TaskFactory.create(id=20),
+                TaskFactory.create(id=30),
             ]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
@@ -1966,6 +1966,7 @@ class TestMemorySuggestionFiling:
     ) -> None:
         """Reviewer transcripts with MEMORY_SUGGESTION blocks trigger filing."""
         orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
@@ -1981,11 +1982,11 @@ class TestMemorySuggestionFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [review_issue]
+                return [review_task]
             orch._stop_event.set()
             return []
 
@@ -2007,13 +2008,13 @@ class TestMemorySuggestionFiling:
     ) -> None:
         """Reviewer results with empty transcripts should not trigger filing."""
         orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=""
         )
 
-        orch._store.get_reviewable = lambda _max_count: [review_issue]  # type: ignore[method-assign]
         orch._store.get_active_issues = lambda: {42: "review"}  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(  # type: ignore[method-assign]
             return_value=([pr], [review_issue])
@@ -2023,11 +2024,11 @@ class TestMemorySuggestionFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [review_issue]
+                return [review_task]
             orch._stop_event.set()
             return []
 
@@ -2040,11 +2041,104 @@ class TestMemorySuggestionFiling:
             mock_mem.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_do_review_work_requeues_and_returns_idle_when_no_prs(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """No-PR review fetch should requeue tasks and signal idle for backoff sleep."""
+        orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
+
+        orch._store.get_reviewable = lambda _max_count: [review_task]  # type: ignore[method-assign]
+        orch._store.get_active_issues = lambda: {}  # type: ignore[method-assign]
+        orch._store.enqueue_transition = MagicMock()  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        did_work = await orch._do_review_work()
+
+        assert did_work is False
+        orch._store.enqueue_transition.assert_called_once_with(review_task, "review")
+
+    @pytest.mark.asyncio
+    async def test_do_review_work_processes_adr_without_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ADR review issues should use the no-PR ADR review path."""
+        orch = HydraFlowOrchestrator(config)
+        adr_task = TaskFactory.create(
+            id=420,
+            title="[ADR] Event rendering architecture",
+            body=(
+                "## Context\nA\n\n## Decision\nConcrete choice with enough "
+                "detail for review and finalization.\n\n## Consequences\nB"
+            ),
+        )
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[Task]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [adr_task]
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+        orch._reviewer.review_adrs = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        did_work = await orch._do_review_work()
+
+        assert did_work is True
+        orch._reviewer.review_adrs.assert_awaited_once_with([adr_task])
+        orch._fetcher.fetch_reviewable_prs.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_do_review_work_keeps_work_true_when_adr_processed_and_no_prs(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """If ADR work ran, no-PR normal review should not reset did_work to idle."""
+        orch = HydraFlowOrchestrator(config)
+        adr_task = TaskFactory.create(
+            id=500,
+            title="[ADR] Queue architecture",
+            body=(
+                "## Context\nA\n\n## Decision\nConcrete decision detail that is long "
+                "enough to pass ADR checks.\n\n## Consequences\nB"
+            ),
+        )
+        normal_review_task = TaskFactory.create(id=501, title="Regular review issue")
+
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[Task]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [adr_task, normal_review_task]
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
+        orch._store.get_active_issues = lambda: {}  # type: ignore[method-assign]
+        orch._store.enqueue_transition = MagicMock()  # type: ignore[method-assign]
+        orch._reviewer.review_adrs = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        did_work = await orch._do_review_work()
+
+        assert did_work is True
+        orch._reviewer.review_adrs.assert_awaited_once_with([adr_task])
+        orch._store.enqueue_transition.assert_called_once_with(
+            normal_review_task, "review"
+        )
+
+    @pytest.mark.asyncio
     async def test_review_loop_multiple_results_files_each(
         self, config: HydraFlowConfig
     ) -> None:
         """Multiple reviewer results: only those with transcripts trigger filing."""
         orch = HydraFlowOrchestrator(config)
+        task_a = TaskFactory.create(id=10)
+        task_b = TaskFactory.create(id=20)
         issue_a = IssueFactory.create(number=10)
         issue_b = IssueFactory.create(number=20)
         pr_a = PRInfoFactory.create(number=201, issue_number=10)
@@ -2054,7 +2148,6 @@ class TestMemorySuggestionFiling:
         )
         r2 = make_review_result(pr_number=202, issue_number=20, transcript="")
 
-        orch._store.get_reviewable = lambda _max_count: [issue_a, issue_b]  # type: ignore[method-assign]
         orch._store.get_active_issues = lambda: {10: "review", 20: "review"}  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(  # type: ignore[method-assign]
             return_value=([pr_a, pr_b], [issue_a, issue_b])
@@ -2064,11 +2157,11 @@ class TestMemorySuggestionFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [issue_a, issue_b]
+                return [task_a, task_b]
             orch._stop_event.set()
             return []
 
@@ -2093,11 +2186,11 @@ class TestMemorySuggestionFiling:
         r1 = make_worker_result(issue_number=10, transcript=MEMORY_TRANSCRIPT)
         r2 = make_worker_result(issue_number=20, transcript=MEMORY_TRANSCRIPT)
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
             return [r1, r2], [
-                IssueFactory.create(number=10),
-                IssueFactory.create(number=20),
+                TaskFactory.create(id=10),
+                TaskFactory.create(id=20),
             ]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
@@ -2116,6 +2209,7 @@ class TestMemorySuggestionFiling:
     ) -> None:
         """Memory filing failure in reviewer must not crash the loop."""
         orch = HydraFlowOrchestrator(config)
+        task_a = TaskFactory.create(id=10)
         issue_a = IssueFactory.create(number=10)
         pr_a = PRInfoFactory.create(number=201, issue_number=10)
         r1 = make_review_result(
@@ -2131,11 +2225,11 @@ class TestMemorySuggestionFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [issue_a]
+                return [task_a]
             orch._stop_event.set()
             return []
 
@@ -2168,9 +2262,9 @@ class TestTranscriptSummaryFiling:
         orch = HydraFlowOrchestrator(config)
         result = make_worker_result(issue_number=42, transcript=SUMMARY_TRANSCRIPT)
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
-            return [result], [IssueFactory.create(number=42)]
+            return [result], [TaskFactory.create(id=42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
         orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
@@ -2198,9 +2292,9 @@ class TestTranscriptSummaryFiling:
             issue_number=42, transcript=SUMMARY_TRANSCRIPT, success=False
         )
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
-            return [result], [IssueFactory.create(number=42)]
+            return [result], [TaskFactory.create(id=42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
         orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
@@ -2224,9 +2318,9 @@ class TestTranscriptSummaryFiling:
         orch = HydraFlowOrchestrator(config)
         result = make_worker_result(issue_number=42, transcript="")
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
-            return [result], [IssueFactory.create(number=42)]
+            return [result], [TaskFactory.create(id=42)]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
         orch._summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
@@ -2245,6 +2339,7 @@ class TestTranscriptSummaryFiling:
     ) -> None:
         """Reviewer transcripts post summary on the original issue (not the PR)."""
         orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
@@ -2261,11 +2356,11 @@ class TestTranscriptSummaryFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [review_issue]
+                return [review_task]
             orch._stop_event.set()
             return []
 
@@ -2291,6 +2386,7 @@ class TestTranscriptSummaryFiling:
     ) -> None:
         """Merged review results post summary with status='success'."""
         orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = ReviewResult(
@@ -2312,11 +2408,11 @@ class TestTranscriptSummaryFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [review_issue]
+                return [review_task]
             orch._stop_event.set()
             return []
 
@@ -2339,6 +2435,7 @@ class TestTranscriptSummaryFiling:
     ) -> None:
         """CI-failed review results post summary with status='failed'."""
         orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = ReviewResult(
@@ -2361,11 +2458,11 @@ class TestTranscriptSummaryFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [review_issue]
+                return [review_task]
             orch._stop_event.set()
             return []
 
@@ -2388,6 +2485,7 @@ class TestTranscriptSummaryFiling:
     ) -> None:
         """Review results with issue_number=0 skip transcript summary posting."""
         orch = HydraFlowOrchestrator(config)
+        review_task = TaskFactory.create(id=0)
         review_issue = IssueFactory.create(number=0)
         pr = PRInfoFactory.create(number=101, issue_number=0)
         review_result = ReviewResult(
@@ -2409,11 +2507,11 @@ class TestTranscriptSummaryFiling:
 
         call_count = 0
 
-        def get_reviewable_once(_max_count: int) -> list[GitHubIssue]:
+        def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [review_issue]
+                return [review_task]
             orch._stop_event.set()
             return []
 
@@ -2436,11 +2534,11 @@ class TestTranscriptSummaryFiling:
         r1 = make_worker_result(issue_number=10, transcript=SUMMARY_TRANSCRIPT)
         r2 = make_worker_result(issue_number=20, transcript=SUMMARY_TRANSCRIPT)
 
-        async def batch_and_stop() -> tuple[list[WorkerResult], list[GitHubIssue]]:
+        async def batch_and_stop() -> tuple[list[WorkerResult], list[Task]]:
             orch._stop_event.set()
             return [r1, r2], [
-                IssueFactory.create(number=10),
-                IssueFactory.create(number=20),
+                TaskFactory.create(id=10),
+                TaskFactory.create(id=20),
             ]
 
         orch._implementer.run_batch = batch_and_stop  # type: ignore[method-assign]
@@ -2875,3 +2973,296 @@ class TestMemoryErrorPropagation:
         # Should not raise — RuntimeError is caught
         await orch._polling_loop("test", failing_then_stop, 10)
         assert call_count == 2
+
+
+# --- Background Worker Enabled ---
+
+
+class TestBgWorkerEnabled:
+    """Tests for is_bg_worker_enabled / set_bg_worker_enabled."""
+
+    def test_is_bg_worker_enabled_defaults_true(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        assert orch.is_bg_worker_enabled("memory_sync") is True
+
+    def test_set_and_get_enabled(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_enabled("memory_sync", False)
+        assert orch.is_bg_worker_enabled("memory_sync") is False
+
+    def test_set_enabled_true(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_enabled("metrics", False)
+        orch.set_bg_worker_enabled("metrics", True)
+        assert orch.is_bg_worker_enabled("metrics") is True
+
+    def test_multiple_workers_independent(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_enabled("memory_sync", False)
+        orch.set_bg_worker_enabled("metrics", True)
+        assert orch.is_bg_worker_enabled("memory_sync") is False
+        assert orch.is_bg_worker_enabled("metrics") is True
+
+
+# --- Background Worker States ---
+
+
+class TestBgWorkerStates:
+    """Tests for get_bg_worker_states / update_bg_worker_status."""
+
+    def test_get_bg_worker_states_empty(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        assert orch.get_bg_worker_states() == {}
+
+    def test_update_and_get_states(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "running")
+        states = orch.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "running"
+
+    def test_states_include_enabled_flag(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("metrics", "idle")
+        orch.set_bg_worker_enabled("metrics", False)
+        states = orch.get_bg_worker_states()
+        assert states["metrics"].get("enabled") is False
+
+
+# --- Background Worker Interval ---
+
+
+class TestBgWorkerInterval:
+    """Tests for set_bg_worker_interval."""
+
+    def test_set_bg_worker_interval_stores_value(self, config: HydraFlowConfig) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_interval("memory_sync", 300)
+        assert orch.get_bg_worker_interval("memory_sync") == 300
+
+    def test_set_bg_worker_interval_persists_to_state(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.set_bg_worker_interval("metrics", 600)
+        # Verify state was persisted via public StateTracker method
+        intervals = orch._state.get_worker_intervals()
+        assert intervals.get("metrics") == 600
+
+
+# --- Update Background Worker Status ---
+
+
+class TestUpdateBgWorkerStatus:
+    """Tests for update_bg_worker_status."""
+
+    def test_update_bg_worker_status_stores_fields(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "running")
+        state = orch._bg_worker_states["memory_sync"]
+        assert state["name"] == "memory_sync"
+        assert state["status"] == "running"
+        assert "last_run" in state
+
+    def test_update_bg_worker_status_with_details(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("metrics", "running", details={"synced": 5})
+        state = orch._bg_worker_states["metrics"]
+        assert state["details"]["synced"] == 5
+
+    def test_update_bg_worker_status_without_details(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "idle")
+        state = orch._bg_worker_states["memory_sync"]
+        assert state["details"] == {}
+
+    @pytest.mark.asyncio
+    async def test_restore_bg_worker_states_backfills_from_events(
+        self, config: HydraFlowConfig
+    ) -> None:
+        bus = EventBus()
+        await bus.publish(
+            HydraFlowEvent(
+                type=EventType.BACKGROUND_WORKER_STATUS,
+                data={
+                    "worker": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-25T09:00:00Z",
+                    "details": {"count": 4},
+                },
+            )
+        )
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+        orch._restore_bg_worker_states()
+        states = orch.get_bg_worker_states()
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["details"]["count"] == 4
+        persisted = orch.state.get_bg_worker_states()
+        assert "memory_sync" in persisted
+
+    def test_update_bg_worker_status_persists_to_state(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch.update_bg_worker_status("memory_sync", "ok")
+        persisted = orch._state.get_bg_worker_states()
+        assert "memory_sync" in persisted
+        assert persisted["memory_sync"]["status"] == "ok"
+
+    def test_restore_bg_worker_states(self, config: HydraFlowConfig) -> None:
+        tracker = StateTracker(config.state_file)
+        tracker.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:30:00Z",
+                details={"count": 2},
+            ),
+        )
+        orch = HydraFlowOrchestrator(config, state=tracker)
+        orch._restore_state()
+        states = orch.get_bg_worker_states()
+        assert states["memory_sync"]["last_run"] == "2026-02-20T10:30:00Z"
+        assert states["memory_sync"]["details"]["count"] == 2
+
+
+# --- Orchestrator Property Accessors ---
+
+
+class TestOrchestratorPropertyAccessors:
+    """Tests for current_session_id, issue_store, metrics_manager, run_recorder."""
+
+    def test_current_session_id_none_when_no_session(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        assert orch.current_session_id is None
+
+    def test_issue_store_returns_store(self, config: HydraFlowConfig) -> None:
+        from issue_store import IssueStore
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch.issue_store, IssueStore)
+
+    def test_metrics_manager_returns_manager(self, config: HydraFlowConfig) -> None:
+        from metrics_manager import MetricsManager
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch.metrics_manager, MetricsManager)
+
+    def test_run_recorder_returns_recorder(self, config: HydraFlowConfig) -> None:
+        from run_recorder import RunRecorder
+
+        orch = HydraFlowOrchestrator(config)
+        assert isinstance(orch.run_recorder, RunRecorder)
+
+
+class TestPipelineStatsEmission:
+    """Tests for _build_pipeline_stats and emit_pipeline_stats."""
+
+    def test_build_pipeline_stats_without_session(
+        self, config: HydraFlowConfig
+    ) -> None:
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        stats = orch.build_pipeline_stats()
+        assert stats.timestamp
+        assert stats.uptime_seconds == 0.0
+        assert "triage" in stats.stages
+        assert "plan" in stats.stages
+        assert "implement" in stats.stages
+        assert "review" in stats.stages
+        assert "hitl" in stats.stages
+        assert "merged" in stats.stages
+
+    def test_build_pipeline_stats_includes_worker_caps(
+        self, config: HydraFlowConfig
+    ) -> None:
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        stats = orch.build_pipeline_stats()
+        assert stats.stages["triage"].worker_cap == config.max_triagers
+        assert stats.stages["plan"].worker_cap == config.max_planners
+        assert stats.stages["implement"].worker_cap == config.max_workers
+        assert stats.stages["review"].worker_cap == config.max_reviewers
+        assert stats.stages["hitl"].worker_cap == config.max_hitl_workers
+
+    def test_build_pipeline_stats_with_active_session(
+        self, config: HydraFlowConfig
+    ) -> None:
+        from datetime import UTC, datetime
+
+        from models import SessionLog
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        orch._current_session = SessionLog(
+            id="test-session",
+            repo="test/repo",
+            started_at=(datetime.now(UTC)).isoformat(),
+        )
+        stats = orch.build_pipeline_stats()
+        # Uptime should be positive since session just started
+        assert stats.uptime_seconds >= 0.0
+
+    def test_build_pipeline_stats_merged_tracks_session_results(
+        self, config: HydraFlowConfig
+    ) -> None:
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        orch._session_issue_results = {1: True, 2: True, 3: False}
+        stats = orch.build_pipeline_stats()
+        assert stats.stages["merged"].completed_session == 2
+
+    @pytest.mark.asyncio
+    async def test_emit_pipeline_stats_publishes_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        from orchestrator import HydraFlowOrchestrator
+
+        bus = EventBus()
+        orch = HydraFlowOrchestrator(config, event_bus=bus)
+        await orch.emit_pipeline_stats()
+        history = bus.get_history()
+        pipeline_events = [e for e in history if e.type == EventType.PIPELINE_STATS]
+        assert len(pipeline_events) == 1
+        data = pipeline_events[0].data
+        assert "timestamp" in data
+        assert "stages" in data
+        assert "throughput" in data
+        assert "uptime_seconds" in data
+
+    def test_build_pipeline_stats_is_json_serializable(
+        self, config: HydraFlowConfig
+    ) -> None:
+        import json
+
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        stats = orch.build_pipeline_stats()
+        data = stats.model_dump()
+        # Should not raise
+        json_str = json.dumps(data)
+        assert isinstance(json_str, str)
+
+    def test_pipeline_stats_loop_in_supervise_factories(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """pipeline_stats loop is registered in _supervise_loops."""
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        # Verify the method exists
+        assert hasattr(orch, "_pipeline_stats_loop")
+        assert callable(orch._pipeline_stats_loop)

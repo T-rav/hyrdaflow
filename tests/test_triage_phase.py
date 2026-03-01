@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from tests.conftest import IssueFactory
+from tests.conftest import TaskFactory
 from tests.helpers import make_triage_phase
 
 if TYPE_CHECKING:
@@ -33,9 +34,7 @@ class TestTriagePhase:
         from models import TriageResult
 
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
-        issue = IssueFactory.create(
-            number=1, title="Implement feature X", body="A" * 100
-        )
+        issue = TaskFactory.create(id=1, title="Implement feature X", body="A" * 100)
 
         triage.evaluate = AsyncMock(
             return_value=TriageResult(issue_number=1, ready=True)
@@ -45,7 +44,7 @@ class TestTriagePhase:
         await phase.triage_issues()
 
         triage.evaluate.assert_awaited_once_with(issue)
-        prs.swap_pipeline_labels.assert_called_once_with(1, config.planner_label[0])
+        prs.transition.assert_called_once_with(1, "plan")
         prs.post_comment.assert_not_called()
 
     @pytest.mark.asyncio
@@ -55,7 +54,7 @@ class TestTriagePhase:
         from models import TriageResult
 
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
-        issue = IssueFactory.create(number=2, title="Fix the bug please", body="")
+        issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
             return_value=TriageResult(
@@ -82,7 +81,7 @@ class TestTriagePhase:
         from models import TriageResult
 
         phase, state, triage, _prs, store, _stop = make_triage_phase(config)
-        issue = IssueFactory.create(number=2, title="Fix the bug please", body="")
+        issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
             return_value=TriageResult(
@@ -105,7 +104,7 @@ class TestTriagePhase:
         from models import TriageResult
 
         phase, state, triage, _prs, store, _stop = make_triage_phase(config)
-        issue = IssueFactory.create(number=2, title="Fix the bug please", body="")
+        issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
             return_value=TriageResult(
@@ -128,12 +127,8 @@ class TestTriagePhase:
 
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issues = [
-            IssueFactory.create(
-                number=1, title="Issue one long enough", body="A" * 100
-            ),
-            IssueFactory.create(
-                number=2, title="Issue two long enough", body="B" * 100
-            ),
+            TaskFactory.create(id=1, title="Issue one long enough", body="A" * 100),
+            TaskFactory.create(id=2, title="Issue two long enough", body="B" * 100),
         ]
 
         call_count = 0
@@ -172,7 +167,7 @@ class TestTriagePhase:
         from models import TriageResult
 
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
-        issue = IssueFactory.create(number=1, title="Triage test", body="A" * 100)
+        issue = TaskFactory.create(id=1, title="Triage test", body="A" * 100)
 
         was_active_during_evaluate = False
 
@@ -188,3 +183,88 @@ class TestTriagePhase:
 
         assert was_active_during_evaluate, "Issue should be marked active during triage"
         assert not store.is_active(1), "Issue should be released after triage"
+
+    @pytest.mark.asyncio
+    async def test_triage_runs_concurrently_with_semaphore(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Multiple issues should be triaged concurrently up to max_triagers."""
+        from models import TriageResult
+
+        config.max_triagers = 2
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issues = [
+            TaskFactory.create(id=i, title=f"Issue {i}", body="A" * 100)
+            for i in range(1, 4)
+        ]
+
+        concurrency_high_water = 0
+        active_count = 0
+        lock = asyncio.Lock()
+
+        async def track_concurrency(issue: object) -> TriageResult:
+            nonlocal concurrency_high_water, active_count
+            async with lock:
+                active_count += 1
+                concurrency_high_water = max(concurrency_high_water, active_count)
+            await asyncio.sleep(0.01)
+            async with lock:
+                active_count -= 1
+            return TriageResult(issue_number=getattr(issue, "id", 0), ready=True)
+
+        triage.evaluate = AsyncMock(side_effect=track_concurrency)
+        store.get_triageable = lambda _max_count: issues  # type: ignore[method-assign]
+
+        processed = await phase.triage_issues()
+
+        assert processed == 3
+        # Semaphore allows up to 2 concurrent, so high water should be <= 2
+        assert concurrency_high_water <= 2
+        # With 3 issues and semaphore=2, at least 2 should run in parallel
+        assert concurrency_high_water == 2
+
+    @pytest.mark.asyncio
+    async def test_adr_issue_routes_to_ready_when_shape_is_valid(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(
+            id=77,
+            title="[ADR] Adopt event-sourced state snapshots",
+            body=(
+                "## Context\n"
+                "Current pipeline state persistence causes replay costs and stale views.\n\n"
+                "## Decision\n"
+                "Adopt periodic event-sourced snapshots with compaction to reduce replay.\n\n"
+                "## Consequences\n"
+                "Adds compaction complexity but improves startup and dashboard freshness."
+            ),
+        )
+        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.triage_issues()
+
+        triage.evaluate.assert_not_awaited()
+        prs.transition.assert_called_once_with(77, "ready")
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_adr_issue_escalates_to_hitl_when_shape_invalid(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(
+            id=78,
+            title="[ADR] Simplify build graph",
+            body="Need to simplify this soon.",
+        )
+        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+
+        await phase.triage_issues()
+
+        triage.evaluate.assert_not_awaited()
+        prs.swap_pipeline_labels.assert_called_once_with(78, config.hitl_label[0])
+        prs.post_comment.assert_called_once()
+        comment = prs.post_comment.call_args.args[1]
+        assert "Needs More Information" in comment
+        assert "Missing required ADR sections" in comment

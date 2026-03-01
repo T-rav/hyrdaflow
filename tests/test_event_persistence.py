@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,7 +18,7 @@ from tests.helpers import ConfigFactory
 
 
 def _make_event(
-    event_type: EventType = EventType.BATCH_START,
+    event_type: EventType = EventType.PHASE_CHANGE,
     timestamp: str | None = None,
     data: dict | None = None,
 ) -> HydraFlowEvent:
@@ -50,7 +49,7 @@ class TestEventLogAppend:
         lines = log.path.read_text().strip().split("\n")
         assert len(lines) == 1
         parsed = json.loads(lines[0])
-        assert parsed["type"] == "batch_start"
+        assert parsed["type"] == "phase_change"
         assert parsed["data"] == {"batch": 1}
 
     @pytest.mark.asyncio
@@ -290,8 +289,8 @@ class TestEventBusWithPersistence:
         event = _make_event(data={"bus": True})
         await bus.publish(event)
 
-        # Give the fire-and-forget task a moment to complete
-        await asyncio.sleep(0.05)
+        # Drain fire-and-forget persist tasks deterministically
+        await bus.flush_persists()
 
         loaded = await log.load()
         assert len(loaded) == 1
@@ -427,8 +426,8 @@ class TestEventBusWithPersistence:
         try:
             event = _make_event(data={"fail": True})
             await bus.publish(event)
-            # Give the fire-and-forget task a moment to complete
-            await asyncio.sleep(0.1)
+            # Drain fire-and-forget persist tasks deterministically
+            await bus.flush_persists()
 
             assert "Could not append to event log" in caplog.text
         finally:
@@ -446,7 +445,9 @@ class TestEventLogConfig:
 
         config = HydraFlowConfig(repo="test/repo")
         assert config.event_log_path.name == "events.jsonl"
-        assert config.event_log_path.parent.name == ".hydraflow"
+        # event_log_path is at .hydraflow/<repo_slug>/events.jsonl
+        assert config.event_log_path.parent.parent.name == ".hydraflow"
+        assert config.event_log_path.parent.name == "test-repo"
 
     def test_default_max_size_mb(self) -> None:
         from config import HydraFlowConfig

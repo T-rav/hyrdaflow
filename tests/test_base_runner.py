@@ -160,6 +160,7 @@ class TestExecute:
         assert call_kwargs["cwd"] == tmp_path
         assert call_kwargs["event_data"] == {"issue": 42}
         assert call_kwargs["on_output"] is None
+        assert call_kwargs["gh_token"] == config.gh_token
 
     @pytest.mark.asyncio
     async def test_passes_on_output_callback(
@@ -355,3 +356,19 @@ class TestBuildCommand:
         runner = _TestRunner(config, event_bus)
         cmd = runner._build_command(tmp_path)
         assert "--cwd" not in cmd
+
+    def test_build_command_accepts_none_worktree_path(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """The worktree_path parameter is optional (None) for runners that don't need worktrees."""
+        runner = _TestRunner(config, event_bus)
+        cmd = runner._build_command(None)
+        assert cmd[0] == "claude"
+
+    def test_build_command_works_without_arguments(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """The worktree_path parameter defaults to None when omitted."""
+        runner = _TestRunner(config, event_bus)
+        cmd = runner._build_command()
+        assert cmd[0] == "claude"

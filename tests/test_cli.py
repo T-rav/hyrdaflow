@@ -3,27 +3,45 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
+import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import cli as cli_module
 from cli import (
     _best_model_for_tool,
-    _build_prep_agent_prompt,
-    _build_prep_failure_error_message,
+    _choose_prep_tool,
     _coverage_validation_roots,
+    _detect_available_prep_tools,
     _evaluate_coverage_validation,
     _evaluate_coverage_validation_projects,
     _extract_coverage_percent,
+    _load_prep_coverage_floor,
     _parse_label_arg,
-    _parse_prep_result,
+    _prep_coverage_has_measurement,
     _project_has_test_signal,
     _run_main,
+    _save_prep_coverage_floor,
     build_config,
     parse_args,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cli_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Prevent host env/config defaults from leaking into CLI tests."""
+    for key in list(os.environ):
+        if key.startswith("HYDRAFLOW_"):
+            monkeypatch.delenv(key, raising=False)
+    # Ensure parse_args/build_config do not read the user's persisted config.
+    monkeypatch.setattr(
+        cli_module, "_DEFAULT_CONFIG_PATH", str(tmp_path / "hydraflow-test-config.json")
+    )
+
 
 # ---------------------------------------------------------------------------
 # _parse_label_arg
@@ -46,66 +64,6 @@ class TestParseLabelArg:
         assert _parse_label_arg("") == []
 
 
-class TestPrepFailureErrorMessage:
-    """Tests for prep failure message classification."""
-
-    def test_classifies_edit_before_read_tool_error(self) -> None:
-        transcript = (
-            "some output\n"
-            "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>"
-        )
-        msg = _build_prep_failure_error_message(
-            transcript, ".hydraflow/prep/runs/20260224/a.log"
-        )
-        assert "tool precondition failure" in msg
-        assert "Transcript path: .hydraflow/prep/runs/20260224/a.log" in msg
-
-    def test_classifies_turn_limit_error(self) -> None:
-        transcript = "agent stopped due to max turns reached"
-        msg = _build_prep_failure_error_message(
-            transcript, ".hydraflow/prep/runs/20260224/b.log"
-        )
-        assert "turn limit" in msg
-
-
-class TestPrepResultParsing:
-    """Tests for structured prep result parsing."""
-
-    def test_prefers_json_success(self) -> None:
-        success, mode = _parse_prep_result(
-            '... PREP_RESULT_JSON: {"prep_status":"SUCCESS","summary":"ok"}'
-        )
-        assert success is True
-        assert mode == "json"
-
-    def test_json_failed_returns_false(self) -> None:
-        success, mode = _parse_prep_result(
-            '... PREP_RESULT_JSON: {"prep_status":"FAILED","summary":"broken"}'
-        )
-        assert success is False
-        assert mode == "json"
-
-    def test_falls_back_to_legacy_status(self) -> None:
-        success, mode = _parse_prep_result("PREP_STATUS: SUCCESS")
-        assert success is True
-        assert mode == "legacy"
-
-
-class TestPrepAgentPrompt:
-    """Tests for prep prompt safety constraints."""
-
-    def test_prompt_includes_scope_and_parallel_fanout_constraints(self) -> None:
-        prompt = _build_prep_agent_prompt(
-            stack="node",
-            failures=[("prep-workflow-agent", ["claude", "opus"], "failed")],
-            issue_filenames=["auto-fix-prep.md"],
-        )
-        assert "fan out work to sub-agents in parallel" in prompt
-        assert "max 4 concurrent tracks" in prompt
-        assert "one file at a time" in prompt
-        assert "Do not refactor unrelated application source" in prompt
-
-
 class TestPrepModelSelection:
     """Tests for prep model defaults by selected tool."""
 
@@ -114,6 +72,81 @@ class TestPrepModelSelection:
 
     def test_codex_default_model(self) -> None:
         assert _best_model_for_tool("codex") == "gpt-5-codex"
+
+    def test_pi_default_model_uses_non_claude_fallback(self) -> None:
+        assert _best_model_for_tool("pi") == "gpt-5.3-codex"
+
+
+class TestPrepToolSelection:
+    """Tests for prep tool detection/selection helpers."""
+
+    def test_detect_available_prep_tools_includes_pi(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "shutil.which", lambda name: "/bin/ok" if name == "pi" else None
+        )
+        assert _detect_available_prep_tools() == ["pi"]
+
+    def test_choose_prep_tool_noninteractive_prefers_configured_when_available(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            cli_module, "_detect_available_prep_tools", lambda: ["claude", "pi"]
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+        assert _choose_prep_tool("pi") == ("pi", "configured")
+
+    def test_choose_prep_tool_noninteractive_falls_back_to_first_available(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            cli_module, "_detect_available_prep_tools", lambda: ["pi", "codex"]
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+        assert _choose_prep_tool("unknown") == ("pi", "fallback")
+
+    def test_choose_prep_tool_tty_blank_uses_configured_default(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            cli_module, "_detect_available_prep_tools", lambda: ["claude", "pi"]
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda _prompt: "")
+        assert _choose_prep_tool("pi") == ("pi", "prompt")
+
+    def test_choose_prep_tool_tty_invalid_uses_configured_default(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            cli_module, "_detect_available_prep_tools", lambda: ["claude", "pi"]
+        )
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda _prompt: "bad")
+        assert _choose_prep_tool("pi") == ("pi", "prompt")
+
+
+class TestPrepCoverageRatcheting:
+    """Tests for persisted prep coverage floor ratcheting helpers."""
+
+    def test_defaults_to_starting_floor_when_missing(self, tmp_path: Path) -> None:
+        assert _load_prep_coverage_floor(tmp_path) == 20.0
+
+    def test_save_and_load_floor_round_trip(self, tmp_path: Path) -> None:
+        _save_prep_coverage_floor(tmp_path, 40.0)
+        assert _load_prep_coverage_floor(tmp_path) == 40.0
+
+    def test_load_clamps_floor_to_target_max(self, tmp_path: Path) -> None:
+        _save_prep_coverage_floor(tmp_path, 95.0)
+        assert _load_prep_coverage_floor(tmp_path) == 70.0
+
+    def test_measurement_detector_requires_percent_source_pattern(self) -> None:
+        assert _prep_coverage_has_measurement("Coverage validation skipped") is False
+        assert (
+            _prep_coverage_has_measurement(
+                "Coverage validation passed: 61.2% from coverage.xml"
+            )
+            is True
+        )
 
 
 class TestCoverageValidation:
@@ -249,6 +282,10 @@ class TestParseArgs:
             "max_planners",
             "max_reviewers",
             "max_hitl_workers",
+            "system_tool",
+            "system_model",
+            "background_tool",
+            "background_model",
             "model",
             "implementation_tool",
             "review_model",
@@ -264,6 +301,8 @@ class TestParseArgs:
             "find_label",
             "planner_label",
             "improve_label",
+            "transcript_label",
+            "epic_child_label",
             "triage_tool",
             "planner_model",
             "planner_tool",
@@ -271,6 +310,10 @@ class TestParseArgs:
             "main_branch",
             "ac_tool",
             "verification_judge_tool",
+            "memory_compaction_tool",
+            "memory_compaction_model",
+            "transcript_summary_tool",
+            "transcript_summary_model",
             "dashboard_port",
             "gh_token",
         ]
@@ -320,10 +363,14 @@ class TestParseArgs:
 _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("ready_label", ["hydraflow-ready"]),
     ("batch_size", 15),
-    ("max_workers", 3),
+    ("max_workers", 2),
     ("max_planners", 1),
-    ("max_reviewers", 5),
+    ("max_reviewers", 2),
     ("max_hitl_workers", 1),
+    ("system_tool", "inherit"),
+    ("system_model", ""),
+    ("background_tool", "inherit"),
+    ("background_model", ""),
     ("hitl_active_label", ["hydraflow-hitl-active"]),
     ("implementation_tool", "claude"),
     ("model", "opus"),
@@ -339,9 +386,15 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("find_label", ["hydraflow-find"]),
     ("planner_label", ["hydraflow-plan"]),
     ("improve_label", ["hydraflow-improve"]),
+    ("transcript_label", ["hydraflow-transcript"]),
+    ("epic_child_label", ["hydraflow-epic-child"]),
     ("triage_tool", "claude"),
     ("planner_tool", "claude"),
     ("planner_model", "opus"),
+    ("memory_compaction_tool", "claude"),
+    ("memory_compaction_model", "haiku"),
+    ("transcript_summary_tool", "claude"),
+    ("transcript_summary_model", "haiku"),
     ("ac_tool", "claude"),
     ("verification_judge_tool", "claude"),
     ("main_branch", "main"),
@@ -374,7 +427,7 @@ class TestBuildConfig:
 
         assert cfg.batch_size == 10
         # Other fields remain at defaults
-        assert cfg.max_workers == 3
+        assert cfg.max_workers == 2
         assert cfg.model == "opus"
 
     def test_label_arg_parsed_to_list(self) -> None:
@@ -458,6 +511,10 @@ class TestBuildConfig:
                 "i",
                 "--improve-label",
                 "j,k",
+                "--transcript-label",
+                "t1,t2",
+                "--epic-child-label",
+                "ec1,ec2",
             ]
         )
         cfg = build_config(args)
@@ -470,6 +527,8 @@ class TestBuildConfig:
         assert cfg.find_label == ["g", "h"]
         assert cfg.planner_label == ["i"]
         assert cfg.improve_label == ["j", "k"]
+        assert cfg.transcript_label == ["t1", "t2"]
+        assert cfg.epic_child_label == ["ec1", "ec2"]
 
     def test_planner_model_passed_through(self) -> None:
         args = parse_args(["--planner-model", "sonnet"])
@@ -479,6 +538,14 @@ class TestBuildConfig:
     def test_tool_fields_passed_through(self) -> None:
         args = parse_args(
             [
+                "--system-tool",
+                "codex",
+                "--system-model",
+                "gpt-5-codex",
+                "--background-tool",
+                "codex",
+                "--background-model",
+                "gpt-5-codex",
                 "--implementation-tool",
                 "codex",
                 "--review-tool",
@@ -487,6 +554,14 @@ class TestBuildConfig:
                 "codex",
                 "--planner-tool",
                 "codex",
+                "--memory-compaction-tool",
+                "codex",
+                "--memory-compaction-model",
+                "gpt-5-codex",
+                "--transcript-summary-tool",
+                "codex",
+                "--transcript-summary-model",
+                "gpt-5-codex",
                 "--ac-tool",
                 "codex",
                 "--verification-judge-tool",
@@ -494,12 +569,63 @@ class TestBuildConfig:
             ]
         )
         cfg = build_config(args)
+        assert cfg.system_tool == "codex"
+        assert cfg.system_model == "gpt-5-codex"
+        assert cfg.background_tool == "codex"
+        assert cfg.background_model == "gpt-5-codex"
         assert cfg.implementation_tool == "codex"
         assert cfg.review_tool == "codex"
         assert cfg.triage_tool == "codex"
         assert cfg.planner_tool == "codex"
+        assert cfg.memory_compaction_tool == "codex"
+        assert cfg.memory_compaction_model == "gpt-5-codex"
+        assert cfg.transcript_summary_tool == "codex"
+        assert cfg.transcript_summary_model == "gpt-5-codex"
         assert cfg.ac_tool == "codex"
         assert cfg.verification_judge_tool == "codex"
+
+    def test_implementation_tool_codex_uses_codex_model_default(self) -> None:
+        args = parse_args(["--implementation-tool", "codex"])
+        cfg = build_config(args)
+        assert cfg.implementation_tool == "codex"
+        assert cfg.model == "gpt-5-codex"
+
+    def test_tool_fields_support_pi(self) -> None:
+        args = parse_args(
+            [
+                "--system-tool",
+                "pi",
+                "--background-tool",
+                "pi",
+                "--implementation-tool",
+                "pi",
+                "--review-tool",
+                "pi",
+                "--triage-tool",
+                "pi",
+                "--planner-tool",
+                "pi",
+                "--memory-compaction-tool",
+                "pi",
+                "--transcript-summary-tool",
+                "pi",
+                "--ac-tool",
+                "pi",
+                "--verification-judge-tool",
+                "pi",
+            ]
+        )
+        cfg = build_config(args)
+        assert cfg.system_tool == "pi"
+        assert cfg.background_tool == "pi"
+        assert cfg.implementation_tool == "pi"
+        assert cfg.review_tool == "pi"
+        assert cfg.triage_tool == "pi"
+        assert cfg.planner_tool == "pi"
+        assert cfg.memory_compaction_tool == "pi"
+        assert cfg.transcript_summary_tool == "pi"
+        assert cfg.ac_tool == "pi"
+        assert cfg.verification_judge_tool == "pi"
 
     def test_ci_fields_passed_through(self) -> None:
         args = parse_args(
@@ -560,6 +686,11 @@ class TestBuildConfig:
         cfg = build_config(args)
         assert cfg.improve_label == ["my-improve"]
 
+    def test_transcript_label_passed_through(self) -> None:
+        args = parse_args(["--transcript-label", "my-transcript"])
+        cfg = build_config(args)
+        assert cfg.transcript_label == ["my-transcript"]
+
     def test_git_identity_defaults_to_none_in_parse_args(self) -> None:
         args = parse_args([])
         assert args.git_user_name is None
@@ -587,12 +718,16 @@ class TestRunMainSignalHandlers:
             side_effect=lambda sig, cb: registered_signals.append(sig)
         )
 
-        mock_orch = AsyncMock()
-        mock_orch.run = AsyncMock()
-        mock_orch.stop = AsyncMock()
+        mock_runtime = AsyncMock()
+        mock_runtime.run = AsyncMock()
+        mock_runtime.stop = AsyncMock()
 
         with (
-            patch("cli.HydraFlowOrchestrator", return_value=mock_orch),
+            patch(
+                "repo_runtime.RepoRuntime.create",
+                new_callable=AsyncMock,
+                return_value=mock_runtime,
+            ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             await _run_main(config)
@@ -602,7 +737,7 @@ class TestRunMainSignalHandlers:
 
     @pytest.mark.asyncio
     async def test_headless_sigint_calls_orchestrator_stop(self) -> None:
-        """Simulating SIGINT callback should trigger orchestrator.stop()."""
+        """Simulating SIGINT callback should trigger runtime.stop()."""
         from tests.helpers import ConfigFactory
 
         config = ConfigFactory.create(dashboard_enabled=False)
@@ -615,8 +750,8 @@ class TestRunMainSignalHandlers:
         mock_loop = MagicMock()
         mock_loop.add_signal_handler = MagicMock(side_effect=capture_handler)
 
-        mock_orch = AsyncMock()
-        mock_orch.stop = AsyncMock()
+        mock_runtime = AsyncMock()
+        mock_runtime.stop = AsyncMock()
 
         async def fake_run() -> None:
             # Simulate signal arriving during run
@@ -626,15 +761,19 @@ class TestRunMainSignalHandlers:
             # Give the stop task a chance to run
             await asyncio.sleep(0)
 
-        mock_orch.run = fake_run
+        mock_runtime.run = fake_run
 
         with (
-            patch("cli.HydraFlowOrchestrator", return_value=mock_orch),
+            patch(
+                "repo_runtime.RepoRuntime.create",
+                new_callable=AsyncMock,
+                return_value=mock_runtime,
+            ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
         ):
             await _run_main(config)
 
-        mock_orch.stop.assert_called_once()
+        mock_runtime.stop.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_dashboard_registers_signal_handlers(self) -> None:
@@ -840,3 +979,61 @@ class TestDockerBuildConfig:
         assert cfg.docker_spawn_delay == pytest.approx(2.0)
         assert cfg.docker_read_only_root is True
         assert cfg.docker_no_new_privileges is True
+
+
+# ---------------------------------------------------------------------------
+# Repo-scoped config overlay
+# ---------------------------------------------------------------------------
+
+
+class TestRepoConfigOverlay:
+    """Tests for _apply_repo_config_overlay in build_config."""
+
+    def test_repo_config_overrides_shared_config(self, tmp_path: Path) -> None:
+        """Values in the repo-scoped config file override the shared config."""
+        import json
+
+        from cli import _apply_repo_config_overlay
+        from config import HydraFlowConfig
+
+        # Set config_file to the repo-scoped path (as build_config would)
+        repo_cfg_dir = tmp_path / ".hydraflow" / "org-repo"
+        repo_cfg_dir.mkdir(parents=True)
+        repo_cfg_file = repo_cfg_dir / "config.json"
+        repo_cfg_file.write_text(json.dumps({"batch_size": 42}))
+
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="org/repo", config_file=repo_cfg_file
+        )
+
+        _apply_repo_config_overlay(cfg, cli_explicit=set())
+        assert cfg.batch_size == 42
+
+    def test_cli_explicit_not_overridden_by_repo_config(self, tmp_path: Path) -> None:
+        """CLI-explicit values should not be overridden by repo config."""
+        import json
+
+        from cli import _apply_repo_config_overlay
+        from config import HydraFlowConfig
+
+        repo_cfg_dir = tmp_path / ".hydraflow" / "org-repo"
+        repo_cfg_dir.mkdir(parents=True)
+        repo_cfg_file = repo_cfg_dir / "config.json"
+        repo_cfg_file.write_text(json.dumps({"batch_size": 42}))
+
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="org/repo", batch_size=7, config_file=repo_cfg_file
+        )
+
+        _apply_repo_config_overlay(cfg, cli_explicit={"batch_size"})
+        assert cfg.batch_size == 7
+
+    def test_no_repo_config_file_is_noop(self, tmp_path: Path) -> None:
+        """When no repo config file exists, overlay does nothing."""
+        from cli import _apply_repo_config_overlay
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/repo")
+        original_batch = cfg.batch_size
+        _apply_repo_config_overlay(cfg, cli_explicit=set())
+        assert cfg.batch_size == original_batch

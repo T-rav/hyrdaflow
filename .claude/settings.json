@@ -6,21 +6,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-destructive-git.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.block-destructive-git.sh",
             "timeout": 10,
             "statusMessage": "Checking for destructive git commands..."
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/validate-tests-before-commit.sh",
-            "timeout": 120,
-            "statusMessage": "Validating lint + tests before commit..."
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.scan-secrets-before-commit.sh",
+            "timeout": 30,
+            "statusMessage": "Scanning for secrets in staged files..."
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scan-secrets-before-commit.sh",
-            "timeout": 30,
-            "statusMessage": "Scanning for secrets in staged files..."
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.validate-tests-before-commit.sh",
+            "timeout": 120,
+            "statusMessage": "Validating lint + tests before commit..."
           }
         ]
       },
@@ -29,21 +29,33 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce-plan-and-explore.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.enforce-plan-and-explore.sh",
             "timeout": 10,
             "statusMessage": "Checking for exploration and planning..."
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-test-counterpart.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.check-test-counterpart.sh",
             "timeout": 10,
             "statusMessage": "Checking for test counterpart..."
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce-migrations.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.enforce-migrations.sh",
             "timeout": 10,
             "statusMessage": "Checking for direct DB schema changes..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.check-cross-service-impact.sh",
+            "timeout": 15,
+            "statusMessage": "Checking cross-service impact for shared/ changes..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.codex/skills/strategic-compact/suggest-compact.sh",
+            "timeout": 5,
+            "statusMessage": "Checking if strategic compaction checkpoint is due..."
           }
         ]
       },
@@ -52,21 +64,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce-plan-and-explore.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.enforce-plan-and-explore.sh",
             "timeout": 10,
             "statusMessage": "Checking for exploration and planning..."
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/enforce-migrations.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.enforce-migrations.sh",
             "timeout": 10,
             "statusMessage": "Checking for direct DB schema changes..."
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-cross-service-impact.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.check-cross-service-impact.sh",
             "timeout": 15,
             "statusMessage": "Checking cross-service impact for shared/ changes..."
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.codex/skills/strategic-compact/suggest-compact.sh",
+            "timeout": 5,
+            "statusMessage": "Checking if strategic compaction checkpoint is due..."
           }
         ]
       },
@@ -75,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-reindex-needed.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.check-reindex-needed.sh",
             "timeout": 5,
             "statusMessage": "Checking if claude-context index is stale..."
           }
@@ -88,7 +106,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-reindex-needed.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-reindex-needed.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.observe-session.sh",
             "timeout": 5
           }
         ]
@@ -98,7 +121,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-exploration.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-exploration.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.observe-session.sh",
             "timeout": 5
           }
         ]
@@ -108,7 +136,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-planning.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-planning.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.observe-session.sh",
             "timeout": 5
           }
         ]
@@ -118,12 +151,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-exploration.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-exploration.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-indexed.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-indexed.sh",
             "timeout": 5
           }
         ]
@@ -133,7 +166,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-exploration.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-exploration.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-exploration.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-exploration.sh",
             "timeout": 5
           }
         ]
@@ -143,12 +196,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/warn-new-file-creation.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.warn-new-file-creation.sh",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-code-changes.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-code-changes.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.observe-session.sh",
             "timeout": 5
           }
         ]
@@ -158,7 +216,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/track-code-changes.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-code-changes.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.observe-session.sh",
             "timeout": 5
           }
         ]
@@ -170,7 +233,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cleanup-code-change-marker.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.session-retro.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.cleanup-code-change-marker.sh",
             "timeout": 5
           }
         ]

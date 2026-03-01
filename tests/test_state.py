@@ -10,7 +10,14 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from models import LifetimeStats, SessionLog, StateData
+from models import (
+    BackgroundWorkerState,
+    LifetimeStats,
+    PendingReport,
+    SessionLog,
+    SessionStatus,
+    StateData,
+)
 from state import StateTracker
 
 # ---------------------------------------------------------------------------
@@ -45,6 +52,7 @@ class TestInitialization:
         assert "active_branches" in d
         assert "reviewed_prs" in d
         assert "last_updated" in d
+        assert "bg_worker_states" in d
         assert "current_batch" not in d
 
     def test_loads_legacy_file_with_current_batch_field(self, tmp_path: Path) -> None:
@@ -129,6 +137,107 @@ class TestLoadSave:
         tracker = make_tracker(tmp_path)
         result = tracker.load()
         assert isinstance(result, dict)
+
+
+class TestBackgroundWorkerStatePersistence:
+    def test_defaults_empty_states(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_bg_worker_states() == {}
+
+    def test_set_and_get_worker_state(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_bg_worker_state(
+            "memory_sync",
+            BackgroundWorkerState(
+                name="memory_sync",
+                status="ok",
+                last_run="2026-02-20T10:30:00Z",
+                details={"count": 5},
+            ),
+        )
+        states = tracker.get_bg_worker_states()
+        assert "memory_sync" in states
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["details"]["count"] == 5
+
+    def test_remove_worker_state(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_bg_worker_state(
+            "metrics",
+            BackgroundWorkerState(
+                name="metrics", status="error", last_run=None, details={}
+            ),
+        )
+        tracker.remove_bg_worker_state("metrics")
+        assert tracker.get_bg_worker_states() == {}
+
+
+class TestWorkerHeartbeatPersistence:
+    def test_worker_heartbeats_initially_empty(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_worker_heartbeats() == {}
+
+    def test_set_worker_heartbeat_round_trip(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_worker_heartbeat(
+            "memory_sync",
+            {
+                "status": "ok",
+                "last_run": "2026-02-20T10:30:00Z",
+                "details": {"count": 2},
+            },
+        )
+        beats = tracker.get_worker_heartbeats()
+        assert beats["memory_sync"]["status"] == "ok"
+        assert beats["memory_sync"]["details"]["count"] == 2
+
+        states = tracker.get_bg_worker_states()
+        assert states["memory_sync"]["status"] == "ok"
+        assert states["memory_sync"]["details"]["count"] == 2
+
+    def test_set_bg_worker_state_populates_worker_heartbeats(
+        self, tmp_path: Path
+    ) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_bg_worker_state(
+            "metrics",
+            BackgroundWorkerState(
+                name="metrics",
+                status="error",
+                last_run="2026-02-20T12:00:00Z",
+                details={"synced": 0},
+            ),
+        )
+        beats = tracker.get_worker_heartbeats()
+        assert beats["metrics"]["status"] == "error"
+        assert beats["metrics"]["details"]["synced"] == 0
+
+    def test_legacy_state_file_migrates_bg_worker_states_to_heartbeats(
+        self, tmp_path: Path
+    ) -> None:
+        """Loading a legacy state file with only bg_worker_states populates worker_heartbeats."""
+        state_file = tmp_path / "state.json"
+        # Write a legacy state file: bg_worker_states populated, worker_heartbeats absent
+        state_file.write_text(
+            json.dumps(
+                {
+                    "bg_worker_states": {
+                        "memory_sync": {
+                            "name": "memory_sync",
+                            "status": "ok",
+                            "last_run": "2025-01-01T00:00:00Z",
+                            "details": {"count": 3},
+                        }
+                    }
+                }
+            )
+        )
+        tracker = StateTracker(state_file)
+        beats = tracker.get_worker_heartbeats()
+        assert "memory_sync" in beats
+        assert beats["memory_sync"]["status"] == "ok"
+        assert beats["memory_sync"]["last_run"] == "2025-01-01T00:00:00Z"
+        assert beats["memory_sync"]["details"]["count"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -1714,7 +1823,7 @@ def _make_session(session_id: str, repo: str = "org/repo") -> SessionLog:
         id=session_id,
         repo=repo,
         started_at="2024-01-01T00:00:00",
-        status="completed",
+        status=SessionStatus.COMPLETED,
     )
 
 
@@ -1949,3 +2058,563 @@ class TestLoadSessionsDedupedOSError:
 
         assert result == {}
         assert "Could not open sessions file" in caplog.text
+
+
+# --- save_session ---
+
+
+class TestSaveSession:
+    """Tests for StateTracker.save_session."""
+
+    def test_save_session_creates_file(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        session = SessionLog(
+            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
+        )
+        tracker.save_session(session)
+        assert tracker._sessions_path.exists()
+
+    def test_save_session_appends_json(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        s1 = SessionLog(
+            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
+        )
+        s2 = SessionLog(
+            id="s2", repo="test-org/test-repo", started_at="2024-01-01T00:01:00Z"
+        )
+        tracker.save_session(s1)
+        tracker.save_session(s2)
+        lines = tracker._sessions_path.read_text().strip().splitlines()
+        assert len(lines) == 2
+
+    def test_save_session_creates_parent_dirs(self, tmp_path: Path) -> None:
+        nested = tmp_path / "deep" / "nested" / "state.json"
+        tracker = StateTracker(nested)
+        session = SessionLog(
+            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
+        )
+        tracker.save_session(session)
+        assert tracker._sessions_path.exists()
+
+    def test_save_session_roundtrip_with_load(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        session = SessionLog(
+            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
+        )
+        tracker.save_session(session)
+        loaded = tracker.load_sessions()
+        assert len(loaded) == 1
+        assert loaded[0].id == "s1"
+
+
+# --- Memory State ---
+
+
+class TestMemoryState:
+    """Tests for get_memory_state / update_memory_state."""
+
+    def test_get_memory_state_defaults(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        issue_ids, digest_hash, last_synced = tracker.get_memory_state()
+        assert issue_ids == []
+        assert digest_hash == ""
+        assert last_synced is None
+
+    def test_update_memory_state_persists(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_memory_state([1, 2, 3], "abc123")
+        issue_ids, digest_hash, last_synced = tracker.get_memory_state()
+        assert issue_ids == [1, 2, 3]
+        assert digest_hash == "abc123"
+
+    def test_update_memory_state_sets_timestamp(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_memory_state([1], "hash")
+        _, _, last_synced = tracker.get_memory_state()
+        assert last_synced is not None
+        assert "T" in last_synced  # ISO format
+
+    def test_get_memory_state_returns_copy(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_memory_state([1, 2], "hash")
+        ids1, _, _ = tracker.get_memory_state()
+        ids2, _, _ = tracker.get_memory_state()
+        ids1.append(99)
+        assert 99 not in ids2
+
+    def test_update_memory_state_overwrites(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_memory_state([1], "first")
+        tracker.update_memory_state([2, 3], "second")
+        issue_ids, digest_hash, _ = tracker.get_memory_state()
+        assert issue_ids == [2, 3]
+        assert digest_hash == "second"
+
+
+# --- Manifest State ---
+
+
+class TestManifestState:
+    """Tests for get_manifest_state / update_manifest_state."""
+
+    def test_get_manifest_state_defaults(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        manifest_hash, last_updated = tracker.get_manifest_state()
+        assert manifest_hash == ""
+        assert last_updated is None
+
+    def test_update_manifest_state_persists(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_manifest_state("hash123")
+        manifest_hash, last_updated = tracker.get_manifest_state()
+        assert manifest_hash == "hash123"
+
+    def test_update_manifest_state_sets_timestamp(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_manifest_state("hash")
+        _, last_updated = tracker.get_manifest_state()
+        assert last_updated is not None
+        assert "T" in last_updated
+
+    def test_update_manifest_state_overwrites(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.update_manifest_state("first")
+        tracker.update_manifest_state("second")
+        manifest_hash, _ = tracker.get_manifest_state()
+        assert manifest_hash == "second"
+
+
+# --- Interrupted Issues ---
+
+
+class TestInterruptedIssues:
+    """Tests for get/set/clear_interrupted_issues."""
+
+    def test_get_interrupted_issues_defaults_empty(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_interrupted_issues() == {}
+
+    def test_set_and_get_roundtrip(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_interrupted_issues({42: "plan", 99: "review"})
+        result = tracker.get_interrupted_issues()
+        assert result == {42: "plan", 99: "review"}
+
+    def test_int_keys_serialized_as_strings(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_interrupted_issues({42: "plan"})
+        # Check raw state data has string keys
+        assert "42" in tracker._data.interrupted_issues
+
+    def test_get_converts_back_to_int_keys(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_interrupted_issues({42: "plan"})
+        result = tracker.get_interrupted_issues()
+        assert 42 in result
+        assert isinstance(list(result.keys())[0], int)
+
+    def test_clear_removes_all(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_interrupted_issues({42: "plan", 99: "review"})
+        tracker.clear_interrupted_issues()
+        assert tracker.get_interrupted_issues() == {}
+
+    def test_persist_across_reload(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_interrupted_issues({42: "implement"})
+        # Reload from disk
+        tracker2 = make_tracker(tmp_path)
+        result = tracker2.get_interrupted_issues()
+        assert result == {42: "implement"}
+
+    def test_set_overwrites_previous(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_interrupted_issues({42: "plan"})
+        tracker.set_interrupted_issues({99: "review"})
+        result = tracker.get_interrupted_issues()
+        assert result == {99: "review"}
+        assert 42 not in result
+
+
+class TestPendingReports:
+    """Tests for pending report queue operations."""
+
+    def test_enqueue_appends_report(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        report = PendingReport(description="Bug A")
+        tracker.enqueue_report(report)
+        reports = tracker.get_pending_reports()
+        assert len(reports) == 1
+        assert reports[0].description == "Bug A"
+
+    def test_dequeue_returns_fifo_order(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        r1 = PendingReport(description="First")
+        r2 = PendingReport(description="Second")
+        tracker.enqueue_report(r1)
+        tracker.enqueue_report(r2)
+
+        dequeued = tracker.dequeue_report()
+        assert dequeued is not None
+        assert dequeued.description == "First"
+
+        dequeued2 = tracker.dequeue_report()
+        assert dequeued2 is not None
+        assert dequeued2.description == "Second"
+
+    def test_dequeue_empty_returns_none(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.dequeue_report() is None
+
+    def test_get_pending_reports_returns_copy(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        report = PendingReport(description="Test")
+        tracker.enqueue_report(report)
+        copy = tracker.get_pending_reports()
+        copy.clear()
+        assert len(tracker.get_pending_reports()) == 1
+
+    def test_enqueue_persists_to_disk(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        report = PendingReport(description="Persist test")
+        tracker.enqueue_report(report)
+
+        tracker2 = make_tracker(tmp_path)
+        reports = tracker2.get_pending_reports()
+        assert len(reports) == 1
+        assert reports[0].description == "Persist test"
+
+
+# ---------------------------------------------------------------------------
+# Issue Outcome Tracking
+# ---------------------------------------------------------------------------
+
+
+class TestIssueOutcomeTracking:
+    """Tests for record_outcome/get_outcome/get_all_outcomes."""
+
+    def test_record_and_get_outcome(self, tmp_path: Path) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42, IssueOutcomeType.MERGED, "PR merged", pr_number=10, phase="review"
+        )
+        outcome = tracker.get_outcome(42)
+        assert outcome is not None
+        assert outcome.outcome == IssueOutcomeType.MERGED
+        assert outcome.reason == "PR merged"
+        assert outcome.pr_number == 10
+        assert outcome.phase == "review"
+        assert outcome.closed_at  # should be an ISO timestamp
+
+    def test_get_outcome_returns_none_for_unknown(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_outcome(999) is None
+
+    def test_get_all_outcomes(self, tmp_path: Path) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MERGED, "merged", phase="review")
+        tracker.record_outcome(2, IssueOutcomeType.FAILED, "failed", phase="plan")
+        outcomes = tracker.get_all_outcomes()
+        assert len(outcomes) == 2
+        assert "1" in outcomes
+        assert "2" in outcomes
+
+    def test_record_outcome_increments_lifetime_counter_merged(
+        self, tmp_path: Path
+    ) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MERGED, "merged", phase="review")
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_merged == 1
+
+    def test_record_outcome_increments_lifetime_counter_already_satisfied(
+        self, tmp_path: Path
+    ) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1, IssueOutcomeType.ALREADY_SATISFIED, "already done", phase="plan"
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_already_satisfied == 1
+
+    def test_record_outcome_increments_lifetime_counter_hitl_closed(
+        self, tmp_path: Path
+    ) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.HITL_CLOSED, "dup", phase="hitl")
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_hitl_closed == 1
+
+    def test_record_outcome_increments_lifetime_counter_hitl_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1, IssueOutcomeType.HITL_SKIPPED, "not needed", phase="hitl"
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_hitl_skipped == 1
+
+    def test_record_outcome_increments_lifetime_counter_failed(
+        self, tmp_path: Path
+    ) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.FAILED, "error", phase="plan")
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_failed == 1
+
+    def test_record_outcome_manual_close_increments_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """MANUAL_CLOSE should increment total_outcomes_manual_close."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MANUAL_CLOSE, "manual", phase="hitl")
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_manual_close == 1
+        assert stats.total_outcomes_merged == 0
+
+    def test_record_outcome_hitl_approved_increments_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """HITL_APPROVED should increment total_outcomes_hitl_approved."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1, IssueOutcomeType.HITL_APPROVED, "approved", phase="hitl"
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_hitl_approved == 1
+        assert stats.total_outcomes_merged == 0
+
+    def test_outcome_persists_across_reload(self, tmp_path: Path) -> None:
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42, IssueOutcomeType.MERGED, "merged", pr_number=5, phase="review"
+        )
+
+        tracker2 = make_tracker(tmp_path)
+        outcome = tracker2.get_outcome(42)
+        assert outcome is not None
+        assert outcome.outcome == IssueOutcomeType.MERGED
+        assert outcome.pr_number == 5
+
+    def test_overwrite_outcome_corrects_counters(self, tmp_path: Path) -> None:
+        """Recording a second outcome for the same issue should decrement the
+        old counter and increment the new one, keeping stats consistent."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42, IssueOutcomeType.ALREADY_SATISFIED, "thought done", phase="plan"
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_already_satisfied == 1
+        assert stats.total_outcomes_merged == 0
+
+        # Overwrite with a different outcome
+        tracker.record_outcome(
+            42, IssueOutcomeType.MERGED, "actually merged", pr_number=7, phase="review"
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_already_satisfied == 0
+        assert stats.total_outcomes_merged == 1
+
+        # Only latest outcome stored
+        outcome = tracker.get_outcome(42)
+        assert outcome is not None
+        assert outcome.outcome == IssueOutcomeType.MERGED
+
+
+# ---------------------------------------------------------------------------
+# Hook Failure Tracking
+# ---------------------------------------------------------------------------
+
+
+class TestHookFailureTracking:
+    """Tests for record_hook_failure/get_hook_failures."""
+
+    def test_record_and_get_hook_failure(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "AC generation", "Connection timeout")
+        failures = tracker.get_hook_failures(42)
+        assert len(failures) == 1
+        assert failures[0].hook_name == "AC generation"
+        assert failures[0].error == "Connection timeout"
+        assert failures[0].timestamp  # should be an ISO timestamp
+
+    def test_multiple_failures_for_same_issue(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "AC generation", "timeout")
+        tracker.record_hook_failure(42, "retrospective", "network error")
+        failures = tracker.get_hook_failures(42)
+        assert len(failures) == 2
+
+    def test_get_hook_failures_returns_empty_for_unknown(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_hook_failures(999) == []
+
+    def test_hook_failure_error_truncated(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        long_error = "x" * 1000
+        tracker.record_hook_failure(42, "hook", long_error)
+        failures = tracker.get_hook_failures(42)
+        assert len(failures[0].error) <= 500
+
+    def test_hook_failures_persist_across_reload(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "hook", "error")
+
+        tracker2 = make_tracker(tmp_path)
+        failures = tracker2.get_hook_failures(42)
+        assert len(failures) == 1
+
+    def test_record_hook_failure_caps_at_500(self, tmp_path: Path) -> None:
+        """Adding more than 500 failures should trim oldest entries."""
+        tracker = make_tracker(tmp_path)
+        for i in range(501):
+            tracker.record_hook_failure(42, "hook", f"error-{i}")
+        failures = tracker.get_hook_failures(42)
+        assert len(failures) == 500
+        # Oldest entry (error-0) should be trimmed, newest (error-500) kept
+        assert failures[-1].error == "error-500"
+        assert failures[0].error == "error-1"
+
+    def test_record_hook_failure_appends(self, tmp_path: Path) -> None:
+        """Multiple failures should accumulate for the same issue."""
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "hook_a", "first")
+        tracker.record_hook_failure(42, "hook_b", "second")
+        failures = tracker.get_hook_failures(42)
+        assert len(failures) == 2
+        assert failures[0].hook_name == "hook_a"
+        assert failures[1].hook_name == "hook_b"
+
+    def test_hook_failure_fields_round_trip(self, tmp_path: Path) -> None:
+        """All HookFailureRecord fields should survive store and retrieval."""
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "AC generation", "Connection timeout")
+        failures = tracker.get_hook_failures(42)
+        assert len(failures) == 1
+        assert failures[0].hook_name == "AC generation"
+        assert failures[0].error == "Connection timeout"
+        assert failures[0].timestamp  # non-empty ISO timestamp
+
+    def test_get_hook_failures_returns_deep_copy(self, tmp_path: Path) -> None:
+        """Mutating the returned list should not affect internal state."""
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "hook", "error")
+        failures = tracker.get_hook_failures(42)
+        failures.append(failures[0])  # mutate the returned list
+        assert len(tracker.get_hook_failures(42)) == 1  # internal unchanged
+
+    def test_reset_clears_hook_failures(self, tmp_path: Path) -> None:
+        """reset() should clear all hook failure records."""
+        tracker = make_tracker(tmp_path)
+        tracker.record_hook_failure(42, "hook", "error")
+        tracker.reset()
+        assert tracker.get_hook_failures(42) == []
+
+
+# ---------------------------------------------------------------------------
+# Outcome tracking — additional coverage
+# ---------------------------------------------------------------------------
+
+
+class TestOutcomeTrackingAdditional:
+    """Additional tests for record_outcome/get_all_outcomes."""
+
+    def test_record_outcome_unknown_type_skips_counter(self, tmp_path: Path) -> None:
+        """An outcome type not in counter_map should not crash."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        # All known types are in the map now; this just verifies no crash
+        for otype in IssueOutcomeType:
+            tracker.record_outcome(
+                100 + hash(otype) % 1000, otype, "test", phase="test"
+            )
+        # No assertion failure means success
+
+    def test_get_all_outcomes_returns_deep_copy(self, tmp_path: Path) -> None:
+        """Mutating the returned dict should not affect internal state."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MERGED, "merged", phase="review")
+        outcomes = tracker.get_all_outcomes()
+        # Mutate the returned dict
+        outcomes.pop("1", None)
+        # Internal state should be unchanged
+        assert tracker.get_all_outcomes().get("1") is not None
+
+    def test_get_all_outcomes_deep_copy_protects_objects(self, tmp_path: Path) -> None:
+        """Mutating a returned IssueOutcome should not affect internal state."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MERGED, "original", phase="review")
+        outcomes = tracker.get_all_outcomes()
+        # Mutate the returned object's field
+        outcomes["1"].reason = "mutated"
+        # Internal state should still have the original value
+        internal = tracker.get_outcome(1)
+        assert internal is not None
+        assert internal.reason == "original"
+
+    def test_record_outcome_populates_closed_at(self, tmp_path: Path) -> None:
+        """closed_at should be set to an ISO timestamp."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MERGED, "merged", phase="review")
+        outcome = tracker.get_outcome(1)
+        assert outcome is not None
+        assert outcome.closed_at  # non-empty
+        # Should be a valid ISO timestamp
+        from datetime import datetime
+
+        datetime.fromisoformat(outcome.closed_at)
+
+    def test_record_outcome_stores_all_fields(self, tmp_path: Path) -> None:
+        """All fields (outcome_type, reason, phase, pr_number) should be stored."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42, IssueOutcomeType.MERGED, "PR approved", pr_number=99, phase="review"
+        )
+        outcome = tracker.get_outcome(42)
+        assert outcome is not None
+        assert outcome.outcome == IssueOutcomeType.MERGED
+        assert outcome.reason == "PR approved"
+        assert outcome.pr_number == 99
+        assert outcome.phase == "review"
+
+    def test_reset_clears_outcomes(self, tmp_path: Path) -> None:
+        """reset() should clear all recorded outcomes."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(1, IssueOutcomeType.MERGED, "merged", phase="review")
+        tracker.reset()
+        assert tracker.get_outcome(1) is None
+        assert tracker.get_all_outcomes() == {}

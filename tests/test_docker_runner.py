@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from config import HydraFlowConfig
 from docker_runner import (
     DockerProcess,
     DockerRunner,
@@ -18,7 +19,7 @@ from docker_runner import (
     _check_docker_available,
     get_docker_runner,
 )
-from execution import HostRunner
+from execution import HostRunner, SubprocessRunner
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -515,6 +516,30 @@ class TestDockerRunnerCreateStreamingProcess:
         assert env["GIT_COMMITTER_EMAIL"] == "bot@test.com"
 
     @pytest.mark.asyncio
+    async def test_maps_host_tool_env_paths_to_container_paths(
+        self, tmp_path: Path
+    ) -> None:
+        runner, client = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "PI_CODING_AGENT_DIR": "/Users/dev/.pi/agent",
+                "CODEX_HOME": "/Users/dev/.codex",
+                "CLAUDE_CONFIG_DIR": "/Users/dev/.claude",
+            },
+            clear=True,
+        ):
+            await runner.create_streaming_process(["pi", "--help"])
+
+        create_call = client.containers.create.call_args
+        env = create_call.kwargs.get("environment", {})
+        assert env["PI_CODING_AGENT_DIR"] == "/root/.pi/agent"
+        assert env["CODEX_HOME"] == "/root/.codex"
+        assert env["CLAUDE_CONFIG_DIR"] == "/root/.claude"
+
+    @pytest.mark.asyncio
     async def test_no_host_path_or_python_vars_leaked(self, tmp_path: Path) -> None:
         runner, client = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
@@ -887,24 +912,34 @@ class TestCheckDockerAvailable:
 class TestGetDockerRunner:
     """Tests for get_docker_runner factory."""
 
+    def test_returns_subprocess_runner_protocol_when_disabled(self) -> None:
+        """get_docker_runner returns a SubprocessRunner when execution_mode='host'."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(execution_mode="host")
+        runner = get_docker_runner(config)
+        assert isinstance(runner, SubprocessRunner)
+
     def test_returns_host_when_disabled(self) -> None:
         from tests.helpers import ConfigFactory
 
-        config = ConfigFactory.create(docker_enabled=False)
+        config = ConfigFactory.create(execution_mode="host")
         runner = get_docker_runner(config)
         assert isinstance(runner, HostRunner)
 
     def test_returns_host_when_no_image(self) -> None:
         from tests.helpers import ConfigFactory
 
-        config = ConfigFactory.create(docker_enabled=True, docker_image="")
+        config = ConfigFactory.create(execution_mode="docker", docker_image="")
         runner = get_docker_runner(config)
         assert isinstance(runner, HostRunner)
 
     def test_returns_host_when_docker_unavailable(self) -> None:
         from tests.helpers import ConfigFactory
 
-        config = ConfigFactory.create(docker_enabled=True, docker_image="hydra:latest")
+        config = ConfigFactory.create(
+            execution_mode="docker", docker_image="hydra:latest"
+        )
         with patch("docker_runner._check_docker_available", return_value=False):
             runner = get_docker_runner(config)
         assert isinstance(runner, HostRunner)
@@ -913,7 +948,7 @@ class TestGetDockerRunner:
         from tests.helpers import ConfigFactory
 
         config = ConfigFactory.create(
-            docker_enabled=True,
+            execution_mode="docker",
             docker_image="hydra:latest",
             docker_spawn_delay=3.0,
             docker_network="test-net",
@@ -925,11 +960,12 @@ class TestGetDockerRunner:
         ):
             runner = get_docker_runner(config)
         assert isinstance(runner, DockerRunner)
+        assert isinstance(runner, SubprocessRunner)
 
     def test_logs_warning_when_no_image(self, caplog: pytest.LogCaptureFixture) -> None:
         from tests.helpers import ConfigFactory
 
-        config = ConfigFactory.create(docker_enabled=True, docker_image="")
+        config = ConfigFactory.create(execution_mode="docker", docker_image="")
         with caplog.at_level("WARNING"):
             get_docker_runner(config)
         assert "no docker_image configured" in caplog.text
@@ -939,13 +975,61 @@ class TestGetDockerRunner:
     ) -> None:
         from tests.helpers import ConfigFactory
 
-        config = ConfigFactory.create(docker_enabled=True, docker_image="hydra:latest")
+        config = ConfigFactory.create(
+            execution_mode="docker", docker_image="hydra:latest"
+        )
         with (
             caplog.at_level("WARNING"),
             patch("docker_runner._check_docker_available", return_value=False),
         ):
             get_docker_runner(config)
         assert "Docker daemon not available" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_resolved_identity_flows_into_container_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Resolved config identity should reach container env for gh + git attribution."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir(parents=True, exist_ok=True)
+        (repo_root / ".env").write_text(
+            "HYDRAFLOW_GH_TOKEN=ghp_bot_token\n"
+            "HYDRAFLOW_GIT_USER_NAME=Hydra Bot\n"
+            "HYDRAFLOW_GIT_USER_EMAIL=hydra-bot@example.com\n"
+        )
+        monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        cfg = HydraFlowConfig(
+            repo_root=repo_root,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            execution_mode="docker",
+            docker_image="hydra:latest",
+        ).resolve_defaults()
+
+        mock_client = _make_mock_docker_client()
+        with (
+            patch("docker_runner._check_docker_available", return_value=True),
+            patch("docker.from_env", return_value=mock_client),
+        ):
+            runner = get_docker_runner(cfg)
+            assert isinstance(runner, DockerRunner)
+            await runner.create_streaming_process(["claude", "-p"], cwd=str(repo_root))
+
+        create_call = mock_client.containers.create.call_args
+        env = create_call.kwargs.get("environment", {})
+        assert env.get("GH_TOKEN") == "ghp_bot_token"
+        assert env.get("GIT_AUTHOR_NAME") == "Hydra Bot"
+        assert env.get("GIT_COMMITTER_NAME") == "Hydra Bot"
+        assert env.get("GIT_AUTHOR_EMAIL") == "hydra-bot@example.com"
+        assert env.get("GIT_COMMITTER_EMAIL") == "hydra-bot@example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -1114,3 +1198,61 @@ class TestBuildMounts:
         mounts = runner._build_mounts(None)
 
         assert "invalid-no-colon" not in mounts
+
+    def test_mounts_default_user_tool_dirs_when_present(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        (home / ".pi").mkdir(parents=True, exist_ok=True)
+        (home / ".codex").mkdir(parents=True, exist_ok=True)
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch("docker_runner.Path.home", return_value=home):
+            mounts = runner._build_mounts(None)
+
+        assert str(home / ".pi") in mounts
+        assert mounts[str(home / ".pi")] == {"bind": "/root/.pi", "mode": "rw"}
+        assert str(home / ".codex") in mounts
+        assert mounts[str(home / ".codex")] == {"bind": "/root/.codex", "mode": "rw"}
+        assert str(home / ".claude") in mounts
+        assert mounts[str(home / ".claude")] == {"bind": "/root/.claude", "mode": "rw"}
+
+    def test_mounts_custom_pi_agent_dir_when_configured(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        custom_pi = tmp_path / "custom" / "pi-agent"
+        custom_pi.mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("docker_runner.Path.home", return_value=home),
+            patch.dict(
+                "os.environ", {"PI_CODING_AGENT_DIR": str(custom_pi)}, clear=True
+            ),
+        ):
+            mounts = runner._build_mounts(None)
+
+        assert str(custom_pi) in mounts
+        assert mounts[str(custom_pi)] == {"bind": "/root/.pi/agent", "mode": "rw"}
+        assert str(home / ".pi") not in mounts
+
+    def test_mounts_custom_claude_config_dir_when_configured(
+        self, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        custom_claude = tmp_path / "custom" / "claude-config"
+        custom_claude.mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("docker_runner.Path.home", return_value=home),
+            patch.dict(
+                "os.environ", {"CLAUDE_CONFIG_DIR": str(custom_claude)}, clear=True
+            ),
+        ):
+            mounts = runner._build_mounts(None)
+
+        assert str(custom_claude) in mounts
+        assert mounts[str(custom_claude)] == {"bind": "/root/.claude", "mode": "rw"}
+        assert str(home / ".claude") not in mounts

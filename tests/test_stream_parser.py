@@ -332,3 +332,185 @@ class TestStreamParserDelta:
         # The preview part (after "    ← ") should be 80 chars + ellipsis
         preview = display.replace("    ← ", "")
         assert len(preview) == 81  # 80 chars + "…"
+
+    def test_captures_usage_from_result_event(self):
+        parser = StreamParser()
+        event = {
+            "type": "result",
+            "result": "done",
+            "usage": {
+                "input_tokens": 120,
+                "output_tokens": 45,
+                "cache_creation_input_tokens": 30,
+                "cache_read_input_tokens": 10,
+                "total_tokens": 165,
+            },
+        }
+        parser.parse(json.dumps(event))
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 120
+        assert usage["output_tokens"] == 45
+        assert usage["cache_creation_input_tokens"] == 30
+        assert usage["cache_read_input_tokens"] == 10
+        assert usage["total_tokens"] == 165
+
+    def test_usage_tracks_max_for_cumulative_events(self):
+        parser = StreamParser()
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "usage": {"input_tokens": 100, "output_tokens": 20},
+                    "message": {"id": "m1", "content": [{"type": "text", "text": "a"}]},
+                }
+            )
+        )
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "usage": {"input_tokens": 90, "output_tokens": 15},
+                    "message": {
+                        "id": "m1",
+                        "content": [{"type": "text", "text": "ab"}],
+                    },
+                }
+            )
+        )
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 100
+        assert usage["output_tokens"] == 20
+
+    def test_usage_ignores_token_like_keys_in_tool_payloads(self):
+        parser = StreamParser()
+        event = {
+            "type": "assistant",
+            "message": {
+                "id": "m2",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "tool_1",
+                        "name": "Read",
+                        "input": {"input_tokens": 9999, "total_tokens": 9999},
+                    }
+                ],
+            },
+        }
+        parser.parse(json.dumps(event))
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 0
+        assert usage["total_tokens"] == 0
+
+    def test_pi_message_update_text_delta(self):
+        parser = StreamParser()
+        event = {
+            "type": "message_update",
+            "assistantMessageEvent": {"type": "text_delta", "delta": "Hello from pi"},
+        }
+        display, result = parser.parse(json.dumps(event))
+        assert display == "Hello from pi"
+        assert result is None
+
+    def test_pi_message_update_preserves_whitespace_in_result(self):
+        parser = StreamParser()
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "message_update",
+                    "assistantMessageEvent": {"type": "text_delta", "delta": "Hello"},
+                }
+            )
+        )
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "message_update",
+                    "assistantMessageEvent": {"type": "text_delta", "delta": " world"},
+                }
+            )
+        )
+        _display, result = parser.parse(json.dumps({"type": "agent_end"}))
+        assert result == "Hello world"
+
+    def test_pi_tool_execution_start_and_end(self):
+        parser = StreamParser()
+        start = {
+            "type": "tool_execution_start",
+            "toolName": "read",
+            "args": {"file_path": "src/main.py"},
+        }
+        end = {
+            "type": "tool_execution_end",
+            "toolName": "read",
+            "result": "file contents",
+            "isError": False,
+        }
+        start_display, _ = parser.parse(json.dumps(start))
+        end_display, _ = parser.parse(json.dumps(end))
+        assert "read" in start_display
+        assert "file contents" in end_display
+
+    def test_pi_agent_end_returns_last_result_text(self):
+        parser = StreamParser()
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "message_update",
+                    "assistantMessageEvent": {"type": "text_delta", "delta": "Final"},
+                }
+            )
+        )
+        display, result = parser.parse(
+            json.dumps({"type": "agent_end", "messages": []})
+        )
+        assert display == ""
+        assert result == "Final"
+
+    def test_pi_usage_keys_are_mapped_to_canonical_totals(self):
+        parser = StreamParser()
+        event = {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "HI"}],
+                "usage": {
+                    "input": 100,
+                    "output": 7,
+                    "cacheRead": 5,
+                    "cacheWrite": 3,
+                    "totalTokens": 115,
+                },
+            },
+        }
+        parser.parse(json.dumps(event))
+        usage = parser.usage_totals
+        assert usage["input_tokens"] == 100
+        assert usage["output_tokens"] == 7
+        assert usage["cache_read_input_tokens"] == 5
+        assert usage["cache_creation_input_tokens"] == 3
+        assert usage["total_tokens"] == 115
+
+    def test_usage_snapshot_marks_unavailable_when_no_usage_emitted(self):
+        parser = StreamParser()
+        parser.parse(json.dumps({"type": "assistant", "message": {"content": []}}))
+        snap = parser.usage_snapshot
+        assert snap["usage_status"] == "unavailable"
+        assert snap["usage_available"] is False
+
+    def test_usage_snapshot_tracks_backend_for_codex_events(self):
+        parser = StreamParser()
+        parser.parse(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "i1",
+                        "usage": {"input_tokens": 3, "total_tokens": 5},
+                    },
+                }
+            )
+        )
+        snap = parser.usage_snapshot
+        assert snap["usage_backend"] == "codex"
+        assert snap["input_tokens"] == 3

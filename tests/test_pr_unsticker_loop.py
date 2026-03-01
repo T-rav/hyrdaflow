@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
+from models import HITLItem
 from pr_unsticker_loop import PRUnstickerLoop
 from tests.helpers import make_bg_loop_deps
 
@@ -145,3 +146,35 @@ class TestPRUnstickerLoopRun:
         await loop.run()
 
         assert call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_run__filters_to_hitl_items_with_active_prs(
+        self, tmp_path: Path
+    ) -> None:
+        """Only HITL issues with an open PR should be handed to unsticker."""
+        loop, _stop = _make_loop(tmp_path)
+        loop._prs.list_hitl_items = AsyncMock(
+            return_value=[
+                HITLItem(
+                    issue=1,
+                    title="Verify: foo",
+                    issueUrl="https://github.com/o/r/issues/1",
+                    pr=0,
+                    prUrl="",
+                ),
+                HITLItem(
+                    issue=2,
+                    title="Regular HITL issue",
+                    issueUrl="https://github.com/o/r/issues/2",
+                    pr=123,
+                    prUrl="https://github.com/o/r/pull/123",
+                ),
+            ]
+        )
+
+        await loop.run()
+
+        assert loop._pr_unsticker.unstick.await_count >= 1
+        for call in loop._pr_unsticker.unstick.await_args_list:
+            passed_items = call.args[0]
+            assert [item.issue for item in passed_items] == [2]

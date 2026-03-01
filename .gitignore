@@ -138,6 +138,7 @@ celerybeat.pid
 .env
 .envrc
 .venv
+.uv-cache/
 env/
 venv/
 ENV/
@@ -211,6 +212,15 @@ node_modules/
 
 # HydraFlow runtime state
 .hydraflow/
+.hydra/
+jolly-sea-65a9/
 .DS_Store
 
+# Claude Code
+.claude/plans/
+.claude/state/
+
 .pre
+src/ui/src/test/shims/generated/
+
+.hydraflow/prep

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HydraFlow Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-inset: #21262d;
+      --border: #30363d;
+
+      --text: #c9d1d9;
+      --text-bright: #e6edf3;
+      --text-muted: #8b949e;
+      --text-inactive: #484f58;
+
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #f2cc60;
+      --orange: #d18616;
+      --purple: #a371f7;
+      --triage-green: #39d353;
+
+      --btn-green: #238636;
+      --btn-red: #da3633;
+      --white: #ffffff;
+
+      --code-text: #79c0ff;
+
+      --accent-hover: rgba(88,166,255,0.08);
+      --accent-subtle: rgba(88,166,255,0.15);
+      --muted-subtle: rgba(139,148,158,0.15);
+      --purple-subtle: rgba(163,113,247,0.15);
+      --yellow-subtle: rgba(242,204,96,0.15);
+      --orange-subtle: rgba(210,134,22,0.15);
+      --green-subtle: rgba(63,185,80,0.15);
+      --red-subtle: rgba(248,81,73,0.15);
+      --overlay: rgba(0,0,0,0.3);
+      --intent-bg: rgba(88,166,255,0.06);
+    }
+    @keyframes stream-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .metrics-grid > *:last-child:nth-child(odd) {
+      grid-column: span 2;
+    }
+    .metrics-sections {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+      align-items: stretch;
+      margin-bottom: 12px;
+    }
+    .metrics-section-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 92%, black 8%);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .metrics-section-card--full {
+      grid-column: span 2;
+    }
+    @media (max-width: 1180px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+      .metrics-grid > *:last-child:nth-child(odd) {
+        grid-column: span 1;
+      }
+      .metrics-sections {
+        grid-template-columns: 1fr;
+      }
+      .metrics-section-card--full {
+        grid-column: span 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

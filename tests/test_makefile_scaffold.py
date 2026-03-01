@@ -94,6 +94,11 @@ class TestGenerateMakefile:
         assert "pyright" in content
         assert "pytest" in content
 
+    def test_generates_standard_python_test_target(self) -> None:
+        content = generate_makefile("python")
+        assert "test:" in content
+        assert "\tpytest tests/ -x -q\n" in content
+
     def test_generates_javascript_makefile(self) -> None:
         content = generate_makefile("javascript")
         assert "npx eslint" in content
@@ -102,6 +107,7 @@ class TestGenerateMakefile:
 
     def test_quality_target_chains_dependencies(self) -> None:
         content = generate_makefile("python")
+        assert "smoke: test" in content
         assert "quality-lite: lint-check typecheck security" in content
         assert "quality: quality-lite test coverage-check" in content
 
@@ -115,6 +121,7 @@ class TestGenerateMakefile:
         assert "typecheck" in content
         assert "security" in content
         assert "test" in content
+        assert "smoke" in content
         assert "quality-lite" in content
         assert "quality" in content
 
@@ -126,6 +133,7 @@ class TestGenerateMakefile:
         assert "help:" in content
         assert "Available targets:" in content
         assert "coverage vars COVERAGE_MIN=70 COVERAGE_TARGET=70" in content
+        assert "smoke        Run smoke tests" in content
 
     def test_unknown_language_returns_empty(self) -> None:
         content = generate_makefile("unknown")
@@ -185,6 +193,7 @@ class TestMergeMakefile:
             '\t@echo "  test         Run tests" \n'
             '\t@echo "  coverage-check Enforce coverage floor from reports" \n'
             '\t@echo "  coverage vars COVERAGE_MIN=70 COVERAGE_TARGET=70" \n'
+            '\t@echo "  smoke        Run smoke tests" \n'
             '\t@echo "  quality-lite Run lint/type/security" \n'
             '\t@echo "  quality      Run quality-lite + tests" \n'
         )
@@ -238,13 +247,20 @@ class TestMergeMakefile:
         _, warnings = merge_makefile(existing, "python")
         assert any("quality-lite" in w for w in warnings)
 
+    def test_warns_on_different_smoke_prerequisites(self) -> None:
+        existing = "smoke: test-fast\n"
+        _, warnings = merge_makefile(existing, "python")
+        assert any("smoke" in w for w in warnings)
+
     def test_no_warning_when_quality_deps_match(self) -> None:
         # quality: exists with correct chain — no warning
         existing = (
+            "smoke: test\n"
             "quality-lite: lint-check typecheck security\n"
             "quality: quality-lite test coverage-check\n"
         )
         _, warnings = merge_makefile(existing, "python")
+        assert not any("smoke" in w for w in warnings)
         assert not any("quality" in w for w in warnings)
         assert not any("quality-lite" in w for w in warnings)
 

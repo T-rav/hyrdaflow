@@ -23,6 +23,7 @@ from harness_insights import (
     file_harness_suggestions,
     generate_suggestions,
 )
+from models import PipelineStage
 from state import StateTracker
 from tests.conftest import ConfigFactory
 
@@ -38,7 +39,7 @@ def _make_record(
     category: str = FailureCategory.QUALITY_GATE,
     subcategories: list[str] | None = None,
     details: str = "ruff lint error: missing import",
-    stage: str = "implement",
+    stage: PipelineStage = PipelineStage.IMPLEMENT,
 ) -> FailureRecord:
     return FailureRecord(
         issue_number=issue_number,
@@ -108,7 +109,7 @@ class TestExtractSubcategories:
         subs = extract_subcategories("No test file found for new module")
         assert "missing_tests" in subs
 
-    def test_extracts_naming(self) -> None:
+    def test_extracts_naming_violations(self) -> None:
         subs = extract_subcategories(
             "Naming convention violation: rename to snake_case"
         )
@@ -131,7 +132,7 @@ class TestExtractSubcategories:
         subs = extract_subcategories("Everything looks good")
         assert subs == []
 
-    def test_empty_details(self) -> None:
+    def test_returns_empty_for_empty_input(self) -> None:
         subs = extract_subcategories("")
         assert subs == []
 
@@ -637,6 +638,40 @@ class TestFileHarnessSuggestions:
         mock_prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_memory_label_route_prefixes_memory_and_skips_hitl(
+        self, tmp_path: Path
+    ) -> None:
+        store = HarnessInsightStore(tmp_path / "memory")
+        mock_prs = AsyncMock()
+        mock_prs.create_issue = AsyncMock(return_value=101)
+        state = StateTracker(tmp_path / "state.json")
+
+        suggestion = ImprovementSuggestion(
+            category=FailureCategory.QUALITY_GATE,
+            occurrence_count=5,
+            window_size=20,
+            description="Quality gate failure",
+            suggestion="Improve lint checks",
+        )
+
+        filed = await file_harness_suggestions(
+            [suggestion],
+            store,
+            mock_prs,
+            state,
+            improve_label=["hydraflow-improve"],
+            hitl_label=["hydraflow-hitl"],
+            memory_label=["hydraflow-memory"],
+        )
+
+        assert filed == 1
+        call_args = mock_prs.create_issue.call_args
+        assert call_args[0][0].startswith("[Memory] [Harness Insight]")
+        assert call_args[0][2] == ["hydraflow-improve", "hydraflow-memory"]
+        assert state.get_hitl_origin(101) is None
+        assert state.get_hitl_cause(101) is None
+
+    @pytest.mark.asyncio
     async def test_create_issue_failure_does_not_mark_proposed(
         self, tmp_path: Path
     ) -> None:
@@ -770,3 +805,64 @@ class TestAppendFailureOSError:
             store.append_failure(record)  # should not raise
 
         assert "Could not append failure" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# FailureRecord timestamp validation (issue #1048)
+# ---------------------------------------------------------------------------
+
+
+class TestFailureRecordTimestamp:
+    """Tests for FailureRecord IsoTimestamp validation."""
+
+    def test_default_timestamp_is_valid_iso(self) -> None:
+        record = FailureRecord(issue_number=1, category="quality_gate")
+        from datetime import datetime
+
+        datetime.fromisoformat(record.timestamp)
+
+    def test_invalid_timestamp_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="Invalid ISO 8601 timestamp"):
+            FailureRecord(
+                issue_number=1,
+                category="quality_gate",
+                timestamp="not-a-timestamp",
+            )
+
+    def test_valid_iso_timestamp_accepted(self) -> None:
+        record = FailureRecord(
+            issue_number=1,
+            category="quality_gate",
+            timestamp="2026-02-20T10:30:00+00:00",
+        )
+        assert record.timestamp == "2026-02-20T10:30:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# Field descriptions (issue #1048)
+# ---------------------------------------------------------------------------
+
+
+class TestFieldDescriptions:
+    """Tests that field descriptions are present in model schemas."""
+
+    def test_failure_record_has_field_descriptions(self) -> None:
+        schema = FailureRecord.model_json_schema()
+        props = schema["properties"]
+        # category is now a FailureCategory StrEnum — represented as $ref in schema
+        assert "category" in props
+        # stage is now PipelineStage | Literal[""] — represented as anyOf in schema
+        assert "stage" in props
+        assert "details" in props
+
+    def test_improvement_suggestion_has_field_descriptions(self) -> None:
+        schema = ImprovementSuggestion.model_json_schema()
+        props = schema["properties"]
+        assert "description" in props["category"]
+        assert "description" in props["subcategory"]
+        assert "description" in props["occurrence_count"]
+        assert "description" in props["window_size"]
+        assert "description" in props["description"]
+        assert "description" in props["suggestion"]

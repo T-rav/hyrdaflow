@@ -10,7 +10,9 @@
 
 Log an issue. Agents handle the rest - triaging, planning, implementing, reviewing, and merging every change.
 
-HydraFlow is built for quality-first scaling: agents execute the work, but guardrails decide what ships.
+HydraFlow is a delivery kernel for GitHub repositories: it accepts intent, compiles it through a staged pipeline, enforces quality gates, and produces merged software changes.
+
+It scales your workflow, not just your output, turning your repository into a programmable delivery engine powered by your hooks and skills. This is __Harness engineering__ at scale.
 
 ## What Makes It Different
 
@@ -74,9 +76,72 @@ make setup        # bootstrap .env, hooks, labels, local assets
 make prep         # repo audit + scaffold + hardening loop
 make run          # start backend + dashboard
 make dry-run      # print actions without executing
+make smoke        # critical cross-system smoke tests
 make quality-lite # lint + typecheck + security
 make quality      # quality-lite + tests
 ```
+
+## CLI Installation
+
+HydraFlow now exposes an `hf` console script so you can run `hf init`, `hf prep`, `hf run`, etc.
+
+```bash
+# install locally from pyproject.toml (including configured extras)
+uv sync --all-extras
+
+# show available commands
+hf --help
+
+# copy hf assets (.claude, .codex, .pi, .githooks) into the current repo
+hf init
+
+# run the standard quick prep/scaffold flow without invoking make
+hf prep
+
+# ensure lifecycle labels exist (equivalent to make ensure-labels)
+hf ensure-labels
+
+# optional explicit alias for quick prep/scaffold
+hf scaffold
+
+# register the current repo (or an explicit path) with the background supervisor
+hf run              # uses cwd
+hf run /path/to/repo
+
+# list/stop registered repos (state lives under ~/.hydraflow/<repo-slug>)
+hf status                   # show every repo with RUNNING/STOPPED status
+hf status repo-slug         # show a single slug
+hf stop                     # stop repo in cwd
+hf stop repo-slug           # or stop by slug
+hf stop /path/to/repo
+```
+
+> HydraFlow still writes prep logs, memory, manifests, and run artifacts to
+> `.hydraflow/` by default when you run `make` commands directly inside a repo.
+> When you use `hf run`, the supervisor sets `HYDRAFLOW_HOME=~/.hydraflow/<repo-slug>`
+> so all of those artifacts move under `~/.hydraflow/<repo-slug>/...` instead of
+> cluttering your working tree.
+
+### Generating release assets
+
+If you modify `.claude`, `.codex`, or `.githooks`, run `make bundle-assets` to generate
+`dist/hf_cli-assets.tar.gz` for release/build artifact workflows.
+The repository no longer tracks a committed `src/hf_cli/assets.tar.gz`.
+
+### Self-improving harness
+
+This repo includes a harnessed self-improvement loop (observation + session retro + memory candidate artifacts).
+See [docs/self-improving-harness.md](docs/self-improving-harness.md) for imported skills and runtime behavior.
+
+### Publishing the hf CLI
+
+When you're ready to publish `hydraflow` to PyPI:
+
+1. `make cli-release` – runs `embed-assets`, the test suite, and `uv build`.
+2. `uv publish` (or your release automation) – uploads the artifacts in `dist/`.
+
+This flow guarantees the pip-installed CLI has a fresh copy of the asset bundle
+and includes all runtime dependencies by default.
 
 ## Issue Flow Labels
 
@@ -96,6 +161,10 @@ You can override label names via `.env` (created from `.env.sample` during `make
 
 - `.hydraflow/prep/*.md` for local prep issues
 - `.hydraflow/prep/runs/<run-id>/` for run logs/transcripts
+
+When `HYDRAFLOW_HOME` is set (the default under `hf run`), the same structure
+lives under `~/.hydraflow/<repo-slug>/prep/...` so every repo can share a single
+machine-wide HydraFlow home.
 
 Each prep run gets one locked run ID at start, and all logs for that run are written under the same run directory.
 

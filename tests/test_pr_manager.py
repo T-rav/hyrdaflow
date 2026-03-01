@@ -17,7 +17,7 @@ import pytest
 from events import EventType
 from models import ReviewVerdict
 from pr_manager import PRManager
-from tests.conftest import SubprocessMockBuilder
+from tests.conftest import PRInfoFactory, SubprocessMockBuilder
 from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -576,6 +576,103 @@ async def test_create_issue_no_labels(event_bus, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# upload_screenshot_gist
+# ---------------------------------------------------------------------------
+
+
+class TestUploadScreenshotGist:
+    """Tests for PRManager.upload_screenshot_gist."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_returns_empty_string(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            dry_run=True,
+        )
+        mgr = _make_manager(cfg, event_bus)
+        result = await mgr.upload_screenshot_gist("aGVsbG8=")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_valid_base64_uploads_and_returns_raw_url(self, event_bus, tmp_path):
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        gist_url = "https://gist.github.com/testuser/abc123"
+        mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
+
+        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist(png_b64)
+
+        expected = (
+            "https://gist.githubusercontent.com/testuser/abc123/raw/screenshot.png"
+        )
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_data_uri_prefix_stripped(self, event_bus, tmp_path):
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        gist_url = "https://gist.github.com/user/def456"
+        mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
+
+        raw_bytes = b"\x89PNG prefix test"
+        png_with_prefix = (
+            "data:image/png;base64," + base64.b64encode(raw_bytes).decode()
+        )
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist(png_with_prefix)
+
+        assert result == (
+            "https://gist.githubusercontent.com/user/def456/raw/screenshot.png"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failure_returns_empty_string(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_exec = SubprocessMockBuilder().with_returncode(1).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_unexpected_output_returns_empty_string(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_exec = SubprocessMockBuilder().with_stdout("unexpected output").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
 # push_branch
 # ---------------------------------------------------------------------------
 
@@ -799,6 +896,52 @@ async def test_create_pr_failure_returns_pr_info_with_number_zero(
 
 
 @pytest.mark.asyncio
+async def test_create_pr_failure_recovers_existing_open_pr(config, event_bus, issue):
+    manager = _make_manager(config, event_bus)
+    manager.find_open_pr_for_branch = AsyncMock(
+        return_value=PRInfoFactory.create(
+            number=222,
+            issue_number=issue.number,
+            branch="agent/issue-42",
+            url="https://github.com/test-org/test-repo/pull/222",
+        )
+    )
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+    )
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        pr_info = await manager.create_pr(issue, "agent/issue-42")
+
+    assert pr_info.number == 222
+    manager.find_open_pr_for_branch.assert_awaited_once_with(
+        "agent/issue-42", issue_number=issue.number
+    )
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_false_when_not_ahead(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":0}').build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is False
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_true_when_ahead(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":3}').build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is True
+
+
+@pytest.mark.asyncio
 async def test_create_pr_publishes_pr_created_event(config, event_bus, issue):
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/55"
@@ -896,7 +1039,7 @@ async def test_merge_pr_dry_run_skips_command(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_add_labels_calls_gh_issue_edit_for_each_label(config, event_bus):
+async def test_add_labels_calls_issue_labels_api_for_each_label(config, event_bus):
     manager = _make_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
@@ -907,12 +1050,13 @@ async def test_add_labels_calls_gh_issue_edit_for_each_label(config, event_bus):
 
     first_args = mock_create.call_args_list[0][0]
     assert first_args[0] == "gh"
-    assert "issue" in first_args
-    assert "edit" in first_args
-    assert "--add-label" in first_args
+    assert "api" in first_args
+    assert "repos/test-org/test-repo/issues/42/labels" in first_args
+    assert "POST" in first_args
+    assert "labels[]=bug" in first_args
 
     second_args = mock_create.call_args_list[1][0]
-    assert "--add-label" in second_args
+    assert "labels[]=enhancement" in second_args
 
 
 @pytest.mark.asyncio
@@ -943,7 +1087,7 @@ async def test_add_labels_empty_list_skips_command(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_remove_label_calls_gh_issue_edit(config, event_bus):
+async def test_remove_label_calls_issue_labels_api(config, event_bus):
     manager = _make_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
@@ -953,11 +1097,9 @@ async def test_remove_label_calls_gh_issue_edit(config, event_bus):
     assert mock_create.call_count == 1
     args = mock_create.call_args[0]
     assert args[0] == "gh"
-    assert "issue" in args
-    assert "edit" in args
-    assert "42" in args
-    assert "--remove-label" in args
-    assert "ready" in args
+    assert "api" in args
+    assert "repos/test-org/test-repo/issues/42/labels/ready" in args
+    assert "DELETE" in args
 
 
 @pytest.mark.asyncio
@@ -977,7 +1119,7 @@ async def test_remove_label_dry_run_skips_command(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_add_pr_labels_calls_gh_pr_edit_for_each_label(config, event_bus):
+async def test_add_pr_labels_calls_issue_labels_api_for_each_label(config, event_bus):
     manager = _make_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
@@ -988,12 +1130,13 @@ async def test_add_pr_labels_calls_gh_pr_edit_for_each_label(config, event_bus):
 
     first_args = mock_create.call_args_list[0][0]
     assert first_args[0] == "gh"
-    assert "pr" in first_args
-    assert "edit" in first_args
-    assert "--add-label" in first_args
+    assert "api" in first_args
+    assert "repos/test-org/test-repo/issues/101/labels" in first_args
+    assert "POST" in first_args
+    assert "labels[]=bug" in first_args
 
     second_args = mock_create.call_args_list[1][0]
-    assert "--add-label" in second_args
+    assert "labels[]=enhancement" in second_args
 
 
 @pytest.mark.asyncio
@@ -1036,7 +1179,7 @@ async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_remove_pr_label_calls_gh_pr_edit(config, event_bus):
+async def test_remove_pr_label_calls_issue_labels_api(config, event_bus):
     manager = _make_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
@@ -1044,10 +1187,9 @@ async def test_remove_pr_label_calls_gh_pr_edit(config, event_bus):
         await manager.remove_pr_label(101, "hydraflow-review")
 
     args = mock_create.call_args[0]
-    assert "pr" in args
-    assert "edit" in args
-    assert "--remove-label" in args
-    assert "hydraflow-review" in args
+    assert "api" in args
+    assert "repos/test-org/test-repo/issues/101/labels/hydraflow-review" in args
+    assert "DELETE" in args
 
 
 @pytest.mark.asyncio
@@ -1445,9 +1587,12 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         fixed_label=["custom-fixed"],
         improve_label=["custom-improve"],
         memory_label=["custom-memory"],
+        transcript_label=["custom-transcript"],
+        manifest_label=["custom-manifest"],
         metrics_label=["custom-metrics"],
         dup_label=["custom-dup"],
         epic_label=["custom-epic"],
+        epic_child_label=["custom-epic-child"],
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1489,9 +1634,12 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         "custom-fixed",
         "custom-improve",
         "custom-memory",
+        "custom-transcript",
+        "custom-manifest",
         "custom-metrics",
         "custom-dup",
         "custom-epic",
+        "custom-epic-child",
     }
 
 
@@ -1548,7 +1696,7 @@ async def test_ensure_labels_exist_handles_individual_failures(event_bus, tmp_pa
 
 
 def test_makefile_ensure_labels_runs_cli_prep() -> None:
-    """Makefile ensure-labels target should call ``cli.py --prep`` directly."""
+    """Makefile ensure-labels target should call ``cli.py --ensure-labels`` directly."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1558,11 +1706,13 @@ def test_makefile_ensure_labels_runs_cli_prep() -> None:
 
     match = re.search(r"^ensure-labels:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "ensure-labels target block not found in Makefile"
-    assert "--prep" in match.group(1), "ensure-labels target must call cli.py --prep"
+    assert "--ensure-labels" in match.group(1), (
+        "ensure-labels target must call cli.py --ensure-labels"
+    )
 
 
 def test_makefile_prep_runs_cli_scaffold() -> None:
-    """Makefile prep target should call ``cli.py --scaffold``."""
+    """Makefile prep target should call ``cli.py --prep``."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1572,11 +1722,14 @@ def test_makefile_prep_runs_cli_scaffold() -> None:
 
     match = re.search(r"^prep:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "prep target block not found in Makefile"
-    assert "--scaffold" in match.group(1), "prep target must call cli.py --scaffold"
+    assert "$(MAKE) setup" in match.group(1), (
+        "prep target must run setup first to bootstrap agent assets"
+    )
+    assert "--prep" in match.group(1), "prep target must call cli.py --prep"
 
 
 def test_makefile_setup_runs_label_bootstrap() -> None:
-    """Makefile setup target should run ``cli.py --prep`` to ensure labels."""
+    """Makefile setup target should run ``cli.py --ensure-labels`` to ensure labels."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1586,8 +1739,14 @@ def test_makefile_setup_runs_label_bootstrap() -> None:
 
     match = re.search(r"^setup:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "setup target block not found in Makefile"
-    assert "--prep" in match.group(1), (
-        "setup target must ensure labels via cli.py --prep"
+    assert "--ensure-labels" in match.group(1), (
+        "setup target must ensure labels via cli.py --ensure-labels"
+    )
+    assert "python -m hf_cli init --target" in match.group(1), (
+        "setup target must bootstrap .claude/.codex/.pi/.githooks via hf init"
+    )
+    assert ".hydraflow-managed" in match.group(1), (
+        "setup target should mark managed Codex skills to enable safe stale-skill pruning"
     )
 
 
@@ -1991,6 +2150,28 @@ class TestListHitlItems:
         assert result[0].branch == "agent/issue-42"
 
     @pytest.mark.asyncio
+    async def test_fetch_hitl_raw_issues_uses_get_method(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        captured: list[tuple[str, ...]] = []
+
+        async def mock_run_gh(*cmd, cwd=None):
+            captured.append(cmd)
+            return "[]"
+
+        mgr._run_gh = mock_run_gh
+        await mgr._fetch_hitl_raw_issues(["hydraflow-hitl"])
+
+        assert len(captured) == 1
+        cmd = captured[0]
+        assert "--method" in cmd
+        assert "GET" in cmd
+
+    @pytest.mark.asyncio
     async def test_returns_zero_pr_when_no_pr_found(self, event_bus, tmp_path):
         import json
 
@@ -2285,7 +2466,7 @@ class TestGetLabelCounts:
 
         mgr._run_gh = mock_run_gh
         # Reset cache
-        mgr._label_counts_cache = {}
+        mgr._label_counts_cache = None
         mgr._label_counts_ts = 0.0
 
         result = await mgr.get_label_counts(cfg)
@@ -2587,9 +2768,10 @@ class TestAddLabelsHelper:
             await mgr._add_labels("issue", 42, ["bug"])
 
         cmd = mock_create.call_args[0]
-        assert "issue" in cmd
-        assert "edit" in cmd
-        assert "--add-label" in cmd
+        assert "api" in cmd
+        assert "repos/test-org/test-repo/issues/42/labels" in cmd
+        assert "POST" in cmd
+        assert "labels[]=bug" in cmd
 
     @pytest.mark.asyncio
     async def test_add_labels_pr_target(self, config, event_bus):
@@ -2600,9 +2782,10 @@ class TestAddLabelsHelper:
             await mgr._add_labels("pr", 101, ["enhancement"])
 
         cmd = mock_create.call_args[0]
-        assert "pr" in cmd
-        assert "edit" in cmd
-        assert "--add-label" in cmd
+        assert "api" in cmd
+        assert "repos/test-org/test-repo/issues/101/labels" in cmd
+        assert "POST" in cmd
+        assert "labels[]=enhancement" in cmd
 
     @pytest.mark.asyncio
     async def test_add_labels_dry_run(self, dry_config, event_bus):
@@ -2657,10 +2840,9 @@ class TestRemoveLabelHelper:
             await mgr._remove_label("issue", 42, "ready")
 
         cmd = mock_create.call_args[0]
-        assert "issue" in cmd
-        assert "edit" in cmd
-        assert "--remove-label" in cmd
-        assert "ready" in cmd
+        assert "api" in cmd
+        assert "repos/test-org/test-repo/issues/42/labels/ready" in cmd
+        assert "DELETE" in cmd
 
     @pytest.mark.asyncio
     async def test_remove_label_pr_target(self, config, event_bus):
@@ -2671,10 +2853,9 @@ class TestRemoveLabelHelper:
             await mgr._remove_label("pr", 101, "hydraflow-review")
 
         cmd = mock_create.call_args[0]
-        assert "pr" in cmd
-        assert "edit" in cmd
-        assert "--remove-label" in cmd
-        assert "hydraflow-review" in cmd
+        assert "api" in cmd
+        assert "repos/test-org/test-repo/issues/101/labels/hydraflow-review" in cmd
+        assert "DELETE" in cmd
 
     @pytest.mark.asyncio
     async def test_remove_label_dry_run(self, dry_config, event_bus):
@@ -2700,6 +2881,28 @@ class TestRemoveLabelHelper:
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
             await mgr._remove_label("issue", 42, "missing-label")
+
+    @pytest.mark.asyncio
+    async def test_remove_label_missing_label_404_is_noop(
+        self, config, event_bus, caplog
+    ):
+        """Missing-label 404 should be treated as expected no-op (not warning)."""
+        mgr = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("gh: Label does not exist (HTTP 404)")
+            .build()
+        )
+
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"),
+        ):
+            await mgr._remove_label("issue", 42, "missing-label")
+
+        assert "Could not remove label" not in caplog.text
+        assert "skipping remove" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -3494,6 +3697,44 @@ class TestListHitlItemsExceptionHandling:
 
 
 # ---------------------------------------------------------------------------
+# TaskTransitioner protocol compliance
+# ---------------------------------------------------------------------------
+
+
+class TestTaskTransitionerProtocol:
+    """PRManager satisfies the TaskTransitioner protocol."""
+
+    def _make_mgr(self):
+        from unittest.mock import MagicMock
+
+        from pr_manager import PRManager
+        from tests.helpers import ConfigFactory
+
+        return PRManager(ConfigFactory.create(), event_bus=MagicMock())
+
+    def test_pr_manager_is_task_transitioner(self) -> None:
+        """PRManager should be recognised as TaskTransitioner at runtime."""
+        from task_source import TaskTransitioner
+
+        assert isinstance(self._make_mgr(), TaskTransitioner)
+
+    def test_pr_manager_has_transition_method(self) -> None:
+        mgr = self._make_mgr()
+        assert hasattr(mgr, "transition")
+        assert callable(mgr.transition)
+
+    def test_pr_manager_has_close_task_method(self) -> None:
+        mgr = self._make_mgr()
+        assert hasattr(mgr, "close_task")
+        assert callable(mgr.close_task)
+
+    def test_pr_manager_has_create_task_method(self) -> None:
+        mgr = self._make_mgr()
+        assert hasattr(mgr, "create_task")
+        assert callable(mgr.create_task)
+
+
+# ---------------------------------------------------------------------------
 # get_pr_head_sha (issue #853)
 # ---------------------------------------------------------------------------
 
@@ -3679,3 +3920,202 @@ class TestGetPrComments:
 
         mock_create.assert_not_called()
         assert comments == []
+
+
+# --- swap_pipeline_labels ---
+
+
+class TestSwapPipelineLabels:
+    """Tests for PRManager.swap_pipeline_labels."""
+
+    @pytest.mark.asyncio
+    async def test_removes_all_other_pipeline_labels_from_issue(
+        self, config, event_bus
+    ) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, config.ready_label[0])
+
+        # All pipeline labels except the target should be removed
+        removed = [call.args[2] for call in mgr._remove_label.call_args_list]
+        assert config.ready_label[0] not in removed
+        # At least some labels should be removed
+        assert len(removed) > 0
+
+    @pytest.mark.asyncio
+    async def test_adds_new_label_to_issue(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review")
+
+        mgr._add_labels.assert_any_call("issue", 42, ["hydraflow-review"])
+
+    @pytest.mark.asyncio
+    async def test_also_removes_from_pr_when_pr_number_given(
+        self, config, event_bus
+    ) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review", pr_number=101)
+
+        # Should have remove calls for both issue and pr
+        targets = [call.args[0] for call in mgr._remove_label.call_args_list]
+        assert "issue" in targets
+        assert "pr" in targets
+        # Should add to both issue and pr
+        mgr._add_labels.assert_any_call("issue", 42, ["hydraflow-review"])
+        mgr._add_labels.assert_any_call("pr", 101, ["hydraflow-review"])
+
+    @pytest.mark.asyncio
+    async def test_no_pr_label_ops_when_pr_number_none(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mgr._remove_label = AsyncMock()
+        mgr._add_labels = AsyncMock()
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review")
+
+        targets = [call.args[0] for call in mgr._remove_label.call_args_list]
+        assert "pr" not in targets
+        # Only one add_labels call (for issue)
+        assert mgr._add_labels.call_count == 1
+
+
+# --- update_issue_body ---
+
+
+class TestUpdateIssueBody:
+    """Tests for PRManager.update_issue_body."""
+
+    @pytest.mark.asyncio
+    async def test_calls_gh_issue_edit_with_body_file(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "New body content")
+
+        mock_create.assert_called_once()
+        cmd = mock_create.call_args[0]
+        assert "issue" in cmd
+        assert "edit" in cmd
+        assert "--body-file" in cmd
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_temp_file(self, config, event_bus) -> None:
+        mgr = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "body")
+
+        # The temp file should have been cleaned up
+        cmd = mock_create.call_args[0]
+        body_file_idx = list(cmd).index("--body-file") + 1
+        tmp_file = Path(cmd[body_file_idx])
+        assert not tmp_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips(self, dry_config, event_bus) -> None:
+        mgr = _make_manager(dry_config, event_bus)
+        mock_create = SubprocessMockBuilder().build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "body")
+
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_logs_warning_on_failure(self, config, event_bus, caplog) -> None:
+        mgr = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            await mgr.update_issue_body(42, "body")
+
+        assert "Could not update body" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# fetch_code_scanning_alerts
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCodeScanningAlerts:
+    """Tests for PRManager.fetch_code_scanning_alerts."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
+        """Dry-run mode returns empty list."""
+        manager = _make_manager(dry_config, event_bus)
+        result = await manager.fetch_code_scanning_alerts("feature-branch")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_alerts_on_success(self, config, event_bus):
+        """Successful API call returns parsed alert list."""
+        manager = _make_manager(config, event_bus)
+        alerts = [
+            {
+                "number": 1,
+                "rule": "js/sql-injection",
+                "severity": "error",
+                "security_severity": "high",
+                "path": "src/db.js",
+                "start_line": 42,
+                "message": "SQL injection vulnerability",
+            }
+        ]
+        mock_create = SubprocessMockBuilder().with_stdout(json.dumps(alerts)).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert len(result) == 1
+        assert result[0]["number"] == 1
+        assert result[0]["path"] == "src/db.js"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_404(self, config, event_bus):
+        """404 (no code scanning configured) returns empty list."""
+        manager = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("HTTP 404: Not Found")
+            .build()
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_json_error(self, config, event_bus):
+        """Malformed JSON returns empty list."""
+        manager = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("not-json{").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_empty_stdout(self, config, event_bus):
+        """Empty stdout returns empty list."""
+        manager = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("  ").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert result == []

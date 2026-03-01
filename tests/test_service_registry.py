@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
+from unittest.mock import patch
+
 from events import EventBus
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
 from state import StateTracker
@@ -68,6 +70,11 @@ class TestBuildServices:
         assert registry.agents._runner is registry.subprocess_runner
         assert registry.planners._runner is registry.subprocess_runner
         assert registry.reviewers._runner is registry.subprocess_runner
+        # Verify the runner type matches the expected execution mode
+        from docker_runner import get_docker_runner
+
+        runner = get_docker_runner(config)
+        assert type(registry.subprocess_runner) is type(runner)
 
     def test_store_uses_fetcher(self, config: HydraFlowConfig) -> None:
         """IssueStore should be initialized with the fetcher."""
@@ -78,4 +85,22 @@ class TestBuildServices:
 
         registry = build_services(config, bus, state, stop_event, callbacks)
 
-        assert registry.store._fetcher is registry.fetcher
+        from issue_fetcher import GitHubTaskFetcher
+
+        assert isinstance(registry.store._fetcher, GitHubTaskFetcher)
+        assert registry.store._fetcher._fetcher is registry.fetcher
+
+    def test_uses_get_docker_runner(self, config: HydraFlowConfig) -> None:
+        """build_services should use get_docker_runner to create the subprocess runner."""
+        bus = EventBus()
+        state = StateTracker(config.state_file)
+        stop_event = asyncio.Event()
+        callbacks = _make_callbacks()
+
+        with patch("service_registry.get_docker_runner") as mock_factory:
+            from execution import get_default_runner
+
+            mock_factory.return_value = get_default_runner()
+            build_services(config, bus, state, stop_event, callbacks)
+
+        mock_factory.assert_called_once_with(config)

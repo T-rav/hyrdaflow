@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from file_util import atomic_write
+from file_util import atomic_write, file_lock
 
 
 class TestAtomicWrite:
@@ -97,3 +98,26 @@ class TestAtomicWrite:
         atomic_write(target, "")
         assert target.exists()
         assert target.read_text() == ""
+
+
+class TestFileLock:
+    """Tests for file_lock()."""
+
+    def test_creates_parent_directory_and_lock_file(self, tmp_path: Path) -> None:
+        lock_path = tmp_path / "locks" / "hydra.lock"
+        with file_lock(lock_path):
+            assert lock_path.exists()
+
+    def test_acquires_and_releases_exclusive_lock(self, tmp_path: Path) -> None:
+        lock_path = tmp_path / "hydra.lock"
+        calls: list[tuple[int, int]] = []
+
+        def _record(fd: int, op: int) -> None:
+            calls.append((fd, op))
+
+        with patch("file_util.fcntl.flock", side_effect=_record), file_lock(lock_path):
+            pass
+
+        assert len(calls) == 2
+        assert calls[0][1] == fcntl.LOCK_EX
+        assert calls[1][1] == fcntl.LOCK_UN

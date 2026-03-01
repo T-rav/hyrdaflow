@@ -20,7 +20,7 @@ import pytest
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
 
-from tests.conftest import IssueFactory, PRInfoFactory, ReviewResultFactory
+from tests.conftest import PRInfoFactory, ReviewResultFactory, TaskFactory
 from tests.helpers import ConfigFactory, make_review_phase
 
 # ---------------------------------------------------------------------------
@@ -430,7 +430,7 @@ class TestWorktreePreservation:
         from models import ReviewVerdict
 
         phase = make_review_phase(config)
-        issue = IssueFactory.create()
+        issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         # COMMENT verdict: no merge happens (result.merged stays False).
@@ -455,7 +455,7 @@ class TestWorktreePreservation:
         phase._prs.pull_main = AsyncMock()
 
         # Create worktree path
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -475,7 +475,7 @@ class TestWorktreePreservation:
         from models import ReviewVerdict
 
         phase = make_review_phase(config)
-        issue = IssueFactory.create()
+        issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         result = ReviewResultFactory.create(verdict=ReviewVerdict.APPROVE)
@@ -498,7 +498,7 @@ class TestWorktreePreservation:
         phase._prs.swap_pipeline_labels = AsyncMock()
         phase._prs.pull_main = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -512,7 +512,7 @@ class TestWorktreePreservation:
         from models import ReviewVerdict
 
         phase = make_review_phase(config)
-        issue = IssueFactory.create()
+        issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         result = ReviewResultFactory.create(verdict=ReviewVerdict.APPROVE)
@@ -528,7 +528,7 @@ class TestWorktreePreservation:
         phase._prs.swap_pipeline_labels = AsyncMock()
         phase._prs.pull_main = AsyncMock()
 
-        wt = config.worktree_base / "issue-42"
+        wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         # Stop event is NOT set
@@ -554,12 +554,14 @@ class TestReviewPhaseStop:
         phase = make_review_phase(config)
         pr1 = PRInfoFactory.create(number=101, issue_number=10)
         pr2 = PRInfoFactory.create(number=102, issue_number=20)
-        issue1 = IssueFactory.create(number=10)
-        issue2 = IssueFactory.create(number=20)
+        issue1 = TaskFactory.create(id=10)
+        issue2 = TaskFactory.create(id=20)
 
         call_count = 0
 
-        async def _review_side_effect(pr, _issue, _wt_path, _diff, worker_id=0):
+        async def _review_side_effect(
+            pr, _issue, _wt_path, _diff, worker_id=0, **_kwargs
+        ):
             nonlocal call_count
             call_count += 1
             # Set stop after first review completes

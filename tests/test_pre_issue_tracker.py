@@ -15,7 +15,7 @@ def test_ensure_pre_dirs_creates_dirs(tmp_path):
     pre_dir, runs_dir = ensure_pre_dirs(tmp_path)
     assert pre_dir.is_dir()
     assert runs_dir.is_dir()
-    assert pre_dir == tmp_path / ".hydraflow" / "prep"
+    assert pre_dir == tmp_path / "prep"
     assert runs_dir.parent == pre_dir / "runs"
 
 

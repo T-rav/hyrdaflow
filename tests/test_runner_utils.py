@@ -90,6 +90,33 @@ class TestStreamClaudeProcessOutput:
 
         assert result == ""
 
+    @pytest.mark.asyncio
+    async def test_populates_usage_stats_when_provided(self, event_bus) -> None:
+        """Usage metrics should be extracted from stream events with minimal overhead."""
+        usage_event = json.dumps(
+            {
+                "type": "result",
+                "result": "done",
+                "usage": {"input_tokens": 50, "output_tokens": 10, "total_tokens": 60},
+            }
+        )
+        mock_create = make_streaming_proc(returncode=0, stdout=usage_event)
+        usage_stats: dict[str, object] = {}
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await stream_claude_process(
+                **_default_kwargs(event_bus, usage_stats=usage_stats)
+            )
+
+        assert result == "done"
+        assert usage_stats["input_tokens"] == 50
+        assert usage_stats["output_tokens"] == 10
+        assert usage_stats["total_tokens"] == 60
+        assert usage_stats["usage_status"] == "available"
+        assert usage_stats["usage_available"] is True
+        assert usage_stats["usage_backend"] == "claude"
+        assert isinstance(usage_stats["raw_usage"], list)
+
 
 # ---------------------------------------------------------------------------
 # stream_claude_process — event publishing
@@ -191,6 +218,23 @@ class TestStreamClaudeProcessConfig:
         """Codex exec should receive prompt as CLI arg, not stdin pipe."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
         cmd = ["codex", "exec", "--json", "--model", "gpt-5.3"]
+        prompt = "do the thing"
+
+        with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
+            await stream_claude_process(
+                **_default_kwargs(event_bus, cmd=cmd, prompt=prompt)
+            )
+
+        args = list(mock_exec.call_args[0])
+        kwargs = mock_exec.call_args[1]
+        assert args[-1] == prompt
+        assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
+    @pytest.mark.asyncio
+    async def test_pi_print_passes_prompt_as_argument(self, event_bus) -> None:
+        """Pi print mode should receive prompt as CLI arg, not stdin pipe."""
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+        cmd = ["pi", "-p", "--mode", "json", "--model", "openai/gpt-4o-mini"]
         prompt = "do the thing"
 
         with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
@@ -652,3 +696,55 @@ class TestStreamClaudeProcessTimeout:
             )
 
         assert len(active_procs) == 0
+
+
+# ---------------------------------------------------------------------------
+# stream_claude_process — gh_token injection
+# ---------------------------------------------------------------------------
+
+
+class TestStreamClaudeProcessGhToken:
+    """Tests for gh_token propagation into subprocess environment."""
+
+    @pytest.mark.asyncio
+    async def test_gh_token_injected_into_env(self, event_bus) -> None:
+        """When gh_token is passed, it should appear in the subprocess env as GH_TOKEN."""
+        captured_env: dict[str, str] = {}
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+
+        original_create = mock_create
+
+        async def capture_env(*args, **kwargs):
+            captured_env.update(kwargs.get("env", {}))
+            return await original_create(*args, **kwargs)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=capture_env):
+            await stream_claude_process(
+                **_default_kwargs(event_bus), gh_token="ghp_bot_token"
+            )
+
+        assert captured_env.get("GH_TOKEN") == "ghp_bot_token"
+
+    @pytest.mark.asyncio
+    async def test_empty_gh_token_does_not_override(self, event_bus) -> None:
+        """When gh_token is empty, GH_TOKEN should not be explicitly injected."""
+        captured_env: dict[str, str] = {}
+        mock_create = make_streaming_proc(returncode=0, stdout="ok")
+        original_create = mock_create
+
+        async def capture_env(*args, **kwargs):
+            captured_env.update(kwargs.get("env", {}))
+            return await original_create(*args, **kwargs)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=capture_env):
+            await stream_claude_process(**_default_kwargs(event_bus), gh_token="")
+
+        # GH_TOKEN is only set if it was already in os.environ (inherited),
+        # not explicitly injected by make_clean_env.
+        # The key assertion: no bot-specific override was applied.
+        assert captured_env.get("GH_TOKEN", "") != "ghp_bot_token"
+        # Also verify: GH_TOKEN key should be absent from env (not just
+        # different from ghp_bot_token) or should preserve the inherited value.
+        if "GH_TOKEN" in captured_env:
+            # If present, it was inherited from os.environ, not injected
+            assert captured_env["GH_TOKEN"] == os.environ.get("GH_TOKEN", "")

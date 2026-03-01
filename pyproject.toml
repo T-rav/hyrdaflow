@@ -2,16 +2,28 @@
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
+where = ["src"]
 exclude = ["ui*", "templates*", "tests*"]
 
 [project]
 name = "hydraflow"
-version = "1.0.0"
+version = "0.9.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "pydantic>=2.0.0",
+    "docker>=7.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.30.0",
+    "websockets>=12.0",
+    "httpx>=0.27.0",
 ]
+
+[project.scripts]
+hf = "hf_cli.__main__:entrypoint"
 
 [project.optional-dependencies]
 test = [
@@ -21,28 +33,28 @@ test = [
     "pytest-mock>=3.12.0",
     "pytest-xdist>=3.5.0",
     "httpx>=0.27.0",
-    "hydraflow[dashboard]",
-    "hydraflow[docker]",
+    "hypothesis>=6.100.0",
 ]
 dev = [
     "ruff==0.15.0",
     "pyright==1.1.408",
     "bandit[toml]==1.8.0",
 ]
+# Explicit docker extra so `hydraflow[docker]` remains TOML-installable.
 docker = [
     "docker>=7.0.0",
 ]
-dashboard = [
-    "fastapi>=0.110.0",
-    "uvicorn>=0.30.0",
-    "websockets>=12.0",
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.151.9",
 ]
 
 # === Ruff ===
 [tool.ruff]
 target-version = "py311"
 line-length = 88
-src = ["."]
+src = ["src", "tests"]
 exclude = [
     ".venv", "venv", "build", "dist", "node_modules",
     "htmlcov", "__pycache__", ".pytest_cache", ".ruff_cache",
@@ -68,12 +80,14 @@ line-ending = "auto"
 # === Pyright ===
 [tool.pyright]
 pythonVersion = "3.11"
-include = ["."]
+include = ["src", "."]
 exclude = [
     "tests",
     "**/__pycache__",
     "**/node_modules",
     "templates",
+    ".uv-cache",
+    ".uv-cache/**",
     ".venv",
     "venv",
     "**/venv",
@@ -88,7 +102,14 @@ reportMissingTypeStubs = false
 
 # === Bandit ===
 [tool.bandit]
-exclude_dirs = ["tests", "venv", ".venv", ".claude/worktrees", ".codex/worktrees"]
+exclude_dirs = [
+    "tests",
+    "venv",
+    ".venv",
+    ".uv-cache",
+    ".claude/worktrees",
+    ".codex/worktrees",
+]
 skips = ["B101"]
 
 # === Pytest ===
@@ -98,15 +119,16 @@ asyncio_mode = "auto"
 addopts = [
     "-q",
     "--tb=short",
-    "-n=auto",
+    "-m", "not soak",
 ]
 markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "soak: marks tests as soak/long-running tests (excluded from default runs)",
 ]
 
 [tool.coverage.run]
-source = ["."]
+source = ["src"]
 omit = ["tests/*", "*/__init__.py", "venv/*", ".venv/*", "templates/*"]
 
 [tool.coverage.report]

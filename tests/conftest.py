@@ -10,8 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Ensure hydraflow package is importable
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure source modules are importable from src/ layout.
+_REPO_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "src"))
+sys.path.insert(0, str(_REPO_ROOT))
 
 from tests.helpers import ConfigFactory  # noqa: E402
 
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
         AnalysisResult,
         GitHubIssue,
         HITLResult,
+        PRInfo,
         ReviewResult,
         ReviewVerdict,
         TriageResult,
@@ -43,11 +46,18 @@ def setup_test_environment():
         "HOME": "/tmp/hydraflow-test",
         "GH_TOKEN": "test-token",
     }
-    with patch.dict(os.environ, test_env, clear=False):
-        # Ensure host HYDRAFLOW_* overrides don't leak into tests
-        for key in [k for k in os.environ if k.startswith("HYDRAFLOW_")]:
-            os.environ.pop(key, None)
-        yield
+    hydra_keys = {
+        key: os.environ[key]
+        for key in list(os.environ)
+        if key.startswith(("HYDRAFLOW_", "HYDRA_"))
+    }
+    for key in hydra_keys:
+        os.environ.pop(key, None)
+    try:
+        with patch.dict(os.environ, test_env, clear=False):
+            yield
+    finally:
+        os.environ.update(hydra_keys)
 
 
 # --- Config Fixtures ---
@@ -108,6 +118,37 @@ def issue() -> GitHubIssue:
     return IssueFactory.create()
 
 
+# --- Task Factory ---
+
+
+class TaskFactory:
+    """Factory for Task instances."""
+
+    @staticmethod
+    def create(
+        *,
+        id: int = 42,
+        title: str = "Fix the frobnicator",
+        body: str = "The frobnicator is broken. Please fix it.",
+        tags: list[str] | None = None,
+        comments: list[str] | None = None,
+        source_url: str = "",
+        links: list[Any] | None = None,
+    ):
+        from models import Task
+
+        return Task(
+            id=id,
+            title=title,
+            body=body,
+            tags=tags or ["ready"],
+            comments=comments or [],
+            source_url=source_url
+            or f"https://github.com/test-org/test-repo/issues/{id}",
+            links=links if links is not None else [],
+        )
+
+
 # --- Worker Result Factory ---
 
 
@@ -127,9 +168,21 @@ class WorkerResultFactory:
         duration_seconds: float | None = None,
         pre_quality_review_attempts: int | None = None,
         quality_fix_attempts: int | None = None,
-        pr_info: Any | None = None,
+        pr_info: PRInfo | None = None,
         use_defaults: bool = False,
     ):
+        """Create a WorkerResult instance.
+
+        By default (``use_defaults=False``), factory-defined hardcoded values are
+        applied for all unspecified optional fields (e.g. ``success=True``,
+        ``transcript="Implemented the feature."``).
+
+        With ``use_defaults=True``, only explicitly provided keyword arguments are
+        forwarded to the constructor and the underlying Pydantic model's own field
+        defaults are used for everything else.  Prefer this mode when you need a
+        minimal/sparse object to test model-level behaviour or when factory defaults
+        would incorrectly satisfy a field under test.
+        """
         from models import WorkerResult
 
         if use_defaults:
@@ -208,10 +261,22 @@ class PlanResultFactory:
         already_satisfied: bool | None = None,
         use_defaults: bool = False,
     ):
+        """Create a PlanResult instance.
+
+        By default (``use_defaults=False``), factory-defined hardcoded values are
+        applied for all unspecified optional fields (e.g. ``success=True``,
+        ``plan="## Plan\\n\\n1. Do the thing\\n2. Test the thing"``).
+
+        With ``use_defaults=True``, only explicitly provided keyword arguments are
+        forwarded to the constructor and the underlying Pydantic model's own field
+        defaults are used for everything else.  Prefer this mode when you need a
+        minimal/sparse object to test model-level behaviour or when factory defaults
+        would incorrectly satisfy a field under test.
+        """
         from models import PlanResult
 
         if use_defaults:
-            kwargs = {"issue_number": issue_number}
+            kwargs: dict[str, Any] = {"issue_number": issue_number}
             if success is not None:
                 kwargs["success"] = success
             if plan is not None:
@@ -377,7 +442,7 @@ class EventFactory:
         from events import HydraFlowEvent as HE
 
         return HE(
-            type=type if type is not None else ET.BATCH_START,
+            type=type if type is not None else ET.PHASE_CHANGE,
             timestamp=timestamp or "",
             data=data if data is not None else {},
         )
@@ -587,6 +652,7 @@ def make_orchestrator_mock(
     orch.running = running
     orch.run_status = run_status
     orch.current_session_id = None
+    orch.credits_paused_until = None
     orch.stop = AsyncMock()
     orch.request_stop = AsyncMock()
     return orch

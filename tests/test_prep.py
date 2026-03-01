@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from cli import _run_scaffold, _seed_context_assets
 from models import AuditCheckStatus
 from prep import HYDRAFLOW_LABELS, PrepResult, _list_existing_labels, ensure_labels
 from tests.conftest import SubprocessMockBuilder
@@ -1222,12 +1224,12 @@ class TestCliPrep:
         assert args.prep is False
 
     def test_main_prep_exits_zero_on_success(self) -> None:
-        """main() should exit 0 when all labels are created successfully."""
+        """main() should exit 0 when scaffold run succeeds."""
         from cli import main
 
         with (
             patch(
-                "cli._run_prep", new_callable=AsyncMock, return_value=True
+                "cli._run_scaffold", new_callable=AsyncMock, return_value=True
             ) as mock_run,
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -1236,12 +1238,12 @@ class TestCliPrep:
         mock_run.assert_called_once()
         assert exc_info.value.code == 0
 
-    def test_main_prep_exits_one_on_partial_failure(self) -> None:
-        """main() should exit 1 when any labels fail to create."""
+    def test_main_prep_exits_one_on_failure(self) -> None:
+        """main() should exit 1 when scaffold run fails."""
         from cli import main
 
         with (
-            patch("cli._run_prep", new_callable=AsyncMock, return_value=False),
+            patch("cli._run_scaffold", new_callable=AsyncMock, return_value=False),
             pytest.raises(SystemExit) as exc_info,
         ):
             main(["--prep"])
@@ -1285,7 +1287,7 @@ class TestCliScaffold:
         assert args.scaffold is False
 
     def test_main_scaffold_exits_zero_on_success(self) -> None:
-        """main() should exit 0 when scaffold run succeeds."""
+        """main() should exit 0 when scaffold alias run succeeds."""
         from cli import main
 
         with (
@@ -1300,7 +1302,7 @@ class TestCliScaffold:
         assert exc_info.value.code == 0
 
     def test_main_scaffold_exits_one_on_failure(self) -> None:
-        """main() should exit 1 when scaffold run fails."""
+        """main() should exit 1 when scaffold alias run fails."""
         from cli import main
 
         with (
@@ -1312,28 +1314,286 @@ class TestCliScaffold:
         assert exc_info.value.code == 1
 
 
-def test_run_scaffold_uses_makefile_scaffold() -> None:
-    """_run_scaffold should call scaffold_makefile for root Makefile support."""
+class TestCliEnsureLabels:
+    """Tests for the --ensure-labels CLI flag integration."""
+
+    def test_ensure_labels_flag_parsed(self) -> None:
+        from cli import parse_args
+
+        args = parse_args(["--ensure-labels"])
+        assert args.ensure_labels is True
+
+    def test_main_ensure_labels_exits_zero_on_success(self) -> None:
+        from cli import main
+
+        with (
+            patch(
+                "cli._run_prep", new_callable=AsyncMock, return_value=True
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main(["--ensure-labels"])
+
+        mock_run.assert_called_once()
+        assert exc_info.value.code == 0
+
+
+def test_run_scaffold_focuses_on_ci_and_test_scaffolds() -> None:
+    """_run_scaffold should only scaffold CI + tests for quick prep."""
     from pathlib import Path
 
-    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
-    assert "scaffold_makefile" in content
+    assert "scaffold_ci(" in content
+    assert "scaffold_tests_polyglot(" in content
+    assert "scaffold_makefiles(" not in content
 
 
 def test_run_scaffold_prints_summary_block() -> None:
     """_run_scaffold should print a final prep summary section."""
     from pathlib import Path
 
-    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
     assert "Prep summary:" in content
 
 
-def test_run_scaffold_uses_prep_agent_correction() -> None:
-    """_run_scaffold should invoke prep agent correction between retries."""
+def test_run_scaffold_has_quick_success_and_coverage_guidance() -> None:
+    """_run_scaffold should support early success and coverage follow-up guidance."""
     from pathlib import Path
 
-    cli_file = Path(__file__).resolve().parent.parent / "cli.py"
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
     content = cli_file.read_text()
-    assert "_run_prep_agent_correction(" in content
+    assert "Well done: CI and baseline tests already exist" in content
+    assert "make cover" in content
+    assert "make smoke" in content
+
+
+def test_run_scaffold_coverage_guidance_uses_scaffold_stage_label() -> None:
+    """Coverage and cover/smoke guidance should emit scaffold stage labels."""
+    from pathlib import Path
+
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
+    content = cli_file.read_text()
+    assert "_prep_stage_line(" in content
+    assert '"scaffold"' in content
+    assert "Next: run `make cover` (70% unit coverage) and `make smoke`." in content
+    assert (
+        "Coverage: {coverage_pct:.1f}% from {coverage_source} (below 70%)." in content
+    )
+
+
+def test_run_scaffold_messages_do_not_use_hardening_term() -> None:
+    """Scaffold path messaging should use prep/scaffold wording, not hardening."""
+    from pathlib import Path
+
+    cli_file = Path(__file__).resolve().parent.parent / "src" / "cli.py"
+    content = cli_file.read_text()
+    start = content.index("async def _run_scaffold")
+    end = content.index("async def _run_clean")
+    scaffold_body = content[start:end].lower()
+    assert "hardening" not in scaffold_body
+
+
+@pytest.mark.asyncio
+async def test_run_scaffold_reports_prompt_selection_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Interactive selection mode should be reflected in prep stage output."""
+    config = ConfigFactory.create(repo_root=tmp_path, dry_run=True)
+
+    monkeypatch.setattr("cli._choose_prep_tool", lambda _configured: ("pi", "prompt"))
+    monkeypatch.setattr("polyglot_prep.detect_prep_stack", lambda _repo_root: "python")
+    monkeypatch.setattr(
+        "ci_scaffold.scaffold_ci",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "polyglot_prep.scaffold_tests_polyglot",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "cli._extract_coverage_percent", lambda _repo_root: (75.0, "coverage.xml")
+    )
+
+    ok = await _run_scaffold(config)
+    out = capsys.readouterr().out
+    assert ok is True
+    assert "prep driver selected: pi" in out
+    assert "mode=prompt" in out
+
+
+@pytest.mark.asyncio
+async def test_run_scaffold_warns_when_no_prep_driver_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No detected prep tools should surface a clear warning."""
+    config = ConfigFactory.create(repo_root=tmp_path, dry_run=True)
+
+    monkeypatch.setattr("cli._choose_prep_tool", lambda _configured: (None, "none"))
+    monkeypatch.setattr("polyglot_prep.detect_prep_stack", lambda _repo_root: "python")
+    monkeypatch.setattr(
+        "ci_scaffold.scaffold_ci",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "polyglot_prep.scaffold_tests_polyglot",
+        lambda _repo_root, dry_run=False: SimpleNamespace(skipped=True),
+    )
+    monkeypatch.setattr(
+        "cli._extract_coverage_percent", lambda _repo_root: (75.0, "coverage.xml")
+    )
+
+    ok = await _run_scaffold(config)
+    out = capsys.readouterr().out
+    assert ok is True
+    assert "no prep driver detected" in out
+
+
+class TestContextSeed:
+    """Tests for seeding local manifest/memory assets during prep."""
+
+    def test_seed_creates_manifest_digest_and_metrics_cache(
+        self, tmp_path: Path
+    ) -> None:
+        state_file = tmp_path / ".hydraflow" / "state.json"
+        config = ConfigFactory.create(repo_root=tmp_path, state_file=state_file)
+
+        log_lines = _seed_context_assets(config)
+
+        manifest_path = tmp_path / ".hydraflow" / "manifest" / "manifest.md"
+        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
+        repo_slug = config.repo.replace("/", "-") if config.repo else "unknown"
+        metrics_file = state_file.parent / "metrics" / repo_slug / "snapshots.jsonl"
+
+        assert manifest_path.is_file()
+        assert digest_path.is_file()
+        assert metrics_file.is_file()
+        assert any("Manifest seed" in line for line in log_lines)
+        assert "Seeded during prep" in digest_path.read_text()
+
+    def test_seed_skipped_in_dry_run(self, tmp_path: Path) -> None:
+        state_file = tmp_path / ".hydraflow" / "state.json"
+        config = ConfigFactory.create(
+            repo_root=tmp_path, dry_run=True, state_file=state_file
+        )
+
+        log_lines = _seed_context_assets(config)
+
+        assert not (tmp_path / ".hydraflow").exists()
+        assert "- Context seed skipped" in log_lines[0]
+
+    def test_seed_does_not_overwrite_existing_files(self, tmp_path: Path) -> None:
+        state_file = tmp_path / ".hydraflow" / "state.json"
+        config = ConfigFactory.create(repo_root=tmp_path, state_file=state_file)
+        _seed_context_assets(config)
+
+        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
+        metrics_file = (
+            state_file.parent
+            / "metrics"
+            / config.repo.replace("/", "-")
+            / "snapshots.jsonl"
+        )
+        digest_path.write_text("custom digest")
+        metrics_file.write_text("existing metrics line\n")
+
+        _seed_context_assets(config)
+
+        assert digest_path.read_text() == "custom digest"
+        assert metrics_file.read_text() == "existing metrics line\n"
+
+
+# ---------------------------------------------------------------------------
+# RepoAuditor._check_agents_md
+# ---------------------------------------------------------------------------
+
+
+class TestCheckAgentsMd:
+    """Tests for RepoAuditor._check_agents_md."""
+
+    def test_present_when_agents_md_exists(self, tmp_path: Path) -> None:
+        """PRESENT when AGENTS.md is in the repo root."""
+        (tmp_path / "AGENTS.md").write_text("# AGENTS\n")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert check.status == AuditCheckStatus.PRESENT
+        assert check.name == "AGENTS.md"
+
+    def test_missing_when_agents_md_absent(self, tmp_path: Path) -> None:
+        """MISSING when AGENTS.md is not present."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert check.status == AuditCheckStatus.MISSING
+        assert check.name == "AGENTS.md"
+        assert "hf init" in check.detail
+
+    def test_missing_is_not_critical(self, tmp_path: Path) -> None:
+        """Missing AGENTS.md is a warning, not a blocking error."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert not check.critical
+
+    def test_included_in_audit_result(self, tmp_path: Path) -> None:
+        """AGENTS.md check appears in the full audit result."""
+        (tmp_path / "AGENTS.md").write_text("# AGENTS\n")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        # Verify the check name matches what run_audit() would include
+        assert check.name == "AGENTS.md"
+        assert check.status == AuditCheckStatus.PRESENT
+
+    def test_empty_file_is_still_present(self, tmp_path: Path) -> None:
+        """An empty AGENTS.md is reported as PRESENT — audit checks existence, not content."""
+        (tmp_path / "AGENTS.md").write_text("")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert check.status == AuditCheckStatus.PRESENT
+
+    def test_directory_named_agents_md_is_partial(self, tmp_path: Path) -> None:
+        """A directory named AGENTS.md returns PARTIAL, not PRESENT."""
+        (tmp_path / "AGENTS.md").mkdir()
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert check.status == AuditCheckStatus.PARTIAL
+        assert "directory" in check.detail
+
+    def test_symlink_to_valid_file_is_present(self, tmp_path: Path) -> None:
+        """A symlink pointing to a valid AGENTS.md file is reported as PRESENT."""
+        target = tmp_path / "AGENTS-template.md"
+        target.write_text("# AGENTS\n")
+        (tmp_path / "AGENTS.md").symlink_to(target)
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert check.status == AuditCheckStatus.PRESENT
+
+    def test_broken_symlink_is_missing(self, tmp_path: Path) -> None:
+        """A symlink pointing to a non-existent file is reported as MISSING."""
+        (tmp_path / "AGENTS.md").symlink_to(tmp_path / "nonexistent.md")
+        config = ConfigFactory.create(repo_root=tmp_path)
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        check = auditor._check_agents_md()
+        assert check.status == AuditCheckStatus.MISSING

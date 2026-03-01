@@ -30,6 +30,7 @@ class TestTestScaffoldResult:
         assert result.skipped is False
         assert result.skip_reason == ""
         assert result.language == ""
+        assert result.progress == ""
 
     def test_scaffold_result_stores_explicit_field_values(self) -> None:
         result = TestScaffoldResult(
@@ -45,6 +46,7 @@ class TestTestScaffoldResult:
         assert result.created_files == ["tests/__init__.py"]
         assert result.modified_files == ["pyproject.toml"]
         assert result.language == "python"
+        assert result.progress == ""
 
     def test_mutable_default_independence(self) -> None:
         """Each instance should get its own list."""
@@ -236,12 +238,13 @@ class TestScaffoldPythonTests:
         content = conftest.read_text()
         assert "fixtures" in content.lower() or "conftest" in content.lower()
 
-    def test_creates_python_smoke_test(self, tmp_path: Path) -> None:
+    def test_creates_python_smoke_test_suite(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
         result = _scaffold_python_tests(tmp_path)
-        smoke = tmp_path / "tests" / "test_prep_smoke.py"
-        assert smoke.is_file()
+        smoke_files = sorted((tmp_path / "tests").glob("test_prep_smoke*.py"))
+        assert len(smoke_files) == 8
         assert "tests/test_prep_smoke.py" in result.created_files
+        assert "tests/test_prep_smoke_8.py" in result.created_files
 
     def test_adds_pytest_config_to_pyproject(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
@@ -315,6 +318,46 @@ class TestScaffoldPythonTests:
 
         assert result.language == "python"
 
+    def test_creates_python_placeholder_tests_for_source_files(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "alpha.py").write_text("VALUE = 1\n")
+        (src_dir / "beta.py").write_text("VALUE = 2\n")
+
+        result = _scaffold_python_tests(tmp_path)
+
+        assert (tmp_path / "tests" / "test_prep_src_alpha_py.py").is_file()
+        assert (tmp_path / "tests" / "test_prep_src_beta_py.py").is_file()
+        assert "tests/test_prep_src_alpha_py.py" in result.created_files
+        assert "tests/test_prep_src_beta_py.py" in result.created_files
+
+    def test_batches_python_placeholders_and_progresses_next_run(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        for idx in range(8):
+            (src_dir / f"file_{idx}.py").write_text(f"VALUE_{idx} = {idx}\n")
+
+        first = _scaffold_python_tests(tmp_path)
+        second = _scaffold_python_tests(tmp_path)
+
+        first_placeholders = [
+            f for f in first.created_files if f.startswith("tests/test_prep_src_file_")
+        ]
+        second_placeholders = [
+            f for f in second.created_files if f.startswith("tests/test_prep_src_file_")
+        ]
+        assert len(first_placeholders) == 6
+        assert len(second_placeholders) == 2
+        assert "batch limit 6" in first.progress
+        assert "pending before batch 8" in first.progress
+        assert "pending before batch 2" in second.progress
+
 
 # ---------------------------------------------------------------------------
 # _scaffold_js_tests
@@ -345,12 +388,13 @@ class TestScaffoldJsTests:
         assert "exclude" in content
         assert "hydraflow/**" in content
 
-    def test_creates_js_smoke_test(self, tmp_path: Path) -> None:
+    def test_creates_js_smoke_test_suite(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
         result = _scaffold_js_tests(tmp_path)
-        smoke = tmp_path / "__tests__" / "prep.smoke.test.js"
-        assert smoke.is_file()
+        smoke_files = sorted((tmp_path / "__tests__").glob("prep.smoke*.test.js"))
+        assert len(smoke_files) == 8
         assert "__tests__/prep.smoke.test.js" in result.created_files
+        assert "__tests__/prep.smoke.8.test.js" in result.created_files
 
     def test_adds_vitest_to_package_json(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
@@ -457,6 +501,46 @@ class TestScaffoldJsTests:
 
         assert result.language == "javascript"
 
+    def test_creates_js_placeholder_tests_for_source_files(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "package.json").write_text('{"name": "foo"}\n')
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "alpha.ts").write_text("export const alpha = 1;\n")
+        (src_dir / "beta.js").write_text("export const beta = 2;\n")
+
+        result = _scaffold_js_tests(tmp_path)
+
+        assert (tmp_path / "__tests__" / "prep.src_alpha_ts.test.js").is_file()
+        assert (tmp_path / "__tests__" / "prep.src_beta_js.test.js").is_file()
+        assert "__tests__/prep.src_alpha_ts.test.js" in result.created_files
+        assert "__tests__/prep.src_beta_js.test.js" in result.created_files
+
+    def test_batches_js_placeholders_and_progresses_next_run(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "package.json").write_text('{"name": "foo"}\n')
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        for idx in range(9):
+            (src_dir / f"part_{idx}.js").write_text(f"export const n{idx} = {idx};\n")
+
+        first = _scaffold_js_tests(tmp_path)
+        second = _scaffold_js_tests(tmp_path)
+
+        first_placeholders = [
+            f for f in first.created_files if f.startswith("__tests__/prep.src_part_")
+        ]
+        second_placeholders = [
+            f for f in second.created_files if f.startswith("__tests__/prep.src_part_")
+        ]
+        assert len(first_placeholders) == 6
+        assert len(second_placeholders) == 3
+        assert "batch limit 6" in first.progress
+        assert "pending before batch 9" in first.progress
+        assert "pending before batch 3" in second.progress
+
 
 # ---------------------------------------------------------------------------
 # scaffold_tests (top-level orchestrator)
@@ -505,7 +589,9 @@ class TestScaffoldTests:
             or "language" in result.skip_reason.lower()
         )
 
-    def test_skips_existing_python_infrastructure(self, tmp_path: Path) -> None:
+    def test_backfills_smoke_suite_for_existing_python_infrastructure(
+        self, tmp_path: Path
+    ) -> None:
         (tmp_path / "pyproject.toml").write_text(
             "[project]\nname = 'foo'\n\n"
             "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
@@ -516,9 +602,13 @@ class TestScaffoldTests:
 
         result = scaffold_tests(tmp_path)
 
-        assert result.skipped is True
+        assert result.skipped is False
+        smoke_files = sorted((tmp_path / "tests").glob("test_prep_smoke*.py"))
+        assert len(smoke_files) == 8
 
-    def test_skips_existing_js_infrastructure(self, tmp_path: Path) -> None:
+    def test_backfills_smoke_suite_for_existing_js_infrastructure(
+        self, tmp_path: Path
+    ) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
         (tmp_path / "vitest.config.js").write_text("export default {}\n")
         tests_dir = tmp_path / "__tests__"
@@ -527,7 +617,9 @@ class TestScaffoldTests:
 
         result = scaffold_tests(tmp_path)
 
-        assert result.skipped is True
+        assert result.skipped is False
+        smoke_files = sorted((tmp_path / "__tests__").glob("prep.smoke*.test.js"))
+        assert len(smoke_files) == 8
 
     def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
@@ -547,15 +639,50 @@ class TestScaffoldTests:
         assert first.skipped is False
         assert second.skipped is True
 
+    def test_scaffold_tests_batches_existing_infra_placeholders(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[project]\nname = 'foo'\n\n"
+            "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+        )
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_existing.py").write_text("def test_existing(): pass\n")
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        for idx in range(7):
+            (src_dir / f"module_{idx}.py").write_text(f"VAL_{idx} = {idx}\n")
+
+        first = scaffold_tests(tmp_path)
+        second = scaffold_tests(tmp_path)
+
+        first_placeholders = [
+            f
+            for f in first.created_files
+            if f.startswith("tests/test_prep_src_module_")
+        ]
+        second_placeholders = [
+            f
+            for f in second.created_files
+            if f.startswith("tests/test_prep_src_module_")
+        ]
+        assert len(first_placeholders) == 6
+        assert len(second_placeholders) == 1
+        assert first.skipped is False
+        assert second.skipped is False
+
     def test_generates_smoke_test_files(self, tmp_path: Path) -> None:
-        """Scaffold should create baseline smoke tests for both stacks."""
+        """Scaffold should create baseline smoke-test suites for both stacks."""
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
 
         scaffold_tests(tmp_path)
 
-        assert (tmp_path / "tests" / "test_prep_smoke.py").is_file()
-        assert (tmp_path / "__tests__" / "prep.smoke.test.js").is_file()
+        py_smoke_files = sorted((tmp_path / "tests").glob("test_prep_smoke*.py"))
+        js_smoke_files = sorted((tmp_path / "__tests__").glob("prep.smoke*.test.js"))
+        assert len(py_smoke_files) == 8
+        assert len(js_smoke_files) == 8
 
     def test_dry_run_js_repo_does_not_write(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')

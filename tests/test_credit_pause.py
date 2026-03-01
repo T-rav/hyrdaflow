@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -48,6 +49,34 @@ def _default_stream_kwargs(event_bus, **overrides):
     }
     defaults.update(overrides)
     return defaults
+
+
+async def _poll_then_stop(
+    condition: Callable[[], bool],
+    orch: HydraFlowOrchestrator,
+    *,
+    max_iters: int = 5000,
+    timeout_s: float = 5.0,
+) -> None:
+    """Poll *condition* with zero-sleep yields, then stop the orchestrator.
+
+    Raises AssertionError if *condition* is still False after *max_iters*
+    iterations so that test failures point at the unmet condition rather
+    than at downstream assertions.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    iters = 0
+    while iters < max_iters and asyncio.get_running_loop().time() < deadline:
+        if condition():
+            break
+        iters += 1
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError(
+            "_poll_then_stop: condition never became True "
+            f"after {iters} iterations in {timeout_s:.2f}s"
+        )
+    await orch.stop()
 
 
 def _mock_fetcher_noop(orch: HydraFlowOrchestrator) -> None:
@@ -398,7 +427,7 @@ class TestCreditExhaustionPauseResume:
                 )
             return []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = credit_failing_plan  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -408,12 +437,20 @@ class TestCreditExhaustionPauseResume:
 
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
 
-        # Stop after a short time so the test doesn't hang
-        async def stop_soon() -> None:
-            await asyncio.sleep(0.2)
-            await orch.stop()
-
-        await asyncio.gather(orch.run(), stop_soon())
+        await asyncio.wait_for(
+            asyncio.gather(
+                orch.run(),
+                _poll_then_stop(
+                    lambda: any(
+                        e.type == EventType.SYSTEM_ALERT
+                        and "credit" in e.data.get("message", "").lower()
+                        for e in event_bus.get_history()
+                    ),
+                    orch,
+                ),
+            ),
+            timeout=10.0,
+        )
 
         alert_events = [
             e for e in event_bus.get_history() if e.type == EventType.SYSTEM_ALERT
@@ -446,7 +483,7 @@ class TestCreditExhaustionPauseResume:
                 )
             return []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = credit_failing_then_ok  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -456,12 +493,13 @@ class TestCreditExhaustionPauseResume:
 
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
 
-        async def stop_after_resume() -> None:
-            # Wait long enough for the pause+resume cycle
-            await asyncio.sleep(0.5)
-            await orch.stop()
-
-        await asyncio.gather(orch.run(), stop_after_resume())
+        await asyncio.wait_for(
+            asyncio.gather(
+                orch.run(),
+                _poll_then_stop(lambda: call_count >= 2, orch),
+            ),
+            timeout=10.0,
+        )
 
         # After resume, the plan function should have been called again
         assert call_count >= 2
@@ -484,7 +522,7 @@ class TestCreditExhaustionPauseResume:
                 raise CreditExhaustedError("credits out", resume_at=None)
             return []
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = credit_failing_no_time  # type: ignore[method-assign]
         orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -497,11 +535,13 @@ class TestCreditExhaustionPauseResume:
 
         orch._sleep_or_stop = capture_sleep  # type: ignore[method-assign]
 
-        async def stop_soon() -> None:
-            await asyncio.sleep(0.2)
-            await orch.stop()
-
-        await asyncio.gather(orch.run(), stop_soon())
+        await asyncio.wait_for(
+            asyncio.gather(
+                orch.run(),
+                _poll_then_stop(lambda: any(s > 3600 for s in sleep_durations), orch),
+            ),
+            timeout=10.0,
+        )
 
         # The first sleep should be for the default 5 hours + buffer
         credit_sleep = [s for s in sleep_durations if s > 3600]
@@ -558,11 +598,15 @@ class TestCreditExhaustionPauseResume:
 
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
 
-        async def stop_soon() -> None:
-            await asyncio.sleep(0.3)
-            await orch.stop()
-
-        await asyncio.gather(orch.run(), stop_soon())
+        await asyncio.wait_for(
+            asyncio.gather(
+                orch.run(),
+                _poll_then_stop(
+                    lambda: all(v >= 1 for v in terminate_calls.values()), orch
+                ),
+            ),
+            timeout=10.0,
+        )
 
         # All terminate methods should have been called at least once
         # (once during pause, once during final cleanup)
@@ -586,19 +630,18 @@ class TestCreditExhaustionPauseResume:
                 resume_at=datetime.now(UTC) + timedelta(hours=5),
             )
 
-        orch._triager.triage_issues = AsyncMock()  # type: ignore[method-assign]
+        orch._triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
         orch._planner_phase.plan_issues = AsyncMock(return_value=[])  # type: ignore[method-assign]
         orch._implementer.run_batch = credit_failing_implement  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
-        async def stop_quickly() -> None:
-            await asyncio.sleep(0.2)
-            await orch.stop()
-
         # Should complete quickly (not wait 5 hours) because stop() interrupts
         await asyncio.wait_for(
-            asyncio.gather(orch.run(), stop_quickly()),
-            timeout=5.0,
+            asyncio.gather(
+                orch.run(),
+                _poll_then_stop(lambda: orch._credits_paused_until is not None, orch),
+            ),
+            timeout=10.0,
         )
         assert not orch.running
         # run_status must NOT be "credits_paused" after stop — it should clear
@@ -614,10 +657,10 @@ class TestCreditExhaustionPauseResume:
 class TestConfigCreditPauseBuffer:
     """Tests for the credit_pause_buffer_minutes config field."""
 
-    def test_default_value(self) -> None:
+    def test_credit_pause_buffer_default_is_one_minute(self) -> None:
         config = ConfigFactory.create()
         assert config.credit_pause_buffer_minutes == 1
 
-    def test_custom_value(self) -> None:
+    def test_credit_pause_buffer_accepts_custom_minutes(self) -> None:
         config = ConfigFactory.create(credit_pause_buffer_minutes=5)
         assert config.credit_pause_buffer_minutes == 5

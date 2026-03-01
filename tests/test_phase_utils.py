@@ -12,6 +12,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
+from harness_insights import FailureCategory, HarnessInsightStore
+from models import PipelineStage
 from phase_utils import (
     escalate_to_hitl,
     publish_review_status,
@@ -271,8 +273,6 @@ class TestRecordHarnessFailure:
 
     def test_appends_failure_record_to_store(self, tmp_path: Path) -> None:
         """Should append a FailureRecord with correct fields to the store."""
-        from harness_insights import FailureCategory, HarnessInsightStore
-
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         store = HarnessInsightStore(memory_dir)
@@ -282,7 +282,7 @@ class TestRecordHarnessFailure:
             42,
             FailureCategory.PLAN_VALIDATION,
             "Missing required sections",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
         records = store.load_recent()
@@ -294,20 +294,16 @@ class TestRecordHarnessFailure:
 
     def test_noop_when_store_is_none(self) -> None:
         """Should not raise when harness_insights is None."""
-        from harness_insights import FailureCategory
-
         record_harness_failure(
             None,
             42,
             FailureCategory.PLAN_VALIDATION,
             "Some error",
-            stage="plan",
+            stage=PipelineStage.PLAN,
         )
 
     def test_catches_exception_from_store(self) -> None:
         """Should catch and log exceptions from the store without propagating."""
-        from harness_insights import FailureCategory
-
         mock_store = MagicMock()
         mock_store.append_failure.side_effect = RuntimeError("disk full")
 
@@ -317,7 +313,7 @@ class TestRecordHarnessFailure:
                 42,
                 FailureCategory.PLAN_VALIDATION,
                 "Some error",
-                stage="plan",
+                stage=PipelineStage.PLAN,
             )
 
             mock_logger.warning.assert_called_once()
@@ -325,8 +321,6 @@ class TestRecordHarnessFailure:
 
     def test_passes_pr_number_to_record(self, tmp_path: Path) -> None:
         """Should set pr_number on the FailureRecord when provided."""
-        from harness_insights import FailureCategory, HarnessInsightStore
-
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         store = HarnessInsightStore(memory_dir)
@@ -336,7 +330,7 @@ class TestRecordHarnessFailure:
             66,
             FailureCategory.REVIEW_REJECTION,
             "Review verdict: request_changes",
-            stage="review",
+            stage=PipelineStage.REVIEW,
             pr_number=200,
         )
 
@@ -347,8 +341,6 @@ class TestRecordHarnessFailure:
 
     def test_extracts_subcategories(self, tmp_path: Path) -> None:
         """Should extract subcategories from the details string."""
-        from harness_insights import FailureCategory, HarnessInsightStore
-
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         store = HarnessInsightStore(memory_dir)
@@ -358,7 +350,7 @@ class TestRecordHarnessFailure:
             42,
             FailureCategory.QUALITY_GATE,
             "ruff lint error: missing import",
-            stage="implement",
+            stage=PipelineStage.IMPLEMENT,
         )
 
         records = store.load_recent()
