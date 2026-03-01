@@ -12,14 +12,14 @@ import { SessionSidebar } from './components/SessionSidebar'
 import { EventLog } from './components/EventLog'
 import { theme } from './theme'
 
-const TABS = ['issues', 'outcomes', 'hitl', 'epics', 'worklog', 'system']
+const TABS = ['worklog', 'issues', 'hitl', 'epics', 'outcomes', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
   epics: 'Epics',
-  worklog: 'Work Log',
+  worklog: 'Delivery Queue',
   system: 'System',
 }
 
@@ -70,7 +70,7 @@ function AppContent() {
     events,
     epics,
   } = useHydraFlow()
-  const [activeTab, setActiveTab] = useState('issues')
+  const [activeTab, setActiveTab] = useState('worklog')
   const [expandedStages, setExpandedStages] = useState({})
   const activeEpicsCount = (epics || []).filter(e => e.status === 'active').length
 
