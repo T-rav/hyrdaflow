@@ -19,6 +19,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0006](0006-repo-runtime-isolation.md) | RepoRuntime Isolation Architecture | Proposed |
 | [0007](0007-dashboard-api-multi-repo-scoping.md) | Dashboard API Architecture for Multi-Repo Scoping | Proposed |
 | [0008](0008-multi-repo-dashboard-architecture.md) | Multi-Repo Dashboard Architecture | Proposed |
+| [0009](0009-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Proposed |
 
 ## Adding a new ADR
 
