@@ -45,6 +45,7 @@ class IssueFetcher:
             "labels": item.get("labels", []),
             "comments": comments,
             "url": item.get("html_url", item.get("url", "")),
+            "state": item.get("state", "open"),
             "createdAt": item.get("createdAt", item.get("created_at", "")),
             "author": author,
         }
@@ -316,7 +317,7 @@ class IssueFetcher:
                 "api",
                 f"repos/{self._config.repo}/issues/{issue_number}",
                 "--jq",
-                '{number, title, body, labels, url: .html_url, createdAt: .created_at, author: (.user.login // "")}',
+                '{number, title, body, labels, url: .html_url, state, createdAt: .created_at, author: (.user.login // "")}',
                 gh_token=self._config.gh_token,
             )
             data = json.loads(raw)

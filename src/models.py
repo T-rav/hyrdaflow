@@ -141,6 +141,7 @@ class GitHubIssue(BaseModel):
     comments: list[str] = Field(default_factory=list)
     url: HttpUrl = ""
     author: str = ""
+    state: str = "open"  # "open" or "closed" from GitHub API
     created_at: str = Field(
         default="",
         validation_alias=AliasChoices("createdAt", "created_at"),
@@ -759,6 +760,8 @@ class EpicState(BaseModel):
     child_issues: list[int] = Field(default_factory=list)
     completed_children: list[int] = Field(default_factory=list)
     failed_children: list[int] = Field(default_factory=list)
+    excluded_children: list[int] = Field(default_factory=list)
+    hitl_warned_children: list[int] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     closed: bool = False
@@ -834,6 +837,7 @@ class EpicProgress(BaseModel):
     total_children: int = 0
     completed: int = 0
     failed: int = 0
+    excluded: int = 0
     in_progress: int = 0
     status: str = "active"  # "active", "completed", "stale", "blocked"
     percent_complete: float = 0.0
@@ -852,6 +856,7 @@ class EpicChildInfo(BaseModel):
     stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
     is_completed: bool = False
     is_failed: bool = False
+    is_excluded: bool = False
 
 
 class EpicDetail(BaseModel):
