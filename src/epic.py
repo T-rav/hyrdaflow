@@ -371,15 +371,15 @@ class EpicManager:
         return stale
 
     def _get_merge_order(self, epic: EpicState) -> list[int]:
-        """Return child issues in dependency order (BLOCKS relationships).
+        """Return child issues that still need merging, in their registered order.
 
-        Children that block others come first. If no dependency info
-        is available, returns children in their original order.
+        Returns children that are not yet completed, preserving the order they
+        were registered in ``child_issues``.
+
+        Note: BLOCKS/BLOCKED_BY dependency ordering is not yet implemented.
+        For the "ordered" strategy, ensure children are registered in the
+        correct dependency order at registration time.
         """
-        # For ordered strategy, we need to parse BLOCKS/BLOCKED_BY from state.
-        # We use the child_issues list order as the base ordering and sort
-        # children so that blockers come before the issues they block.
-        # Without full issue body access here, we rely on persisted order.
         return [c for c in epic.child_issues if c not in epic.completed_children]
 
     async def _handle_bundled_ready(self, epic_number: int) -> None:
@@ -401,7 +401,11 @@ class EpicManager:
             "Merging all PRs automatically (bundled strategy).\n\n"
             "---\n*HydraFlow Epic Coordinator*",
         )
-        await self.release_epic(epic_number)
+        result = await self.release_epic(epic_number)
+        if "error" in result:
+            logger.warning(
+                "Epic #%d bundled release failed: %s", epic_number, result["error"]
+            )
 
     async def _handle_bundled_hitl_ready(self, epic_number: int) -> None:
         """All siblings approved — pause and notify for human review."""
@@ -439,7 +443,11 @@ class EpicManager:
             "Merging PRs in dependency order.\n\n"
             "---\n*HydraFlow Epic Coordinator*",
         )
-        await self.release_epic(epic_number)
+        result = await self.release_epic(epic_number)
+        if "error" in result:
+            logger.warning(
+                "Epic #%d ordered release failed: %s", epic_number, result["error"]
+            )
 
     async def release_epic(self, epic_number: int) -> dict[str, object]:
         """Trigger sequential merge for a bundled epic (called from API).
@@ -472,6 +480,13 @@ class EpicManager:
                     results.append(
                         {"issue": child_num, "pr": pr_number, "status": "failed"}
                     )
+                    # Halt on first failure — remaining PRs stay unmerged
+                    await self._publish_update(epic_number, "release_failed")
+                    return {
+                        "epic_number": epic_number,
+                        "merges": results,
+                        "error": f"merge failed for child #{child_num} (PR #{pr_number}); bundle halted",
+                    }
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "Failed to merge child #%d of epic #%d",
@@ -480,6 +495,13 @@ class EpicManager:
                     exc_info=True,
                 )
                 results.append({"issue": child_num, "status": "error"})
+                # Halt on exception too — remaining PRs stay unmerged
+                await self._publish_update(epic_number, "release_failed")
+                return {
+                    "epic_number": epic_number,
+                    "merges": results,
+                    "error": f"exception merging child #{child_num}; bundle halted",
+                }
 
         await self._publish_update(epic_number, "released")
         return {"epic_number": epic_number, "merges": results}

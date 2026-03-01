@@ -514,10 +514,11 @@ class StateTracker:
         approved = len(epic.approved_children)
         in_progress = total - merged - failed
         pending = total - merged - failed - approved
-        # Ready to merge: all children approved or merged, none failed
+        # Ready to merge: all children approved or merged, none failed, non-independent
         ready = (
             total > 0
             and failed == 0
+            and epic.merge_strategy != "independent"
             and all(
                 c in epic.approved_children or c in epic.completed_children
                 for c in epic.child_issues

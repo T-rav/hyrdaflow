@@ -268,12 +268,28 @@ class TestStateTrackerEpicApproval:
             child_issues=[1, 2, 3],
             completed_children=[1],
             approved_children=[2, 3],
+            merge_strategy="bundled",
         )
         state.upsert_epic_state(epic)
 
         result = state.get_epic_progress(100)
 
         assert result["ready_to_merge"] is True
+
+    def test_get_epic_progress_not_ready_for_independent(self, tmp_path: Path) -> None:
+        """Independent strategy is never ready_to_merge even when all approved."""
+        state = StateTracker(tmp_path / "state.json")
+        epic = EpicState(
+            epic_number=100,
+            child_issues=[1, 2],
+            approved_children=[1, 2],
+            merge_strategy="independent",
+        )
+        state.upsert_epic_state(epic)
+
+        result = state.get_epic_progress(100)
+
+        assert result["ready_to_merge"] is False
 
     def test_get_epic_progress_not_ready_when_failed(self, tmp_path: Path) -> None:
         state = StateTracker(tmp_path / "state.json")
