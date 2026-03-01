@@ -1097,6 +1097,25 @@ class TestCheckGhCli:
         assert check.status == AuditCheckStatus.PARTIAL
         assert "read-only" in check.detail
 
+    @pytest.mark.asyncio
+    async def test_gh_token_passed_to_subprocess(self, tmp_path: Path) -> None:
+        """Should pass gh_token to every run_subprocess call."""
+        config = ConfigFactory.create(repo_root=tmp_path, gh_token="ghp_test123")
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+
+        with patch("prep.run_subprocess", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [
+                "Logged in",  # gh auth status
+                "WRITE",  # gh repo view
+            ]
+            await auditor._check_gh_cli()
+
+        assert mock_run.call_count == 2
+        for call in mock_run.call_args_list:
+            assert call.kwargs.get("gh_token") == "ghp_test123"
+
 
 # ---------------------------------------------------------------------------
 # Label detection
@@ -1165,6 +1184,22 @@ class TestCheckLabels:
             check = await auditor._check_labels()
 
         assert check.status == AuditCheckStatus.MISSING
+
+    @pytest.mark.asyncio
+    async def test_gh_token_passed_to_subprocess(self, tmp_path: Path) -> None:
+        """Should pass gh_token to run_subprocess when listing labels."""
+        config = ConfigFactory.create(repo_root=tmp_path, gh_token="ghp_label_tok")
+        from prep import RepoAuditor
+
+        auditor = RepoAuditor(config)
+        all_labels = auditor._get_hydra_labels()
+
+        with patch("prep.run_subprocess", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = "\n".join(all_labels)
+            await auditor._check_labels()
+
+        assert mock_run.call_count == 1
+        assert mock_run.call_args.kwargs.get("gh_token") == "ghp_label_tok"
 
 
 # ---------------------------------------------------------------------------

@@ -679,7 +679,7 @@ class RepoAuditor:
     async def _check_gh_cli(self) -> AuditCheck:
         """Check gh CLI authentication and repo access."""
         try:
-            await run_subprocess("gh", "auth", "status")
+            await run_subprocess("gh", "auth", "status", gh_token=self._config.gh_token)
         except RuntimeError as exc:
             return AuditCheck(
                 name="gh CLI",
@@ -698,6 +698,7 @@ class RepoAuditor:
                 "viewerPermission",
                 "--jq",
                 ".viewerPermission",
+                gh_token=self._config.gh_token,
             )
             permission = permission.strip().upper()
             if permission in ("WRITE", "ADMIN"):
@@ -736,6 +737,7 @@ class RepoAuditor:
                 "name",
                 "--jq",
                 ".[].name",
+                gh_token=self._config.gh_token,
             )
             existing = {line.strip() for line in output.splitlines() if line.strip()}
         except RuntimeError:
