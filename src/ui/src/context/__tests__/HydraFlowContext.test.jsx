@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { reducer } from '../HydraFlowContext'
 
 const emptyPipeline = {
@@ -456,6 +456,72 @@ describe('HydraFlowProvider', () => {
       </HydraFlowProvider>
     )
     expect(screen.getByText('Test Child')).toBeInTheDocument()
+  })
+})
+
+describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {
+  afterEach(() => {
+    delete window.__HYDRAFLOW_SEED_STATE__
+  })
+
+  it('uses seed state as initial state when window.__HYDRAFLOW_SEED_STATE__ is set', async () => {
+    const seedData = {
+      connected: true,
+      phase: 'implement',
+      orchestratorStatus: 'running',
+      workers: { 42: { status: 'active', role: 'implementer', title: 'Issue #42', branch: 'agent/issue-42', transcript: [], pr: null } },
+      pipelineIssues: {
+        triage: [],
+        plan: [],
+        implement: [{ issue_number: 42, title: 'Seed issue', url: '', status: 'active' }],
+        review: [],
+        hitl: [],
+        merged: [],
+      },
+    }
+    window.__HYDRAFLOW_SEED_STATE__ = seedData
+
+    // Fresh import so the module re-evaluates with seed state
+    vi.resetModules()
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+
+    let capturedState = null
+    function StateCapture() {
+      capturedState = useHydraFlow()
+      return <div>seeded</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <StateCapture />
+        </HydraFlowProvider>
+      )
+    })
+
+    expect(screen.getByText('seeded')).toBeInTheDocument()
+    expect(capturedState.phase).toBe('implement')
+    expect(capturedState.orchestratorStatus).toBe('running')
+    expect(capturedState.connected).toBe(true)
+  })
+
+  it('does not make network calls when seeded', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
+
+    vi.resetModules()
+    const fetchSpy = vi.spyOn(global, 'fetch')
+    const { HydraFlowProvider } = await import('../HydraFlowContext')
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <div>no-fetch</div>
+        </HydraFlowProvider>
+      )
+    })
+
+    // With seed state, no API or WebSocket calls should be made
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
 

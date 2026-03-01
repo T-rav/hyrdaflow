@@ -681,8 +681,16 @@ export function reducer(state, action) {
 
 const HydraFlowContext = createContext(null)
 
+function getInitialState() {
+  if (typeof window !== 'undefined' && window.__HYDRAFLOW_SEED_STATE__) {
+    return { ...initialState, ...window.__HYDRAFLOW_SEED_STATE__ }
+  }
+  return initialState
+}
+
 export function HydraFlowProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, dispatch] = useReducer(reducer, undefined, getInitialState)
+  const isSeeded = typeof window !== 'undefined' && !!window.__HYDRAFLOW_SEED_STATE__
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const lastEventTsRef = useRef(null)
@@ -1068,6 +1076,7 @@ export function HydraFlowProvider({ children }) {
   }, [fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
 
   useEffect(() => {
+    if (isSeeded) return
     const poll = () => {
       fetch('/api/human-input')
         .then(r => r.ok ? r.json() : {})
@@ -1077,7 +1086,7 @@ export function HydraFlowProvider({ children }) {
     poll()
     const interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
-  }, [])
+  }, [isSeeded])
 
   // Pipeline polling — interval is editable via system worker controls.
   // When WebSocket is connected and pipeline_stats events are flowing,
@@ -1089,30 +1098,34 @@ export function HydraFlowProvider({ children }) {
   }, [state.backgroundWorkers, state.connected, state.pipelineStats])
 
   useEffect(() => {
+    if (isSeeded) return
     fetchPipeline()
     const interval = setInterval(fetchPipeline, pipelinePollerIntervalMs)
     return () => clearInterval(interval)
-  }, [fetchPipeline, pipelinePollerIntervalMs])
+  }, [fetchPipeline, pipelinePollerIntervalMs, isSeeded])
 
   useEffect(() => {
+    if (isSeeded) return
     connect()
     return () => {
       if (wsRef.current) wsRef.current.close()
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
     }
-  }, [connect])
+  }, [connect, isSeeded])
 
   useEffect(() => {
+    if (isSeeded) return
     fetchRepos()
     const interval = setInterval(fetchRepos, 15000)
     return () => clearInterval(interval)
-  }, [fetchRepos])
+  }, [fetchRepos, isSeeded])
 
   useEffect(() => {
+    if (isSeeded) return
     fetchRuntimes()
     const interval = setInterval(fetchRuntimes, 15000)
     return () => clearInterval(interval)
-  }, [fetchRuntimes])
+  }, [fetchRuntimes, isSeeded])
 
   const stageStatus = useMemo(
     () => deriveStageStatus(
