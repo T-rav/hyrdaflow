@@ -966,7 +966,7 @@ class TestVisualGateInHandleApproved:
     async def test_visual_gate_enabled_no_fn_emits_audit_event(
         self, config: HydraFlowConfig
     ) -> None:
-        """When visual gate enabled but no fn provided, an audit event is still emitted."""
+        """When visual gate enabled but no fn provided, an audit event is emitted."""
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
@@ -992,14 +992,16 @@ class TestVisualGateInHandleApproved:
             # No visual_gate_fn provided
         )
 
-        assert result.merged is True
-        # Verify an audit event was published for the skipped gate
+        # Merge is blocked when no visual_gate_fn is provided
+        assert result.merged is False
+        handler._prs.merge_pr.assert_not_awaited()
+        # Verify an audit event was published for the blocked gate
         published_events = [
             call.args[0] for call in handler._bus.publish.call_args_list
         ]
         gate_events = [
-            e for e in published_events if e.data.get("verdict") == "skipped"
+            e for e in published_events if e.data.get("verdict") == "blocked"
         ]
-        assert len(gate_events) == 1, "Expected one VISUAL_GATE skipped audit event"
+        assert len(gate_events) == 1, "Expected one VISUAL_GATE blocked audit event"
         assert gate_events[0].data["pr"] == pr.number
         assert gate_events[0].data["issue"] == issue.id
