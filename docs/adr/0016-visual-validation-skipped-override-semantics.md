@@ -1,4 +1,4 @@
-# ADR-0009: VisualValidation SKIPPED Override Semantics — Partial Suppression by Design
+# ADR-0016: VisualValidation SKIPPED Override Semantics — Partial Suppression by Design
 
 **Status:** Proposed
 **Date:** 2026-03-01

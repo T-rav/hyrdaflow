@@ -553,6 +553,122 @@ class TestHITLCauseTracking:
 
 
 # ---------------------------------------------------------------------------
+# HITL visual evidence tracking
+# ---------------------------------------------------------------------------
+
+
+class TestHITLVisualEvidence:
+    def test_set_and_get_visual_evidence(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        tracker = make_tracker(tmp_path)
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="login", diff_percent=5.0, status="fail")
+            ],
+            summary="1 screen failed",
+        )
+        tracker.set_hitl_visual_evidence(42, ev)
+        result = tracker.get_hitl_visual_evidence(42)
+        assert result is not None
+        assert len(result.items) == 1
+        assert result.items[0].screen_name == "login"
+        assert result.summary == "1 screen failed"
+
+    def test_get_returns_none_for_unknown(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_hitl_visual_evidence(999) is None
+
+    def test_set_triggers_save(self, tmp_path: Path) -> None:
+        from models import VisualEvidence
+
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        tracker.set_hitl_visual_evidence(42, VisualEvidence())
+        assert state_file.exists()
+
+    def test_set_overwrites_existing(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        tracker = make_tracker(tmp_path)
+        ev1 = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="page1", diff_percent=1.0, status="pass")
+            ],
+        )
+        ev2 = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="page2", diff_percent=10.0, status="fail"
+                )
+            ],
+            attempt=2,
+        )
+        tracker.set_hitl_visual_evidence(42, ev1)
+        tracker.set_hitl_visual_evidence(42, ev2)
+        result = tracker.get_hitl_visual_evidence(42)
+        assert result is not None
+        assert result.items[0].screen_name == "page2"
+        assert result.attempt == 2
+
+    def test_remove_deletes_entry(self, tmp_path: Path) -> None:
+        from models import VisualEvidence
+
+        tracker = make_tracker(tmp_path)
+        tracker.set_hitl_visual_evidence(42, VisualEvidence())
+        tracker.remove_hitl_visual_evidence(42)
+        assert tracker.get_hitl_visual_evidence(42) is None
+
+    def test_remove_nonexistent_is_noop(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.remove_hitl_visual_evidence(999)
+        assert tracker.get_hitl_visual_evidence(999) is None
+
+    def test_persists_across_reload(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="dash", diff_percent=8.0, status="warn")
+            ],
+            summary="warn threshold",
+            attempt=3,
+        )
+        tracker.set_hitl_visual_evidence(42, ev)
+
+        tracker2 = StateTracker(state_file)
+        result = tracker2.get_hitl_visual_evidence(42)
+        assert result is not None
+        assert result.items[0].screen_name == "dash"
+        assert result.attempt == 3
+
+    def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        tracker = make_tracker(tmp_path)
+        tracker.set_hitl_visual_evidence(
+            1,
+            VisualEvidence(
+                items=[
+                    VisualEvidenceItem(screen_name="a", diff_percent=1.0, status="pass")
+                ]
+            ),
+        )
+        tracker.set_hitl_visual_evidence(
+            2,
+            VisualEvidence(
+                items=[
+                    VisualEvidenceItem(screen_name="b", diff_percent=2.0, status="pass")
+                ]
+            ),
+        )
+        assert tracker.get_hitl_visual_evidence(1).items[0].screen_name == "a"
+        assert tracker.get_hitl_visual_evidence(2).items[0].screen_name == "b"
+
+
+# ---------------------------------------------------------------------------
 # Reset
 # ---------------------------------------------------------------------------
 
@@ -2761,3 +2877,96 @@ class TestSessionCounters:
         throughput = tracker.compute_session_throughput()
         # Should not raise; throughput may be very high but finite
         assert throughput["triaged"] >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Disabled workers persistence
+# ---------------------------------------------------------------------------
+
+
+class TestDisabledWorkersPersistence:
+    def test_get_disabled_workers_empty_by_default(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_disabled_workers() == set()
+
+    def test_set_and_get_disabled_workers(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_disabled_workers({"memory_sync", "metrics"})
+        assert tracker.get_disabled_workers() == {"memory_sync", "metrics"}
+
+    def test_disabled_workers_survive_reload(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        t1 = StateTracker(state_file)
+        t1.set_disabled_workers({"memory_sync", "pr_unsticker"})
+
+        t2 = StateTracker(state_file)
+        assert t2.get_disabled_workers() == {"memory_sync", "pr_unsticker"}
+
+    def test_empty_disabled_workers_clears(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_disabled_workers({"memory_sync"})
+        tracker.set_disabled_workers(set())
+        assert tracker.get_disabled_workers() == set()
+
+    def test_partial_corruption_missing_disabled_workers(self, tmp_path: Path) -> None:
+        """State file with missing disabled_workers field loads gracefully."""
+        state_file = tmp_path / "state.json"
+        data = {
+            "processed_issues": {},
+            "active_worktrees": {},
+            "active_branches": {},
+            "reviewed_prs": {},
+            "bg_worker_states": {
+                "memory_sync": {
+                    "name": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-20T10:00:00Z",
+                    "details": {},
+                }
+            },
+        }
+        state_file.write_text(json.dumps(data))
+
+        tracker = StateTracker(state_file)
+        assert tracker.get_disabled_workers() == set()
+        states = tracker.get_bg_worker_states()
+        assert "memory_sync" in states
+
+    def test_partial_corruption_invalid_bg_worker_states(self, tmp_path: Path) -> None:
+        """State file with corrupted bg_worker_states section but valid JSON loads gracefully."""
+        state_file = tmp_path / "state.json"
+        data = {
+            "processed_issues": {"42": "merged"},
+            "active_worktrees": {},
+            "active_branches": {},
+            "reviewed_prs": {},
+            "bg_worker_states": "not_a_dict",
+            "worker_heartbeats": {},
+            "disabled_workers": ["memory_sync"],
+        }
+        state_file.write_text(json.dumps(data))
+
+        # Pydantic validation will fail, resetting to defaults
+        tracker = StateTracker(state_file)
+        # After reset, disabled workers should be empty (defaults)
+        assert tracker.get_disabled_workers() == set()
+        assert tracker.get_bg_worker_states() == {}
+
+    def test_deleted_bg_worker_states_preserves_disabled_workers(
+        self, tmp_path: Path
+    ) -> None:
+        """Deleting bg_worker_states from state file preserves disabled_workers."""
+        state_file = tmp_path / "state.json"
+        data = {
+            "processed_issues": {},
+            "active_worktrees": {},
+            "active_branches": {},
+            "reviewed_prs": {},
+            "disabled_workers": ["memory_sync"],
+        }
+        state_file.write_text(json.dumps(data))
+
+        tracker = StateTracker(state_file)
+        assert tracker.get_disabled_workers() == {"memory_sync"}
+        # bg_worker_states defaults to empty when absent
+        assert tracker.get_bg_worker_states() == {}

@@ -1,4 +1,4 @@
-"""Tests for ADR-0009: VisualValidation SKIPPED Override Semantics."""
+"""Tests for ADR-0016: VisualValidation SKIPPED Override Semantics."""
 
 from __future__ import annotations
 
@@ -10,25 +10,25 @@ _ADR_PATH = (
     Path(__file__).resolve().parents[1]
     / "docs"
     / "adr"
-    / "0009-visual-validation-skipped-override-semantics.md"
+    / "0016-visual-validation-skipped-override-semantics.md"
 )
 _README_PATH = _ADR_PATH.parent / "README.md"
 
 
 class TestAdr0009Exists:
-    """ADR-0009 file must exist and be indexed."""
+    """ADR-0016 file must exist and be indexed."""
 
     def test_adr_file_exists(self) -> None:
         assert _ADR_PATH.exists(), f"ADR file not found at {_ADR_PATH}"
 
     def test_adr_indexed_in_readme(self) -> None:
         readme = _README_PATH.read_text()
-        assert "0009" in readme
+        assert "0016" in readme
         assert "visual-validation-skipped-override-semantics" in readme
 
 
 class TestAdr0009RequiredSections:
-    """ADR-0009 must contain all required sections per docs/adr/README.md."""
+    """ADR-0016 must contain all required sections per docs/adr/README.md."""
 
     @pytest.fixture()
     def content(self) -> str:
@@ -51,7 +51,7 @@ class TestAdr0009RequiredSections:
 
 
 class TestAdr0009ContentAccuracy:
-    """ADR-0009 content must reference the correct code and concepts."""
+    """ADR-0016 content must reference the correct code and concepts."""
 
     @pytest.fixture()
     def content(self) -> str:

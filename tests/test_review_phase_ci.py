@@ -599,3 +599,255 @@ class TestCodeScanningAlertThreading:
         # Verify fix_ci was called with code_scanning_alerts
         call_kwargs = phase._reviewers.fix_ci.call_args
         assert call_kwargs.kwargs.get("code_scanning_alerts") == alerts
+
+
+# ---------------------------------------------------------------------------
+# Visual gate (check_visual_gate)
+# ---------------------------------------------------------------------------
+
+
+class TestVisualGate:
+    """Tests for check_visual_gate integration with the review phase."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_disabled(self, config: HydraFlowConfig) -> None:
+        """When visual_gate_enabled is False, gate returns True immediately."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+        assert ok is True
+        assert result.visual_passed is None  # Not touched when disabled
+
+    @pytest.mark.asyncio
+    async def test_bypass_returns_true_with_audit_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When bypass active, gate returns True and publishes audit event."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+        assert ok is True
+        assert result.visual_passed is True
+        # Verify audit event was published
+        phase._bus.publish.assert_awaited_once()
+        event = phase._bus.publish.call_args.args[0]
+        assert event.data["verdict"] == "bypass"
+        assert "kill-switch" in event.data["reason"]
+
+    @pytest.mark.asyncio
+    async def test_enabled_pass_posts_sign_off_comment(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When gate enabled and passes, posts sign-off comment on PR."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+        assert ok is True
+        assert result.visual_passed is True
+        phase._prs.post_pr_comment.assert_awaited_once()
+        comment = phase._prs.post_pr_comment.call_args.args[1]
+        assert "PASSED" in comment
+
+    @pytest.mark.asyncio
+    async def test_emits_gate_telemetry(self, config: HydraFlowConfig) -> None:
+        """Gate emits telemetry event with runtime, verdict, and retries."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        phase._bus.publish.assert_awaited_once()
+        event_data = phase._bus.publish.call_args.args[0].data
+        assert "runtime_seconds" in event_data
+        assert "verdict" in event_data
+        assert "retries" in event_data
+        assert event_data["verdict"] == "pass"
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_merge_passes_visual_gate_fn(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_handle_approved_merge wires check_visual_gate into handle_approved."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._post_merge.handle_approved = AsyncMock()
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        await phase._handle_approved_merge(pr, issue, result, "diff", 0)
+
+        phase._post_merge.handle_approved.assert_awaited_once()
+        call_kwargs = phase._post_merge.handle_approved.call_args.kwargs
+        assert (
+            call_kwargs["visual_gate_fn"].__func__ is phase.check_visual_gate.__func__
+        )
+
+    @pytest.mark.asyncio
+    async def test_fail_verdict_blocks_merge_and_escalates(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When _invoke_visual_pipeline returns fail, merge is blocked and HITL escalated."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._escalate_to_hitl = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(
+            return_value=("fail", {}, "diff regression detected")
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+        assert ok is False
+        assert result.visual_passed is False
+        phase._prs.post_pr_comment.assert_awaited_once()
+        comment = phase._prs.post_pr_comment.call_args.args[1]
+        assert "BLOCKED" in comment
+        phase._escalate_to_hitl.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_warn_verdict_blocks_merge(self, config: HydraFlowConfig) -> None:
+        """When _invoke_visual_pipeline returns warn, merge is blocked."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._escalate_to_hitl = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(
+            return_value=("warn", {}, "minor visual drift")
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+        assert ok is False
+        assert result.visual_passed is False
+
+    @pytest.mark.asyncio
+    async def test_fail_verdict_emits_telemetry(self, config: HydraFlowConfig) -> None:
+        """Fail verdict emits telemetry with verdict and reason."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._escalate_to_hitl = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(
+            return_value=("fail", {"report": "https://example.com/report"}, "mismatch")
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        phase._bus.publish.assert_awaited_once()
+        event_data = phase._bus.publish.call_args.args[0].data
+        assert event_data["verdict"] == "fail"
+        assert event_data["reason"] == "mismatch"
+        assert "runtime_seconds" in event_data
+
+    @pytest.mark.asyncio
+    async def test_pass_verdict_with_artifacts_includes_links(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Pass verdict with artifacts includes artifact links in sign-off comment."""
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(
+            return_value=(
+                "pass",
+                {
+                    "baseline": "https://example.com/base",
+                    "diff": "https://example.com/diff",
+                },
+                "all clear",
+            )
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+        assert ok is True
+        assert result.visual_passed is True
+        comment = phase._prs.post_pr_comment.call_args.args[1]
+        assert "baseline" in comment
+        assert "diff" in comment
+        assert "Artifacts" in comment

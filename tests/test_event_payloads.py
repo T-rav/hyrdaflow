@@ -115,6 +115,17 @@ class TestEventPayloadTypes:
         }
         assert payload["ci_fix_attempts"] == 3
 
+    def test_hitl_escalation_with_visual_evidence(self) -> None:
+        from models import HITLEscalationPayload
+
+        payload: HITLEscalationPayload = {
+            "issue": 42,
+            "cause": "Visual validation failed",
+            "origin": "hydraflow-review",
+            "visual_evidence": {"items": [], "summary": "login screen diff 12%"},
+        }
+        assert payload["visual_evidence"]["summary"] == "login screen diff 12%"
+
     def test_review_update_optional_verdict(self) -> None:
         from models import ReviewUpdatePayload
 

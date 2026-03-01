@@ -134,3 +134,34 @@ jobs:
       - name: Test
         working-directory: src/ui
         run: npm test
+
+  visual-capture:
+    name: Visual Capture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/ui/package-lock.json
+      - name: Install dependencies
+        working-directory: src/ui
+        run: npm ci
+      - name: Install Playwright browsers
+        working-directory: src/ui
+        run: npx playwright install --with-deps chromium
+      - name: Generate baseline screenshots
+        working-directory: src/ui
+        run: npm run screenshot:update
+      - name: Verify reproducibility (second run must match)
+        working-directory: src/ui
+        run: npm run screenshot
+      - name: Upload screenshot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-captures
+          path: src/ui/e2e/screenshots/
+          retention-days: 30

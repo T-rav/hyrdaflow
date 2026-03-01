@@ -38,6 +38,7 @@ export const initialState = {
   systemAlert: null,
   intents: [],
   epics: [],
+  epicReleasing: null, // { epicNumber, progress, total } or null
   githubMetrics: null,
   metricsHistory: null,
   pipelineIssues: { ...emptyPipeline },
@@ -456,6 +457,49 @@ export function reducer(state, action) {
     case 'EPICS':
       return { ...state, epics: action.data || [] }
 
+    case 'EPIC_READY': {
+      const readyNum = action.data?.epic_number
+      if (!readyNum) return state
+      return {
+        ...state,
+        epics: state.epics.map(e =>
+          e.epic_number === readyNum ? { ...e, status: 'ready' } : e
+        ),
+      }
+    }
+
+    case 'EPIC_RELEASING': {
+      // null data signals a clear (e.g. release failure revert)
+      if (!action.data) return { ...state, epicReleasing: null }
+      const releasingNum = action.data.epic_number
+      if (!releasingNum) return state
+      return {
+        ...state,
+        epicReleasing: {
+          epicNumber: releasingNum,
+          progress: action.data.progress || 0,
+          total: action.data.total || 0,
+        },
+        epics: state.epics.map(e =>
+          e.epic_number === releasingNum ? { ...e, status: 'releasing' } : e
+        ),
+      }
+    }
+
+    case 'EPIC_RELEASED': {
+      const releasedNum = action.data?.epic_number
+      if (!releasedNum) return state
+      return {
+        ...state,
+        epicReleasing: null,
+        epics: state.epics.map(e =>
+          e.epic_number === releasedNum
+            ? { ...e, status: 'released', version: action.data.version || '', released_at: action.data.released_at || new Date().toISOString() }
+            : e
+        ),
+      }
+    }
+
     case 'system_alert':
       return { ...addEvent(state, action), systemAlert: action.data }
 
@@ -681,8 +725,16 @@ export function reducer(state, action) {
 
 const HydraFlowContext = createContext(null)
 
+function getInitialState() {
+  if (typeof window !== 'undefined' && window.__HYDRAFLOW_SEED_STATE__) {
+    return { ...initialState, ...window.__HYDRAFLOW_SEED_STATE__ }
+  }
+  return initialState
+}
+
 export function HydraFlowProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, dispatch] = useReducer(reducer, undefined, getInitialState)
+  const isSeeded = typeof window !== 'undefined' && !!window.__HYDRAFLOW_SEED_STATE__
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const lastEventTsRef = useRef(null)
@@ -894,6 +946,26 @@ export function HydraFlowProvider({ children }) {
     }
   }, [state.config, state.orchestratorStatus, state.pipelineIssues])
 
+  const releaseEpic = useCallback(async (epicNumber) => {
+    dispatch({ type: 'EPIC_RELEASING', data: { epic_number: epicNumber, progress: 0, total: 0 } })
+    try {
+      const res = await fetch(`/api/epics/${epicNumber}/release`, { method: 'POST' })
+      if (!res.ok) {
+        // Revert optimistic update
+        fetchEpics()
+        dispatch({ type: 'EPIC_RELEASING', data: null })
+        return { ok: false, error: `Release failed: ${res.status}` }
+      }
+      const data = await res.json()
+      dispatch({ type: 'EPIC_RELEASED', data: { epic_number: epicNumber, version: data.version, released_at: data.released_at } })
+      return { ok: true, version: data.version }
+    } catch (err) {
+      dispatch({ type: 'EPIC_RELEASING', data: null })
+      fetchEpics()
+      return { ok: false, error: err.message }
+    }
+  }, [fetchEpics])
+
   const resetSession = useCallback(() => {
     dispatch({ type: 'SESSION_RESET' })
   }, [])
@@ -1055,6 +1127,7 @@ export function HydraFlowProvider({ children }) {
           fetchMetricsHistory()
         }
         if (event.type === 'hitl_update' || event.type === 'hitl_escalation') fetchHitlItems()
+        if (event.type === 'epic_update' || event.type === 'epic_ready' || event.type === 'epic_released') fetchEpics()
       } catch { /* ignore parse errors */ }
     }
 
@@ -1068,6 +1141,7 @@ export function HydraFlowProvider({ children }) {
   }, [fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
 
   useEffect(() => {
+    if (isSeeded) return
     const poll = () => {
       fetch('/api/human-input')
         .then(r => r.ok ? r.json() : {})
@@ -1077,7 +1151,7 @@ export function HydraFlowProvider({ children }) {
     poll()
     const interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
-  }, [])
+  }, [isSeeded])
 
   // Pipeline polling — interval is editable via system worker controls.
   // When WebSocket is connected and pipeline_stats events are flowing,
@@ -1089,30 +1163,34 @@ export function HydraFlowProvider({ children }) {
   }, [state.backgroundWorkers, state.connected, state.pipelineStats])
 
   useEffect(() => {
+    if (isSeeded) return
     fetchPipeline()
     const interval = setInterval(fetchPipeline, pipelinePollerIntervalMs)
     return () => clearInterval(interval)
-  }, [fetchPipeline, pipelinePollerIntervalMs])
+  }, [fetchPipeline, pipelinePollerIntervalMs, isSeeded])
 
   useEffect(() => {
+    if (isSeeded) return
     connect()
     return () => {
       if (wsRef.current) wsRef.current.close()
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
     }
-  }, [connect])
+  }, [connect, isSeeded])
 
   useEffect(() => {
+    if (isSeeded) return
     fetchRepos()
     const interval = setInterval(fetchRepos, 15000)
     return () => clearInterval(interval)
-  }, [fetchRepos])
+  }, [fetchRepos, isSeeded])
 
   useEffect(() => {
+    if (isSeeded) return
     fetchRuntimes()
     const interval = setInterval(fetchRuntimes, 15000)
     return () => clearInterval(interval)
-  }, [fetchRuntimes])
+  }, [fetchRuntimes, isSeeded])
 
   const stageStatus = useMemo(
     () => deriveStageStatus(
@@ -1172,6 +1250,7 @@ export function HydraFlowProvider({ children }) {
     removeRepoShortcut,
     startRuntime,
     stopRuntime,
+    releaseEpic,
   }
 
   return (

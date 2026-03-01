@@ -21,6 +21,7 @@ def _make_loop(tmp_path: Path, *, enabled: bool = True, interval: int = 60):
 
     epic_manager = MagicMock()
     epic_manager.check_stale_epics = AsyncMock(return_value=[])
+    epic_manager.refresh_cache = AsyncMock(return_value=None)
     epic_manager.get_all_progress = MagicMock(return_value=[])
 
     loop = EpicMonitorLoop(
@@ -38,16 +39,18 @@ def _make_loop(tmp_path: Path, *, enabled: bool = True, interval: int = 60):
 class TestEpicMonitorLoop:
     @pytest.mark.asyncio
     async def test_do_work_calls_manager(self, tmp_path: Path) -> None:
-        loop, stop, mgr = _make_loop(tmp_path)
+        loop, _, mgr = _make_loop(tmp_path)
         await loop.run()
 
         mgr.check_stale_epics.assert_called()
+        mgr.refresh_cache.assert_called()
         mgr.get_all_progress.assert_called()
 
     @pytest.mark.asyncio
     async def test_returns_stale_count(self, tmp_path: Path) -> None:
-        loop, stop, mgr = _make_loop(tmp_path)
+        loop, _, mgr = _make_loop(tmp_path)
         mgr.check_stale_epics = AsyncMock(return_value=[100, 200])
+        mgr.refresh_cache = AsyncMock(return_value=None)
         mgr.get_all_progress = MagicMock(
             return_value=[MagicMock(), MagicMock(), MagicMock()]
         )
@@ -57,7 +60,7 @@ class TestEpicMonitorLoop:
 
     @pytest.mark.asyncio
     async def test_disabled_skips_work(self, tmp_path: Path) -> None:
-        loop, stop, mgr = _make_loop(tmp_path, enabled=False)
+        loop, _, mgr = _make_loop(tmp_path, enabled=False)
         await loop.run()
 
         mgr.check_stale_epics.assert_not_called()

@@ -189,7 +189,7 @@ export function HITLTable({ items, onRefresh }) {
               <React.Fragment key={item.issue}>
                 <tr
                   onClick={() => toggleExpandAndLoadSummary(item.issue)}
-                  style={{ ...styles.row, ...(isExpanded ? styles.rowExpanded : {}) }}
+                  style={isExpanded ? styles.rowActive : styles.row}
                   data-testid={`hitl-row-${item.issue}`}
                 >
                   <td style={styles.td}>
@@ -248,6 +248,48 @@ export function HITLTable({ items, onRefresh }) {
                               : summaries[item.issue]?.text || summaries[item.issue]?.error || 'Summary pending. Refresh in a few seconds.'}
                           </div>
                         </div>
+                        {item.visualEvidence && item.visualEvidence.items && item.visualEvidence.items.length > 0 && (
+                          <div style={styles.visualSection} data-testid={`hitl-visual-${item.issue}`}>
+                            <div style={styles.visualHeader}>
+                              <span style={styles.visualTitle}>Visual Evidence</span>
+                              {item.visualEvidence.run_url && (
+                                <a
+                                  href={item.visualEvidence.run_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={styles.link}
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  Run #{item.visualEvidence.attempt || 1}
+                                </a>
+                              )}
+                            </div>
+                            {item.visualEvidence.summary && (
+                              <div style={styles.visualSummary}>{item.visualEvidence.summary}</div>
+                            )}
+                            <div style={styles.visualGrid}>
+                              {item.visualEvidence.items.map((ev, idx) => (
+                                <div key={`${ev.screen_name}-${idx}`} style={styles.visualCard} data-testid={`hitl-visual-item-${item.issue}-${idx}`}>
+                                  <div style={styles.visualCardHeader}>
+                                    <span style={styles.visualScreenName}>{ev.screen_name}</span>
+                                    <span style={visualStatusStyle(ev.status)}>
+                                      {ev.status === 'fail' ? 'FAIL' : ev.status === 'warn' ? 'WARN' : 'PASS'}
+                                    </span>
+                                  </div>
+                                  <div style={styles.visualDiffBar}>
+                                    <div style={diffFillStyle(ev.status, ev.diff_percent)} />
+                                  </div>
+                                  <span style={styles.visualDiffLabel}>{ev.diff_percent.toFixed(1)}% diff</span>
+                                  <div style={styles.visualLinks}>
+                                    {ev.baseline_url && <a href={ev.baseline_url} target="_blank" rel="noreferrer" style={styles.link} onClick={e => e.stopPropagation()}>Baseline</a>}
+                                    {ev.actual_url && <a href={ev.actual_url} target="_blank" rel="noreferrer" style={styles.link} onClick={e => e.stopPropagation()}>Actual</a>}
+                                    {ev.diff_url && <a href={ev.diff_url} target="_blank" rel="noreferrer" style={styles.link} onClick={e => e.stopPropagation()}>Diff</a>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {item.cause && (
                           <div style={causeBadgeStyle(item)} data-testid={`hitl-cause-${item.issue}`}>
                             Cause: {item.cause}
@@ -351,7 +393,33 @@ function causeColors(cause) {
   if (lower.includes('triage') || lower.includes('insufficient')) {
     return { bg: theme.yellowSubtle, fg: theme.yellow }
   }
+  if (lower.includes('visual') || lower.includes('screenshot')) {
+    return { bg: theme.redSubtle, fg: theme.red }
+  }
   return { bg: theme.orangeSubtle, fg: theme.orange }
+}
+
+function visualStatusStyle(status) {
+  const colors = {
+    fail: { bg: theme.redSubtle, fg: theme.red },
+    warn: { bg: theme.yellowSubtle, fg: theme.yellow },
+    pass: { bg: theme.greenSubtle, fg: theme.green },
+  }
+  const { bg, fg } = colors[status] || colors.fail
+  return {
+    fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 700,
+    background: bg, color: fg,
+  }
+}
+
+const diffFillBg = { fail: theme.red, warn: theme.yellow, pass: theme.green }
+
+function diffFillStyle(status, diffPercent) {
+  return {
+    height: '100%', borderRadius: 2, transition: 'width 0.3s',
+    width: `${Math.min(diffPercent, 100)}%`,
+    background: diffFillBg[status] || theme.red,
+  }
 }
 
 function causeBadgeStyle(item) {
@@ -392,7 +460,7 @@ const styles = {
   },
   td: { padding: 8, borderBottom: `1px solid ${theme.border}` },
   row: { cursor: 'pointer' },
-  rowExpanded: { background: theme.surfaceInset },
+  rowActive: { cursor: 'pointer', background: theme.surfaceInset },
   link: { color: theme.accent, textDecoration: 'none' },
   noPr: { color: theme.textMuted, fontStyle: 'italic' },
   causeText: { fontSize: 11, color: theme.orange, fontWeight: 500 },
@@ -462,4 +530,40 @@ const styles = {
   approveMemoryBtn: { ...btnBase, background: theme.purple, color: theme.white },
   approveProcessBtn: { ...btnBase, background: theme.btnGreen, color: theme.white },
   memoryCauseBadge: { ...badgeBase, background: theme.purpleSubtle, color: theme.purple },
+  visualSection: {
+    marginBottom: 10, padding: '8px 10px',
+    border: `1px solid ${theme.border}`, borderRadius: 6,
+    background: theme.surfaceInset,
+  },
+  visualHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  visualTitle: {
+    fontSize: 11, fontWeight: 700, color: theme.textMuted,
+    letterSpacing: '0.04em', textTransform: 'uppercase',
+  },
+  visualSummary: {
+    fontSize: 12, color: theme.text, marginBottom: 8,
+    lineHeight: '18px',
+  },
+  visualGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: 8,
+  },
+  visualCard: {
+    padding: 8, border: `1px solid ${theme.border}`, borderRadius: 6,
+    background: theme.surface,
+  },
+  visualCardHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  visualScreenName: { fontSize: 11, fontWeight: 600, color: theme.text },
+  visualDiffBar: {
+    height: 4, borderRadius: 2, background: theme.surfaceInset,
+    marginBottom: 4, overflow: 'hidden',
+  },
+  visualDiffLabel: { fontSize: 10, color: theme.textMuted },
+  visualLinks: { display: 'flex', gap: 8, marginTop: 4, fontSize: 11 },
 }
