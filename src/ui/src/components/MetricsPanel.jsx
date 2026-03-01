@@ -120,6 +120,7 @@ export function MetricsPanel() {
     { key: 'already_satisfied', label: 'Already Satisfied', value: Number(lifetime.total_outcomes_already_satisfied ?? 0), color: theme.accent },
     { key: 'hitl_closed', label: 'HITL Closed', value: Number(lifetime.total_outcomes_hitl_closed ?? 0), color: theme.orange },
     { key: 'hitl_skipped', label: 'HITL Skipped', value: Number(lifetime.total_outcomes_hitl_skipped ?? 0), color: theme.yellow },
+    { key: 'hitl_approved', label: 'HITL Approved', value: Number(lifetime.total_outcomes_hitl_approved ?? 0), color: theme.green },
     { key: 'failed', label: 'Failed', value: Number(lifetime.total_outcomes_failed ?? 0), color: theme.red },
     { key: 'manual_close', label: 'Manual Close', value: Number(lifetime.total_outcomes_manual_close ?? 0), color: theme.textMuted },
   ]

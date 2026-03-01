@@ -696,6 +696,7 @@ class LifetimeStats(BaseModel):
     total_outcomes_hitl_skipped: int = 0
     total_outcomes_failed: int = 0
     total_outcomes_manual_close: int = 0
+    total_outcomes_hitl_approved: int = 0
     # Threshold proposals already filed (avoid re-filing)
     fired_thresholds: list[str] = Field(default_factory=list)
 

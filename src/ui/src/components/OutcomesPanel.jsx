@@ -3,7 +3,7 @@ import { theme } from '../theme'
 
 const OUTCOME_TYPES = [
   'all', 'merged', 'already_satisfied', 'hitl_closed',
-  'hitl_skipped', 'failed', 'manual_close',
+  'hitl_skipped', 'hitl_approved', 'failed', 'manual_close',
 ]
 
 const OUTCOME_COLORS = {
@@ -11,6 +11,7 @@ const OUTCOME_COLORS = {
   already_satisfied: { color: theme.accent, bg: theme.accentSubtle },
   hitl_closed: { color: theme.orange, bg: theme.orangeSubtle },
   hitl_skipped: { color: theme.yellow, bg: theme.yellowSubtle },
+  hitl_approved: { color: theme.green, bg: theme.greenSubtle },
   failed: { color: theme.red, bg: theme.redSubtle },
   manual_close: { color: theme.textMuted, bg: theme.surfaceInset },
 }
@@ -44,11 +45,9 @@ function formatTs(ts) {
 export function OutcomesPanel() {
   const [outcomeFilter, setOutcomeFilter] = useState('all')
   const [search, setSearch] = useState('')
-  const [groupByEpic, setGroupByEpic] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [items, setItems] = useState([])
-  const [collapsedEpics, setCollapsedEpics] = useState(new Set())
   const cachedItems = useRef(null)
   const refreshTimer = useRef(null)
 
@@ -94,21 +93,9 @@ export function OutcomesPanel() {
     return items.filter(item => {
       if (outcomeFilter !== 'all' && (item.outcome || '') !== outcomeFilter) return false
       if (!q) return true
-      const text = `#${item.issue_number} ${(item.title || '').toLowerCase()}`
-      return text.includes(q)
+      return `#${item.issue_number}`.includes(q)
     })
   }, [items, outcomeFilter, search])
-
-  const grouped = useMemo(() => {
-    if (!groupByEpic) return null
-    const groups = {}
-    for (const item of filtered) {
-      const label = item.epic || 'Ungrouped'
-      if (!groups[label]) groups[label] = []
-      groups[label].push(item)
-    }
-    return groups
-  }, [filtered, groupByEpic])
 
   const summaryCounts = useMemo(() => {
     const counts = {}
@@ -119,22 +106,12 @@ export function OutcomesPanel() {
     return counts
   }, [filtered])
 
-  const toggleEpicCollapse = (epicLabel) => {
-    setCollapsedEpics(prev => {
-      const next = new Set(prev)
-      if (next.has(epicLabel)) next.delete(epicLabel)
-      else next.add(epicLabel)
-      return next
-    })
-  }
-
   function renderRow(item) {
     const outcomeType = item.outcome || 'unknown'
     const badge = outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.manual_close
     return (
       <div key={item.issue_number} style={styles.row}>
         <span style={styles.issueCell}>#{item.issue_number}</span>
-        <span style={styles.titleCell}>{item.title || `Issue #${item.issue_number}`}</span>
         <span style={badge}>{outcomeType.replace(/_/g, ' ')}</span>
         <span style={styles.metaCell}>{item.phase || '-'}</span>
         <span style={styles.reasonCell}>{item.reason || '-'}</span>
@@ -150,7 +127,7 @@ export function OutcomesPanel() {
         <div style={styles.filterRow}>
           <input
             type="text"
-            placeholder="Search issue #, title"
+            placeholder="Search issue #"
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
@@ -160,10 +137,6 @@ export function OutcomesPanel() {
               <option key={opt} value={opt}>{opt === 'all' ? 'All outcomes' : opt.replace(/_/g, ' ')}</option>
             ))}
           </select>
-          <label style={styles.checkboxLabel}>
-            <input type="checkbox" checked={groupByEpic} onChange={e => setGroupByEpic(e.target.checked)} />
-            Group by epic
-          </label>
         </div>
       </div>
 
@@ -187,7 +160,6 @@ export function OutcomesPanel() {
       <div style={styles.table}>
         <div style={styles.headerRow}>
           <span style={styles.issueCell}>Issue</span>
-          <span style={styles.titleCell}>Title</span>
           <span style={styles.headerMeta}>Outcome</span>
           <span style={styles.metaCell}>Phase</span>
           <span style={styles.reasonCell}>Reason</span>
@@ -195,29 +167,7 @@ export function OutcomesPanel() {
           <span style={styles.metaCell}>Closed</span>
         </div>
 
-        {grouped ? (
-          Object.entries(grouped)
-            .sort(([a], [b]) => (a === 'Ungrouped' ? 1 : b === 'Ungrouped' ? -1 : a.localeCompare(b)))
-            .map(([epicLabel, epicItems]) => {
-              const isCollapsed = collapsedEpics.has(epicLabel)
-              return (
-                <div key={epicLabel}>
-                  <button
-                    type="button"
-                    onClick={() => toggleEpicCollapse(epicLabel)}
-                    style={styles.epicHeader}
-                  >
-                    <span>{isCollapsed ? '\u25B8' : '\u25BE'}</span>
-                    <span style={styles.epicTitle}>{epicLabel}</span>
-                    <span style={styles.epicCount}>{epicItems.length} outcome{epicItems.length !== 1 ? 's' : ''}</span>
-                  </button>
-                  {!isCollapsed && epicItems.map(item => renderRow(item))}
-                </div>
-              )
-            })
-        ) : (
-          filtered.map(item => renderRow(item))
-        )}
+        {filtered.map(item => renderRow(item))}
 
         {!loading && filtered.length === 0 && (
           <div style={styles.info}>No outcomes match this filter.</div>
@@ -269,13 +219,6 @@ const styles = {
     padding: '6px 8px',
     fontSize: 12,
   },
-  checkboxLabel: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    fontSize: 12,
-    color: theme.text,
-  },
   summaryRow: {
     display: 'flex',
     gap: 16,
@@ -299,7 +242,7 @@ const styles = {
   },
   headerRow: {
     display: 'grid',
-    gridTemplateColumns: '60px minmax(200px, 1.5fr) 110px 90px minmax(140px, 1fr) 60px 150px',
+    gridTemplateColumns: '70px 120px 90px minmax(200px, 1fr) 60px 150px',
     gap: 8,
     alignItems: 'center',
     padding: '8px 10px',
@@ -316,7 +259,7 @@ const styles = {
   },
   row: {
     display: 'grid',
-    gridTemplateColumns: '60px minmax(200px, 1.5fr) 110px 90px minmax(140px, 1fr) 60px 150px',
+    gridTemplateColumns: '70px 120px 90px minmax(200px, 1fr) 60px 150px',
     gap: 8,
     alignItems: 'center',
     padding: '8px 10px',
@@ -328,12 +271,6 @@ const styles = {
     color: theme.accent,
     flexShrink: 0,
   },
-  titleCell: {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    color: theme.text,
-  },
   metaCell: {
     color: theme.textMuted,
     whiteSpace: 'nowrap',
@@ -343,28 +280,6 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  epicHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    width: '100%',
-    padding: '8px 10px',
-    border: 'none',
-    borderBottom: `1px solid ${theme.border}`,
-    borderLeft: `3px solid ${theme.accent}`,
-    background: theme.surfaceInset,
-    cursor: 'pointer',
-    fontSize: 12,
-    color: theme.text,
-    textAlign: 'left',
-  },
-  epicTitle: {
-    fontWeight: 700,
-  },
-  epicCount: {
-    color: theme.textMuted,
-    fontSize: 11,
   },
   info: {
     padding: 12,

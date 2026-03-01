@@ -2389,6 +2389,20 @@ class TestIssueOutcomeTracking:
         assert stats.total_outcomes_manual_close == 1
         assert stats.total_outcomes_merged == 0
 
+    def test_record_outcome_hitl_approved_increments_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """HITL_APPROVED should increment total_outcomes_hitl_approved."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1, IssueOutcomeType.HITL_APPROVED, "approved", phase="hitl"
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_hitl_approved == 1
+        assert stats.total_outcomes_merged == 0
+
     def test_outcome_persists_across_reload(self, tmp_path: Path) -> None:
         from models import IssueOutcomeType
 
