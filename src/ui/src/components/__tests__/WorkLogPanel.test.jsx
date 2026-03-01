@@ -131,7 +131,7 @@ describe('WorkLogPanel', () => {
   it('shows error message when API fails', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('network error'))
     render(<WorkLogPanel />)
-    await waitFor(() => expect(screen.getByText('Could not load work log data')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Could not load delivery queue data')).toBeInTheDocument())
   })
 
   it('filters epics by search text', async () => {

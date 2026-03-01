@@ -166,7 +166,7 @@ export const EPIC_FILTERS = [
   { key: 'released',         label: 'Released' },
 ]
 
-/** Crate (milestone) states for the work log panel. */
+/** Crate (milestone) states for the delivery queue panel. */
 export const CRATE_STATUSES = ['open', 'closed']
 
 /**
