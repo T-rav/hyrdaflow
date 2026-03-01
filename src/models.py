@@ -65,6 +65,8 @@ class TaskLinkKind(StrEnum):
     DUPLICATES = "duplicates"
     SUPERSEDES = "supersedes"
     REPLIES_TO = "replies_to"
+    BLOCKS = "blocks"
+    BLOCKED_BY = "blocked_by"
 
 
 class TaskLink(BaseModel):
@@ -90,6 +92,11 @@ _LINK_PATTERNS: list[tuple[re.Pattern[str], TaskLinkKind]] = [
     (
         re.compile(r"\bin\s+response\s+to\s+#(\d+)", re.IGNORECASE),
         TaskLinkKind.REPLIES_TO,
+    ),
+    (re.compile(r"\bblocks?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.BLOCKS),
+    (
+        re.compile(r"\bblocked\s+by\s+#(\d+)", re.IGNORECASE),
+        TaskLinkKind.BLOCKED_BY,
     ),
 ]
 
@@ -126,6 +133,7 @@ class Task(BaseModel):
     created_at: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     links: list[TaskLink] = Field(default_factory=list)
+    parent_epic: int | None = None
 
 
 # --- GitHub ---
@@ -759,9 +767,12 @@ class EpicState(BaseModel):
     child_issues: list[int] = Field(default_factory=list)
     completed_children: list[int] = Field(default_factory=list)
     failed_children: list[int] = Field(default_factory=list)
+    approved_children: list[int] = Field(default_factory=list)
+    merge_strategy: str = "independent"
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     closed: bool = False
+    released: bool = False
     auto_decomposed: bool = False
 
 
@@ -835,6 +846,8 @@ class EpicProgress(BaseModel):
     completed: int = 0
     failed: int = 0
     in_progress: int = 0
+    approved: int = 0
+    ready_to_merge: bool = False
     status: str = "active"  # "active", "completed", "stale", "blocked"
     percent_complete: float = 0.0
     last_activity: str = ""
@@ -855,6 +868,7 @@ class EpicChildInfo(BaseModel):
     status: str = "queued"  # done, running, queued, failed
     is_completed: bool = False
     is_failed: bool = False
+    is_approved: bool = False
     pr_number: int | None = None
     pr_url: str = ""
     pr_state: str | None = None  # open, merged, draft
@@ -891,6 +905,8 @@ class EpicDetail(BaseModel):
     merged_children: int = 0
     active_children: int = 0
     queued_children: int = 0
+    approved: int = 0
+    ready_to_merge: bool = False
     status: str = "active"
     percent_complete: float = 0.0
     last_activity: str = ""
