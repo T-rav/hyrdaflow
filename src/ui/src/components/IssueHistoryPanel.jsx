@@ -24,6 +24,11 @@ const STATUS_OPTIONS = [
   'merged',
 ]
 
+const OUTCOME_TYPES = [
+  'all', 'merged', 'already_satisfied', 'hitl_closed',
+  'hitl_skipped', 'hitl_approved', 'failed', 'manual_close',
+]
+
 const OUTCOME_COLORS = {
   merged: { color: theme.green, bg: theme.greenSubtle },
   already_satisfied: { color: theme.accent, bg: theme.accentSubtle },
@@ -133,11 +138,12 @@ function renderLinkedIssue(linked, index) {
   )
 }
 
-export function IssueHistoryPanel() {
+export function OutcomesPanel() {
   const [preset, setPreset] = useState('30d')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [outcomeFilter, setOutcomeFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [epicOnly, setEpicOnly] = useState(false)
   const [groupByEpic, setGroupByEpic] = useState(false)
@@ -206,6 +212,7 @@ export function IssueHistoryPanel() {
     const q = search.trim().toLowerCase()
     return (payload.items || []).filter(item => {
       if (statusFilter !== 'all' && (item.status || 'unknown') !== statusFilter) return false
+      if (outcomeFilter !== 'all' && item.outcome?.outcome !== outcomeFilter) return false
       if (epicOnly && !item.epic) return false
       if (!q) return true
       const issueText = `#${item.issue_number} ${(item.title || '').toLowerCase()}`
@@ -213,7 +220,7 @@ export function IssueHistoryPanel() {
       if ((item.epic || '').toLowerCase().includes(q)) return true
       return false
     })
-  }, [payload.items, statusFilter, epicOnly, search])
+  }, [payload.items, statusFilter, outcomeFilter, epicOnly, search])
 
   const grouped = useMemo(() => {
     if (!groupByEpic) return null
@@ -233,6 +240,15 @@ export function IssueHistoryPanel() {
       acc.pruned_chars_total += Number(item.inference?.pruned_chars_total || 0)
       return acc
     }, { total_tokens: 0, inference_calls: 0, pruned_chars_total: 0 })
+  }, [filtered])
+
+  const summaryCounts = useMemo(() => {
+    const counts = {}
+    for (const item of filtered) {
+      const t = item.outcome?.outcome || 'unknown'
+      counts[t] = (counts[t] || 0) + 1
+    }
+    return counts
   }, [filtered])
 
   const visibleSavedTokens = estimateSavedTokens(visibleTotals.pruned_chars_total)
@@ -407,6 +423,11 @@ export function IssueHistoryPanel() {
               <option key={opt} value={opt}>{opt === 'all' ? 'All statuses' : opt}</option>
             ))}
           </select>
+          <select value={outcomeFilter} onChange={e => setOutcomeFilter(e.target.value)} style={styles.select} data-testid="outcome-filter">
+            {OUTCOME_TYPES.map(opt => (
+              <option key={opt} value={opt}>{opt === 'all' ? 'All outcomes' : opt.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
           <label style={styles.checkboxLabel}>
             <input type="checkbox" checked={epicOnly} onChange={e => setEpicOnly(e.target.checked)} />
             Epic only
@@ -424,6 +445,16 @@ export function IssueHistoryPanel() {
         <span>{formatNumber(visibleTotals.total_tokens)} tokens (actual)</span>
         <span>{formatNumber(visibleSavedTokens)} tokens saved (est)</span>
         <span>{formatNumber(visibleUnprunedTokens)} tokens w/o pruning (est)</span>
+        {Object.entries(summaryCounts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([type, count]) => (
+            <span key={type} style={styles.summaryPill}>
+              <span style={outcomeBadgeStyles[type] || outcomeBadgeStyles.manual_close}>
+                {type.replace(/_/g, ' ')}
+              </span>
+              {' '}{count}
+            </span>
+          ))}
       </div>
 
       {loading && <div style={styles.info}>Loading issue history...</div>}
@@ -555,6 +586,13 @@ const styles = {
     fontSize: 12,
     color: theme.textMuted,
     padding: '0 2px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  summaryPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
   },
   table: {
     border: `1px solid ${theme.border}`,

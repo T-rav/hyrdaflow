@@ -1086,3 +1086,228 @@ class TestFetchAllHydraFlowIssues:
             pytest.raises(IncompleteIssueFetchError),
         ):
             await fetcher.fetch_all_hydraflow_issues()
+
+
+# ---------------------------------------------------------------------------
+# Collaborator check
+# ---------------------------------------------------------------------------
+
+RAW_COLLAB_ISSUES = json.dumps(
+    [
+        {
+            "number": 1,
+            "title": "From collaborator",
+            "body": "",
+            "labels": [{"name": "ready"}],
+            "comments": [],
+            "url": "",
+            "user": {"login": "alice"},
+        },
+        {
+            "number": 2,
+            "title": "From outsider",
+            "body": "",
+            "labels": [{"name": "ready"}],
+            "comments": [],
+            "url": "",
+            "user": {"login": "mallory"},
+        },
+    ]
+)
+
+
+def _collab_config(tmp_path: Path, *, enabled: bool = True) -> HydraFlowConfig:
+    """Build a config with collaborator check toggled."""
+    from tests.helpers import ConfigFactory
+
+    return ConfigFactory.create(
+        repo_root=tmp_path / "repo",
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+        collaborator_check_enabled=enabled,
+    )
+
+
+class TestCollaboratorCheck:
+    """Tests for the collaborator filtering in IssueFetcher."""
+
+    @pytest.mark.asyncio
+    async def test_non_collaborator_issues_skipped(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=True)
+        fetcher = IssueFetcher(cfg)
+
+        async def fake_run(*args: str, **kwargs: Any) -> str:
+            joined = " ".join(str(a) for a in args)
+            if "/collaborators" in joined:
+                return "alice\nbob\n"
+            return RAW_COLLAB_ISSUES
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+            issues = await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert len(issues) == 1
+        assert issues[0].number == 1
+        assert issues[0].author == "alice"
+
+    @pytest.mark.asyncio
+    async def test_all_issues_allowed_when_disabled(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=False)
+        fetcher = IssueFetcher(cfg)
+        collab_called = False
+
+        async def fake_run(*args: str, **kwargs: Any) -> str:
+            nonlocal collab_called
+            joined = " ".join(str(a) for a in args)
+            if "/collaborators" in joined:
+                collab_called = True
+                return "alice\n"
+            return RAW_COLLAB_ISSUES
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+            issues = await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert len(issues) == 2
+        assert not collab_called, "collaborator API should not be called when disabled"
+
+    @pytest.mark.asyncio
+    async def test_fail_open_on_api_error(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=True)
+        fetcher = IssueFetcher(cfg)
+
+        async def fake_run(*args: str, **kwargs: Any) -> str:
+            joined = " ".join(str(a) for a in args)
+            if "/collaborators" in joined:
+                raise RuntimeError("API error")
+            return RAW_COLLAB_ISSUES
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+            issues = await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert len(issues) == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_reused_within_ttl(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=True)
+        fetcher = IssueFetcher(cfg)
+        call_count = 0
+
+        async def fake_run(*args: str, **kwargs: Any) -> str:
+            nonlocal call_count
+            joined = " ".join(str(a) for a in args)
+            if "/collaborators" in joined:
+                call_count += 1
+                return "alice\n"
+            return RAW_COLLAB_ISSUES
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+            await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+            await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_issues_without_author_pass_through(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=True)
+        fetcher = IssueFetcher(cfg)
+
+        no_author_issues = json.dumps(
+            [
+                {
+                    "number": 99,
+                    "title": "No author",
+                    "body": "",
+                    "labels": [{"name": "ready"}],
+                    "comments": [],
+                    "url": "",
+                }
+            ]
+        )
+
+        async def fake_run(*args: str, **kwargs: Any) -> str:
+            joined = " ".join(str(a) for a in args)
+            if "/collaborators" in joined:
+                return "alice\n"
+            return no_author_issues
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+            issues = await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert len(issues) == 1
+        assert issues[0].number == 99
+
+    @pytest.mark.asyncio
+    async def test_cache_expires_after_ttl(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=True)
+        fetcher = IssueFetcher(cfg)
+        call_count = 0
+
+        async def fake_run(*args: str, **kwargs: Any) -> str:
+            nonlocal call_count
+            joined = " ".join(str(a) for a in args)
+            if "/collaborators" in joined:
+                call_count += 1
+                return "alice\n"
+            return RAW_COLLAB_ISSUES
+
+        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+            await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+            assert call_count == 1
+
+            # Expire the cache by backdating the fetch timestamp
+            fetcher._collaborators_fetched_at = datetime.now(UTC) - timedelta(
+                seconds=cfg.collaborator_cache_ttl + 1
+            )
+            await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_issue_by_number_extracts_author(self, tmp_path: Path) -> None:
+        cfg = _collab_config(tmp_path, enabled=False)
+        fetcher = IssueFetcher(cfg)
+
+        issue_json = json.dumps(
+            {
+                "number": 42,
+                "title": "Test",
+                "body": "",
+                "labels": [],
+                "url": "https://github.com/test-org/test-repo/issues/42",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "author": "alice",
+            }
+        )
+        comments_json = json.dumps([])
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(
+            side_effect=[
+                (issue_json.encode(), b""),
+                (comments_json.encode(), b""),
+            ]
+        )
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            issue = await fetcher.fetch_issue_by_number(42)
+
+        assert issue is not None
+        assert issue.author == "alice"
+
+    def test_normalize_extracts_user_login(self) -> None:
+        payload = {
+            "number": 1,
+            "title": "Test",
+            "user": {"login": "alice"},
+        }
+        result = IssueFetcher._normalize_issue_payload(payload)
+        assert result["author"] == "alice"
+
+    def test_normalize_handles_missing_user(self) -> None:
+        payload = {"number": 1, "title": "Test"}
+        result = IssueFetcher._normalize_issue_payload(payload)
+        assert result["author"] == ""
+
+    def test_normalize_handles_null_user(self) -> None:
+        payload = {"number": 1, "title": "Test", "user": None}
+        result = IssueFetcher._normalize_issue_payload(payload)
+        assert result["author"] == ""

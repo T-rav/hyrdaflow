@@ -186,10 +186,10 @@ describe('System and Metrics tabs', () => {
 })
 
 describe('Main tab bar', () => {
-  it('has exactly 6 main tabs', async () => {
+  it('has exactly 5 main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Work Stream', 'History', 'Outcomes', 'HITL', 'Epics', 'System']
+    const tabLabels = ['Work Stream', 'Outcomes', 'HITL', 'Work Log', 'System']
     const tabContainer = screen.getByTestId('main-tabs')
     expect(tabContainer.childElementCount).toBe(tabLabels.length)
     for (const label of tabLabels) {

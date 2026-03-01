@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { theme } from '../theme'
-import { EPIC_STATUSES } from '../constants'
+import { EPIC_STATUSES, CRATE_STATUSES } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 
 const STATUS_COLORS = {
@@ -8,6 +8,11 @@ const STATUS_COLORS = {
   completed: { color: theme.green, bg: theme.greenSubtle },
   stale: { color: theme.yellow, bg: theme.yellowSubtle },
   blocked: { color: theme.red, bg: theme.redSubtle },
+}
+
+const CRATE_STATE_COLORS = {
+  open: { color: theme.accent, bg: theme.accentSubtle },
+  closed: { color: theme.green, bg: theme.greenSubtle },
 }
 
 const statusBadgeBase = {
@@ -28,11 +33,25 @@ const statusBadgeStyles = Object.fromEntries(
   ])
 )
 
+const crateBadgeStyles = Object.fromEntries(
+  Object.entries(CRATE_STATE_COLORS).map(([key, { color, bg }]) => [
+    key,
+    { ...statusBadgeBase, color, background: bg || theme.surface },
+  ])
+)
+
 function formatTs(ts) {
   if (!ts) return '-'
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return '-'
   return d.toLocaleString()
+}
+
+function formatDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString()
 }
 
 function EpicChildRow({ child }) {
@@ -140,35 +159,92 @@ function EpicRow({ epic }) {
   )
 }
 
-export function EpicsPanel() {
-  const [statusFilter, setStatusFilter] = useState('all')
+function CrateRow({ crate }) {
+  const [expanded, setExpanded] = useState(false)
+  const total = crate.total_issues || 0
+  const progress = crate.progress || 0
+  const badge = crateBadgeStyles[crate.state] || crateBadgeStyles.open
+
+  return (
+    <div style={styles.crateCard}>
+      <div
+        style={styles.crateCardHeader}
+        onClick={() => setExpanded(prev => !prev)}
+        role="button"
+        tabIndex={0}
+      >
+        <span style={styles.chevron}>{expanded ? '\u25BE' : '\u25B8'}</span>
+        <span style={styles.crateTitle}>{crate.title}</span>
+        {crate.due_on && <span style={styles.crateDue}>Due {formatDate(crate.due_on)}</span>}
+        <span style={badge}>{crate.state}</span>
+        <span style={styles.crateCount}>{total} {total === 1 ? 'issue' : 'issues'}</span>
+      </div>
+      <div style={styles.crateCardBody}>
+        <div style={styles.barTrack}>
+          {progress > 0 && (
+            <div style={{ ...styles.barGreen, width: `${progress}%` }} />
+          )}
+        </div>
+        <div style={styles.progressRow}>
+          <span style={styles.progressText}>
+            {crate.closed_issues}/{total} closed · {progress}%
+          </span>
+        </div>
+      </div>
+      {expanded && crate.description && (
+        <div style={styles.crateDescription}>{crate.description}</div>
+      )}
+    </div>
+  )
+}
+
+export function WorkLogPanel() {
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [crateFilter, setCrateFilter] = useState('all')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [epics, setEpics] = useState([])
+  const [crates, setCrates] = useState([])
+  const [newCrateName, setNewCrateName] = useState('')
+  const [creating, setCreating] = useState(false)
   const cachedEpics = useRef(null)
+  const cachedCrates = useRef(null)
   const refreshTimer = useRef(null)
 
-  const fetchEpics = useCallback((opts = {}) => {
+  const fetchData = useCallback((opts = {}) => {
     const { background = false } = opts
     if (!background) {
       if (cachedEpics.current) setEpics(cachedEpics.current)
+      if (cachedCrates.current) setCrates(cachedCrates.current)
       setLoading(true)
       setError('')
     }
 
-    return fetch('/api/epics')
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`status ${res.status}`)
-        return await res.json()
-      })
-      .then(data => {
-        const list = Array.isArray(data) ? data : []
-        cachedEpics.current = list
-        setEpics(list)
-      })
+    return Promise.all([
+      fetch('/api/epics')
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`status ${res.status}`)
+          return await res.json()
+        })
+        .then(data => {
+          const list = Array.isArray(data) ? data : []
+          cachedEpics.current = list
+          setEpics(list)
+        }),
+      fetch('/api/crates')
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`status ${res.status}`)
+          return await res.json()
+        })
+        .then(data => {
+          const list = Array.isArray(data) ? data : []
+          cachedCrates.current = list
+          setCrates(list)
+        }),
+    ])
       .catch(() => {
-        if (!background) setError('Could not load epics')
+        if (!background) setError('Could not load work log data')
       })
       .finally(() => {
         if (!background) setLoading(false)
@@ -176,14 +252,14 @@ export function EpicsPanel() {
   }, [])
 
   useEffect(() => {
-    fetchEpics()
+    fetchData()
     refreshTimer.current = setInterval(() => {
-      fetchEpics({ background: true })
+      fetchData({ background: true })
     }, 30_000)
     return () => clearInterval(refreshTimer.current)
-  }, [fetchEpics])
+  }, [fetchData])
 
-  const filtered = useMemo(() => {
+  const filteredEpics = useMemo(() => {
     const q = search.trim().toLowerCase()
     return epics.filter(epic => {
       if (statusFilter !== 'all' && epic.status !== statusFilter) return false
@@ -193,6 +269,14 @@ export function EpicsPanel() {
     })
   }, [epics, statusFilter, search])
 
+  const filteredCrates = useMemo(() => {
+    return crates.filter(crate => {
+      if (crateFilter !== 'all' && crate.state !== crateFilter) return false
+      if (!search.trim()) return true
+      return crate.title.toLowerCase().includes(search.trim().toLowerCase())
+    })
+  }, [crates, crateFilter, search])
+
   const statusCounts = useMemo(() => {
     const counts = { active: 0, completed: 0, stale: 0, blocked: 0 }
     for (const epic of epics) {
@@ -201,13 +285,35 @@ export function EpicsPanel() {
     return counts
   }, [epics])
 
+  const handleCreateCrate = useCallback(async () => {
+    const title = newCrateName.trim()
+    if (!title) return
+    setCreating(true)
+    try {
+      const res = await fetch('/api/crates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+      if (res.ok) {
+        setNewCrateName('')
+        fetchData()
+      }
+    } catch { /* ignore */ }
+    setCreating(false)
+  }, [newCrateName, fetchData])
+
   return (
     <div style={styles.container}>
       <div style={styles.controls}>
         <div style={styles.summaryCards}>
           <div style={styles.summaryCard}>
+            <div style={styles.summaryValue}>{crates.length}</div>
+            <div style={styles.summaryLabel}>Crates</div>
+          </div>
+          <div style={styles.summaryCard}>
             <div style={styles.summaryValue}>{epics.length}</div>
-            <div style={styles.summaryLabel}>Total</div>
+            <div style={styles.summaryLabel}>Epics</div>
           </div>
           {EPIC_STATUSES.map(status => (
             <div key={status} style={styles.summaryCard}>
@@ -222,29 +328,73 @@ export function EpicsPanel() {
         <div style={styles.filterRow}>
           <input
             type="text"
-            placeholder="Search epic #, title"
+            placeholder="Search crates, epics"
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
           />
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={styles.select}>
-            <option value="all">All statuses</option>
+            <option value="all">All epic statuses</option>
             {EPIC_STATUSES.map(status => (
+              <option key={status} value={status}>{status}</option>
+            ))}
+          </select>
+          <select value={crateFilter} onChange={e => setCrateFilter(e.target.value)} style={styles.select} data-testid="crate-filter">
+            <option value="all">All crates</option>
+            {CRATE_STATUSES.map(status => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
         </div>
       </div>
 
-      {loading && <div style={styles.info}>Loading epics...</div>}
+      {loading && <div style={styles.info}>Loading work log...</div>}
       {error && <div style={styles.error}>{error}</div>}
 
-      <div style={styles.list}>
-        {filtered.map(epic => (
+      {/* Crates section */}
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionTitle}>Crates</span>
+        <div style={styles.createRow}>
+          <input
+            type="text"
+            placeholder="New crate name..."
+            value={newCrateName}
+            onChange={e => setNewCrateName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleCreateCrate()}
+            style={styles.createInput}
+            data-testid="new-crate-input"
+          />
+          <button
+            type="button"
+            onClick={handleCreateCrate}
+            disabled={creating || !newCrateName.trim()}
+            style={!newCrateName.trim() ? styles.createButtonDisabled : styles.createButton}
+            data-testid="create-crate-btn"
+          >
+            {creating ? 'Creating...' : 'Create'}
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.list} data-testid="crates-list">
+        {filteredCrates.map(crate => (
+          <CrateRow key={crate.number} crate={crate} />
+        ))}
+        {!loading && filteredCrates.length === 0 && (
+          <div style={styles.info}>No crates yet. Create one to group your work.</div>
+        )}
+      </div>
+
+      {/* Epics section */}
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionTitle}>Epics</span>
+      </div>
+
+      <div style={styles.list} data-testid="epics-list">
+        {filteredEpics.map(epic => (
           <EpicRow key={epic.epic_number} epic={epic} />
         ))}
-
-        {!loading && filtered.length === 0 && (
+        {!loading && filteredEpics.length === 0 && (
           <div style={styles.info}>No epics match this filter.</div>
         )}
       </div>
@@ -257,7 +407,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    overflow: 'hidden',
+    overflow: 'auto',
     padding: 16,
     gap: 10,
   },
@@ -318,16 +468,105 @@ const styles = {
     padding: '6px 8px',
     fontSize: 12,
   },
+  sectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 4,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: theme.textBright,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  createRow: {
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+  },
+  createInput: {
+    width: 200,
+    border: `1px solid ${theme.border}`,
+    background: theme.surfaceInset,
+    color: theme.text,
+    borderRadius: 6,
+    padding: '4px 8px',
+    fontSize: 12,
+  },
+  createButton: {
+    border: `1px solid ${theme.accent}`,
+    background: theme.accentSubtle,
+    color: theme.accent,
+    borderRadius: 6,
+    padding: '4px 12px',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  createButtonDisabled: {
+    border: `1px solid ${theme.border}`,
+    background: theme.surfaceInset,
+    color: theme.textMuted,
+    borderRadius: 6,
+    padding: '4px 12px',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'default',
+    opacity: 0.5,
+  },
   list: {
     border: `1px solid ${theme.border}`,
     borderRadius: 8,
     background: theme.surface,
     overflowY: 'auto',
-    flex: 1,
     minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
     gap: 0,
+  },
+  crateCard: {
+    borderBottom: `1px solid ${theme.border}`,
+    overflow: 'hidden',
+  },
+  crateCardHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '10px 12px',
+    cursor: 'pointer',
+    transition: 'background 0.15s',
+  },
+  crateTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: theme.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+  },
+  crateDue: {
+    fontSize: 10,
+    color: theme.textMuted,
+    flexShrink: 0,
+  },
+  crateCount: {
+    fontSize: 11,
+    color: theme.textMuted,
+    flexShrink: 0,
+  },
+  crateCardBody: {
+    padding: '0 12px 10px 30px',
+  },
+  crateDescription: {
+    padding: '0 12px 10px 30px',
+    fontSize: 11,
+    color: theme.textMuted,
+    borderTop: `1px dashed ${theme.border}`,
+    paddingTop: 8,
   },
   epicCard: {
     borderBottom: `1px solid ${theme.border}`,

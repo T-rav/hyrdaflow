@@ -111,6 +111,9 @@ class TestCreateRouter:
             "/api/runtimes/{slug}",
             "/api/runtimes/{slug}/start",
             "/api/runtimes/{slug}/stop",
+            "/api/crates",
+            "/api/crates/{crate_number}",
+            "/api/crates/{crate_number}/items",
             "/ws",
             "/{path:path}",
         }

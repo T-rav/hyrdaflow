@@ -248,6 +248,28 @@ class TestGitHubIssue:
         assert issue.comments == ["LGTM", "Needs tests"]
         assert issue.url == "https://github.com/org/repo/issues/42"
 
+    # -- Author field ----------------------------------------------------------
+
+    def test_author_defaults_to_empty_string(self) -> None:
+        issue = GitHubIssue(number=1, title="t")
+        assert issue.author == ""
+
+    def test_author_propagated_to_task_metadata(self) -> None:
+        issue = GitHubIssue(number=1, title="t", author="alice")
+        task = issue.to_task()
+        assert task.metadata["author"] == "alice"
+
+    def test_empty_author_not_in_metadata(self) -> None:
+        issue = GitHubIssue(number=1, title="t", author="")
+        task = issue.to_task()
+        assert "author" not in task.metadata
+
+    def test_from_task_round_trips_author(self) -> None:
+        issue = GitHubIssue(number=1, title="t", author="bob")
+        task = issue.to_task()
+        restored = GitHubIssue.from_task(task)
+        assert restored.author == "bob"
+
 
 # ---------------------------------------------------------------------------
 # Task

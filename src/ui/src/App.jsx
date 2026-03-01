@@ -4,21 +4,19 @@ import { Header } from './components/Header'
 import { HumanInputBanner } from './components/HumanInputBanner'
 import { HITLTable } from './components/HITLTable'
 import { SystemPanel } from './components/SystemPanel'
-import { IssueHistoryPanel } from './components/IssueHistoryPanel'
+import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
-import { OutcomesPanel } from './components/OutcomesPanel'
-import { EpicsPanel } from './components/EpicsPanel'
+import { WorkLogPanel } from './components/WorkLogPanel'
 import { SessionSidebar } from './components/SessionSidebar'
 import { theme } from './theme'
 
-const TABS = ['issues', 'history', 'outcomes', 'hitl', 'epics', 'system']
+const TABS = ['issues', 'outcomes', 'hitl', 'worklog', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
-  history: 'History',
   outcomes: 'Outcomes',
   hitl: 'HITL',
-  epics: 'Epics',
+  worklog: 'Work Log',
   system: 'System',
 }
 
@@ -148,10 +146,9 @@ function AppContent() {
                 onRequestChanges={handleRequestChanges}
               />
             )}
-            {activeTab === 'history' && <IssueHistoryPanel />}
             {activeTab === 'outcomes' && <OutcomesPanel />}
             {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
-            {activeTab === 'epics' && <EpicsPanel />}
+            {activeTab === 'worklog' && <WorkLogPanel />}
             {activeTab === 'system' && (
               <SystemPanel
                 backgroundWorkers={backgroundWorkers}

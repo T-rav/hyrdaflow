@@ -273,6 +273,8 @@ class ConfigFactory:
         epic_monitor_interval: int = 1800,
         worktree_gc_interval: int = 1800,
         epic_stale_days: int = 7,
+        collaborator_check_enabled: bool = False,
+        collaborator_cache_ttl: int = 600,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -433,6 +435,8 @@ class ConfigFactory:
             epic_stale_days=epic_stale_days,
             auto_process_epics=auto_process_epics,
             auto_process_bug_reports=auto_process_bug_reports,
+            collaborator_check_enabled=collaborator_check_enabled,
+            collaborator_cache_ttl=collaborator_cache_ttl,
         )
 
 

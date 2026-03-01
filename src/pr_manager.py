@@ -16,6 +16,7 @@ from urllib.parse import quote
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
+    Crate,
     GitHubIssue,
     HITLItem,
     LabelCounts,
@@ -1440,3 +1441,148 @@ class PRManager:
     ) -> int:
         """Implement :class:`task_source.TaskTransitioner` — create a new issue."""
         return await self.create_issue(title, body, labels)
+
+    # --- milestone (crate) management ---
+
+    def _parse_milestone(self, raw: dict[str, Any]) -> Crate:
+        """Parse a GitHub milestone JSON object into a Crate model."""
+        return Crate(
+            number=raw.get("number", 0),
+            title=raw.get("title", ""),
+            description=raw.get("description") or "",
+            due_on=raw.get("due_on") or None,
+            state=raw.get("state", "open"),
+            open_issues=raw.get("open_issues", 0),
+            closed_issues=raw.get("closed_issues", 0),
+            created_at=raw.get("created_at", ""),
+            updated_at=raw.get("updated_at", ""),
+        )
+
+    async def list_milestones(self, state: str = "all") -> list[Crate]:
+        """List all milestones for the repo."""
+        self._assert_repo()
+        raw = await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/milestones",
+            "-f",
+            f"state={state}",
+            "-f",
+            "per_page=100",
+        )
+        items = json.loads(raw) if raw.strip() else []
+        return [self._parse_milestone(m) for m in items]
+
+    async def get_milestone(self, milestone_number: int) -> Crate | None:
+        """Fetch a single milestone by number."""
+        self._assert_repo()
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/milestones/{milestone_number}",
+            )
+            return self._parse_milestone(json.loads(raw))
+        except RuntimeError as exc:
+            if "404" in str(exc):
+                return None
+            raise
+
+    async def create_milestone(
+        self, title: str, description: str = "", due_on: str | None = None
+    ) -> Crate:
+        """Create a new GitHub milestone."""
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info("[dry-run] Would create milestone: %s", title)
+            return Crate(number=0, title=title, description=description, state="open")
+        cmd: list[str] = [
+            "gh",
+            "api",
+            f"repos/{self._repo}/milestones",
+            "-X",
+            "POST",
+            "-f",
+            f"title={title}",
+        ]
+        if description:
+            cmd.extend(["-f", f"description={description}"])
+        if due_on:
+            cmd.extend(["-f", f"due_on={due_on}"])
+        raw = await self._run_gh(*cmd)
+        return self._parse_milestone(json.loads(raw))
+
+    async def update_milestone(self, milestone_number: int, **fields: Any) -> Crate:
+        """Update a GitHub milestone. Accepted fields: title, description, due_on, state."""
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info("[dry-run] Would update milestone #%d", milestone_number)
+            return Crate(number=milestone_number, title=fields.get("title", ""))
+        cmd: list[str] = [
+            "gh",
+            "api",
+            f"repos/{self._repo}/milestones/{milestone_number}",
+            "-X",
+            "PATCH",
+        ]
+        for key, value in fields.items():
+            if value is not None:
+                cmd.extend(["-f", f"{key}={value}"])
+        raw = await self._run_gh(*cmd)
+        return self._parse_milestone(json.loads(raw))
+
+    async def delete_milestone(self, milestone_number: int) -> None:
+        """Delete a GitHub milestone."""
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info("[dry-run] Would delete milestone #%d", milestone_number)
+            return
+        await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/milestones/{milestone_number}",
+            "-X",
+            "DELETE",
+        )
+
+    async def set_issue_milestone(
+        self, issue_number: int, milestone_number: int | None
+    ) -> None:
+        """Assign or clear a milestone on an issue."""
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info(
+                "[dry-run] Would set milestone %s on issue #%d",
+                milestone_number,
+                issue_number,
+            )
+            return
+        # -F sends the value as a typed JSON field (number or null)
+        value = str(milestone_number) if milestone_number is not None else "null"
+        await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/issues/{issue_number}",
+            "-X",
+            "PATCH",
+            "-F",
+            f"milestone={value}",
+        )
+
+    async def list_milestone_issues(
+        self, milestone_number: int
+    ) -> list[dict[str, Any]]:
+        """List issues assigned to a milestone."""
+        self._assert_repo()
+        raw = await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/issues",
+            "-f",
+            f"milestone={milestone_number}",
+            "-f",
+            "state=all",
+            "-f",
+            "per_page=100",
+        )
+        return json.loads(raw) if raw.strip() else []

@@ -136,6 +136,9 @@ export const SESSION_STATUSES = ['active', 'completed']
 /** Epic lifecycle statuses for the epic overview panel. */
 export const EPIC_STATUSES = ['active', 'completed', 'stale', 'blocked']
 
+/** Crate (milestone) states for the work log panel. */
+export const CRATE_STATUSES = ['open', 'closed']
+
 /**
  * Background worker definitions — maintenance and system loops that can be toggled on/off.
  * Workers with `system: true` are internal services shown with a "system" badge.
