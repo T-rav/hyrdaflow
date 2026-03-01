@@ -18,7 +18,6 @@ logger = logging.getLogger("hydraflow.config")
 # Data-driven env-var override tables.
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
-    ("max_triagers", "HYDRAFLOW_MAX_TRIAGERS", 1),
     ("min_plan_words", "HYDRAFLOW_MIN_PLAN_WORDS", 200),
     (
         "max_pre_quality_review_attempts",
@@ -45,6 +44,9 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
+    ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
+    ("artifact_max_size_mb", "HYDRAFLOW_ARTIFACT_MAX_SIZE_MB", 500),
+    ("runs_gc_interval", "HYDRAFLOW_RUNS_GC_INTERVAL", 3600),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
     ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
@@ -114,6 +116,8 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("auto_process_bug_reports", "HYDRAFLOW_AUTO_PROCESS_BUG_REPORTS", False),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
     ("code_scanning_enabled", "HYDRAFLOW_CODE_SCANNING_ENABLED", False),
+    ("visual_gate_enabled", "HYDRAFLOW_VISUAL_GATE_ENABLED", False),
+    ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
     (
@@ -194,13 +198,14 @@ class HydraFlowConfig(BaseModel):
         description="GitHub repo (owner/name); auto-detected from git remote if empty",
     )
 
-    # Worker configuration
-    max_workers: int = Field(default=2, ge=1, le=10, description="Concurrent agents")
+    # Worker configuration — managed via config JSON file and dashboard UI,
+    # not environment variables. All defaults are 1.
+    max_workers: int = Field(default=1, ge=1, le=10, description="Concurrent agents")
     max_planners: int = Field(
         default=1, ge=1, le=10, description="Concurrent planning agents"
     )
     max_reviewers: int = Field(
-        default=2, ge=1, le=10, description="Concurrent review agents"
+        default=1, ge=1, le=10, description="Concurrent review agents"
     )
     max_triagers: int = Field(
         default=1, ge=1, le=10, description="Concurrent triage agents"
@@ -394,6 +399,27 @@ class HydraFlowConfig(BaseModel):
         le=7200,
         description="Collaborator list cache TTL in seconds (default 10 min)",
     )
+
+    # Artifact retention
+    artifact_retention_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Days to retain run artifacts before cleanup (default 30)",
+    )
+    artifact_max_size_mb: int = Field(
+        default=500,
+        ge=10,
+        le=10_000,
+        description="Max total artifact storage in MB before oldest runs are pruned (default 500)",
+    )
+    runs_gc_interval: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Runs GC loop interval in seconds (default 1 hour)",
+    )
+
     epic_stale_days: int = Field(
         default=7,
         ge=1,
@@ -658,6 +684,16 @@ class HydraFlowConfig(BaseModel):
         ge=1_000,
         le=100_000,
         description="Max characters for code scanning alert injection",
+    )
+
+    # Visual gate
+    visual_gate_enabled: bool = Field(
+        default=False,
+        description="Require visual validation gate before merge finalization",
+    )
+    visual_gate_bypass: bool = Field(
+        default=False,
+        description="Emergency bypass for visual gate (audit-logged)",
     )
 
     # Visual validation scope
@@ -984,6 +1020,26 @@ class HydraFlowConfig(BaseModel):
     docker_extra_mounts: list[str] = Field(
         default=[],
         description="Additional volume mounts as host:container:mode strings",
+    )
+
+    # Baseline policy
+    baseline_snapshot_patterns: list[str] = Field(
+        default=["**/__snapshots__/**", "**/*.snap.png", "**/*.baseline.png"],
+        description="Glob patterns matching visual baseline files in the repo",
+    )
+    baseline_approval_required: bool = Field(
+        default=True,
+        description="Whether baseline updates require explicit approval",
+    )
+    baseline_approvers: list[str] = Field(
+        default=[],
+        description="GitHub usernames allowed to approve baseline updates (empty = repo collaborators)",
+    )
+    baseline_max_audit_records: int = Field(
+        default=100,
+        ge=10,
+        le=1000,
+        description="Maximum baseline audit records to retain per issue",
     )
 
     # GitHub authentication

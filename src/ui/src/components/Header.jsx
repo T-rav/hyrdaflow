@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { PIPELINE_STAGES, SENSITIVE_SELECTORS } from '../constants'
@@ -164,7 +164,7 @@ export function Header({
   connected, orchestratorStatus, creditsPausedUntil,
   onStart, onStop,
 }) {
-  const { stageStatus, config, submitReport } = useHydraFlow()
+  const { stageStatus, config, submitReport, runtimes = [], supervisedRepos = [] } = useHydraFlow()
   const hasActiveWorkers = stageStatus.workload.active > 0
   const appVersion = config?.app_version || ''
   const latestVersion = config?.latest_version || ''
@@ -224,6 +224,16 @@ export function Header({
     if (submitReport) await submitReport(data)
   }, [submitReport])
 
+  const totalRepos = supervisedRepos.length
+  const supervisedSlugs = useMemo(
+    () => new Set(supervisedRepos.map(r => r.slug)),
+    [supervisedRepos]
+  )
+  const runningRepos = useMemo(
+    () => runtimes.filter(rt => rt.running && supervisedSlugs.has(rt.slug)).length,
+    [runtimes, supervisedSlugs]
+  )
+
   const sessionStages = PIPELINE_STAGES.map((stage) => ({
     key: stage.key,
     count: stageStatus?.[stage.key]?.sessionCount || 0,
@@ -270,6 +280,14 @@ export function Header({
         </div>
       </div>
       <div style={styles.controls}>
+        {totalRepos > 0 && (
+          <span
+            style={runningRepos > 0 ? reposRunningBadgeActive : styles.reposRunningBadge}
+            data-testid="repos-running-badge"
+          >
+            {runningRepos} / {totalRepos} {totalRepos === 1 ? 'repo' : 'repos'}
+          </span>
+        )}
         {canStart && (
           <button
             style={connected ? startBtnEnabled : startBtnDisabled}
@@ -441,6 +459,16 @@ const styles = {
     fontWeight: 400,
     opacity: 0.85,
   },
+  reposRunningBadge: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.textMuted,
+    padding: '4px 8px',
+    borderRadius: 6,
+    border: `1px solid ${theme.border}`,
+    background: theme.surface,
+    whiteSpace: 'nowrap',
+  },
   reportBtn: {
     padding: '4px 14px',
     borderRadius: 6,
@@ -469,3 +497,6 @@ export const startBtnDisabled = { ...styles.startBtn, opacity: 0.4, cursor: 'not
 
 // Pre-computed report button variant
 const reportBtnDisabled = { ...styles.reportBtn, opacity: 0.4, cursor: 'not-allowed' }
+
+// Pre-computed repos running badge variant
+const reposRunningBadgeActive = { ...styles.reposRunningBadge, color: theme.green, borderColor: theme.green }

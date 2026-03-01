@@ -138,6 +138,7 @@ class HydraFlowOrchestrator:
         self._epic_manager = svc.epic_manager
         self._epic_monitor_loop = svc.epic_monitor_loop
         self._worktree_gc_loop = svc.worktree_gc_loop
+        self._runs_gc_loop = svc.runs_gc_loop
 
     @property
     def event_bus(self) -> EventBus:
@@ -848,6 +849,7 @@ class HydraFlowOrchestrator:
             ("report_issue", self._report_issue_loop.run),
             ("epic_monitor", self._epic_monitor_loop.run),
             ("worktree_gc", self._worktree_gc_loop.run),
+            ("runs_gc", self._runs_gc_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),
         ]
         self._prune_stale_disabled_workers({n for n, _ in loop_factories})

@@ -190,7 +190,7 @@ class TestConfigFileMergePriority:
             state_file=tmp_path / "s.json",
         )
 
-        assert cfg.max_workers == 2  # Default
+        assert cfg.max_workers == 1  # Default
         assert cfg.model == "opus"  # Default
 
     def test_config_file_with_float_field(self, tmp_path: Path) -> None:

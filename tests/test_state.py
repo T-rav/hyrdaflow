@@ -553,6 +553,122 @@ class TestHITLCauseTracking:
 
 
 # ---------------------------------------------------------------------------
+# HITL visual evidence tracking
+# ---------------------------------------------------------------------------
+
+
+class TestHITLVisualEvidence:
+    def test_set_and_get_visual_evidence(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        tracker = make_tracker(tmp_path)
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="login", diff_percent=5.0, status="fail")
+            ],
+            summary="1 screen failed",
+        )
+        tracker.set_hitl_visual_evidence(42, ev)
+        result = tracker.get_hitl_visual_evidence(42)
+        assert result is not None
+        assert len(result.items) == 1
+        assert result.items[0].screen_name == "login"
+        assert result.summary == "1 screen failed"
+
+    def test_get_returns_none_for_unknown(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_hitl_visual_evidence(999) is None
+
+    def test_set_triggers_save(self, tmp_path: Path) -> None:
+        from models import VisualEvidence
+
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        tracker.set_hitl_visual_evidence(42, VisualEvidence())
+        assert state_file.exists()
+
+    def test_set_overwrites_existing(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        tracker = make_tracker(tmp_path)
+        ev1 = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="page1", diff_percent=1.0, status="pass")
+            ],
+        )
+        ev2 = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="page2", diff_percent=10.0, status="fail"
+                )
+            ],
+            attempt=2,
+        )
+        tracker.set_hitl_visual_evidence(42, ev1)
+        tracker.set_hitl_visual_evidence(42, ev2)
+        result = tracker.get_hitl_visual_evidence(42)
+        assert result is not None
+        assert result.items[0].screen_name == "page2"
+        assert result.attempt == 2
+
+    def test_remove_deletes_entry(self, tmp_path: Path) -> None:
+        from models import VisualEvidence
+
+        tracker = make_tracker(tmp_path)
+        tracker.set_hitl_visual_evidence(42, VisualEvidence())
+        tracker.remove_hitl_visual_evidence(42)
+        assert tracker.get_hitl_visual_evidence(42) is None
+
+    def test_remove_nonexistent_is_noop(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.remove_hitl_visual_evidence(999)
+        assert tracker.get_hitl_visual_evidence(999) is None
+
+    def test_persists_across_reload(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="dash", diff_percent=8.0, status="warn")
+            ],
+            summary="warn threshold",
+            attempt=3,
+        )
+        tracker.set_hitl_visual_evidence(42, ev)
+
+        tracker2 = StateTracker(state_file)
+        result = tracker2.get_hitl_visual_evidence(42)
+        assert result is not None
+        assert result.items[0].screen_name == "dash"
+        assert result.attempt == 3
+
+    def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
+        from models import VisualEvidence, VisualEvidenceItem
+
+        tracker = make_tracker(tmp_path)
+        tracker.set_hitl_visual_evidence(
+            1,
+            VisualEvidence(
+                items=[
+                    VisualEvidenceItem(screen_name="a", diff_percent=1.0, status="pass")
+                ]
+            ),
+        )
+        tracker.set_hitl_visual_evidence(
+            2,
+            VisualEvidence(
+                items=[
+                    VisualEvidenceItem(screen_name="b", diff_percent=2.0, status="pass")
+                ]
+            ),
+        )
+        assert tracker.get_hitl_visual_evidence(1).items[0].screen_name == "a"
+        assert tracker.get_hitl_visual_evidence(2).items[0].screen_name == "b"
+
+
+# ---------------------------------------------------------------------------
 # Reset
 # ---------------------------------------------------------------------------
 

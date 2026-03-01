@@ -119,7 +119,7 @@ function getTabLabel(key) {
     issues: 'Work Stream',
     outcomes: 'Outcomes',
     hitl: 'HITL',
-    worklog: 'Work Log',
+    worklog: 'Delivery Queue',
     system: 'System',
   }
   return labels[key] || key

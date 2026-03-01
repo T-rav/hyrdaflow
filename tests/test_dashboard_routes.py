@@ -114,6 +114,9 @@ class TestCreateRouter:
             "/api/crates",
             "/api/crates/{crate_number}",
             "/api/crates/{crate_number}/items",
+            "/api/epics",
+            "/api/epics/{epic_number}",
+            "/api/epics/{epic_number}/release",
             "/ws",
             "/{path:path}",
         }
@@ -1605,6 +1608,110 @@ class TestHITLEndpointCause:
         items = json.loads(response.body)
         assert len(items) == 1
         assert items[0]["isMemorySuggestion"] is True
+
+    @pytest.mark.asyncio
+    async def test_hitl_endpoint_includes_visual_evidence_when_set(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When visual evidence is stored in state, it should appear in the response."""
+        from dashboard_routes import create_router
+        from models import VisualEvidence, VisualEvidenceItem
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="login", diff_percent=12.5, status="fail"
+                )
+            ],
+            summary="1 screen exceeded threshold",
+            attempt=2,
+        )
+        state.set_hitl_visual_evidence(42, ev)
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        hitl_item = HITLItem(issue=42, title="Fix visual regression", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert len(items) == 1
+        visual = items[0]["visualEvidence"]
+        assert visual is not None
+        assert visual["summary"] == "1 screen exceeded threshold"
+        assert visual["attempt"] == 2
+        assert visual["items"][0]["screen_name"] == "login"
+        assert visual["items"][0]["diff_percent"] == 12.5
+        assert visual["items"][0]["status"] == "fail"
+
+    @pytest.mark.asyncio
+    async def test_hitl_endpoint_omits_visual_evidence_when_not_set(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When no visual evidence is stored, visualEvidence key should be absent."""
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+        hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = None
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/hitl"
+                and hasattr(route, "endpoint")
+            ):
+                get_hitl = route.endpoint  # type: ignore[union-attr]
+                break
+
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert len(items) == 1
+        assert items[0].get("visualEvidence") is None
 
 
 # ---------------------------------------------------------------------------

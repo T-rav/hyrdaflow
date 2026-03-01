@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
-import { tabActiveStyle, tabInactiveStyle, hitlBadgeStyle, epicsBadgeStyle } from '../../App'
+import { tabActiveStyle, tabInactiveStyle, hitlBadgeStyle } from '../../App'
 
 const { mockState } = vi.hoisted(() => {
   const emptyStage = { issueCount: 0, activeCount: 0, queuedCount: 0, workerCount: 0, enabled: true, sessionCount: 0 }
@@ -189,10 +189,10 @@ describe('System and Metrics tabs', () => {
 })
 
 describe('Main tab bar', () => {
-  it('has exactly 6 main tabs', async () => {
+  it('has exactly 5 main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Delivery Queue', 'Work Stream', 'HITL', 'Epics', 'Outcomes', 'System']
+    const tabLabels = ['Delivery Queue', 'Work Stream', 'HITL', 'Outcomes', 'System']
     const tabContainer = screen.getByTestId('main-tabs')
     expect(tabContainer.childElementCount).toBe(tabLabels.length)
     for (const label of tabLabels) {
@@ -244,98 +244,6 @@ describe('Start button dispatches session reset', () => {
   })
 })
 
-describe('EventLog panel', () => {
-  it('renders EventLog panel with data-testid', async () => {
-    const { default: App } = await import('../../App')
-    render(<App />)
-    expect(screen.getByTestId('event-log-panel')).toBeInTheDocument()
-  })
-
-  it('EventLog panel is visible on all main tabs', async () => {
-    const { default: App } = await import('../../App')
-    render(<App />)
-    const tabs = ['Delivery Queue', 'Work Stream', 'HITL', 'Epics', 'Outcomes', 'System']
-    for (const tabLabel of tabs) {
-      fireEvent.click(screen.getByRole('tab', { name: tabLabel }))
-      expect(screen.getByTestId('event-log-panel')).toBeVisible()
-    }
-  })
-
-  it('EventLog panel has fixed 320px width', async () => {
-    const { default: App } = await import('../../App')
-    render(<App />)
-    const wrapper = screen.getByTestId('event-log-wrapper')
-    expect(wrapper.style.width).toBe('320px')
-    expect(wrapper.style.flexShrink).toBe('0')
-  })
-
-  it('shows empty state when no events', async () => {
-    mockState.events = []
-    const { default: App } = await import('../../App')
-    render(<App />)
-    expect(screen.getByText('Waiting for events...')).toBeInTheDocument()
-  })
-
-  it('renders events passed from context', async () => {
-    mockState.events = [
-      { type: 'error', timestamp: new Date().toISOString(), data: { message: 'test error' } },
-    ]
-    const { default: App } = await import('../../App')
-    render(<App />)
-    const panel = screen.getByTestId('event-log-panel')
-    expect(within(panel).getByText('test error')).toBeInTheDocument()
-    expect(within(panel).getByText('[system]')).toBeInTheDocument()
-  })
-})
-
-describe('Epics tab and badge', () => {
-  it('clicking Epics tab shows EpicDashboard', async () => {
-    const { default: App } = await import('../../App')
-    render(<App />)
-    fireEvent.click(screen.getByRole('tab', { name: 'Epics' }))
-    expect(screen.getByTestId('epic-dashboard')).toBeInTheDocument()
-  })
-
-  it('shows epic badge when active epics exist', async () => {
-    mockState.epics = [
-      { epic_number: 1, title: 'E1', status: 'active', total_children: 2, merged_children: 0, children: [] },
-      { epic_number: 2, title: 'E2', status: 'active', total_children: 1, merged_children: 0, children: [] },
-    ]
-    const { default: App } = await import('../../App')
-    render(<App />)
-    const epicsTab = screen.getByRole('tab', { name: /Epics/ })
-    const badge = epicsTab.querySelector('span')
-    expect(badge).not.toBeNull()
-    expect(badge.textContent).toBe('2')
-  })
-
-  it('shows no epic badge when no active epics', async () => {
-    mockState.epics = [
-      { epic_number: 1, title: 'E1', status: 'released', total_children: 1, merged_children: 1, children: [] },
-    ]
-    const { default: App } = await import('../../App')
-    render(<App />)
-    const epicsTab = screen.getByRole('tab', { name: 'Epics' })
-    expect(epicsTab.querySelector('span')).toBeNull()
-  })
-
-  it('epicsBadgeStyle has purple background and white text', () => {
-    expect(epicsBadgeStyle).toMatchObject({
-      background: 'var(--purple)',
-      color: 'var(--white)',
-    })
-  })
-
-  it('epicsBadgeStyle has pill-shaped properties', () => {
-    expect(epicsBadgeStyle).toMatchObject({
-      fontSize: 10,
-      fontWeight: 700,
-      borderRadius: 10,
-      padding: '1px 6px',
-      marginLeft: 6,
-    })
-  })
-})
 
 describe('Pipeline sub-tab under System', () => {
   it('Pipeline is accessible as a sub-tab under System', async () => {

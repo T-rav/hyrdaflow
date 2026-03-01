@@ -114,13 +114,24 @@ describe('PIPELINE_LOOPS', () => {
     expect(PIPELINE_LOOPS.map(l => l.key)).toEqual(stageKeys)
   })
 
-  it('every loop has key, label, color, and dimColor properties', () => {
+  it('every loop has key, label, color, dimColor, and configKey properties', () => {
     for (const loop of PIPELINE_LOOPS) {
       expect(loop).toHaveProperty('key')
       expect(loop).toHaveProperty('label')
       expect(loop).toHaveProperty('color')
       expect(loop).toHaveProperty('dimColor')
+      expect(loop).toHaveProperty('configKey')
     }
+  })
+
+  it('maps each loop to the correct configKey', () => {
+    const configMap = Object.fromEntries(PIPELINE_LOOPS.map(l => [l.key, l.configKey]))
+    expect(configMap).toEqual({
+      triage: 'max_triagers',
+      plan: 'max_planners',
+      implement: 'max_workers',
+      review: 'max_reviewers',
+    })
   })
 })
 

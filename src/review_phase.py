@@ -5,17 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
+    BaselineApprovalResult,
     ConflictResolutionResult,
     JudgeResult,
     PipelineStage,
@@ -24,6 +27,7 @@ from models import (
     ReviewVerdict,
     StatusCallback,
     Task,
+    VisualEvidence,
     VisualValidationDecision,
 )
 from phase_utils import (
@@ -71,6 +75,7 @@ class ReviewPhase:
         conflict_resolver: MergeConflictResolver | None = None,
         post_merge: PostMergeHandler | None = None,
         update_bg_worker_status: StatusCallback | None = None,
+        baseline_policy: BaselinePolicy | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -105,6 +110,7 @@ class ReviewPhase:
             verification_judge=None,
             epic_checker=None,
         )
+        self._baseline_policy = baseline_policy
 
     async def review_prs(
         self,
@@ -290,6 +296,40 @@ class ReviewPhase:
             )
             return None
 
+    async def _check_baseline_policy(
+        self, pr: PRInfo, task: Task
+    ) -> BaselineApprovalResult | None:
+        """Run baseline policy check if a policy is configured.
+
+        Returns the approval result or ``None`` when no policy is active.
+        """
+        if self._baseline_policy is None:
+            return None
+        try:
+            changed_files = await self._prs.get_pr_diff_names(pr.number)
+            if not changed_files:
+                return None
+            pr_approvers = await self._prs.get_pr_approvers(pr.number)
+            commit_sha = await self._prs.get_pr_head_sha(pr.number)
+            return await self._baseline_policy.check_approval(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                changed_files=changed_files,
+                pr_approvers=pr_approvers,
+                commit_sha=commit_sha,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Baseline policy check failed for PR #%d — failing closed to protect baseline integrity",
+                pr.number,
+                exc_info=True,
+            )
+            return BaselineApprovalResult(
+                approved=False,
+                requires_approval=True,
+                reason="Baseline policy check failed — manual review required",
+            )
+
     async def _review_one_inner(
         self,
         idx: int,
@@ -325,6 +365,35 @@ class ReviewPhase:
             )
 
         diff = await self._prs.get_pr_diff(pr.number)
+
+        # Baseline policy check: detect and enforce approval for baseline changes
+        baseline_result = await self._check_baseline_policy(pr, task)
+        if (
+            baseline_result
+            and baseline_result.requires_approval
+            and not baseline_result.approved
+        ):
+            await self._escalate_to_hitl(
+                pr.issue_number,
+                pr.number,
+                cause="Baseline changes require approval",
+                origin_label=self._config.review_label[0],
+                comment=(
+                    "## Baseline Policy Violation\n\n"
+                    "This PR modifies visual baseline files that require "
+                    "explicit approval from a designated owner before merging.\n\n"
+                    "**Changed baseline files:**\n"
+                    + "\n".join(f"- `{f}`" for f in baseline_result.changed_files)
+                    + "\n\nPlease request a review from an authorized baseline approver."
+                ),
+                event_cause="baseline_approval_required",
+                task=task,
+            )
+            return ReviewResult(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                summary="Baseline changes require approval — escalated to HITL",
+            )
 
         # Visual validation scope check
         visual_decision = self._compute_visual_validation(diff, task)
@@ -659,8 +728,149 @@ class ReviewPhase:
             escalate_fn=self._escalate_to_hitl,
             publish_fn=self._publish_review_status,
             code_scanning_alerts=code_scanning_alerts,
+            visual_gate_fn=self.check_visual_gate,
             visual_decision=visual_decision,
         )
+
+    async def check_visual_gate(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        result: ReviewResult,
+        worker_id: int,
+    ) -> bool:
+        """Run visual validation gate before merge finalization.
+
+        Returns True if merge may proceed, False to block.
+        When the gate is bypassed an audit event is emitted.
+        """
+        start = time.monotonic()
+
+        if not self._config.visual_gate_enabled:
+            return True
+
+        # Emergency bypass — allow merge but log an audit event
+        if self._config.visual_gate_bypass:
+            logger.warning(
+                "PR #%d: visual gate BYPASSED (emergency kill-switch)",
+                pr.number,
+            )
+            if self._bus:
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.VISUAL_GATE,
+                        data={
+                            "pr": pr.number,
+                            "issue": issue.id,
+                            "worker": worker_id,
+                            "verdict": "bypass",
+                            "reason": "emergency kill-switch active",
+                            "runtime_seconds": round(time.monotonic() - start, 3),
+                        },
+                    )
+                )
+            result.visual_passed = True
+            return True
+
+        verdict, artifacts, reason = await self._invoke_visual_pipeline(
+            pr, issue, worker_id
+        )
+
+        runtime = round(time.monotonic() - start, 3)
+
+        # Emit gate telemetry
+        if self._bus:
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.VISUAL_GATE,
+                    data={
+                        "pr": pr.number,
+                        "issue": issue.id,
+                        "worker": worker_id,
+                        "verdict": verdict,
+                        "reason": reason,
+                        "runtime_seconds": runtime,
+                        "retries": 0,
+                        "artifact_count": len(artifacts),
+                        "artifacts": artifacts,
+                    },
+                )
+            )
+
+        if verdict == "pass":
+            result.visual_passed = True
+            # Post sign-off comment with evidence links
+            sign_off = (
+                f"**Visual Gate: PASSED**\n\n"
+                f"Visual validation completed successfully.\n"
+                f"Verdict: `{verdict}` | Runtime: {runtime}s"
+            )
+            if artifacts:
+                sign_off += "\n\n**Artifacts:**\n"
+                for name, link in artifacts.items():
+                    sign_off += f"- [{name}]({link})\n"
+            try:
+                await self._prs.post_pr_comment(pr.number, sign_off)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "PR #%d: could not post visual gate sign-off comment",
+                    pr.number,
+                    exc_info=True,
+                )
+            return True
+
+        # Warn/fail blocks merge and escalates to HITL
+        result.visual_passed = False
+        logger.warning(
+            "PR #%d: visual gate BLOCKED (verdict=%s) — blocking merge",
+            pr.number,
+            verdict,
+        )
+        try:
+            await self._prs.post_pr_comment(
+                pr.number,
+                f"**Visual Gate: BLOCKED**\n\n"
+                f"Verdict: `{verdict}` — {reason}\n"
+                f"Escalating to human review.",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "PR #%d: could not post visual gate block comment",
+                pr.number,
+                exc_info=True,
+            )
+        await self._escalate_to_hitl(
+            pr.issue_number,
+            pr.number,
+            cause=f"Visual gate {verdict}",
+            origin_label=self._config.review_label[0],
+            comment=f"Visual gate verdict: {verdict} — {reason}",
+            event_cause="visual_gate_failed",
+            task=issue,
+        )
+        return False
+
+    async def _invoke_visual_pipeline(
+        self,
+        pr: PRInfo,
+        issue: Task,  # noqa: ARG002
+        worker_id: int,  # noqa: ARG002
+    ) -> tuple[str, dict[str, str], str]:
+        """Invoke the external visual validation service.
+
+        Returns (verdict, artifacts, reason).
+        Override or mock this method in tests to exercise fail paths.
+        In production this will call an external visual validation service.
+
+        WARNING: This is a placeholder stub. With visual_gate_enabled=True the
+        gate will always pass until this method is connected to a real service.
+        """
+        logger.warning(
+            "PR #%d: _invoke_visual_pipeline is a stub — visual gate is not connected "
+            "to a real validation service; verdict will always be 'pass'",
+            pr.number,
+        )
+        return "pass", {}, "visual validation passed"
 
     async def _run_ci_wait_attempt(
         self, pr: PRInfo, attempt: int, worker_id: int
@@ -880,11 +1090,14 @@ class ReviewPhase:
         event_cause: str = "",
         extra_event_data: dict[str, object] | None = None,
         task: Task | None = None,
+        visual_evidence: VisualEvidence | None = None,
     ) -> None:
         """Record HITL escalation state, swap labels, post comment, publish event."""
         self._state.set_hitl_origin(issue_number, origin_label)
         self._state.set_hitl_cause(issue_number, cause)
         self._state.record_hitl_escalation()
+        if visual_evidence is not None:
+            self._state.set_hitl_visual_evidence(issue_number, visual_evidence)
 
         await self._transitioner.transition(issue_number, "hitl", pr_number=pr_number)
         if task is not None:
@@ -903,10 +1116,78 @@ class ReviewPhase:
         }
         if pr_number and pr_number > 0:
             event_data["pr"] = pr_number
+        if visual_evidence is not None:
+            event_data["visual_evidence"] = visual_evidence.model_dump()
         if extra_event_data:
             event_data.update(extra_event_data)
         await self._bus.publish(
             HydraFlowEvent(type=EventType.HITL_ESCALATION, data=event_data)
+        )
+
+    async def escalate_visual_failure(
+        self,
+        issue_number: int,
+        pr_number: int | None,
+        evidence: VisualEvidence,
+        *,
+        task: Task | None = None,
+    ) -> None:
+        """Escalate a visual validation failure to HITL with evidence.
+
+        Convenience wrapper around ``_escalate_to_hitl`` that records the
+        visual evidence, picks the appropriate failure category, and
+        builds a descriptive comment.
+        """
+        fail_items = [i for i in evidence.items if i.status == "fail"]
+        warn_items = [i for i in evidence.items if i.status == "warn"]
+
+        category = (
+            FailureCategory.VISUAL_FAIL if fail_items else FailureCategory.VISUAL_WARN
+        )
+        record_harness_failure(
+            self._harness_insights,
+            issue_number,
+            category,
+            evidence.summary or f"{len(fail_items)} fail(s), {len(warn_items)} warn(s)",
+            pr_number=pr_number or 0,
+            stage=PipelineStage.REVIEW,
+        )
+
+        screen_lines = []
+        for item in evidence.items:
+            if item.status in ("fail", "warn"):
+                label = "FAIL" if item.status == "fail" else "WARN"
+                screen_lines.append(
+                    f"- **{item.screen_name}** — {item.diff_percent:.1f}% diff [{label}]"
+                )
+
+        comment = (
+            "## Visual Validation Failed\n\n"
+            + (evidence.summary + "\n\n" if evidence.summary else "")
+            + (
+                "**Affected screens:**\n" + "\n".join(screen_lines) + "\n\n"
+                if screen_lines
+                else ""
+            )
+            + (f"[View run]({evidence.run_url})\n\n" if evidence.run_url else "")
+            + "Escalating to human review."
+        )
+
+        cause = (
+            f"Visual validation failed: {evidence.summary}"
+            if evidence.summary
+            else "Visual validation failed"
+        )
+
+        await self._escalate_to_hitl(
+            issue_number,
+            pr_number,
+            cause=cause,
+            origin_label=self._config.review_label[0],
+            comment=comment,
+            event_cause="visual_validation_failed",
+            task=task,
+            visual_evidence=evidence,
         )
 
     @staticmethod

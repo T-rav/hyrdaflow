@@ -350,7 +350,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_workers == 2
+        assert cfg.max_workers == 1
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -382,7 +382,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_reviewers == 2
+        assert cfg.max_reviewers == 1
 
     def test_max_triagers_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -392,18 +392,67 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.max_triagers == 1
 
-    def test_max_triagers_env_override(
+    def test_max_triagers_env_override_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """HYDRAFLOW_MAX_TRIAGERS env var should be ignored; worker counts are config-file-only."""
         monkeypatch.setenv("HYDRAFLOW_MAX_TRIAGERS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_triagers == 4
+        assert cfg.max_triagers == 1
+
+    def test_max_workers_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_WORKERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_WORKERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_workers == 1
+
+    def test_max_reviewers_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_REVIEWERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_REVIEWERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_reviewers == 1
+
+    def test_max_planners_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_PLANNERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_PLANNERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_planners == 1
 
     def test_max_hitl_workers_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_hitl_workers == 1
+
+    def test_max_hitl_workers_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_HITL_WORKERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_HITL_WORKERS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",

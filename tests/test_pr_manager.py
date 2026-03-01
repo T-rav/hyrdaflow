@@ -3902,6 +3902,93 @@ class TestGetPrReviews:
 
 
 # ---------------------------------------------------------------------------
+# get_pr_mergeable (issue #1608)
+# ---------------------------------------------------------------------------
+
+
+class TestGetPrMergeable:
+    """Tests for PRManager.get_pr_mergeable."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_mergeable(self, event_bus, tmp_path):
+        """get_pr_mergeable returns True when GitHub says 'true'."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("true\n").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_mergeable(101)
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_not_mergeable(self, event_bus, tmp_path):
+        """get_pr_mergeable returns False when GitHub says 'false'."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("false\n").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_mergeable(101)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_null(self, event_bus, tmp_path):
+        """get_pr_mergeable returns None when GitHub says 'null'."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("null\n").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_mergeable(101)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_failure(self, event_bus, tmp_path):
+        """get_pr_mergeable returns None on API failure."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_mergeable(999)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_dry_run_returns_none(self, dry_config, event_bus):
+        """In dry-run mode, get_pr_mergeable returns None."""
+        mgr = _make_manager(dry_config, event_bus)
+        mock_create = SubprocessMockBuilder().build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_pr_mergeable(101)
+
+        mock_create.assert_not_called()
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
 # get_pr_comments (issue #853)
 # ---------------------------------------------------------------------------
 
