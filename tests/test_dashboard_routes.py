@@ -3798,7 +3798,7 @@ class TestListSupervisedReposEndpoint:
 
         data = json.loads(response.body)
         assert response.status_code == 503
-        assert "hf supervisor is not running" in data["error"]
+        assert data["error"] == "Supervisor unavailable"
         mock_logger.warning.assert_not_called()
 
     @pytest.mark.asyncio
@@ -3826,7 +3826,7 @@ class TestListSupervisedReposEndpoint:
 
         data = json.loads(response.body)
         assert response.status_code == 503
-        assert "Supervisor connection failed" in data["error"]
+        assert data["error"] == "Supervisor unavailable"
         mock_logger.warning.assert_called_once()
 
 

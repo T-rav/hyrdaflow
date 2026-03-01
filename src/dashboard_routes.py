@@ -658,7 +658,7 @@ def create_router(
             return JSONResponse(result)
         except RuntimeError as exc:
             logger.error("Failed to fetch crates: %s", exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": "Failed to fetch crates"}, status_code=500)
 
     @router.post("/api/crates")
     async def create_crate(body: CrateCreateRequest) -> JSONResponse:
@@ -674,7 +674,7 @@ def create_router(
             return JSONResponse(crate.model_dump())
         except RuntimeError as exc:
             logger.error("Failed to create crate: %s", exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": "Failed to create crate"}, status_code=500)
 
     @router.patch("/api/crates/{crate_number}")
     async def update_crate(crate_number: int, body: CrateUpdateRequest) -> JSONResponse:
@@ -687,7 +687,7 @@ def create_router(
             return JSONResponse(crate.model_dump())
         except RuntimeError as exc:
             logger.error("Failed to update crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": "Failed to update crate"}, status_code=500)
 
     @router.delete("/api/crates/{crate_number}")
     async def delete_crate(crate_number: int) -> JSONResponse:
@@ -697,7 +697,7 @@ def create_router(
             return JSONResponse({"ok": True})
         except RuntimeError as exc:
             logger.error("Failed to delete crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": "Failed to delete crate"}, status_code=500)
 
     @router.post("/api/crates/{crate_number}/items")
     async def add_crate_items(
@@ -710,7 +710,9 @@ def create_router(
             return JSONResponse({"ok": True, "added": len(body.issue_numbers)})
         except RuntimeError as exc:
             logger.error("Failed to add items to crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse(
+                {"error": "Failed to add items to crate"}, status_code=500
+            )
 
     @router.delete("/api/crates/{crate_number}/items")
     async def remove_crate_items(
@@ -723,7 +725,9 @@ def create_router(
             return JSONResponse({"ok": True, "removed": len(body.issue_numbers)})
         except RuntimeError as exc:
             logger.error("Failed to remove items from crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse(
+                {"error": "Failed to remove items from crate"}, status_code=500
+            )
 
     @router.get("/api/hitl")
     async def get_hitl(
@@ -1180,7 +1184,7 @@ def create_router(
                 f"{e['loc'][-1]}: {e['msg']}" for e in errors if e.get("loc")
             )
             return JSONResponse(
-                {"status": "error", "message": msg or str(exc)},
+                {"status": "error", "message": msg or "Invalid configuration"},
                 status_code=422,
             )
 
@@ -2350,7 +2354,7 @@ def create_router(
         except Exception as exc:  # noqa: BLE001
             if not _is_expected_supervisor_unavailable(exc):
                 logger.warning("Supervisor list_repos failed: %s", exc)
-            return JSONResponse({"error": str(exc)}, status_code=503)
+            return JSONResponse({"error": "Supervisor unavailable"}, status_code=503)
         return JSONResponse({"repos": repos})
 
     @router.post("/api/repos")
@@ -2366,7 +2370,8 @@ def create_router(
                 try:
                     repos = await _call_supervisor(supervisor_client.list_repos)
                 except Exception as exc:  # noqa: BLE001
-                    error_payload = (str(exc), 503)
+                    logger.warning("Supervisor list_repos failed: %s", exc)
+                    error_payload = ("Supervisor unavailable", 503)
                 else:
                     match = next((r for r in repos if r.get("slug") == slug), None)
                     if not match:
@@ -2384,7 +2389,7 @@ def create_router(
                                 )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning("Supervisor add_repo failed: %s", exc)
-                                error_payload = (str(exc), 500)
+                                error_payload = ("Failed to add repo", 500)
                             else:
                                 return JSONResponse(info)
 
@@ -2401,7 +2406,7 @@ def create_router(
             await _call_supervisor(supervisor_client.remove_repo, None, slug)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Supervisor remove_repo failed: %s", exc)
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
         return JSONResponse({"status": "ok"})
 
     @router.post("/api/intent")
@@ -2465,7 +2470,10 @@ def create_router(
         try:
             deleted = state.delete_session(session_id)
         except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            logger.warning("Failed to delete session %s: %s", session_id, exc)
+            return JSONResponse(
+                {"error": "Cannot delete active session"}, status_code=400
+            )
         if not deleted:
             return JSONResponse({"error": "Session not found"}, status_code=404)
         return JSONResponse({"status": "ok"})
