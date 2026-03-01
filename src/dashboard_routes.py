@@ -652,7 +652,8 @@ def create_router(
     async def trigger_epic_release(epic_number: int) -> JSONResponse:
         """Trigger async merge sequence and release creation for an epic.
 
-        Returns a job ID for polling. Long-running merges run in background.
+        Returns a job_id. Completion is signalled via the EPIC_RELEASED WebSocket
+        event — there is no REST polling endpoint for job status.
         """
         orch = get_orchestrator()
         if orch is None:

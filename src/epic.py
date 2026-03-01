@@ -716,10 +716,11 @@ class EpicManager:
                     exc_info=True,
                 )
 
-    async def trigger_release(self, epic_number: int) -> dict:
+    async def trigger_release(self, epic_number: int) -> dict[str, object]:
         """Trigger async merge sequence and release creation for a bundled epic.
 
-        Returns a dict with job_id and status for polling.
+        Returns a dict with job_id and status. Completion is signalled via the
+        EPIC_RELEASED WebSocket event (not a polling endpoint).
         """
         epic = self._state.get_epic_state(epic_number)
         if epic is None:
@@ -995,6 +996,7 @@ class EpicManager:
         if epic is not None:
             epic.released = True
             self._state.upsert_epic_state(epic)
+        self._invalidate_cache(epic_number)
 
         await self._publish_update(epic_number, "released")
         return {"epic_number": epic_number, "merges": results}
