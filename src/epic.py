@@ -665,7 +665,6 @@ class EpicManager:
             try:
                 detail = await self._build_detail(epic.epic_number)
                 if detail is not None:
-                    self._detail_cache[epic.epic_number] = detail
                     # Publish progress event
                     await self._bus.publish(
                         HydraFlowEvent(
@@ -676,9 +675,12 @@ class EpicManager:
                             },
                         )
                     )
-                    # Check and publish readiness (skip already-released epics)
+                    # Check and publish readiness (skip already-released epics).
+                    # Re-fetch live state to avoid stale snapshot from get_all_epic_states.
+                    live_epic = self._state.get_epic_state(epic.epic_number)
                     if (
-                        not epic.released
+                        live_epic is not None
+                        and not live_epic.released
                         and detail.readiness.all_implemented
                         and detail.readiness.all_approved
                         and detail.readiness.all_ci_passing
@@ -758,7 +760,7 @@ class EpicManager:
                     },
                 )
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Release execution failed for epic #%d",
                 epic_number,
@@ -771,6 +773,7 @@ class EpicManager:
                         "epic_number": epic_number,
                         "job_id": job_id,
                         "status": "failed",
+                        "error": str(exc),
                     },
                 )
             )
