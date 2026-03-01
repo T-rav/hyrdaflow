@@ -6,16 +6,19 @@ import { HITLTable } from './components/HITLTable'
 import { SystemPanel } from './components/SystemPanel'
 import { IssueHistoryPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
+import { OutcomesPanel } from './components/OutcomesPanel'
+import { EpicsPanel } from './components/EpicsPanel'
 import { SessionSidebar } from './components/SessionSidebar'
-import { EventLog } from './components/EventLog'
 import { theme } from './theme'
 
-const TABS = ['issues', 'history', 'hitl', 'system']
+const TABS = ['issues', 'history', 'outcomes', 'hitl', 'epics', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   history: 'History',
+  outcomes: 'Outcomes',
   hitl: 'HITL',
+  epics: 'Epics',
   system: 'System',
 }
 
@@ -57,7 +60,7 @@ function AppContent() {
     connected, orchestratorStatus, workers, prs,
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
     backgroundWorkers, systemAlert, intents, toggleBgWorker, updateBgWorkerInterval,
-    selectedSession, selectSession, events,
+    selectedSession, selectSession,
     currentSessionId,
     stageStatus,
     requestChanges, resetSession,
@@ -146,7 +149,9 @@ function AppContent() {
               />
             )}
             {activeTab === 'history' && <IssueHistoryPanel />}
+            {activeTab === 'outcomes' && <OutcomesPanel />}
             {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
+            {activeTab === 'epics' && <EpicsPanel />}
             {activeTab === 'system' && (
               <SystemPanel
                 backgroundWorkers={backgroundWorkers}
@@ -154,9 +159,6 @@ function AppContent() {
                 onUpdateInterval={updateBgWorkerInterval}
               />
             )}
-          </div>
-          <div style={styles.eventLogColumn}>
-            <EventLog events={events} />
           </div>
         </div>
       </div>
@@ -220,15 +222,6 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-  },
-  eventLogColumn: {
-    width: 320,
-    minWidth: 320,
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: 0,
-    overflow: 'hidden',
   },
   hitlBadge: {
     background: theme.red,

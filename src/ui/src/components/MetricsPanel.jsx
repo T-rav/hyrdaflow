@@ -1,7 +1,6 @@
 import React from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
-import { HarnessInsightsPanel } from './HarnessInsightsPanel'
 function TrendIndicator({ current, previous, label, format }) {
   if (previous == null || current == null) return null
   const diff = current - previous
@@ -116,6 +115,17 @@ export function MetricsPanel() {
   const inferenceLifetime = metrics?.inference_lifetime || {}
   const inferenceSession = metrics?.inference_session || {}
 
+  const outcomeEntries = [
+    { key: 'merged', label: 'Merged', value: Number(lifetime.total_outcomes_merged ?? 0), color: theme.green },
+    { key: 'already_satisfied', label: 'Already Satisfied', value: Number(lifetime.total_outcomes_already_satisfied ?? 0), color: theme.accent },
+    { key: 'hitl_closed', label: 'HITL Closed', value: Number(lifetime.total_outcomes_hitl_closed ?? 0), color: theme.orange },
+    { key: 'hitl_skipped', label: 'HITL Skipped', value: Number(lifetime.total_outcomes_hitl_skipped ?? 0), color: theme.yellow },
+    { key: 'failed', label: 'Failed', value: Number(lifetime.total_outcomes_failed ?? 0), color: theme.red },
+    { key: 'manual_close', label: 'Manual Close', value: Number(lifetime.total_outcomes_manual_close ?? 0), color: theme.textMuted },
+  ]
+  const totalOutcomes = outcomeEntries.reduce((s, e) => s + e.value, 0)
+  const maxOutcome = Math.max(...outcomeEntries.map(e => e.value), 1)
+
   const hasGithub = githubMetrics !== null && githubMetrics !== undefined
   const githubLooksUnavailable = hasGithub
     && githubOpenIssueTotal === 0
@@ -204,6 +214,30 @@ export function MetricsPanel() {
       shouldRender: Boolean(current || prev),
     },
     {
+      key: 'outcomes',
+      title: 'Outcomes',
+      content: (
+        <div data-testid="metrics-grid-outcomes">
+          <div style={styles.outcomeSummary}>
+            <span style={styles.outcomeBadge}>{totalOutcomes}</span>
+            <span style={styles.outcomeLabel}>total outcomes</span>
+          </div>
+          {outcomeEntries
+            .filter(e => e.value > 0)
+            .map(e => (
+              <div key={e.key} style={styles.outcomeBarRow}>
+                <div style={styles.outcomeBarLabel}>{e.label}</div>
+                <div style={styles.outcomeBarTrack}>
+                  <div style={{ ...styles.outcomeBarFill, width: `${(e.value / maxOutcome) * 100}%`, background: e.color }} />
+                </div>
+                <div style={styles.outcomeBarCount}>{e.value}</div>
+              </div>
+            ))}
+        </div>
+      ),
+      shouldRender: totalOutcomes > 0,
+    },
+    {
       key: 'thresholds',
       title: 'Threshold Alerts',
       content: <ThresholdStatus thresholds={thresholds} />,
@@ -282,9 +316,6 @@ export function MetricsPanel() {
     <div style={styles.container} data-testid="metrics-panel-root">
       <div className="metrics-sections" data-testid="metrics-sections">
         {sectionCards}
-        <SectionCard title="Harness Insights" fullWidth>
-          <HarnessInsightsPanel />
-        </SectionCard>
       </div>
     </div>
   )
@@ -386,5 +417,56 @@ const styles = {
   thresholdText: {
     fontSize: 12,
     color: theme.textBright,
+  },
+  outcomeSummary: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  outcomeBadge: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: theme.textBright,
+    background: theme.surfaceInset,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 8,
+    padding: '4px 12px',
+  },
+  outcomeLabel: {
+    fontSize: 13,
+    color: theme.textMuted,
+  },
+  outcomeBarRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  outcomeBarLabel: {
+    fontSize: 12,
+    color: theme.text,
+    width: 140,
+    flexShrink: 0,
+  },
+  outcomeBarTrack: {
+    flex: 1,
+    height: 8,
+    background: theme.surfaceInset,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  outcomeBarFill: {
+    height: '100%',
+    borderRadius: 4,
+    transition: 'width 0.3s',
+  },
+  outcomeBarCount: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: theme.textBright,
+    width: 32,
+    textAlign: 'right',
+    flexShrink: 0,
   },
 }
