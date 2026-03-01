@@ -233,6 +233,82 @@ class TestCheckApproval:
         assert result.requires_approval is False
 
     @pytest.mark.asyncio
+    async def test_approval_not_required_still_records_audit(self, tmp_path: Path):
+        """Audit trail must be written even when approval is not required."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            baseline_approval_required=False,
+        )
+        st = StateTracker(tmp_path / "state.json")
+        bp = BaselinePolicy(config=cfg, state=st, event_bus=EventBus())
+        await bp.check_approval(
+            pr_number=101,
+            issue_number=42,
+            changed_files=["tests/__snapshots__/home.snap.png"],
+            pr_approvers=[],
+            commit_sha="abc123",
+        )
+        records = st.get_baseline_audit(42)
+        assert len(records) == 1
+        assert records[0].pr_number == 101
+        assert records[0].change_type == BaselineChangeType.INITIAL
+        assert "auto-approved" in records[0].reason.lower()
+        assert records[0].commit_sha == "abc123"
+
+    @pytest.mark.asyncio
+    async def test_approval_not_required_publishes_event(self, tmp_path: Path):
+        """BASELINE_UPDATE event must be published even when approval is not required."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            baseline_approval_required=False,
+        )
+        st = StateTracker(tmp_path / "state.json")
+        bus = EventBus()
+        bp = BaselinePolicy(config=cfg, state=st, event_bus=bus)
+        queue = bus.subscribe()
+        await bp.check_approval(
+            pr_number=101,
+            issue_number=42,
+            changed_files=["tests/__snapshots__/home.snap.png"],
+            pr_approvers=[],
+        )
+        event = queue.get_nowait()
+        assert event.type == EventType.BASELINE_UPDATE
+        assert event.data["pr_number"] == 101
+        assert event.data["approved"] is True
+
+    @pytest.mark.asyncio
+    async def test_approval_not_required_second_record_uses_update_type(
+        self, tmp_path: Path
+    ):
+        """Second baseline record when approval not required should use UPDATE type."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            baseline_approval_required=False,
+        )
+        st = StateTracker(tmp_path / "state.json")
+        bp = BaselinePolicy(config=cfg, state=st, event_bus=EventBus())
+        await bp.check_approval(
+            pr_number=101,
+            issue_number=42,
+            changed_files=["tests/__snapshots__/home.snap.png"],
+            pr_approvers=[],
+        )
+        await bp.check_approval(
+            pr_number=102,
+            issue_number=42,
+            changed_files=["tests/__snapshots__/login.snap.png"],
+            pr_approvers=[],
+        )
+        records = st.get_baseline_audit(42)
+        assert len(records) == 2
+        assert records[0].change_type == BaselineChangeType.INITIAL
+        assert records[1].change_type == BaselineChangeType.UPDATE
+
+    @pytest.mark.asyncio
     async def test_empty_approvers_list_accepts_any(self, tmp_path: Path):
         """When baseline_approvers is empty, any PR approver is accepted."""
         cfg = ConfigFactory.create(

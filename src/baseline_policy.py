@@ -104,6 +104,44 @@ class BaselinePolicy:
             )
 
         if not self._config.baseline_approval_required:
+            # Still record audit trail — all baseline changes must be tracked
+            # regardless of approval policy.
+            prior = self._state.get_baseline_audit(issue_number)
+            change_type = (
+                BaselineChangeType.INITIAL if not prior else BaselineChangeType.UPDATE
+            )
+            record = BaselineAuditRecord(
+                pr_number=pr_number,
+                issue_number=issue_number,
+                changed_files=baseline_files,
+                change_type=change_type,
+                reason=f"Auto-approved (approval not required) via PR #{pr_number}",
+                commit_sha=commit_sha,
+            )
+            self._state.record_baseline_change(
+                issue_number,
+                record,
+                max_records=self._config.baseline_max_audit_records,
+            )
+            try:
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.BASELINE_UPDATE,
+                        data={
+                            "pr_number": pr_number,
+                            "issue_number": issue_number,
+                            "baseline_files": baseline_files,
+                            "approved": True,
+                            "approver": "",
+                        },
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to publish BASELINE_UPDATE event for PR #%d",
+                    pr_number,
+                    exc_info=True,
+                )
             return BaselineApprovalResult(
                 approved=True,
                 changed_files=baseline_files,
