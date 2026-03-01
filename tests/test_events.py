@@ -81,6 +81,7 @@ class TestEventTypeEnum:
             "EPIC_RELEASING",
             "EPIC_RELEASED",
             "PIPELINE_STATS",
+            "BASELINE_UPDATE",
         }
         actual = {member.name for member in EventType}
         assert expected == actual

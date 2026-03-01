@@ -455,4 +455,58 @@ describe('HITLTable component', () => {
     expect(badge.style.background).toBe('var(--orange-subtle)')
     expect(badge.style.color).toBe('var(--orange)')
   })
+
+  it('renders visual evidence section when visualEvidence is present', () => {
+    const items = [
+      {
+        ...mockItems[0],
+        cause: 'Visual validation failed',
+        visualEvidence: {
+          items: [
+            { screen_name: 'login', diff_percent: 8.5, status: 'fail', baseline_url: '', actual_url: '', diff_url: '' },
+            { screen_name: 'dashboard', diff_percent: 1.2, status: 'warn', baseline_url: '', actual_url: '', diff_url: '' },
+          ],
+          summary: '2 screens exceeded threshold',
+          run_url: '',
+          attempt: 1,
+        },
+      },
+    ]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.getByTestId('hitl-visual-42')).toBeInTheDocument()
+    expect(screen.getByText('Visual Evidence')).toBeInTheDocument()
+    expect(screen.getByTestId('hitl-visual-item-42-0')).toBeInTheDocument()
+    expect(screen.getByText('login')).toBeInTheDocument()
+    expect(screen.getByText('8.5% diff')).toBeInTheDocument()
+    expect(screen.getByText('FAIL')).toBeInTheDocument()
+    expect(screen.getByText('dashboard')).toBeInTheDocument()
+    expect(screen.getByText('WARN')).toBeInTheDocument()
+    expect(screen.getByText('2 screens exceeded threshold')).toBeInTheDocument()
+  })
+
+  it('does not render visual evidence section when visualEvidence is absent', () => {
+    render(<HITLTable items={mockItems} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.queryByTestId('hitl-visual-42')).not.toBeInTheDocument()
+  })
+
+  it('renders visual evidence run link when run_url is set', () => {
+    const items = [
+      {
+        ...mockItems[0],
+        visualEvidence: {
+          items: [{ screen_name: 'home', diff_percent: 5.0, status: 'fail', baseline_url: '', actual_url: '', diff_url: '' }],
+          summary: '',
+          run_url: 'https://ci.example.com/run/123',
+          attempt: 2,
+        },
+      },
+    ]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    const runLink = screen.getByText('Run #2')
+    expect(runLink).toBeInTheDocument()
+    expect(runLink.getAttribute('href')).toBe('https://ci.example.com/run/123')
+  })
 })

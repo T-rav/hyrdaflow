@@ -55,6 +55,8 @@ from models import (
     TimelineStage,
     VerificationCriteria,
     VerificationCriterion,
+    VisualEvidence,
+    VisualEvidenceItem,
     WorkerResult,
     WorkerStatus,
     parse_task_links,
@@ -1206,6 +1208,7 @@ class TestHITLItem:
             "isMemorySuggestion": False,
             "llmSummary": "",
             "llmSummaryUpdatedAt": None,
+            "visualEvidence": None,
         }
 
     def test_serialization_defaults_include_new_fields(self) -> None:
@@ -2853,3 +2856,125 @@ class TestPipelineStats:
         json_str = json.dumps(data)
         restored = PipelineStats.model_validate_json(json_str)
         assert restored.stages["triage"].queued == 1
+
+
+# ---------------------------------------------------------------------------
+# VisualEvidenceItem
+# ---------------------------------------------------------------------------
+
+
+class TestVisualEvidenceItem:
+    """Tests for the VisualEvidenceItem model."""
+
+    def test_minimal_instantiation(self) -> None:
+        item = VisualEvidenceItem(screen_name="login", status="pass")
+        assert item.screen_name == "login"
+        assert item.diff_percent == 0.0
+        assert item.status == "pass"
+
+    def test_status_is_required(self) -> None:
+        with pytest.raises(ValidationError):
+            VisualEvidenceItem(screen_name="login")
+
+    def test_all_fields(self) -> None:
+        item = VisualEvidenceItem(
+            screen_name="dashboard",
+            diff_percent=12.5,
+            baseline_url="https://example.com/baseline.png",
+            actual_url="https://example.com/actual.png",
+            diff_url="https://example.com/diff.png",
+            status="warn",
+        )
+        assert item.screen_name == "dashboard"
+        assert item.diff_percent == 12.5
+        assert item.status == "warn"
+        assert str(item.baseline_url) == "https://example.com/baseline.png"
+
+    def test_status_pass(self) -> None:
+        item = VisualEvidenceItem(screen_name="home", status="pass")
+        assert item.status == "pass"
+
+
+# ---------------------------------------------------------------------------
+# VisualEvidence
+# ---------------------------------------------------------------------------
+
+
+class TestVisualEvidence:
+    """Tests for the VisualEvidence model."""
+
+    def test_defaults(self) -> None:
+        ev = VisualEvidence()
+        assert ev.items == []
+        assert ev.summary == ""
+        assert ev.attempt == 1
+
+    def test_with_items(self) -> None:
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(
+                    screen_name="login", diff_percent=5.0, status="warn"
+                ),
+                VisualEvidenceItem(
+                    screen_name="dashboard", diff_percent=20.0, status="fail"
+                ),
+            ],
+            summary="2 screens failed visual check",
+            run_url="https://ci.example.com/run/42",
+            attempt=2,
+        )
+        assert len(ev.items) == 2
+        assert ev.items[0].screen_name == "login"
+        assert ev.items[1].status == "fail"
+        assert ev.attempt == 2
+
+    def test_model_dump_roundtrip(self) -> None:
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="page", diff_percent=3.0, status="pass")
+            ],
+            summary="All checks passed",
+        )
+        data = ev.model_dump()
+        restored = VisualEvidence.model_validate(data)
+        assert restored.items[0].screen_name == "page"
+        assert restored.summary == "All checks passed"
+
+
+# ---------------------------------------------------------------------------
+# HITLItem — visualEvidence field
+# ---------------------------------------------------------------------------
+
+
+class TestHITLItemVisualEvidence:
+    """Tests for the visualEvidence field on HITLItem."""
+
+    def test_default_is_none(self) -> None:
+        item = HITLItem(issue=1)
+        assert item.visualEvidence is None
+
+    def test_with_visual_evidence(self) -> None:
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="home", diff_percent=10.0, status="fail")
+            ],
+            summary="1 screen failed",
+        )
+        item = HITLItem(issue=1, visualEvidence=ev)
+        assert item.visualEvidence is not None
+        assert item.visualEvidence.items[0].screen_name == "home"
+
+    def test_model_dump_includes_visual_evidence(self) -> None:
+        ev = VisualEvidence(
+            items=[
+                VisualEvidenceItem(screen_name="nav", diff_percent=2.0, status="warn")
+            ],
+        )
+        item = HITLItem(issue=1, visualEvidence=ev)
+        data = item.model_dump()
+        assert data["visualEvidence"]["items"][0]["screen_name"] == "nav"
+
+    def test_model_dump_excludes_none_visual_evidence(self) -> None:
+        item = HITLItem(issue=1)
+        data = item.model_dump()
+        assert data["visualEvidence"] is None

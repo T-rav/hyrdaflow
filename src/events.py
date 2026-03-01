@@ -82,6 +82,7 @@ class EventType(StrEnum):
     EPIC_RELEASING = "epic_releasing"
     EPIC_RELEASED = "epic_released"
     PIPELINE_STATS = "pipeline_stats"
+    BASELINE_UPDATE = "baseline_update"
 
 
 class HydraFlowEvent(BaseModel):

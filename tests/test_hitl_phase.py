@@ -63,9 +63,41 @@ class TestHITLPhaseProcessing:
         assert state.get_hitl_cause(42) is None
 
     @pytest.mark.asyncio
+    async def test_success_clears_visual_evidence(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """On success, visual evidence should be cleared from state."""
+        from models import HITLResult, VisualEvidence, VisualEvidenceItem
+
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42, title="Test HITL", body="Fix it")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "Visual validation failed")
+        state.set_hitl_visual_evidence(
+            42,
+            VisualEvidence(
+                items=[
+                    VisualEvidenceItem(
+                        screen_name="login", diff_percent=8.0, status="fail"
+                    )
+                ],
+                summary="1 screen exceeded threshold",
+            ),
+        )
+
+        runner.run = AsyncMock(return_value=HITLResult(issue_number=42, success=True))
+
+        semaphore = asyncio.Semaphore(1)
+        await phase._process_one_hitl(42, "Fix the visual regression", semaphore)
+
+        assert state.get_hitl_visual_evidence(42) is None
+
+    @pytest.mark.asyncio
     async def test_failure_keeps_hitl_label(self, config: HydraFlowConfig) -> None:
         """On failure, the hydraflow-hitl label should be re-applied."""
-        from models import HITLResult
+        from models import HITLResult, VisualEvidence, VisualEvidenceItem
 
         phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
         issue = TaskFactory.create(id=42, title="Test HITL", body="Fix it")
@@ -73,6 +105,17 @@ class TestHITLPhaseProcessing:
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         state.set_hitl_origin(42, "hydraflow-review")
         state.set_hitl_cause(42, "CI failed")
+        state.set_hitl_visual_evidence(
+            42,
+            VisualEvidence(
+                items=[
+                    VisualEvidenceItem(
+                        screen_name="login", diff_percent=5.0, status="fail"
+                    )
+                ],
+                summary="1 screen exceeded threshold",
+            ),
+        )
 
         runner.run = AsyncMock(
             return_value=HITLResult(
@@ -86,9 +129,10 @@ class TestHITLPhaseProcessing:
         # Verify HITL label was re-applied via swap
         prs.swap_pipeline_labels.assert_any_call(42, config.hitl_label[0])
 
-        # Verify HITL state is preserved (not cleaned up)
+        # Verify HITL state is preserved (not cleaned up) — spec: requeue retains evidence
         assert state.get_hitl_origin(42) == "hydraflow-review"
         assert state.get_hitl_cause(42) == "CI failed"
+        assert state.get_hitl_visual_evidence(42) is not None
 
     @pytest.mark.asyncio
     async def test_success_posts_comment(self, config: HydraFlowConfig) -> None:

@@ -811,6 +811,9 @@ def create_router(
             cached_summary = state.get_hitl_summary(item.issue)
             data["llmSummary"] = cached_summary or ""
             data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
+            visual_ev = state.get_hitl_visual_evidence(item.issue)
+            if visual_ev:
+                data["visualEvidence"] = visual_ev.model_dump()
             if (
                 not cached_summary
                 and config.transcript_summarization_enabled
@@ -2101,6 +2104,17 @@ def create_router(
         if content is None:
             return JSONResponse({"error": "artifact not found"}, status_code=404)
         return Response(content=content, media_type="text/plain")
+
+    @router.get("/api/artifacts/stats")
+    async def get_artifact_stats() -> JSONResponse:
+        """Return storage statistics for run artifacts."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        stats = orch.run_recorder.get_storage_stats()
+        stats["retention_days"] = config.artifact_retention_days
+        stats["max_size_mb"] = config.artifact_max_size_mb
+        return JSONResponse(stats)
 
     @router.get("/api/harness-insights")
     async def get_harness_insights() -> JSONResponse:

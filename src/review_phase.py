@@ -10,12 +10,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
+    BaselineApprovalResult,
     ConflictResolutionResult,
     JudgeResult,
     PipelineStage,
@@ -24,6 +26,7 @@ from models import (
     ReviewVerdict,
     StatusCallback,
     Task,
+    VisualEvidence,
     VisualValidationDecision,
 )
 from phase_utils import (
@@ -71,6 +74,7 @@ class ReviewPhase:
         conflict_resolver: MergeConflictResolver | None = None,
         post_merge: PostMergeHandler | None = None,
         update_bg_worker_status: StatusCallback | None = None,
+        baseline_policy: BaselinePolicy | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -105,6 +109,7 @@ class ReviewPhase:
             verification_judge=None,
             epic_checker=None,
         )
+        self._baseline_policy = baseline_policy
 
     async def review_prs(
         self,
@@ -290,6 +295,40 @@ class ReviewPhase:
             )
             return None
 
+    async def _check_baseline_policy(
+        self, pr: PRInfo, task: Task
+    ) -> BaselineApprovalResult | None:
+        """Run baseline policy check if a policy is configured.
+
+        Returns the approval result or ``None`` when no policy is active.
+        """
+        if self._baseline_policy is None:
+            return None
+        try:
+            changed_files = await self._prs.get_pr_diff_names(pr.number)
+            if not changed_files:
+                return None
+            pr_approvers = await self._prs.get_pr_approvers(pr.number)
+            commit_sha = await self._prs.get_pr_head_sha(pr.number)
+            return await self._baseline_policy.check_approval(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                changed_files=changed_files,
+                pr_approvers=pr_approvers,
+                commit_sha=commit_sha,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Baseline policy check failed for PR #%d — failing closed to protect baseline integrity",
+                pr.number,
+                exc_info=True,
+            )
+            return BaselineApprovalResult(
+                approved=False,
+                requires_approval=True,
+                reason="Baseline policy check failed — manual review required",
+            )
+
     async def _review_one_inner(
         self,
         idx: int,
@@ -325,6 +364,35 @@ class ReviewPhase:
             )
 
         diff = await self._prs.get_pr_diff(pr.number)
+
+        # Baseline policy check: detect and enforce approval for baseline changes
+        baseline_result = await self._check_baseline_policy(pr, task)
+        if (
+            baseline_result
+            and baseline_result.requires_approval
+            and not baseline_result.approved
+        ):
+            await self._escalate_to_hitl(
+                pr.issue_number,
+                pr.number,
+                cause="Baseline changes require approval",
+                origin_label=self._config.review_label[0],
+                comment=(
+                    "## Baseline Policy Violation\n\n"
+                    "This PR modifies visual baseline files that require "
+                    "explicit approval from a designated owner before merging.\n\n"
+                    "**Changed baseline files:**\n"
+                    + "\n".join(f"- `{f}`" for f in baseline_result.changed_files)
+                    + "\n\nPlease request a review from an authorized baseline approver."
+                ),
+                event_cause="baseline_approval_required",
+                task=task,
+            )
+            return ReviewResult(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                summary="Baseline changes require approval — escalated to HITL",
+            )
 
         # Visual validation scope check
         visual_decision = self._compute_visual_validation(diff, task)
@@ -880,11 +948,14 @@ class ReviewPhase:
         event_cause: str = "",
         extra_event_data: dict[str, object] | None = None,
         task: Task | None = None,
+        visual_evidence: VisualEvidence | None = None,
     ) -> None:
         """Record HITL escalation state, swap labels, post comment, publish event."""
         self._state.set_hitl_origin(issue_number, origin_label)
         self._state.set_hitl_cause(issue_number, cause)
         self._state.record_hitl_escalation()
+        if visual_evidence is not None:
+            self._state.set_hitl_visual_evidence(issue_number, visual_evidence)
 
         await self._transitioner.transition(issue_number, "hitl", pr_number=pr_number)
         if task is not None:
@@ -903,10 +974,78 @@ class ReviewPhase:
         }
         if pr_number and pr_number > 0:
             event_data["pr"] = pr_number
+        if visual_evidence is not None:
+            event_data["visual_evidence"] = visual_evidence.model_dump()
         if extra_event_data:
             event_data.update(extra_event_data)
         await self._bus.publish(
             HydraFlowEvent(type=EventType.HITL_ESCALATION, data=event_data)
+        )
+
+    async def escalate_visual_failure(
+        self,
+        issue_number: int,
+        pr_number: int | None,
+        evidence: VisualEvidence,
+        *,
+        task: Task | None = None,
+    ) -> None:
+        """Escalate a visual validation failure to HITL with evidence.
+
+        Convenience wrapper around ``_escalate_to_hitl`` that records the
+        visual evidence, picks the appropriate failure category, and
+        builds a descriptive comment.
+        """
+        fail_items = [i for i in evidence.items if i.status == "fail"]
+        warn_items = [i for i in evidence.items if i.status == "warn"]
+
+        category = (
+            FailureCategory.VISUAL_FAIL if fail_items else FailureCategory.VISUAL_WARN
+        )
+        record_harness_failure(
+            self._harness_insights,
+            issue_number,
+            category,
+            evidence.summary or f"{len(fail_items)} fail(s), {len(warn_items)} warn(s)",
+            pr_number=pr_number or 0,
+            stage=PipelineStage.REVIEW,
+        )
+
+        screen_lines = []
+        for item in evidence.items:
+            if item.status in ("fail", "warn"):
+                label = "FAIL" if item.status == "fail" else "WARN"
+                screen_lines.append(
+                    f"- **{item.screen_name}** — {item.diff_percent:.1f}% diff [{label}]"
+                )
+
+        comment = (
+            "## Visual Validation Failed\n\n"
+            + (evidence.summary + "\n\n" if evidence.summary else "")
+            + (
+                "**Affected screens:**\n" + "\n".join(screen_lines) + "\n\n"
+                if screen_lines
+                else ""
+            )
+            + (f"[View run]({evidence.run_url})\n\n" if evidence.run_url else "")
+            + "Escalating to human review."
+        )
+
+        cause = (
+            f"Visual validation failed: {evidence.summary}"
+            if evidence.summary
+            else "Visual validation failed"
+        )
+
+        await self._escalate_to_hitl(
+            issue_number,
+            pr_number,
+            cause=cause,
+            origin_label=self._config.review_label[0],
+            comment=comment,
+            event_cause="visual_validation_failed",
+            task=task,
+            visual_evidence=evidence,
         )
 
     @staticmethod

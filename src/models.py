@@ -424,6 +424,26 @@ class HITLResult(BaseModel):
     duration_seconds: float = 0.0
 
 
+class VisualEvidenceItem(BaseModel):
+    """A single visual check result (screenshot diff, etc.)."""
+
+    screen_name: str
+    diff_percent: float = 0.0
+    baseline_url: HttpUrl = ""
+    actual_url: HttpUrl = ""
+    diff_url: HttpUrl = ""
+    status: Literal["pass", "fail", "warn"]
+
+
+class VisualEvidence(BaseModel):
+    """Container for visual validation evidence attached to HITL items."""
+
+    items: list[VisualEvidenceItem] = Field(default_factory=list)
+    summary: str = ""
+    run_url: HttpUrl = ""
+    attempt: int = 1
+
+
 # --- Reviews ---
 
 
@@ -568,6 +588,40 @@ class BatchResult(BaseModel):
     pr_infos: list[PRInfo] = Field(default_factory=list)
     review_results: list[ReviewResult] = Field(default_factory=list)
     merged_prs: list[int] = Field(default_factory=list)
+
+
+# --- Baseline Policy ---
+
+
+class BaselineChangeType(StrEnum):
+    """Type of baseline image change."""
+
+    UPDATE = "update"
+    ROLLBACK = "rollback"
+    INITIAL = "initial"
+
+
+class BaselineAuditRecord(BaseModel):
+    """Audit trail entry for a baseline image change."""
+
+    pr_number: int
+    issue_number: int
+    changed_files: list[str] = Field(default_factory=list)
+    change_type: BaselineChangeType = BaselineChangeType.UPDATE
+    approver: str = ""
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    reason: str = ""
+    commit_sha: str = ""
+
+
+class BaselineApprovalResult(BaseModel):
+    """Result of a baseline approval check on a PR."""
+
+    approved: bool = False
+    approver: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    reason: str = ""
+    requires_approval: bool = False
 
 
 # --- Orchestrator Phases ---
@@ -803,6 +857,7 @@ class StateData(BaseModel):
     hitl_summary_failures: dict[str, HITLSummaryFailureEntry] = Field(
         default_factory=dict
     )
+    hitl_visual_evidence: dict[str, VisualEvidence] = Field(default_factory=dict)
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
@@ -832,6 +887,7 @@ class StateData(BaseModel):
     hook_failures: dict[str, list[HookFailureRecord]] = Field(default_factory=dict)
     epic_states: dict[str, EpicState] = Field(default_factory=dict)
     releases: dict[str, Release] = Field(default_factory=dict)
+    baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -1055,6 +1111,7 @@ class HITLItem(BaseModel):
     isMemorySuggestion: bool = False  # camelCase to match frontend contract
     llmSummary: str = ""  # cached, operator-focused context summary
     llmSummaryUpdatedAt: str | None = None
+    visualEvidence: VisualEvidence | None = None  # camelCase to match frontend
 
 
 class ControlStatusConfig(BaseModel):
@@ -1215,6 +1272,7 @@ class HITLEscalationPayload(TypedDict, total=False):
     status: str
     role: str
     repo: str
+    visual_evidence: dict[str, object]
 
 
 class IssueCreatedPayload(TypedDict):
@@ -1744,6 +1802,7 @@ class EscalateFn(Protocol):
         event_cause: str = ...,
         extra_event_data: dict[str, object] | None = ...,
         task: Task | None = ...,
+        visual_evidence: VisualEvidence | None = ...,
     ) -> None: ...
 
 
