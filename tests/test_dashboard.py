@@ -2601,21 +2601,6 @@ class TestSPACatchAll:
 class TestPipelineStatsRoute:
     """Tests for the GET /api/pipeline/stats endpoint."""
 
-    def test_pipeline_stats_returns_200(
-        self, config: HydraFlowConfig, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        response = client.get("/api/pipeline/stats")
-
-        assert response.status_code == 200
-
     def test_pipeline_stats_returns_empty_dict_without_orchestrator(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -2680,6 +2665,23 @@ class TestPipelineStatsRoute:
         body = response.json()
         assert "queue" in body
         assert "throughput" in body
+
+    def test_pipeline_stats_repo_param_ignored_without_registry(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Without a registry, the ?repo= param is silently ignored (backward compat)."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats?repo=some-org/some-repo")
+
+        assert response.status_code == 200
+        assert response.json() == {}
 
 
 class TestPipelineStatsWebSocketForwarding:
