@@ -131,10 +131,16 @@ class PostMergeHandler:
             return
 
         # Visual validation gate
-        if self._config.visual_gate_enabled and visual_gate_fn is not None:
-            visual_ok = await visual_gate_fn(pr, issue, result, worker_id)
-            if not visual_ok:
-                return
+        if self._config.visual_gate_enabled:
+            if visual_gate_fn is None:
+                logger.warning(
+                    "PR #%d: visual_gate_enabled but no visual_gate_fn provided — skipping gate",
+                    pr.number,
+                )
+            else:
+                visual_ok = await visual_gate_fn(pr, issue, result, worker_id)
+                if not visual_ok:
+                    return
 
         await publish_fn(pr, worker_id, "merging")
         success = await self._prs.merge_pr(pr.number)

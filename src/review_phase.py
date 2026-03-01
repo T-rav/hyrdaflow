@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
@@ -641,8 +642,6 @@ class ReviewPhase:
         Returns True if merge may proceed, False to block.
         When the gate is bypassed an audit event is emitted.
         """
-        import time
-
         start = time.monotonic()
 
         if not self._config.visual_gate_enabled:
