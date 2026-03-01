@@ -164,7 +164,7 @@ function AppContent() {
               />
             )}
           </div>
-          <div style={styles.eventLogWrapper}>
+          <div style={styles.eventLogWrapper} data-testid="event-log-wrapper">
             <EventLog events={events} />
           </div>
         </div>

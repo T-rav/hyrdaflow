@@ -247,14 +247,14 @@ describe('EventLog panel', () => {
     const tabs = ['Work Stream', 'Outcomes', 'HITL', 'Work Log', 'System']
     for (const tabLabel of tabs) {
       fireEvent.click(screen.getByText(tabLabel))
-      expect(screen.getByTestId('event-log-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('event-log-panel')).toBeVisible()
     }
   })
 
   it('EventLog panel has fixed 320px width', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const wrapper = screen.getByTestId('event-log-panel').parentElement
+    const wrapper = screen.getByTestId('event-log-wrapper')
     expect(wrapper.style.width).toBe('320px')
     expect(wrapper.style.flexShrink).toBe('0')
   })
@@ -273,6 +273,7 @@ describe('EventLog panel', () => {
     const { default: App } = await import('../../App')
     render(<App />)
     expect(screen.getByText('test error')).toBeInTheDocument()
+    expect(screen.getByText('[system]')).toBeInTheDocument()
   })
 })
 
