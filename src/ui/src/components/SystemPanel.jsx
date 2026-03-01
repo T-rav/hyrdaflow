@@ -6,11 +6,13 @@ import { Livestream } from './Livestream'
 import { PipelineControlPanel } from './PipelineControlPanel'
 import { WorkerLogStream } from './WorkerLogStream'
 import { MetricsPanel } from './MetricsPanel'
+import { InsightsPanel } from './InsightsPanel'
 
 const SUB_TABS = [
   { key: 'workers', label: 'Workers' },
   { key: 'pipeline', label: 'Pipeline' },
   { key: 'metrics', label: 'Metrics' },
+  { key: 'insights', label: 'Insights' },
   { key: 'livestream', label: 'Livestream' },
 ]
 
@@ -464,6 +466,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
         {activeSubTab === 'metrics' && (
           <MetricsPanel />
         )}
+        {activeSubTab === 'insights' && <InsightsPanel />}
         {activeSubTab === 'livestream' && <Livestream events={events} />}
       </div>
     </div>

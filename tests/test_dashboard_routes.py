@@ -98,6 +98,9 @@ class TestCreateRouter:
             "/api/timeline/issue/{issue_num}",
             "/api/intent",
             "/api/report",
+            "/api/review-insights",
+            "/api/retrospectives",
+            "/api/memories",
             "/api/sessions",
             "/api/sessions/{session_id}",
             "/api/request-changes",
@@ -5464,3 +5467,374 @@ class TestRuntimeLifecycleEndpoints:
         assert resp.status_code == 200
         mock_runtime.stop.assert_awaited_once()
         mock_registry.remove.assert_called_once_with("org-repo")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/review-insights
+# ---------------------------------------------------------------------------
+
+
+class TestReviewInsightsEndpoint:
+    """Tests for the /api/review-insights endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_review_insights_returns_empty(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/review-insights")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_reviews"] == 0
+        assert data["patterns"] == []
+        assert data["verdict_counts"] == {}
+        assert data["category_counts"] == {}
+        assert data["fixes_made_count"] == 0
+        assert data["proposed_categories"] == []
+
+    @pytest.mark.asyncio
+    async def test_review_insights_with_data(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from review_insights import ReviewInsightStore, ReviewRecord
+
+        memory_dir = config.data_path("memory")
+        store = ReviewInsightStore(memory_dir)
+        store.append_review(
+            ReviewRecord(
+                pr_number=1,
+                issue_number=10,
+                timestamp="2024-01-01T00:00:00Z",
+                verdict="approve",
+                summary="Looks good",
+                fixes_made=False,
+                categories=["code_quality"],
+            )
+        )
+        store.append_review(
+            ReviewRecord(
+                pr_number=2,
+                issue_number=11,
+                timestamp="2024-01-02T00:00:00Z",
+                verdict="request-changes",
+                summary="Missing tests",
+                fixes_made=True,
+                categories=["missing_tests"],
+            )
+        )
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/review-insights")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_reviews"] == 2
+        assert data["fixes_made_count"] == 1
+        assert "approve" in data["verdict_counts"]
+        assert "request-changes" in data["verdict_counts"]
+        assert "code_quality" in data["category_counts"]
+        assert "missing_tests" in data["category_counts"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/retrospectives
+# ---------------------------------------------------------------------------
+
+
+class TestRetrospectivesEndpoint:
+    """Tests for the /api/retrospectives endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_retrospectives_returns_empty(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/retrospectives")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_entries"] == 0
+        assert data["entries"] == []
+        assert data["verdict_counts"] == {}
+
+    @pytest.mark.asyncio
+    async def test_retrospectives_with_data(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from retrospective import RetrospectiveEntry
+
+        retro_path = config.data_path("memory", "retrospectives.jsonl")
+        retro_path.parent.mkdir(parents=True, exist_ok=True)
+
+        entry = RetrospectiveEntry(
+            issue_number=10,
+            pr_number=1,
+            timestamp="2024-01-01T00:00:00Z",
+            plan_accuracy_pct=85.0,
+            quality_fix_rounds=1,
+            review_verdict="approve",
+            reviewer_fixes_made=False,
+            ci_fix_rounds=0,
+            duration_seconds=120.0,
+        )
+        retro_path.write_text(entry.model_dump_json() + "\n")
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/retrospectives")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_entries"] == 1
+        assert data["avg_plan_accuracy"] == 85.0
+        assert data["avg_quality_fix_rounds"] == 1.0
+        assert data["avg_ci_fix_rounds"] == 0.0
+        assert data["avg_duration_seconds"] == 120.0
+        assert data["reviewer_fix_rate"] == 0.0
+        assert len(data["entries"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# GET /api/memories
+# ---------------------------------------------------------------------------
+
+
+class TestMemoriesEndpoint:
+    """Tests for the /api/memories endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_memories_returns_empty(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/memories")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_items"] == 0
+        assert data["items"] == []
+        assert data["digest_chars"] == 0
+
+    @pytest.mark.asyncio
+    async def test_memories_with_items(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        items_dir = config.data_path("memory", "items")
+        items_dir.mkdir(parents=True, exist_ok=True)
+        (items_dir / "42.md").write_text("Always validate inputs")
+        (items_dir / "55.md").write_text("Use async for I/O")
+
+        digest_path = config.data_path("memory", "digest.md")
+        digest_path.write_text("# Digest\nSome content here")
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/memories")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_items"] == 2
+        assert data["digest_chars"] > 0
+        assert len(data["items"]) == 2
+        # Items are sorted reverse by filename, so 55 comes first
+        numbers = [item["issue_number"] for item in data["items"]]
+        assert 42 in numbers
+        assert 55 in numbers
+
+    @pytest.mark.asyncio
+    async def test_memories_skips_non_numeric_filenames(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Non-numeric .md filenames (e.g. README.md) should be silently skipped."""
+        import json
+
+        items_dir = config.data_path("memory", "items")
+        items_dir.mkdir(parents=True, exist_ok=True)
+        (items_dir / "42.md").write_text("Valid item")
+        (items_dir / "README.md").write_text("Not a learning item")
+        (items_dir / "notes.md").write_text("Also not valid")
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/memories")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_items"] == 1
+        assert data["items"][0]["issue_number"] == 42
+
+    @pytest.mark.asyncio
+    async def test_memories_caps_at_50_items(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """The endpoint should return at most 50 items."""
+        import json
+
+        items_dir = config.data_path("memory", "items")
+        items_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(60):
+            (items_dir / f"{i + 1}.md").write_text(f"Learning #{i + 1}")
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/memories")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_items"] == 60
+        assert len(data["items"]) == 50
+
+
+# ---------------------------------------------------------------------------
+# GET /api/retrospectives — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestRetrospectivesEdgeCases:
+    """Edge-case tests for the /api/retrospectives endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_retrospectives_malformed_jsonl_skipped(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Malformed JSONL lines should be silently skipped."""
+        import json
+
+        from retrospective import RetrospectiveEntry
+
+        retro_path = config.data_path("memory", "retrospectives.jsonl")
+        retro_path.parent.mkdir(parents=True, exist_ok=True)
+
+        valid = RetrospectiveEntry(
+            issue_number=10,
+            pr_number=1,
+            timestamp="2024-01-01T00:00:00Z",
+            plan_accuracy_pct=90.0,
+            quality_fix_rounds=0,
+            review_verdict="approve",
+            reviewer_fixes_made=False,
+            ci_fix_rounds=0,
+            duration_seconds=60.0,
+        )
+        lines = [
+            "not valid json at all",
+            '{"issue_number": 99}',
+            valid.model_dump_json(),
+        ]
+        retro_path.write_text("\n".join(lines) + "\n")
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/retrospectives")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data["total_entries"] == 1
+        assert data["avg_plan_accuracy"] == 90.0

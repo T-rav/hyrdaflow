@@ -920,10 +920,19 @@ This closes the issue automatically. False positives waste significant human tim
         return lines[-1][:200] if lines else "No summary provided"
 
     @staticmethod
-    def validate_already_satisfied_evidence(summary: str) -> list[str]:
+    def validate_already_satisfied_evidence(
+        summary: str,
+        issue_body: str = "",
+        repo_root: Path | None = None,
+    ) -> list[str]:
         """Validate that an already-satisfied summary contains required evidence.
 
         Returns a list of error strings.  An empty list means the evidence is valid.
+
+        When *issue_body* and *repo_root* are provided, the validator also
+        checks for new files mentioned in the issue (``ADDED:`` lines in a
+        File Delta section, or items under a ``## New Files`` heading).
+        If any referenced file does not exist on disk, the claim is rejected.
         """
         errors: list[str] = []
         if not summary or not summary.strip():
@@ -950,7 +959,74 @@ This closes the issue automatically. False positives waste significant human tim
         if not criteria_match or not criteria_match.group(1).strip():
             errors.append("Missing or empty 'Criteria:' field")
 
+        # Reject when issue describes many acceptance criteria — complex
+        # issues are almost never "already satisfied"
+        if issue_body:
+            criteria_count = len(re.findall(r"^- \[ \]", issue_body, re.MULTILINE))
+            if criteria_count >= 5:
+                errors.append(
+                    f"Issue has {criteria_count} unchecked acceptance criteria "
+                    f"— too complex to be already satisfied"
+                )
+
+        # Check for new files described in the issue that don't exist yet
+        if issue_body and repo_root:
+            missing = PlannerRunner._check_new_files_exist(issue_body, repo_root)
+            if missing:
+                files_list = ", ".join(missing[:5])
+                errors.append(
+                    f"Issue describes new files that do not exist: {files_list}"
+                )
+
         return errors
+
+    @staticmethod
+    def _check_new_files_exist(issue_body: str, repo_root: Path) -> list[str]:
+        """Extract new file paths from an issue body and check existence.
+
+        Looks for ``ADDED: path/to/file`` lines in a File Delta section
+        and bare file paths under ``## New Files`` headings.
+
+        Returns a list of file paths that do not exist on disk.
+        """
+        new_files: list[str] = []
+
+        # Match "ADDED: path/to/file.ext" lines
+        for match in re.finditer(r"^ADDED:\s*(\S+\.\w+)", issue_body, re.MULTILINE):
+            new_files.append(match.group(1))
+
+        # Match file paths under "## New Files" section
+        in_new_files = False
+        for line in issue_body.splitlines():
+            stripped = line.strip()
+            if re.match(r"^##\s+New Files", stripped):
+                in_new_files = True
+                continue
+            if in_new_files and re.match(r"^##\s+", stripped):
+                break
+            if in_new_files:
+                # Extract backtick-delimited paths
+                for m in re.findall(r"`([^`]+\.\w+)`", stripped):
+                    new_files.append(m)
+                # Extract bold paths
+                for m in re.findall(r"\*\*([^*]+\.\w+)\*\*", stripped):
+                    new_files.append(m)
+                # Extract bare list-item paths: - path/to/file.ext
+                bare = re.match(r"^[-*]\s+(\S+\.\w+)", stripped)
+                if bare and not bare.group(1).startswith("`"):
+                    new_files.append(bare.group(1))
+
+        # Deduplicate and check existence
+        seen: set[str] = set()
+        missing: list[str] = []
+        for fp in new_files:
+            if fp in seen:
+                continue
+            seen.add(fp)
+            if not (repo_root / fp).exists():
+                missing.append(fp)
+
+        return missing
 
     @staticmethod
     def _extract_already_satisfied(transcript: str) -> str:

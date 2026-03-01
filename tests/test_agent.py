@@ -436,6 +436,16 @@ class TestBuildPrompt:
         assert "edge cases" in prompt
         assert "empty inputs" in prompt
 
+    def test_prompt_forbids_already_satisfied(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Prompt must instruct agent to never claim issue is already satisfied."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        assert "NEVER conclude that the issue is" in prompt
+        assert "already satisfied" in prompt.lower()
+        assert "Always produce commits" in prompt
+
 
 # ---------------------------------------------------------------------------
 # AgentRunner.run — success path

@@ -386,6 +386,7 @@ class StateTracker:
             IssueOutcomeType.HITL_SKIPPED: "total_outcomes_hitl_skipped",
             IssueOutcomeType.FAILED: "total_outcomes_failed",
             IssueOutcomeType.MANUAL_CLOSE: "total_outcomes_manual_close",
+            IssueOutcomeType.HITL_APPROVED: "total_outcomes_hitl_approved",
         }
 
         key = str(issue_number)

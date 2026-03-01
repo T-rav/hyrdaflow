@@ -431,6 +431,9 @@ Run through this checklist before your final commit:
 - Do NOT run `git push` or `gh pr create`.
 - Ensure `make quality` passes before committing.
 - If you encounter issues, commit what works with a descriptive message.
+- NEVER conclude that the issue is "already satisfied" or that no work is needed.
+  The planner already verified this issue requires implementation. Your job is to
+  write the code, not to second-guess the plan. Always produce commits.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
         stats = {

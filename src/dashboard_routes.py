@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import logging
 import time
@@ -2003,6 +2004,139 @@ def create_router(
         store = HarnessInsightStore(memory_dir)
         records = store.load_recent(config.harness_insight_window)
         return JSONResponse([r.model_dump() for r in records])
+
+    @router.get("/api/review-insights")
+    async def get_review_insights() -> JSONResponse:
+        """Return aggregated review feedback patterns and category breakdown."""
+        from review_insights import ReviewInsightStore, analyze_patterns
+
+        memory_dir = config.data_path("memory")
+        store = ReviewInsightStore(memory_dir)
+        records = store.load_recent(config.review_insight_window)
+        proposed = store.get_proposed_categories()
+
+        verdict_counts: Counter[str] = Counter(r.verdict.value for r in records)
+        category_counts: Counter[str] = Counter(
+            cat for r in records for cat in r.categories
+        )
+        fixes_made_count = sum(1 for r in records if r.fixes_made)
+
+        patterns_raw = analyze_patterns(records, config.harness_pattern_threshold)
+        patterns = [
+            {
+                "category": cat,
+                "count": cnt,
+                "evidence": [
+                    {
+                        "issue_number": r.issue_number,
+                        "pr_number": r.pr_number,
+                        "summary": r.summary,
+                    }
+                    for r in evidence
+                ],
+            }
+            for cat, cnt, evidence in patterns_raw
+        ]
+
+        return JSONResponse(
+            {
+                "total_reviews": len(records),
+                "verdict_counts": dict(verdict_counts),
+                "category_counts": dict(category_counts),
+                "fixes_made_count": fixes_made_count,
+                "patterns": patterns,
+                "proposed_categories": sorted(proposed),
+            }
+        )
+
+    @router.get("/api/retrospectives")
+    async def get_retrospectives() -> JSONResponse:
+        """Return aggregated retrospective stats and recent entries."""
+        from retrospective import RetrospectiveEntry
+
+        retro_path = config.data_path("memory", "retrospectives.jsonl")
+        entries: list[RetrospectiveEntry] = []
+        if retro_path.exists():
+            for line in retro_path.read_text().strip().splitlines():
+                with contextlib.suppress(Exception):
+                    entries.append(RetrospectiveEntry.model_validate_json(line))
+        entries = entries[-config.retrospective_window :]
+
+        if not entries:
+            return JSONResponse(
+                {
+                    "total_entries": 0,
+                    "avg_plan_accuracy": 0,
+                    "avg_quality_fix_rounds": 0,
+                    "avg_ci_fix_rounds": 0,
+                    "avg_duration_seconds": 0,
+                    "reviewer_fix_rate": 0,
+                    "verdict_counts": {},
+                    "entries": [],
+                }
+            )
+
+        n = len(entries)
+        avg_accuracy = round(sum(e.plan_accuracy_pct for e in entries) / n, 1)
+        avg_quality = round(sum(e.quality_fix_rounds for e in entries) / n, 2)
+        avg_ci = round(sum(e.ci_fix_rounds for e in entries) / n, 2)
+        avg_duration = round(sum(e.duration_seconds for e in entries) / n, 1)
+        fix_count = sum(1 for e in entries if e.reviewer_fixes_made)
+        verdict_counts: Counter[str] = Counter(
+            str(e.review_verdict) for e in entries if e.review_verdict
+        )
+
+        return JSONResponse(
+            {
+                "total_entries": n,
+                "avg_plan_accuracy": avg_accuracy,
+                "avg_quality_fix_rounds": avg_quality,
+                "avg_ci_fix_rounds": avg_ci,
+                "avg_duration_seconds": avg_duration,
+                "reviewer_fix_rate": round(fix_count / n, 3),
+                "verdict_counts": dict(verdict_counts),
+                "entries": [e.model_dump() for e in entries],
+            }
+        )
+
+    @router.get("/api/memories")
+    async def get_memories() -> JSONResponse:
+        """Return memory items and curated manifest data."""
+        from manifest_curator import CuratedManifestStore
+
+        items_dir = config.data_path("memory", "items")
+        digest_path = config.data_path("memory", "digest.md")
+
+        items: list[dict[str, object]] = []
+        if items_dir.is_dir():
+            for path in sorted(items_dir.glob("*.md"), reverse=True):
+                try:
+                    issue_number = int(path.stem)
+                    items.append(
+                        {
+                            "issue_number": issue_number,
+                            "learning": path.read_text().strip(),
+                        }
+                    )
+                except (ValueError, OSError):
+                    pass
+
+        digest_chars = 0
+        if digest_path.exists():
+            with contextlib.suppress(OSError):
+                digest_chars = digest_path.stat().st_size
+
+        curated_store = CuratedManifestStore(config)
+        curated = curated_store.load()
+
+        return JSONResponse(
+            {
+                "total_items": len(items),
+                "digest_chars": digest_chars,
+                "curated": curated,
+                "items": items[-50:],
+            }
+        )
 
     @router.get("/api/timeline")
     async def get_timeline() -> JSONResponse:

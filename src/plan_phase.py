@@ -71,7 +71,9 @@ class PlanPhase:
         failed (caller should fall through to plan failure handling).
         """
         validation_errors = PlannerRunner.validate_already_satisfied_evidence(
-            result.summary
+            result.summary,
+            issue_body=issue.body,
+            repo_root=self._config.repo_root,
         )
         if validation_errors:
             error_list = "\n".join(f"- {e}" for e in validation_errors)
