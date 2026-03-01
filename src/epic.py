@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -90,7 +91,9 @@ class EpicCompletionChecker:
                 continue
 
             try:
-                await self._try_close_epic(epic.number, epic.body, sub_issues)
+                await self._try_close_epic(
+                    epic.number, epic.title, epic.body, sub_issues
+                )
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "Epic completion check failed for epic #%d",
@@ -99,7 +102,7 @@ class EpicCompletionChecker:
                 )
 
     async def _try_close_epic(
-        self, epic_number: int, epic_body: str, sub_issues: list[int]
+        self, epic_number: int, epic_title: str, epic_body: str, sub_issues: list[int]
     ) -> None:
         """Close the epic if all sub-issues are completed."""
         fixed_label = self._config.fixed_label[0] if self._config.fixed_label else ""
@@ -132,7 +135,7 @@ class EpicCompletionChecker:
         release_url = ""
         if self._config.release_on_epic_close:
             release_url = await self._create_release_for_epic(
-                epic_number, sub_issues, sub_issue_titles
+                epic_number, epic_title, sub_issues, sub_issue_titles
             )
 
         close_comment = "All sub-issues completed — closing epic automatically."
@@ -144,6 +147,7 @@ class EpicCompletionChecker:
     async def _create_release_for_epic(
         self,
         epic_number: int,
+        epic_title: str,
         sub_issues: list[int],
         sub_issue_titles: list[str],
     ) -> str:
@@ -151,18 +155,12 @@ class EpicCompletionChecker:
 
         Returns the release URL on success, empty string on failure.
         """
-        # Determine version from the epic issue title
-        try:
-            epic_issue = await self._fetcher.fetch_issue_by_number(epic_number)
-        except Exception:  # noqa: BLE001
+        if self._config.release_version_source != "epic_title":
             logger.warning(
-                "Could not fetch epic #%d for release version extraction",
-                epic_number,
-                exc_info=True,
+                "release_version_source=%r is not yet implemented — falling back to 'epic_title'",
+                self._config.release_version_source,
             )
-            return ""
 
-        epic_title = epic_issue.title if epic_issue else ""
         version = extract_version_from_title(epic_title)
         if not version:
             logger.info(
@@ -196,8 +194,6 @@ class EpicCompletionChecker:
                     "--limit",
                     "1",
                 )
-                import json  # noqa: PLC0415
-
                 pr_list = json.loads(prs_raw) if prs_raw.strip() else []
                 for pr in pr_list:
                     pr_numbers.append(int(pr["number"]))
