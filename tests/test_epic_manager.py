@@ -400,3 +400,358 @@ class TestStateCrud:
 
         original = state.get_epic_state(42)
         assert 999 not in original.child_issues
+
+
+class TestGetDetailEnriched:
+    """Tests for the enriched get_detail with PR/CI/review data."""
+
+    @pytest.mark.asyncio
+    async def test_completed_child_has_merged_stage(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10, 20])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        child_20 = IssueFactory.create(number=20, title="Pending", labels=[])
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect={10: child_10, 20: child_20}.get
+        )
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        detail = await mgr.get_detail(100)
+        assert detail is not None
+
+        c10 = next(c for c in detail.children if c.issue_number == 10)
+        assert c10.current_stage == "merged"
+        assert c10.status == "done"
+
+    @pytest.mark.asyncio
+    async def test_child_with_branch_gets_pr_info(self, tmp_path: Path) -> None:
+        from models import PRInfo
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10])
+
+        child_10 = IssueFactory.create(
+            number=10, title="In Progress", labels=["test-label"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+
+        # Set branch in state
+        state.set_branch(10, "agent/issue-10")
+        pr_info = PRInfo(
+            number=42,
+            issue_number=10,
+            branch="agent/issue-10",
+            url="https://github.com/org/repo/pull/42",
+        )
+        prs.find_open_pr_for_branch = AsyncMock(return_value=pr_info)
+        prs.get_pr_checks = AsyncMock(return_value=[{"state": "success", "name": "CI"}])
+        prs.get_pr_reviews = AsyncMock(
+            return_value=[{"state": "APPROVED", "author": "reviewer"}]
+        )
+
+        detail = await mgr.get_detail(100)
+        c10 = detail.children[0]
+        assert c10.pr_number == 42
+        assert c10.pr_url == "https://github.com/org/repo/pull/42"
+        assert c10.pr_state == "open"
+        assert c10.branch == "agent/issue-10"
+        assert c10.ci_status == "passing"
+        assert c10.review_status == "approved"
+        assert c10.current_stage == "implement"
+        assert c10.status == "running"
+
+    @pytest.mark.asyncio
+    async def test_failed_ci_status(self, tmp_path: Path) -> None:
+        from models import PRInfo
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10])
+
+        child_10 = IssueFactory.create(
+            number=10, title="Failing", labels=["hydraflow-review"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+
+        state.set_branch(10, "agent/issue-10")
+        pr_info = PRInfo(number=42, issue_number=10, branch="agent/issue-10", url="")
+        prs.find_open_pr_for_branch = AsyncMock(return_value=pr_info)
+        prs.get_pr_checks = AsyncMock(
+            return_value=[
+                {"state": "failure", "name": "CI"},
+                {"state": "success", "name": "Lint"},
+            ]
+        )
+        prs.get_pr_reviews = AsyncMock(
+            return_value=[{"state": "CHANGES_REQUESTED", "author": "rev"}]
+        )
+
+        detail = await mgr.get_detail(100)
+        c10 = detail.children[0]
+        assert c10.ci_status == "failing"
+        assert c10.review_status == "changes_requested"
+
+    @pytest.mark.asyncio
+    async def test_detail_counts(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10, 20, 30])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        child_20 = IssueFactory.create(number=20, title="Active", labels=["test-label"])
+        child_30 = IssueFactory.create(
+            number=30, title="Queued", labels=["hydraflow-plan"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect={10: child_10, 20: child_20, 30: child_30}.get
+        )
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        detail = await mgr.get_detail(100)
+        assert detail.merged_children == 1
+        assert detail.active_children == 1
+        assert detail.queued_children == 1
+
+
+class TestReadiness:
+    """Tests for _compute_readiness."""
+
+    @pytest.mark.asyncio
+    async def test_readiness_all_done(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "v1.0 Release", [10])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        detail = await mgr.get_detail(100)
+        assert detail.readiness.all_implemented is True
+        assert detail.readiness.version == "1.0"
+        assert detail.readiness.changelog_ready is True
+
+    @pytest.mark.asyncio
+    async def test_readiness_not_all_implemented(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10, 20])
+
+        child_10 = IssueFactory.create(number=10, title="In Progress", labels=[])
+        child_20 = IssueFactory.create(number=20, title="Queued", labels=[])
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect={10: child_10, 20: child_20}.get
+        )
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        detail = await mgr.get_detail(100)
+        assert detail.readiness.all_implemented is False
+
+    @pytest.mark.asyncio
+    async def test_readiness_no_version(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic Without Version", [10])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        detail = await mgr.get_detail(100)
+        assert detail.readiness.changelog_ready is False
+        assert detail.readiness.version is None
+
+
+class TestCache:
+    """Tests for the background caching mechanism."""
+
+    @pytest.mark.asyncio
+    async def test_cache_returns_stale_data(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        # First call builds detail
+        detail1 = await mgr.get_detail(100)
+        assert detail1 is not None
+
+        # Cache is set, so second call uses cache
+        import time
+
+        mgr._cache_updated_at = time.monotonic()
+        detail2 = mgr.get_cached_detail(100)
+        assert detail2 is not None
+        assert detail2.epic_number == 100
+
+    @pytest.mark.asyncio
+    async def test_cache_expires(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        await mgr.get_detail(100)
+        # Force cache expiry
+        mgr._cache_updated_at = 0.0
+        cached = mgr.get_cached_detail(100)
+        assert cached is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_cache_publishes_events(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, bus, prs, fetcher = _make_manager(tmp_path)
+        # Use 2 children so the epic stays open after completing 1
+        await mgr.register_epic(100, "v1.0 Epic", [10, 20])
+        await mgr.on_child_completed(100, 10)
+
+        child_10 = IssueFactory.create(
+            number=10, title="Done", labels=["hydraflow-fixed"]
+        )
+        child_20 = IssueFactory.create(number=20, title="Pending", labels=[])
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect={10: child_10, 20: child_20}.get
+        )
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        await mgr.refresh_cache()
+
+        progress_events = [
+            e for e in bus.get_history() if e.type == EventType.EPIC_PROGRESS
+        ]
+        assert len(progress_events) >= 1
+        assert progress_events[0].data["epic_number"] == 100
+
+
+class TestTriggerRelease:
+    """Tests for the trigger_release method."""
+
+    @pytest.mark.asyncio
+    async def test_trigger_release_returns_job_id(self, tmp_path: Path) -> None:
+        mgr, state, bus, prs, fetcher = _make_manager(tmp_path)
+        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
+        await mgr.register_epic(100, "v1.0 Release", [10])
+
+        result = await mgr.trigger_release(100)
+        assert "job_id" in result
+        assert result["status"] == "started"
+
+    @pytest.mark.asyncio
+    async def test_trigger_release_unknown_epic(self, tmp_path: Path) -> None:
+        mgr, _, _, _, _ = _make_manager(tmp_path)
+
+        result = await mgr.trigger_release(999)
+        assert "error" in result
+        assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_trigger_release_already_closed(self, tmp_path: Path) -> None:
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
+        await mgr.register_epic(100, "Epic", [10])
+        await mgr.on_child_completed(100, 10)
+
+        result = await mgr.trigger_release(100)
+        assert "error" in result
+        assert "already closed" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_trigger_release_duplicate_returns_in_progress(
+        self, tmp_path: Path
+    ) -> None:
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10, 20])
+
+        # Simulate a running job
+        mgr._release_jobs[100] = "release-100-existing"
+        result = await mgr.trigger_release(100)
+        assert result["status"] == "in_progress"
+        assert result["job_id"] == "release-100-existing"
+
+
+class TestGetAllDetail:
+    """Tests for the get_all_detail method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_all_epic_details(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic A", [10])
+        await mgr.register_epic(200, "Epic B", [20])
+
+        child_10 = IssueFactory.create(number=10, title="A1", labels=[])
+        child_20 = IssueFactory.create(number=20, title="B1", labels=[])
+        fetcher.fetch_issue_by_number = AsyncMock(
+            side_effect={10: child_10, 20: child_20}.get
+        )
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        details = await mgr.get_all_detail()
+        assert len(details) == 2
+        numbers = {d.epic_number for d in details}
+        assert numbers == {100, 200}
+
+    @pytest.mark.asyncio
+    async def test_detail_includes_merge_strategy(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10])
+
+        child_10 = IssueFactory.create(number=10, title="A1", labels=[])
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        details = await mgr.get_all_detail()
+        assert details[0].merge_strategy == "independent"
+
+    @pytest.mark.asyncio
+    async def test_detail_includes_readiness(self, tmp_path: Path) -> None:
+        from tests.conftest import IssueFactory
+
+        mgr, state, _, prs, fetcher = _make_manager(tmp_path)
+        await mgr.register_epic(100, "Epic", [10])
+
+        child_10 = IssueFactory.create(number=10, title="A1", labels=[])
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
+        prs.find_open_pr_for_branch = AsyncMock(return_value=None)
+
+        details = await mgr.get_all_detail()
+        assert hasattr(details[0], "readiness")
+        assert details[0].readiness.all_implemented is False

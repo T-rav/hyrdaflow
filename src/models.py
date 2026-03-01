@@ -839,6 +839,7 @@ class EpicProgress(BaseModel):
     percent_complete: float = 0.0
     last_activity: str = ""
     auto_decomposed: bool = False
+    merge_strategy: str = "independent"
     child_issues: list[int] = Field(default_factory=list)
 
 
@@ -850,8 +851,31 @@ class EpicChildInfo(BaseModel):
     url: str = ""
     state: str = "open"  # "open", "closed"
     stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
+    current_stage: str = ""  # UI-facing alias of stage
+    status: str = "queued"  # done, running, queued, failed
     is_completed: bool = False
     is_failed: bool = False
+    pr_number: int | None = None
+    pr_url: str = ""
+    pr_state: str | None = None  # open, merged, draft
+    branch: str = ""
+    ci_status: str | None = None  # passing, failing, pending
+    review_status: str | None = None  # approved, changes_requested, pending
+    time_in_stage_seconds: int = 0
+    stage_entered_at: str = ""
+    worker: str | None = None
+    mergeable: bool | None = None
+
+
+class EpicReadiness(BaseModel):
+    """Readiness checks for an epic before release."""
+
+    all_implemented: bool = False
+    all_approved: bool = False
+    all_ci_passing: bool = False
+    no_conflicts: bool = False
+    changelog_ready: bool = False
+    version: str | None = None
 
 
 class EpicDetail(BaseModel):
@@ -864,12 +888,18 @@ class EpicDetail(BaseModel):
     completed: int = 0
     failed: int = 0
     in_progress: int = 0
+    merged_children: int = 0
+    active_children: int = 0
+    queued_children: int = 0
     status: str = "active"
     percent_complete: float = 0.0
     last_activity: str = ""
     created_at: str = ""
     auto_decomposed: bool = False
+    merge_strategy: str = "independent"
     children: list[EpicChildInfo] = Field(default_factory=list)
+    readiness: EpicReadiness = Field(default_factory=EpicReadiness)
+    release: dict | None = None
 
 
 class Crate(BaseModel):

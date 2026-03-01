@@ -41,6 +41,10 @@ _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
     (EventType.SESSION_START, "session_start"),
     (EventType.SESSION_END, "session_end"),
     (EventType.EPIC_UPDATE, "epic_update"),
+    (EventType.EPIC_PROGRESS, "epic_progress"),
+    (EventType.EPIC_READY, "epic_ready"),
+    (EventType.EPIC_RELEASING, "epic_releasing"),
+    (EventType.EPIC_RELEASED, "epic_released"),
     (EventType.PIPELINE_STATS, "pipeline_stats"),
 ]
 
@@ -72,6 +76,10 @@ class TestEventTypeEnum:
             "SESSION_START",
             "SESSION_END",
             "EPIC_UPDATE",
+            "EPIC_PROGRESS",
+            "EPIC_READY",
+            "EPIC_RELEASING",
+            "EPIC_RELEASED",
             "PIPELINE_STATS",
         }
         actual = {member.name for member in EventType}

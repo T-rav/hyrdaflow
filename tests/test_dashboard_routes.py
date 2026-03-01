@@ -114,6 +114,9 @@ class TestCreateRouter:
             "/api/crates",
             "/api/crates/{crate_number}",
             "/api/crates/{crate_number}/items",
+            "/api/epics",
+            "/api/epics/{epic_number}",
+            "/api/epics/{epic_number}/release",
             "/ws",
             "/{path:path}",
         }

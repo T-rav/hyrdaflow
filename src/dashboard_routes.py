@@ -630,12 +630,12 @@ def create_router(
 
     @router.get("/api/epics")
     async def get_epics() -> JSONResponse:
-        """Return all tracked epics with progress."""
+        """Return all tracked epics with enriched sub-issue progress."""
         orch = get_orchestrator()
         if orch is None:
             return JSONResponse([])
-        progress = orch._epic_manager.get_all_progress()
-        return JSONResponse([p.model_dump() for p in progress])
+        details = await orch._epic_manager.get_all_detail()
+        return JSONResponse([d.model_dump() for d in details])
 
     @router.get("/api/epics/{epic_number}")
     async def get_epic_detail(epic_number: int) -> JSONResponse:
@@ -647,6 +647,20 @@ def create_router(
         if detail is None:
             return JSONResponse({"error": "epic not found"}, status_code=404)
         return JSONResponse(detail.model_dump())
+
+    @router.post("/api/epics/{epic_number}/release")
+    async def trigger_epic_release(epic_number: int) -> JSONResponse:
+        """Trigger async merge sequence and release creation for an epic.
+
+        Returns a job ID for polling. Long-running merges run in background.
+        """
+        orch = get_orchestrator()
+        if orch is None:
+            return JSONResponse({"error": "orchestrator not running"}, status_code=503)
+        result = await orch._epic_manager.trigger_release(epic_number)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
 
     # --- Crate (milestone) routes ---
 
