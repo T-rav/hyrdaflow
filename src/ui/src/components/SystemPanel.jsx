@@ -332,7 +332,7 @@ function ProcessToggles() {
 
   return (
     <div>
-      <h3 style={styles.sectionHeading}>Process Toggles</h3>
+      <h3 style={styles.heading}>Process Toggles</h3>
       <ToggleRow
         label="Auto Process Epics"
         hint="When off, epics go to HITL for review"

@@ -456,6 +456,13 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Background Workers')).toBeInTheDocument()
     })
 
+    it('clicking Insights sub-tab shows InsightsPanel content', () => {
+      render(<SystemPanel backgroundWorkers={[]} />)
+      fireEvent.click(screen.getByText('Insights'))
+      expect(screen.getByText('Failure Patterns')).toBeInTheDocument()
+      expect(screen.queryByText('Background Workers')).not.toBeInTheDocument()
+    })
+
     it('renders event data in Livestream sub-tab', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({
         events: [
