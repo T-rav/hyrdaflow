@@ -820,6 +820,7 @@ class TestDisabledWorkerPersistenceAcrossRestart:
         states = orch2.get_bg_worker_states()
         assert states["memory_sync"]["status"] == "error"
         assert states["memory_sync"]["last_run"] is not None
+        assert states["memory_sync"]["enabled"] is True
 
     def test_fresh_install_shows_never(
         self, config, event_bus: EventBus, tmp_path: Path

@@ -106,6 +106,7 @@ class StateTracker:
                 OSError,
                 ValueError,
                 UnicodeDecodeError,
+                ValidationError,
             ) as exc:
                 logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
