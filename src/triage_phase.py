@@ -53,6 +53,14 @@ class TriagePhase:
         self._stop_event = stop_event
         self._epic_manager = epic_manager
 
+    def _enrich_parent_epic(self, issue: Task) -> None:
+        """Set the parent_epic field if this issue belongs to a tracked epic."""
+        if self._epic_manager is None:
+            return
+        parents = self._epic_manager.find_parent_epics(issue.id)
+        if parents:
+            issue.parent_epic = parents[0]
+
     async def triage_issues(self) -> int:
         """Evaluate ``find_label`` issues and route them.
 
@@ -75,6 +83,9 @@ class TriagePhase:
             async with semaphore:
                 if self._stop_event.is_set():
                     return 0
+
+                # Enrich with parent epic reference if this is a child issue
+                self._enrich_parent_epic(issue)
 
                 async with store_lifecycle(self._store, issue.id, "find"):
                     # ADR draft issues are already scoped/planned; validate shape and

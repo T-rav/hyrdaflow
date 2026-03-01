@@ -630,12 +630,12 @@ def create_router(
 
     @router.get("/api/epics")
     async def get_epics() -> JSONResponse:
-        """Return all tracked epics with progress."""
+        """Return all tracked epics with enriched sub-issue progress."""
         orch = get_orchestrator()
         if orch is None:
             return JSONResponse([])
-        progress = orch._epic_manager.get_all_progress()
-        return JSONResponse([p.model_dump() for p in progress])
+        details = await orch._epic_manager.get_all_detail()
+        return JSONResponse([d.model_dump() for d in details])
 
     @router.get("/api/epics/{epic_number}")
     async def get_epic_detail(epic_number: int) -> JSONResponse:
@@ -647,6 +647,21 @@ def create_router(
         if detail is None:
             return JSONResponse({"error": "epic not found"}, status_code=404)
         return JSONResponse(detail.model_dump())
+
+    @router.post("/api/epics/{epic_number}/release")
+    async def trigger_epic_release(epic_number: int) -> JSONResponse:
+        """Trigger async merge sequence and release creation for an epic.
+
+        Returns a job_id. Completion is signalled via the EPIC_RELEASED WebSocket
+        event — there is no REST polling endpoint for job status.
+        """
+        orch = get_orchestrator()
+        if orch is None:
+            return JSONResponse({"error": "orchestrator not running"}, status_code=503)
+        result = await orch._epic_manager.trigger_release(epic_number)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
 
     # --- Crate (milestone) routes ---
 
@@ -797,6 +812,9 @@ def create_router(
             cached_summary = state.get_hitl_summary(item.issue)
             data["llmSummary"] = cached_summary or ""
             data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
+            visual_ev = state.get_hitl_visual_evidence(item.issue)
+            if visual_ev:
+                data["visualEvidence"] = visual_ev.model_dump()
             if (
                 not cached_summary
                 and config.transcript_summarization_enabled
@@ -2087,6 +2105,17 @@ def create_router(
         if content is None:
             return JSONResponse({"error": "artifact not found"}, status_code=404)
         return Response(content=content, media_type="text/plain")
+
+    @router.get("/api/artifacts/stats")
+    async def get_artifact_stats() -> JSONResponse:
+        """Return storage statistics for run artifacts."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        stats = orch.run_recorder.get_storage_stats()
+        stats["retention_days"] = config.artifact_retention_days
+        stats["max_size_mb"] = config.artifact_max_size_mb
+        return JSONResponse(stats)
 
     @router.get("/api/harness-insights")
     async def get_harness_insights() -> JSONResponse:

@@ -136,6 +136,61 @@ class TestExtractSubcategories:
         subs = extract_subcategories("")
         assert subs == []
 
+    def test_extracts_visual_diff(self) -> None:
+        subs = extract_subcategories("screenshot diff exceeded threshold on login")
+        assert "visual_diff" in subs
+
+    def test_extracts_visual_regression(self) -> None:
+        subs = extract_subcategories("visual regression detected: baseline mismatch")
+        assert "visual_regression" in subs
+
+
+# ---------------------------------------------------------------------------
+# FailureCategory — visual categories
+# ---------------------------------------------------------------------------
+
+
+class TestVisualFailureCategories:
+    """Tests for VISUAL_FAIL and VISUAL_WARN categories."""
+
+    def test_visual_fail_in_enum(self) -> None:
+        assert FailureCategory.VISUAL_FAIL == "visual_fail"
+
+    def test_visual_warn_in_enum(self) -> None:
+        assert FailureCategory.VISUAL_WARN == "visual_warn"
+
+    def test_visual_fail_has_description(self) -> None:
+        assert FailureCategory.VISUAL_FAIL.value in CATEGORY_DESCRIPTIONS
+        assert (
+            "screenshot" in CATEGORY_DESCRIPTIONS[FailureCategory.VISUAL_FAIL].lower()
+        )
+
+    def test_visual_warn_has_description(self) -> None:
+        assert FailureCategory.VISUAL_WARN.value in CATEGORY_DESCRIPTIONS
+        assert "warning" in CATEGORY_DESCRIPTIONS[FailureCategory.VISUAL_WARN].lower()
+
+    def test_visual_fail_record(self) -> None:
+        record = _make_record(
+            category=FailureCategory.VISUAL_FAIL, details="screenshot diff 15%"
+        )
+        assert record.category == "visual_fail"
+
+    def test_visual_warn_record(self) -> None:
+        record = _make_record(
+            category=FailureCategory.VISUAL_WARN, details="minor screenshot diff 2%"
+        )
+        assert record.category == "visual_warn"
+
+    def test_visual_fail_suggestion_text(self) -> None:
+        body = build_harness_issue_body(FailureCategory.VISUAL_FAIL, 4, 20, [])
+        assert "baseline" in body.lower()
+        assert "Suggested Improvement" in body
+
+    def test_visual_warn_suggestion_text(self) -> None:
+        body = build_harness_issue_body(FailureCategory.VISUAL_WARN, 3, 20, [])
+        assert "threshold" in body.lower()
+        assert "Suggested Improvement" in body
+
 
 # ---------------------------------------------------------------------------
 # FailureRecord model

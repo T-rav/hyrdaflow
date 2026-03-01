@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from agent import AgentRunner
+from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
 from docker_runner import get_docker_runner
 from epic import EpicCompletionChecker, EpicManager
@@ -40,6 +41,7 @@ from retrospective import RetrospectiveCollector
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
 from run_recorder import RunRecorder
+from runs_gc_loop import RunsGCLoop
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
@@ -98,6 +100,7 @@ class ServiceRegistry:
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     worktree_gc_loop: WorktreeGCLoop
+    runs_gc_loop: RunsGCLoop
 
 
 @dataclass
@@ -236,6 +239,11 @@ def build_services(
         config, prs, event_bus, runner=subprocess_runner
     )
     verification_judge = VerificationJudge(config, event_bus, runner=subprocess_runner)
+    baseline_policy = BaselinePolicy(
+        config=config,
+        state=state,
+        event_bus=event_bus,
+    )
     post_merge_handler = PostMergeHandler(
         config=config,
         state=state,
@@ -261,6 +269,7 @@ def build_services(
         conflict_resolver=conflict_resolver,
         post_merge=post_merge_handler,
         update_bg_worker_status=callbacks.update_bg_worker_status,
+        baseline_policy=baseline_policy,
     )
 
     # Background loops
@@ -347,6 +356,17 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
+    runs_gc_loop = RunsGCLoop(
+        config=config,
+        run_recorder=run_recorder,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
+
     return ServiceRegistry(
         worktrees=worktrees,
         subprocess_runner=subprocess_runner,
@@ -380,4 +400,5 @@ def build_services(
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         worktree_gc_loop=worktree_gc_loop,
+        runs_gc_loop=runs_gc_loop,
     )

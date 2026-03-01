@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import shutil
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -161,11 +163,16 @@ class RunRecorder:
     ) -> str | None:
         """Read a specific artifact file from a recorded run."""
         artifact_path = self._runs_dir / str(issue_number) / timestamp / filename
-        if not artifact_path.is_file():
+        try:
+            resolved = artifact_path.resolve()
+            runs_root = self._runs_dir.resolve()
+        except OSError:
+            return None
+        if not resolved.is_relative_to(runs_root) or not resolved.is_file():
             return None
         try:
-            return artifact_path.read_text()
-        except OSError:
+            return resolved.read_text()
+        except (OSError, UnicodeDecodeError):
             return None
 
     def list_issues(self) -> list[int]:
@@ -177,3 +184,137 @@ class RunRecorder:
             if d.is_dir() and d.name.isdigit():
                 issues.append(int(d.name))
         return issues
+
+    def get_storage_stats(self) -> dict[str, Any]:
+        """Compute total storage size and run counts across all issues.
+
+        Returns a dict with ``total_bytes``, ``total_runs``, and
+        ``issues`` (count of distinct issue directories).
+        """
+        total_bytes = 0
+        total_runs = 0
+        issue_count = 0
+        if self._runs_dir.is_dir():
+            for issue_dir in self._runs_dir.iterdir():
+                if not issue_dir.is_dir() or not issue_dir.name.isdigit():
+                    continue
+                issue_count += 1
+                for run_dir in issue_dir.iterdir():
+                    if not run_dir.is_dir():
+                        continue
+                    total_runs += 1
+                    for f in run_dir.rglob("*"):
+                        if f.is_file():
+                            total_bytes += f.stat().st_size
+        return {
+            "total_bytes": total_bytes,
+            "total_mb": round(total_bytes / (1024 * 1024), 2),
+            "total_runs": total_runs,
+            "issues": issue_count,
+        }
+
+    def purge_expired(self, retention_days: int) -> int:
+        """Delete run directories older than *retention_days*.
+
+        Returns the number of run directories removed.
+        """
+        if not self._runs_dir.is_dir():
+            return 0
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        removed = 0
+        for issue_dir in list(self._runs_dir.iterdir()):
+            if not issue_dir.is_dir() or not issue_dir.name.isdigit():
+                continue
+            for run_dir in list(issue_dir.iterdir()):
+                if not run_dir.is_dir():
+                    continue
+                try:
+                    ts = datetime.strptime(run_dir.name, "%Y%m%dT%H%M%SZ").replace(
+                        tzinfo=UTC
+                    )
+                except ValueError:
+                    continue
+                if ts < cutoff:
+                    shutil.rmtree(run_dir, ignore_errors=True)
+                    removed += 1
+                    logger.info("Purged expired run %s", run_dir)
+            # Remove empty issue dirs
+            if issue_dir.is_dir() and not any(issue_dir.iterdir()):
+                with contextlib.suppress(OSError):
+                    issue_dir.rmdir()
+        return removed
+
+    def purge_oversized(self, max_size_mb: int) -> int:
+        """Delete oldest runs until total storage is under *max_size_mb*.
+
+        Returns the number of run directories removed.
+        """
+        if not self._runs_dir.is_dir():
+            return 0
+
+        # Collect all runs with their timestamps and paths
+        runs: list[tuple[str, Path]] = []
+        for issue_dir in self._runs_dir.iterdir():
+            if not issue_dir.is_dir() or not issue_dir.name.isdigit():
+                continue
+            for run_dir in issue_dir.iterdir():
+                if not run_dir.is_dir():
+                    continue
+                try:
+                    datetime.strptime(run_dir.name, "%Y%m%dT%H%M%SZ")
+                except ValueError:
+                    continue
+                runs.append((run_dir.name, run_dir))
+
+        # Sort descending so pop() removes the oldest (O(1) vs pop(0) O(n))
+        runs.sort(key=lambda r: r[0], reverse=True)
+        max_bytes = max_size_mb * 1024 * 1024
+        removed = 0
+        current_bytes = self._compute_total_bytes()
+
+        while runs and current_bytes > max_bytes:
+            _, oldest_run = runs.pop()
+            parent = oldest_run.parent
+            run_bytes = sum(
+                f.stat().st_size for f in oldest_run.rglob("*") if f.is_file()
+            )
+            shutil.rmtree(oldest_run, ignore_errors=True)
+            if oldest_run.exists():
+                logger.warning(
+                    "Failed to remove oversized run %s, skipping", oldest_run
+                )
+                continue
+            current_bytes -= run_bytes
+            removed += 1
+            logger.info("Purged oversized run %s", oldest_run)
+            # Remove empty issue dirs
+            if parent.is_dir() and not any(parent.iterdir()):
+                with contextlib.suppress(OSError):
+                    parent.rmdir()
+
+        return removed
+
+    def _compute_total_bytes(self) -> int:
+        """Return total bytes across all run artifacts."""
+        total = 0
+        if self._runs_dir.is_dir():
+            for f in self._runs_dir.rglob("*"):
+                if f.is_file():
+                    total += f.stat().st_size
+        return total
+
+    def purge_all(self) -> int:
+        """Delete all recorded runs. Returns the number removed."""
+        if not self._runs_dir.is_dir():
+            return 0
+        removed = 0
+        for issue_dir in list(self._runs_dir.iterdir()):
+            if not issue_dir.is_dir() or not issue_dir.name.isdigit():
+                continue
+            for run_dir in list(issue_dir.iterdir()):
+                if run_dir.is_dir():
+                    shutil.rmtree(run_dir, ignore_errors=True)
+                    removed += 1
+            if issue_dir.is_dir() and not any(issue_dir.iterdir()):
+                issue_dir.rmdir()
+        return removed

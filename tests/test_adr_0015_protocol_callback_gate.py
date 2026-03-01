@@ -1,4 +1,4 @@
-"""Tests for ADR-0009: Protocol-Based Callback Injection for Merge-Phase Gates."""
+"""Tests for ADR-0015: Protocol-Based Callback Injection for Merge-Phase Gates."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ADR_DIR = Path(__file__).resolve().parent.parent / "docs" / "adr"
-ADR_FILE = ADR_DIR / "0009-protocol-callback-gate-pattern.md"
+ADR_FILE = ADR_DIR / "0015-protocol-callback-gate-pattern.md"
 README_FILE = ADR_DIR / "README.md"
 
 
@@ -23,11 +23,11 @@ def readme_content() -> str:
 
 class TestAdr0009Exists:
     def test_adr_file_exists(self) -> None:
-        assert ADR_FILE.exists(), "ADR-0009 file must exist"
+        assert ADR_FILE.exists(), "ADR-0015 file must exist"
 
     def test_readme_references_adr(self, readme_content: str) -> None:
-        assert "0009" in readme_content
-        assert "0009-protocol-callback-gate-pattern.md" in readme_content
+        assert "0015" in readme_content
+        assert "0015-protocol-callback-gate-pattern.md" in readme_content
 
 
 class TestAdr0009Metadata:
@@ -39,7 +39,7 @@ class TestAdr0009Metadata:
 
     def test_title_matches(self, adr_content: str) -> None:
         assert (
-            "# ADR-0009: Protocol-Based Callback Injection for Merge-Phase Gates"
+            "# ADR-0015: Protocol-Based Callback Injection for Merge-Phase Gates"
             in adr_content
         )
 

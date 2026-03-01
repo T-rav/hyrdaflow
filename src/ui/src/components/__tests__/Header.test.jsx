@@ -385,6 +385,128 @@ describe('Header component', () => {
     })
   })
 
+  describe('repo-aware indicator', () => {
+    it('shows running repos count when runtimes have running repos', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [
+          { slug: 'repo-a', running: true },
+          { slug: 'repo-b', running: false },
+          { slug: 'repo-c', running: true },
+        ],
+        supervisedRepos: [
+          { slug: 'repo-a', path: 'org/repo-a' },
+          { slug: 'repo-b', path: 'org/repo-b' },
+          { slug: 'repo-c', path: 'org/repo-c' },
+        ],
+      })
+      render(<Header {...defaultProps} orchestratorStatus="running" />)
+      expect(screen.getByTestId('repos-running-badge')).toBeInTheDocument()
+      expect(screen.getByTestId('repos-running-badge')).toHaveTextContent('2 / 3 repos')
+    })
+
+    it('does not show badge when no supervised repos exist', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [],
+        supervisedRepos: [],
+      })
+      render(<Header {...defaultProps} />)
+      expect(screen.queryByTestId('repos-running-badge')).toBeNull()
+    })
+
+    it('shows 0 running when all repos are stopped', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [
+          { slug: 'repo-a', running: false },
+        ],
+        supervisedRepos: [
+          { slug: 'repo-a', path: 'org/repo-a' },
+        ],
+      })
+      render(<Header {...defaultProps} />)
+      expect(screen.getByTestId('repos-running-badge')).toHaveTextContent('0 / 1 repo')
+    })
+
+    it('shows singular "repo" for single supervised repo', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [
+          { slug: 'repo-a', running: true },
+        ],
+        supervisedRepos: [
+          { slug: 'repo-a', path: 'org/repo-a' },
+        ],
+      })
+      render(<Header {...defaultProps} />)
+      expect(screen.getByTestId('repos-running-badge')).toHaveTextContent('1 / 1 repo')
+    })
+
+    it('handles missing runtimes gracefully', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        supervisedRepos: [
+          { slug: 'repo-a', path: 'org/repo-a' },
+        ],
+      })
+      render(<Header {...defaultProps} />)
+      expect(screen.getByTestId('repos-running-badge')).toHaveTextContent('0 / 1 repo')
+    })
+
+    it('applies green color to badge when at least one repo is running', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [{ slug: 'repo-a', running: true }],
+        supervisedRepos: [{ slug: 'repo-a', path: 'org/repo-a' }],
+      })
+      render(<Header {...defaultProps} />)
+      const badge = screen.getByTestId('repos-running-badge')
+      expect(badge.style.color).toBe(theme.green)
+      expect(badge.style.borderColor).toBe(theme.green)
+    })
+
+    it('applies muted color to badge when no repos are running', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [{ slug: 'repo-a', running: false }],
+        supervisedRepos: [{ slug: 'repo-a', path: 'org/repo-a' }],
+      })
+      render(<Header {...defaultProps} />)
+      const badge = screen.getByTestId('repos-running-badge')
+      expect(badge.style.color).toBe(theme.textMuted)
+    })
+
+    it('excludes non-supervised runtimes from running count', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        runtimes: [
+          { slug: 'supervised', running: true },
+          { slug: 'unsupervised', running: true },
+        ],
+        supervisedRepos: [{ slug: 'supervised', path: 'org/supervised' }],
+      })
+      render(<Header {...defaultProps} />)
+      expect(screen.getByTestId('repos-running-badge')).toHaveTextContent('1 / 1 repo')
+    })
+  })
+
   describe('Report button', () => {
     it('renders in idle state', () => {
       render(<Header {...defaultProps} orchestratorStatus="idle" />)

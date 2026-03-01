@@ -1,4 +1,4 @@
-# ADR-0009: Protocol-Based Callback Injection for Merge-Phase Gates
+# ADR-0015: Protocol-Based Callback Injection for Merge-Phase Gates
 
 **Status:** Proposed
 **Date:** 2026-03-01

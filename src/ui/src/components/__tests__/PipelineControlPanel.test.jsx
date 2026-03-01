@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { PIPELINE_LOOPS } from '../../constants'
 import { deriveStageStatus } from '../../hooks/useStageStatus'
 
@@ -32,6 +32,11 @@ beforeEach(() => {
   mockUseHydraFlow.mockReturnValue(defaultMockContext())
 })
 
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
 const mockPipelineWorkers = {
   'triage-5': { status: 'evaluating', worker: 1, role: 'triage', title: 'Triage Issue #5', branch: '', transcript: ['Evaluating issue...', 'Checking labels'], pr: null },
   'plan-7': { status: 'planning', worker: 2, role: 'planner', title: 'Plan Issue #7', branch: '', transcript: ['Reading codebase...'], pr: null },
@@ -48,47 +53,33 @@ describe('PipelineControlPanel', () => {
       }
     })
 
-    it('shows worker count of 0 when no active workers', () => {
+    it('shows max worker count when no active workers', () => {
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0/1')
-      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('0/2')
-      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/3')
-      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('0/2')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('2')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('2')
     })
 
-    it('shows worker counts per stage in active/max format', () => {
+    it('shows max worker counts per stage with config', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers }))
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1/1')
-      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1/2')
-      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1/3')
-      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1/2')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
+      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('2')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('2')
     })
 
-    it('shows triage in active/max format using stage worker cap', () => {
+    it('shows triage max from config worker cap', () => {
       const singleTriageWorker = {
         'triage-5': { status: 'evaluating', worker: 1, role: 'triage', title: 'Triage #5', branch: '', transcript: [], pr: null },
       }
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: singleTriageWorker }))
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1/1')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1')
     })
 
-    it('shows "workers" plural for non-triage stages even when active count is 1', () => {
-      const singleImplementer = {
-        10: { status: 'running', worker: 1, role: 'implementer', title: 'Issue #10', branch: '', transcript: [], pr: null },
-      }
-      mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: singleImplementer }))
-      render(<PipelineControlPanel />)
-      const implementCount = screen.getByTestId('loop-count-implement')
-      expect(implementCount).toHaveTextContent('1/3')
-      // Label is plural when showing ratio, even with activeCount=1
-      const implementChip = implementCount.closest('[style]')
-      expect(implementChip).not.toBeNull()
-      expect(screen.queryByText('worker')).not.toBeInTheDocument()
-    })
-
-    it('shows "workers" plural when count is not 1', () => {
+    it('shows "workers" label for all stages when config is available', () => {
       render(<PipelineControlPanel />)
       const workerLabels = screen.getAllByText('workers')
       expect(workerLabels.length).toBe(PIPELINE_LOOPS.length)
@@ -152,15 +143,6 @@ describe('PipelineControlPanel', () => {
       expect(triageLabel.style.color).toBe('var(--text-muted)')
     })
 
-    it('shows active/max count for triage from shared worker caps', () => {
-      const triageWorker = {
-        'triage-5': { status: 'evaluating', worker: 1, role: 'triage', title: 'Triage #5', branch: '', transcript: [], pr: null },
-      }
-      mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: triageWorker }))
-      render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('1/1')
-    })
-
     it('falls back to active-only counts when config is null', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers, config: null }))
       render(<PipelineControlPanel />)
@@ -168,27 +150,23 @@ describe('PipelineControlPanel', () => {
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1')
-      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
-      expect(screen.getByTestId('loop-count-plan').textContent).not.toContain('/')
-      expect(screen.getByTestId('loop-count-implement').textContent).not.toContain('/')
-      expect(screen.getByTestId('loop-count-review').textContent).not.toContain('/')
     })
 
     it('updates display when config max values change', () => {
       const { rerender } = render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/3')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_triagers: 1, max_planners: 2, max_workers: 5, max_reviewers: 2 } }))
       rerender(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/5')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('5')
     })
 
     it('uses zero worker caps when config max values are zero', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: { max_triagers: 0, max_planners: 0, max_workers: 0, max_reviewers: 0 } }))
       render(<PipelineControlPanel />)
-      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0/0')
-      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('0/0')
-      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0/0')
-      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('0/0')
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('0')
+      expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('0')
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('0')
+      expect(screen.getByTestId('loop-count-review')).toHaveTextContent('0')
     })
 
     it('falls back to active-only counts when config is missing keys', () => {
@@ -198,10 +176,244 @@ describe('PipelineControlPanel', () => {
       expect(screen.getByTestId('loop-count-plan')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('1')
       expect(screen.getByTestId('loop-count-review')).toHaveTextContent('1')
-      expect(screen.getByTestId('loop-count-triage').textContent).not.toContain('/')
-      expect(screen.getByTestId('loop-count-plan').textContent).not.toContain('/')
-      expect(screen.getByTestId('loop-count-implement').textContent).not.toContain('/')
-      expect(screen.getByTestId('loop-count-review').textContent).not.toContain('/')
+    })
+  })
+
+  describe('Worker Count Controls', () => {
+    it('renders increment and decrement buttons for each stage when config is available', () => {
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.getByTestId(`dec-${loop.key}`)).toBeInTheDocument()
+        expect(screen.getByTestId(`inc-${loop.key}`)).toBeInTheDocument()
+      }
+    })
+
+    it('does not render increment/decrement buttons when config is null', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: null }))
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.queryByTestId(`dec-${loop.key}`)).not.toBeInTheDocument()
+        expect(screen.queryByTestId(`inc-${loop.key}`)).not.toBeInTheDocument()
+      }
+    })
+
+    it('does not render increment/decrement buttons when config keys are missing', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: {} }))
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.queryByTestId(`dec-${loop.key}`)).not.toBeInTheDocument()
+        expect(screen.queryByTestId(`inc-${loop.key}`)).not.toBeInTheDocument()
+      }
+    })
+
+    it('disables decrement button when count is at minimum (1)', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 1, max_planners: 1, max_workers: 1, max_reviewers: 1 },
+      }))
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.getByTestId(`dec-${loop.key}`)).toBeDisabled()
+      }
+    })
+
+    it('disables increment button when count is at maximum (10)', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 10, max_planners: 10, max_workers: 10, max_reviewers: 10 },
+      }))
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.getByTestId(`inc-${loop.key}`)).toBeDisabled()
+      }
+    })
+
+    it('enables both buttons when count is between min and max', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 5, max_planners: 5, max_workers: 5, max_reviewers: 5 },
+      }))
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.getByTestId(`dec-${loop.key}`)).not.toBeDisabled()
+        expect(screen.getByTestId(`inc-${loop.key}`)).not.toBeDisabled()
+      }
+    })
+
+    it('calls PATCH /api/control/config with persist:true on increment', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_workers: 4, persist: true }),
+      })
+    })
+
+    it('calls PATCH /api/control/config with persist:true on decrement', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('dec-implement'))
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_workers: 2, persist: true }),
+      })
+    })
+
+    it('optimistically updates displayed count on increment click', async () => {
+      let resolvePromise
+      const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => { resolvePromise = resolve }))
+      vi.stubGlobal('fetch', fetchMock)
+      render(<PipelineControlPanel />)
+
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      // Optimistic update: count should show 4 immediately
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
+
+      // Resolve the fetch
+      await act(async () => { resolvePromise({ ok: true }) })
+    })
+
+    it('rolls back optimistic update on API failure', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<PipelineControlPanel />)
+
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      // After API failure, should roll back to original server value
+      await waitFor(() => {
+        expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+      })
+    })
+
+    it('rolls back optimistic update on network error', async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new Error('Network error'))
+      vi.stubGlobal('fetch', fetchMock)
+      render(<PipelineControlPanel />)
+
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      await waitFor(() => {
+        expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('3')
+      })
+    })
+
+    it('preserves optimistic override for other stages when one stage cap changes from server', async () => {
+      const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}))
+      vi.stubGlobal('fetch', fetchMock)
+      const { rerender } = render(<PipelineControlPanel />)
+
+      // Optimistically increment implement from 3 → 4
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
+
+      // Server pushes a config update that only changes triage (1 → 2), implement stays at 3
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 2, max_planners: 2, max_workers: 3, max_reviewers: 2 },
+      }))
+      rerender(<PipelineControlPanel />)
+
+      // Implement optimistic override (4) should be preserved since server still says 3
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
+      // Triage should reflect new server value
+      expect(screen.getByTestId('loop-count-triage')).toHaveTextContent('2')
+    })
+
+    it('clears optimistic override when server confirms the new value', async () => {
+      const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}))
+      vi.stubGlobal('fetch', fetchMock)
+      const { rerender } = render(<PipelineControlPanel />)
+
+      // Optimistically increment implement from 3 → 4
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
+
+      // Server confirms: implement is now 4
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 1, max_planners: 2, max_workers: 4, max_reviewers: 2 },
+      }))
+      rerender(<PipelineControlPanel />)
+
+      // Should show server-confirmed value of 4
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
+    })
+
+    it('uses correct configKey for each stage', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<PipelineControlPanel />)
+
+      await act(async () => { fireEvent.click(screen.getByTestId('inc-triage')) })
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/config', expect.objectContaining({
+        body: JSON.stringify({ max_triagers: 2, persist: true }),
+      }))
+
+      fetchMock.mockClear()
+      await act(async () => { fireEvent.click(screen.getByTestId('inc-plan')) })
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/config', expect.objectContaining({
+        body: JSON.stringify({ max_planners: 3, persist: true }),
+      }))
+
+      fetchMock.mockClear()
+      await act(async () => { fireEvent.click(screen.getByTestId('inc-review')) })
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/config', expect.objectContaining({
+        body: JSON.stringify({ max_reviewers: 3, persist: true }),
+      }))
+    })
+
+    it('applies disabled style to decrement button at min', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 1, max_planners: 2, max_workers: 3, max_reviewers: 2 },
+      }))
+      render(<PipelineControlPanel />)
+      const decBtn = screen.getByTestId('dec-triage')
+      expect(decBtn).toBeDisabled()
+      expect(decBtn.style.cursor).toBe('default')
+    })
+
+    it('applies disabled style to increment button at max', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { max_triagers: 10, max_planners: 2, max_workers: 3, max_reviewers: 2 },
+      }))
+      render(<PipelineControlPanel />)
+      const incBtn = screen.getByTestId('inc-triage')
+      expect(incBtn).toBeDisabled()
+      expect(incBtn.style.cursor).toBe('default')
+    })
+
+    it('has aria-labels for accessibility', () => {
+      render(<PipelineControlPanel />)
+      for (const loop of PIPELINE_LOOPS) {
+        expect(screen.getByLabelText(`Decrease ${loop.label} workers`)).toBeInTheDocument()
+        expect(screen.getByLabelText(`Increase ${loop.label} workers`)).toBeInTheDocument()
+      }
     })
   })
 

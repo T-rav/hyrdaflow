@@ -31,33 +31,11 @@ const mockCrates = [
   },
 ]
 
-const mockEpics = [
-  {
-    epic_number: 100,
-    title: 'Auth overhaul',
-    status: 'active',
-    total_children: 5,
-    completed: 2,
-    failed: 0,
-    in_progress: 1,
-    percent_complete: 40,
-    last_activity: '2026-02-20T00:00:00Z',
-    auto_decomposed: false,
-  },
-]
-
-vi.mock('../../context/HydraFlowContext', () => ({
-  useHydraFlow: () => ({ config: { repo: 'test/repo' } }),
-}))
-
 describe('WorkLogPanel', () => {
   beforeEach(() => {
     global.fetch = vi.fn((url) => {
       if (url === '/api/crates') {
         return Promise.resolve({ ok: true, json: async () => mockCrates })
-      }
-      if (url === '/api/epics') {
-        return Promise.resolve({ ok: true, json: async () => mockEpics })
       }
       return Promise.resolve({ ok: true, json: async () => [] })
     })
@@ -67,19 +45,16 @@ describe('WorkLogPanel', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders crate list and epics section', async () => {
+  it('renders crate list', async () => {
     render(<WorkLogPanel />)
     await waitFor(() => expect(screen.getByText('Release v2.0')).toBeInTheDocument())
     expect(screen.getByText('Hotfix batch')).toBeInTheDocument()
-    expect(screen.getByText('Auth overhaul')).toBeInTheDocument()
   })
 
-  it('renders section headers for Crates and Epics', async () => {
+  it('renders crates section', async () => {
     render(<WorkLogPanel />)
     await waitFor(() => expect(screen.getByText('Release v2.0')).toBeInTheDocument())
-    // Section titles are uppercase, summary cards also contain "Crates" / "Epics" labels
     expect(screen.getByTestId('crates-list')).toBeInTheDocument()
-    expect(screen.getByTestId('epics-list')).toBeInTheDocument()
   })
 
   it('shows create crate input and button', async () => {
@@ -128,19 +103,24 @@ describe('WorkLogPanel', () => {
     })
   })
 
+  it('shows loading text while fetching', () => {
+    global.fetch = vi.fn(() => new Promise(() => {}))
+    render(<WorkLogPanel />)
+    expect(screen.getByText('Loading delivery queue...')).toBeInTheDocument()
+  })
+
   it('shows error message when API fails', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('network error'))
     render(<WorkLogPanel />)
-    await waitFor(() => expect(screen.getByText('Could not load work log data')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Could not load delivery queue data')).toBeInTheDocument())
   })
 
-  it('filters epics by search text', async () => {
+  it('filters crates by search text', async () => {
     render(<WorkLogPanel />)
-    await waitFor(() => expect(screen.getByText('Auth overhaul')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Release v2.0')).toBeInTheDocument())
 
-    fireEvent.change(screen.getByPlaceholderText('Search crates, epics'), { target: { value: 'auth' } })
-    expect(screen.getByText('Auth overhaul')).toBeInTheDocument()
-    // Crates should also be filtered — 'Release v2.0' doesn't match 'auth'
+    fireEvent.change(screen.getByPlaceholderText('Search crates'), { target: { value: 'hotfix' } })
+    expect(screen.getByText('Hotfix batch')).toBeInTheDocument()
     expect(screen.queryByText('Release v2.0')).not.toBeInTheDocument()
   })
 

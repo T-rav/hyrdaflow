@@ -64,7 +64,7 @@ class TestBuildConfigWithConfigFile:
         cfg = build_config(args)
 
         # Should use defaults
-        assert cfg.max_workers == 2
+        assert cfg.max_workers == 1
         assert cfg.model == "opus"
 
     def test_no_config_file_uses_defaults(
@@ -76,7 +76,7 @@ class TestBuildConfigWithConfigFile:
         args = parse_args([])
         cfg = build_config(args)
 
-        assert cfg.max_workers == 2
+        assert cfg.max_workers == 1
         assert cfg.model == "opus"
 
     def test_config_file_with_multiple_fields(self, tmp_path: Path) -> None:
