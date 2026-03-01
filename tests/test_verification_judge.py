@@ -17,9 +17,8 @@ from models import (
     CriterionVerdict,
     InstructionsQuality,
     JudgeVerdict,
-    PRInfo,
 )
-from tests.conftest import ReviewResultFactory, TaskFactory
+from tests.conftest import PRInfoFactory, ReviewResultFactory, TaskFactory
 from tests.helpers import ConfigFactory
 from verification_judge import VerificationJudge
 
@@ -1156,12 +1155,7 @@ class TestReviewPhaseWiring:
         )
         phase._post_merge._verification_judge = mock_judge
 
-        pr = PRInfo(
-            number=101,
-            issue_number=42,
-            branch="agent/issue-42",
-            url="https://github.com/test/repo/pull/101",
-        )
+        pr = PRInfoFactory.create()
         issue = TaskFactory.create(
             id=42, title="Fix bug", body="Details", tags=["ready"]
         )
@@ -1221,12 +1215,7 @@ class TestReviewPhaseWiring:
             # No verification_judge
         )
 
-        pr = PRInfo(
-            number=101,
-            issue_number=42,
-            branch="agent/issue-42",
-            url="https://github.com/test/repo/pull/101",
-        )
+        pr = PRInfoFactory.create()
         issue = TaskFactory.create(
             id=42, title="Fix bug", body="Details", tags=["ready"]
         )

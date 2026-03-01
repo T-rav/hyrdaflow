@@ -16,7 +16,7 @@ from agent import AgentRunner
 from base_runner import BaseRunner
 from events import EventBus, EventType
 from models import ReviewVerdict, Task, WorkerStatus
-from tests.conftest import TaskFactory
+from tests.conftest import TaskFactory, WorkerResultFactory
 from tests.helpers import ConfigFactory, make_proc, make_streaming_proc
 
 # ---------------------------------------------------------------------------
@@ -1202,12 +1202,10 @@ class TestSaveTranscript:
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
         """_save_transcript should write to <repo_root>/.hydraflow-logs/issue-N.txt."""
-        from models import WorkerResult
-
         config.repo_root.mkdir(parents=True, exist_ok=True)
         runner = AgentRunner(config, event_bus)
 
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=42,
             branch="agent/issue-42",
             transcript="This is the agent transcript",
@@ -1222,14 +1220,12 @@ class TestSaveTranscript:
         self, config, event_bus: EventBus
     ) -> None:
         """_save_transcript should create .hydraflow/logs/ if it does not exist."""
-        from models import WorkerResult
-
         config.repo_root.mkdir(parents=True, exist_ok=True)
         log_dir = config.repo_root / ".hydraflow" / "logs"
         assert not log_dir.exists()
 
         runner = AgentRunner(config, event_bus)
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=7,
             branch="agent/issue-7",
             transcript="output",
@@ -1242,12 +1238,10 @@ class TestSaveTranscript:
         self, config, event_bus: EventBus
     ) -> None:
         """_save_transcript filename should be issue-<number>.txt."""
-        from models import WorkerResult
-
         config.repo_root.mkdir(parents=True, exist_ok=True)
         runner = AgentRunner(config, event_bus)
 
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=123,
             branch="agent/issue-123",
             transcript="content",
@@ -1261,11 +1255,9 @@ class TestSaveTranscript:
         self, config, event_bus: EventBus, caplog: pytest.LogCaptureFixture
     ) -> None:
         """_save_transcript should swallow OSError and log a warning."""
-        from models import WorkerResult
-
         config.repo_root.mkdir(parents=True, exist_ok=True)
         runner = AgentRunner(config, event_bus)
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=42,
             branch="agent/issue-42",
             transcript="content",

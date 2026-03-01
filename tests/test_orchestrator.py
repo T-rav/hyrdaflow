@@ -30,7 +30,7 @@ from models import (
 )
 from orchestrator import HydraFlowOrchestrator
 from subprocess_util import AuthenticationError
-from tests.conftest import IssueFactory, TaskFactory
+from tests.conftest import IssueFactory, PRInfoFactory, TaskFactory, WorkerResultFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,28 +59,14 @@ def make_worker_result(
     worktree_path: str = "/tmp/worktrees/issue-42",
     transcript: str = "Implemented the feature.",
 ) -> WorkerResult:
-    return WorkerResult(
+    return WorkerResultFactory.create(
         issue_number=issue_number,
         branch=branch,
         success=success,
         transcript=transcript,
         commits=1,
         worktree_path=worktree_path,
-    )
-
-
-def make_pr_info(
-    number: int = 101,
-    issue_number: int = 42,
-    branch: str = "agent/issue-42",
-    draft: bool = False,
-) -> PRInfo:
-    return PRInfo(
-        number=number,
-        issue_number=issue_number,
-        branch=branch,
-        url=f"https://github.com/test-org/test-repo/pull/{number}",
-        draft=draft,
+        use_defaults=True,
     )
 
 
@@ -1982,7 +1968,7 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=MEMORY_TRANSCRIPT
         )
@@ -2024,7 +2010,7 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=""
         )
@@ -2155,8 +2141,8 @@ class TestMemorySuggestionFiling:
         task_b = TaskFactory.create(id=20)
         issue_a = IssueFactory.create(number=10)
         issue_b = IssueFactory.create(number=20)
-        pr_a = make_pr_info(number=201, issue_number=10)
-        pr_b = make_pr_info(number=202, issue_number=20)
+        pr_a = PRInfoFactory.create(number=201, issue_number=10)
+        pr_b = PRInfoFactory.create(number=202, issue_number=20)
         r1 = make_review_result(
             pr_number=201, issue_number=10, transcript=MEMORY_TRANSCRIPT
         )
@@ -2225,7 +2211,7 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         task_a = TaskFactory.create(id=10)
         issue_a = IssueFactory.create(number=10)
-        pr_a = make_pr_info(number=201, issue_number=10)
+        pr_a = PRInfoFactory.create(number=201, issue_number=10)
         r1 = make_review_result(
             pr_number=201, issue_number=10, transcript=MEMORY_TRANSCRIPT
         )
@@ -2355,7 +2341,7 @@ class TestTranscriptSummaryFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = make_review_result(
             pr_number=101, issue_number=42, transcript=SUMMARY_TRANSCRIPT
         )
@@ -2402,7 +2388,7 @@ class TestTranscriptSummaryFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = ReviewResult(
             pr_number=101,
             issue_number=42,
@@ -2451,7 +2437,7 @@ class TestTranscriptSummaryFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
-        pr = make_pr_info(number=101, issue_number=42)
+        pr = PRInfoFactory.create(number=101, issue_number=42)
         review_result = ReviewResult(
             pr_number=101,
             issue_number=42,
@@ -2501,7 +2487,7 @@ class TestTranscriptSummaryFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=0)
         review_issue = IssueFactory.create(number=0)
-        pr = make_pr_info(number=101, issue_number=0)
+        pr = PRInfoFactory.create(number=101, issue_number=0)
         review_result = ReviewResult(
             pr_number=101,
             issue_number=0,

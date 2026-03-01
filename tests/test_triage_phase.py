@@ -13,41 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from events import EventBus
-from issue_store import IssueStore
-from state import StateTracker
 from tests.conftest import TaskFactory
-from triage_phase import TriagePhase
+from tests.helpers import make_triage_phase
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_phase(
-    config: HydraFlowConfig,
-) -> tuple[TriagePhase, StateTracker, AsyncMock, AsyncMock, IssueStore, asyncio.Event]:
-    """Build a TriagePhase with mock dependencies.
-
-    Returns (phase, state, triage_mock, prs_mock, store, stop_event).
-    """
-    state = StateTracker(config.state_file)
-    bus = EventBus()
-    fetcher = AsyncMock()
-    store = IssueStore(config, fetcher, bus)
-    triage = AsyncMock()
-    prs = AsyncMock()
-    prs.remove_label = AsyncMock()
-    prs.add_labels = AsyncMock()
-    prs.swap_pipeline_labels = AsyncMock()
-    prs.post_comment = AsyncMock()
-    stop_event = asyncio.Event()
-    phase = TriagePhase(config, state, store, triage, prs, bus, stop_event)
-    return phase, state, triage, prs, store, stop_event
-
 
 # ---------------------------------------------------------------------------
 # Triage phase
@@ -63,7 +33,7 @@ class TestTriagePhase:
     ) -> None:
         from models import TriageResult
 
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=1, title="Implement feature X", body="A" * 100)
 
         triage.evaluate = AsyncMock(
@@ -83,7 +53,7 @@ class TestTriagePhase:
     ) -> None:
         from models import TriageResult
 
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
@@ -110,7 +80,7 @@ class TestTriagePhase:
         """Escalating an unready issue should record find_label as HITL origin."""
         from models import TriageResult
 
-        phase, state, triage, _prs, store, _stop = _make_phase(config)
+        phase, state, triage, _prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
@@ -133,7 +103,7 @@ class TestTriagePhase:
         """Escalating an unready issue should record cause in state."""
         from models import TriageResult
 
-        phase, state, triage, _prs, store, _stop = _make_phase(config)
+        phase, state, triage, _prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
@@ -155,7 +125,7 @@ class TestTriagePhase:
     ) -> None:
         from models import TriageResult
 
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issues = [
             TaskFactory.create(id=1, title="Issue one long enough", body="A" * 100),
             TaskFactory.create(id=2, title="Issue two long enough", body="B" * 100),
@@ -181,7 +151,7 @@ class TestTriagePhase:
     async def test_triage_skips_when_no_issues_found(
         self, config: HydraFlowConfig
     ) -> None:
-        phase, _state, _triage, prs, store, _stop = _make_phase(config)
+        phase, _state, _triage, prs, store, _stop = make_triage_phase(config)
 
         store.get_triageable = lambda _max_count: []  # type: ignore[method-assign]
 
@@ -196,7 +166,7 @@ class TestTriagePhase:
         """Triage should mark issues active to prevent re-queuing by refresh."""
         from models import TriageResult
 
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=1, title="Triage test", body="A" * 100)
 
         was_active_during_evaluate = False
@@ -222,7 +192,7 @@ class TestTriagePhase:
         from models import TriageResult
 
         config.max_triagers = 2
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issues = [
             TaskFactory.create(id=i, title=f"Issue {i}", body="A" * 100)
             for i in range(1, 4)
@@ -257,7 +227,7 @@ class TestTriagePhase:
     async def test_adr_issue_routes_to_ready_when_shape_is_valid(
         self, config: HydraFlowConfig
     ) -> None:
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(
             id=77,
             title="[ADR] Adopt event-sourced state snapshots",
@@ -282,7 +252,7 @@ class TestTriagePhase:
     async def test_adr_issue_escalates_to_hitl_when_shape_invalid(
         self, config: HydraFlowConfig
     ) -> None:
-        phase, _state, triage, prs, store, _stop = _make_phase(config)
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(
             id=78,
             title="[ADR] Simplify build graph",

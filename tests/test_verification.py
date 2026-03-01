@@ -7,18 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import JudgeResult, PRInfo, VerificationCriterion
-from tests.conftest import TaskFactory
+from models import JudgeResult, VerificationCriterion
+from tests.conftest import PRInfoFactory, TaskFactory
 from verification import format_verification_issue_body
-
-
-def _make_pr(number: int = 101, issue_number: int = 42) -> PRInfo:
-    return PRInfo(
-        number=number,
-        issue_number=issue_number,
-        branch=f"agent/issue-{issue_number}",
-        url=f"https://github.com/test-org/test-repo/pull/{number}",
-    )
 
 
 def _make_judge_result(
@@ -57,7 +48,7 @@ class TestFormatVerificationIssueBody:
     def test_all_criteria_passed(self) -> None:
         """When all criteria pass, body contains the 'all passed' note."""
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
         judge = _make_judge_result()
 
         body = format_verification_issue_body(judge, issue, pr)
@@ -79,7 +70,7 @@ class TestFormatVerificationIssueBody:
         ]
         judge = _make_judge_result(criteria=criteria)
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -99,7 +90,7 @@ class TestFormatVerificationIssueBody:
         ]
         judge = _make_judge_result(criteria=criteria)
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -109,7 +100,7 @@ class TestFormatVerificationIssueBody:
         """Edge case: empty criteria list still produces valid body."""
         judge = _make_judge_result(criteria=[])
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -120,7 +111,7 @@ class TestFormatVerificationIssueBody:
         """When no instructions, that section is omitted."""
         judge = _make_judge_result(verification_instructions="")
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -129,7 +120,7 @@ class TestFormatVerificationIssueBody:
     def test_includes_issue_and_pr_links(self) -> None:
         """Body contains references to original issue and PR."""
         issue = TaskFactory.create(id=99)
-        pr = _make_pr(number=200, issue_number=99)
+        pr = PRInfoFactory.create(number=200, issue_number=99)
         judge = _make_judge_result(issue_number=99, pr_number=200)
 
         body = format_verification_issue_body(judge, issue, pr)
@@ -144,7 +135,7 @@ class TestFormatVerificationIssueBody:
         instructions = "1. Start the server\n2. Visit /health\n3. Verify 200 OK"
         judge = _make_judge_result(verification_instructions=instructions)
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -155,7 +146,7 @@ class TestFormatVerificationIssueBody:
     def test_includes_issue_title_in_header(self) -> None:
         """Body header includes the issue title."""
         issue = TaskFactory.create(title="Add user authentication")
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
         judge = _make_judge_result()
 
         body = format_verification_issue_body(judge, issue, pr)
@@ -173,7 +164,7 @@ class TestFormatVerificationIssueBody:
         ]
         judge = _make_judge_result(criteria=criteria)
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -185,7 +176,7 @@ class TestFormatVerificationIssueBody:
         long_text = "x" * 60_000
         judge = _make_judge_result(verification_instructions=long_text)
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 
@@ -196,7 +187,7 @@ class TestFormatVerificationIssueBody:
         """Body ends with the HydraFlow footer."""
         judge = _make_judge_result()
         issue = TaskFactory.create()
-        pr = _make_pr()
+        pr = PRInfoFactory.create()
 
         body = format_verification_issue_body(judge, issue, pr)
 

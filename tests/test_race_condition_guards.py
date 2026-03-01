@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from events import EventBus, EventType
-from tests.conftest import EventFactory, TaskFactory
-from tests.helpers import ConfigFactory
+from tests.conftest import EventFactory, TaskFactory, WorkerResultFactory
+from tests.helpers import ConfigFactory, make_implement_phase, make_review_phase
 
 # ---------------------------------------------------------------------------
 # ImplementPhase — active issues lock
@@ -25,28 +25,12 @@ from tests.helpers import ConfigFactory
 class TestImplementPhaseActiveIssuesLock:
     """ImplementPhase protects _active_issues with an asyncio.Lock."""
 
-    def _make_phase(self, tmp_path):
-        """Build an ImplementPhase with mocked dependencies."""
-        from implement_phase import ImplementPhase
-        from state import StateTracker
-
+    def test_has_active_issues_lock(self, tmp_path) -> None:
         config = ConfigFactory.create(
             worktree_base=tmp_path / "worktrees",
             repo_root=tmp_path / "repo",
         )
-        state = StateTracker(tmp_path / "state.json")
-        return ImplementPhase(
-            config=config,
-            state=state,
-            worktrees=AsyncMock(),
-            agents=AsyncMock(),
-            prs=AsyncMock(),
-            store=AsyncMock(),
-            stop_event=asyncio.Event(),
-        )
-
-    def test_has_active_issues_lock(self, tmp_path) -> None:
-        phase = self._make_phase(tmp_path)
+        phase, _, _ = make_implement_phase(config, [])
         assert hasattr(phase, "_active_issues_lock")
         assert isinstance(phase._active_issues_lock, asyncio.Lock)
 
@@ -56,7 +40,6 @@ class TestImplementPhaseActiveIssuesLock:
     ) -> None:
         """Multiple concurrent workers never produce a partial snapshot."""
         from implement_phase import ImplementPhase
-        from models import WorkerResult
         from state import StateTracker
 
         config = ConfigFactory.create(
@@ -82,12 +65,13 @@ class TestImplementPhaseActiveIssuesLock:
 
         mock_agents = AsyncMock()
         mock_agents.run = AsyncMock(
-            side_effect=lambda issue, wt, br, **_kw: WorkerResult(
+            side_effect=lambda issue, wt, br, **_kw: WorkerResultFactory.create(
                 issue_number=issue.number,
                 branch=br,
                 success=True,
                 commits=1,
                 worktree_path=str(wt),
+                use_defaults=True,
             )
         )
 
@@ -141,28 +125,12 @@ class TestImplementPhaseActiveIssuesLock:
 class TestReviewPhaseActiveIssuesLock:
     """ReviewPhase protects _active_issues with an asyncio.Lock."""
 
-    def _make_phase(self, tmp_path):
-        """Build a ReviewPhase with mocked dependencies."""
-        from review_phase import ReviewPhase
-        from state import StateTracker
-
+    def test_has_active_issues_lock(self, tmp_path) -> None:
         config = ConfigFactory.create(
             worktree_base=tmp_path / "worktrees",
             repo_root=tmp_path / "repo",
         )
-        state = StateTracker(tmp_path / "state.json")
-        return ReviewPhase(
-            config=config,
-            state=state,
-            worktrees=AsyncMock(),
-            reviewers=AsyncMock(),
-            prs=AsyncMock(),
-            stop_event=asyncio.Event(),
-            store=AsyncMock(),
-        )
-
-    def test_has_active_issues_lock(self, tmp_path) -> None:
-        phase = self._make_phase(tmp_path)
+        phase = make_review_phase(config)
         assert hasattr(phase, "_active_issues_lock")
         assert isinstance(phase._active_issues_lock, asyncio.Lock)
 

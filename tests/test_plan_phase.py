@@ -14,56 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from events import EventBus
-from issue_store import IssueStore
 from models import PlanResult, Task
-from plan_phase import PlanPhase
-from state import StateTracker
 from tests.conftest import TaskFactory
+from tests.helpers import make_plan_phase
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_phase(
-    config: HydraFlowConfig,
-    *,
-    summarizer: AsyncMock | None = None,
-) -> tuple[PlanPhase, StateTracker, AsyncMock, AsyncMock, IssueStore, asyncio.Event]:
-    """Build a PlanPhase with mock dependencies.
-
-    Returns (phase, state, planners_mock, prs_mock, store, stop_event).
-    """
-    state = StateTracker(config.state_file)
-    bus = EventBus()
-    fetcher = AsyncMock()
-    store = IssueStore(config, fetcher, bus)
-    planners = AsyncMock()
-    prs = AsyncMock()
-    prs.post_comment = AsyncMock()
-    prs.remove_label = AsyncMock()
-    prs.add_labels = AsyncMock()
-    prs.swap_pipeline_labels = AsyncMock()
-    prs.transition = AsyncMock()
-    prs.create_task = AsyncMock(return_value=99)
-    prs.close_task = AsyncMock()
-    stop_event = asyncio.Event()
-    phase = PlanPhase(
-        config,
-        state,
-        store,
-        planners,
-        prs,
-        bus,
-        stop_event,
-        transcript_summarizer=summarizer,
-    )
-    return phase, state, planners, prs, store, stop_event
-
 
 # ---------------------------------------------------------------------------
 # Plan phase
@@ -78,7 +34,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """On successful plan, post_comment should be called."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -107,7 +63,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """On success, planner_label should be removed and config.ready_label added."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -128,7 +84,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """On failure, no label changes should be made."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -150,7 +106,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """When no issues have the planner label, return empty list."""
-        phase, _state, _planners, _prs, store, _stop = _make_phase(config)
+        phase, _state, _planners, _prs, store, _stop = make_plan_phase(config)
         store.get_plannable = lambda _max_count: []  # type: ignore[method-assign]
 
         results = await phase.plan_issues()
@@ -164,7 +120,7 @@ class TestPlanPhase:
         """record_issue_created should be called for each new issue filed by planner."""
         from models import NewIssueSpec
 
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -200,7 +156,7 @@ class TestPlanPhase:
         """When planner discovers new issues, they should be filed via create_issue."""
         from models import NewIssueSpec
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -252,7 +208,7 @@ class TestPlanPhase:
 
         issues = [TaskFactory.create(id=i) for i in range(1, 6)]
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         planners.plan = fake_plan
         store.get_plannable = lambda _max_count: issues  # type: ignore[method-assign]
 
@@ -265,7 +221,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Plan should mark issues active to prevent re-queuing by refresh."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
 
         was_active_during_plan = False
@@ -292,7 +248,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Plan failure (success=False) should still return the result."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -316,7 +272,7 @@ class TestPlanPhase:
         """New issues with empty labels should fall back to planner_label."""
         from models import NewIssueSpec
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -351,7 +307,7 @@ class TestPlanPhase:
         """New issues with body < 50 chars should be skipped, not filed."""
         from models import NewIssueSpec
 
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -376,7 +332,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Setting stop_event after first plan should cancel remaining."""
-        phase, _state, planners, prs, store, stop_event = _make_phase(config)
+        phase, _state, planners, prs, store, stop_event = make_plan_phase(config)
         issues = [
             TaskFactory.create(id=1),
             TaskFactory.create(id=2),
@@ -407,7 +363,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Failed retry triggers HITL label swap and comment."""
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -444,7 +400,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Normal failure (no retry) should NOT escalate to HITL."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -467,7 +423,7 @@ class TestPlanPhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Analysis comment should be posted after the plan comment."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -501,7 +457,7 @@ class TestPlanPhase:
         from analysis import PlanAnalyzer
         from models import AnalysisResult, AnalysisSection, AnalysisVerdict
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -538,7 +494,7 @@ class TestPlanPhase:
         from analysis import PlanAnalyzer
         from models import AnalysisResult, AnalysisSection, AnalysisVerdict
 
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -581,7 +537,7 @@ class TestPlanPhaseAlreadySatisfied:
         self, config: HydraFlowConfig
     ) -> None:
         """When planner returns already_satisfied, issue should be closed with dup label."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -617,7 +573,7 @@ class TestPlanPhaseAlreadySatisfied:
         self, config: HydraFlowConfig
     ) -> None:
         """When already_satisfied, issue should NOT get hydraflow-ready label."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -646,7 +602,7 @@ class TestPlanPhaseAlreadySatisfied:
         self, config: HydraFlowConfig
     ) -> None:
         """Epic children should never be auto-closed as already satisfied."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
         plan_result = PlanResult(
             issue_number=42,
@@ -683,7 +639,7 @@ class TestPlanPhaseTranscriptSummary:
         """After successful plan, summarize_and_comment is called with phase=plan."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42, title="Fix bug")
@@ -716,7 +672,7 @@ class TestPlanPhaseTranscriptSummary:
         """After HITL escalation, status should be 'escalated'."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42)
@@ -746,7 +702,7 @@ class TestPlanPhaseTranscriptSummary:
         """After plan failure (no retry), status should be 'failed'."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42)
@@ -774,7 +730,7 @@ class TestPlanPhaseTranscriptSummary:
         """When transcript is empty, summarize_and_comment is NOT called."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42)
@@ -800,7 +756,7 @@ class TestPlanPhaseTranscriptSummary:
         """When plan closes issue as already_satisfied, transcript summary is still posted."""
         mock_summarizer = AsyncMock()
         mock_summarizer.summarize_and_comment = AsyncMock(return_value=True)
-        phase, _state, planners, prs, store, _stop = _make_phase(
+        phase, _state, planners, prs, store, _stop = make_plan_phase(
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42, title="Add feature")
@@ -832,7 +788,7 @@ class TestPlanPhaseTranscriptSummary:
     @pytest.mark.asyncio
     async def test_no_summarizer_does_not_crash(self, config: HydraFlowConfig) -> None:
         """When transcript_summarizer is None, no crash occurs."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -860,7 +816,7 @@ class TestPlanPhaseEvidenceValidation:
     @pytest.mark.asyncio
     async def test_valid_evidence_closes_issue(self, config: HydraFlowConfig) -> None:
         """Valid evidence should close the issue normally."""
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -887,7 +843,7 @@ class TestPlanPhaseEvidenceValidation:
         self, config: HydraFlowConfig
     ) -> None:
         """Invalid evidence should reject the claim and NOT close the issue."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -919,7 +875,7 @@ class TestPlanPhaseEvidenceValidation:
         """Valid close should record an ALREADY_SATISFIED outcome."""
         from models import IssueOutcomeType
 
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -948,7 +904,7 @@ class TestPlanPhaseEvidenceValidation:
         self, config: HydraFlowConfig
     ) -> None:
         """Rejected evidence should escalate to HITL without a second comment."""
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,
@@ -981,7 +937,7 @@ class TestPlanPhaseEvidenceValidation:
         self, config: HydraFlowConfig
     ) -> None:
         """Epic child issues should be escalated to HITL, not dead-ended."""
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
         plan_result = PlanResult(
             issue_number=42,
@@ -1007,7 +963,7 @@ class TestPlanPhaseEvidenceValidation:
         self, config: HydraFlowConfig
     ) -> None:
         """Epic children should escalate even if evidence looks valid."""
-        phase, state, planners, prs, store, _stop = _make_phase(config)
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
         plan_result = PlanResult(
             issue_number=42,
@@ -1039,7 +995,7 @@ class TestPlanPhaseEvidenceValidation:
         self, config: HydraFlowConfig
     ) -> None:
         """Plan failure comment should say 'after planning attempts' not 'after two attempts'."""
-        phase, _state, planners, prs, store, _stop = _make_phase(config)
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
             issue_number=42,

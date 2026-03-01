@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,8 +18,6 @@ sys.path.insert(0, str(_REPO_ROOT))
 from tests.helpers import ConfigFactory  # noqa: E402
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from ci_scaffold import CIScaffoldResult
     from config import HydraFlowConfig
     from events import HydraFlowEvent
@@ -28,6 +26,8 @@ if TYPE_CHECKING:
         AnalysisResult,
         GitHubIssue,
         HITLResult,
+        NewIssueSpec,
+        PRInfo,
         ReviewResult,
         ReviewVerdict,
         TriageResult,
@@ -161,20 +161,82 @@ class WorkerResultFactory:
         *,
         issue_number: int = 42,
         branch: str = "agent/issue-42",
-        success: bool = True,
-        transcript: str = "Implemented the feature.",
-        commits: int = 1,
-        worktree_path: str = "/tmp/worktrees/issue-42",
+        success: bool | None = None,
+        transcript: str | None = None,
+        commits: int | None = None,
+        worktree_path: str | None = None,
+        error: str | None = None,
+        duration_seconds: float | None = None,
+        pre_quality_review_attempts: int | None = None,
+        quality_fix_attempts: int | None = None,
+        pr_info: PRInfo | None = None,
+        use_defaults: bool = False,
     ):
+        """Create a WorkerResult instance.
+
+        By default (``use_defaults=False``), factory-defined hardcoded values are
+        applied for all unspecified optional fields (e.g. ``success=True``,
+        ``transcript="Implemented the feature."``).
+
+        With ``use_defaults=True``, only explicitly provided keyword arguments are
+        forwarded to the constructor and the underlying Pydantic model's own field
+        defaults are used for everything else.  Prefer this mode when you need a
+        minimal/sparse object to test model-level behaviour or when factory defaults
+        would incorrectly satisfy a field under test.
+        """
         from models import WorkerResult
+
+        if use_defaults:
+            kwargs: dict[str, Any] = {
+                "issue_number": issue_number,
+                "branch": branch,
+            }
+            if worktree_path is not None:
+                kwargs["worktree_path"] = worktree_path
+            if success is not None:
+                kwargs["success"] = success
+            if error is not None:
+                kwargs["error"] = error
+            if transcript is not None:
+                kwargs["transcript"] = transcript
+            if commits is not None:
+                kwargs["commits"] = commits
+            if duration_seconds is not None:
+                kwargs["duration_seconds"] = duration_seconds
+            if pre_quality_review_attempts is not None:
+                kwargs["pre_quality_review_attempts"] = pre_quality_review_attempts
+            if quality_fix_attempts is not None:
+                kwargs["quality_fix_attempts"] = quality_fix_attempts
+            if pr_info is not None:
+                kwargs["pr_info"] = pr_info
+            return WorkerResult(**kwargs)
 
         return WorkerResult(
             issue_number=issue_number,
             branch=branch,
-            success=success,
-            transcript=transcript,
-            commits=commits,
-            worktree_path=worktree_path,
+            worktree_path=(
+                worktree_path
+                if worktree_path is not None
+                else "/tmp/worktrees/issue-42"
+            ),
+            success=True if success is None else success,
+            error=error,
+            transcript=(
+                transcript if transcript is not None else "Implemented the feature."
+            ),
+            commits=commits if commits is not None else 1,
+            duration_seconds=(
+                duration_seconds if duration_seconds is not None else 0.0
+            ),
+            pre_quality_review_attempts=(
+                pre_quality_review_attempts
+                if pre_quality_review_attempts is not None
+                else 0
+            ),
+            quality_fix_attempts=(
+                quality_fix_attempts if quality_fix_attempts is not None else 0
+            ),
+            pr_info=pr_info,
         )
 
 
@@ -188,23 +250,90 @@ class PlanResultFactory:
     def create(
         *,
         issue_number: int = 42,
-        success: bool = True,
-        plan: str = "## Plan\n\n1. Do the thing\n2. Test the thing",
-        summary: str = "Plan to implement the feature",
+        success: bool | None = None,
+        plan: str | None = None,
+        summary: str | None = None,
         error: str | None = None,
-        transcript: str = "PLAN_START\n## Plan\n\n1. Do the thing\nPLAN_END\nSUMMARY: Plan to implement the feature",
-        duration_seconds: float = 10.0,
+        transcript: str | None = None,
+        duration_seconds: float | None = None,
+        new_issues: list[NewIssueSpec] | None = None,
+        validation_errors: list[str] | None = None,
+        retry_attempted: bool | None = None,
+        already_satisfied: bool | None = None,
+        use_defaults: bool = False,
     ):
+        """Create a PlanResult instance.
+
+        By default (``use_defaults=False``), factory-defined hardcoded values are
+        applied for all unspecified optional fields (e.g. ``success=True``,
+        ``plan="## Plan\\n\\n1. Do the thing\\n2. Test the thing"``).
+
+        With ``use_defaults=True``, only explicitly provided keyword arguments are
+        forwarded to the constructor and the underlying Pydantic model's own field
+        defaults are used for everything else.  Prefer this mode when you need a
+        minimal/sparse object to test model-level behaviour or when factory defaults
+        would incorrectly satisfy a field under test.
+        """
         from models import PlanResult
+
+        if use_defaults:
+            kwargs: dict[str, Any] = {"issue_number": issue_number}
+            if success is not None:
+                kwargs["success"] = success
+            if plan is not None:
+                kwargs["plan"] = plan
+            if summary is not None:
+                kwargs["summary"] = summary
+            if error is not None:
+                kwargs["error"] = error
+            if transcript is not None:
+                kwargs["transcript"] = transcript
+            if duration_seconds is not None:
+                kwargs["duration_seconds"] = duration_seconds
+            if new_issues is not None:
+                kwargs["new_issues"] = list(new_issues)
+            if validation_errors is not None:
+                kwargs["validation_errors"] = list(validation_errors)
+            if retry_attempted is not None:
+                kwargs["retry_attempted"] = retry_attempted
+            if already_satisfied is not None:
+                kwargs["already_satisfied"] = already_satisfied
+            return PlanResult(**kwargs)
+
+        success_value = True if success is None else success
+        plan_value = (
+            plan
+            if plan is not None
+            else "## Plan\n\n1. Do the thing\n2. Test the thing"
+        )
+        summary_value = (
+            summary if summary is not None else "Plan to implement the feature"
+        )
+        transcript_value = (
+            transcript
+            if transcript is not None
+            else "PLAN_START\n## Plan\n\n1. Do the thing\nPLAN_END\nSUMMARY: Plan to implement the feature"
+        )
+        duration_value = duration_seconds if duration_seconds is not None else 10.0
+        retry_value = False if retry_attempted is None else retry_attempted
+        already_satisfied_value = (
+            False if already_satisfied is None else already_satisfied
+        )
 
         return PlanResult(
             issue_number=issue_number,
-            success=success,
-            plan=plan,
-            summary=summary,
+            success=success_value,
+            plan=plan_value,
+            summary=summary_value,
             error=error,
-            transcript=transcript,
-            duration_seconds=duration_seconds,
+            transcript=transcript_value,
+            duration_seconds=duration_value,
+            new_issues=list(new_issues) if new_issues is not None else [],
+            validation_errors=list(validation_errors)
+            if validation_errors is not None
+            else [],
+            retry_attempted=retry_value,
+            already_satisfied=already_satisfied_value,
         )
 
 
@@ -465,11 +594,22 @@ def make_state(tmp_path: Path) -> StateTracker:
 # --- Event Bus Fixture ---
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def event_bus():
     from events import EventBus
 
     return EventBus()
+
+
+@pytest.fixture(autouse=True)
+def reset_event_bus(event_bus):
+    """Ensure each test sees a clean EventBus history/subscribers list.
+
+    Note: this only resets the shared module-scoped ``event_bus`` fixture.
+    Tests that construct their own local EventBus instances are unaffected.
+    """
+    event_bus.clear()
+    yield
 
 
 # --- Lint Scaffold Result Factory ---

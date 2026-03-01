@@ -507,6 +507,226 @@ class AuditResultFactory:
         )
 
 
+def make_plan_phase(
+    config,
+    *,
+    summarizer=None,
+):
+    """Build a PlanPhase with mock dependencies.
+
+    Promoted from test_plan_phase._make_phase() for reuse across test files.
+
+    Returns (phase, state, planners_mock, prs_mock, store, stop_event).
+    """
+    from events import EventBus
+    from issue_store import IssueStore
+    from plan_phase import PlanPhase
+    from state import StateTracker
+
+    state = StateTracker(config.state_file)
+    bus = EventBus()
+    fetcher = AsyncMock()
+    store = IssueStore(config, fetcher, bus)
+    planners = AsyncMock()
+    prs = AsyncMock()
+    prs.post_comment = AsyncMock()
+    prs.remove_label = AsyncMock()
+    prs.add_labels = AsyncMock()
+    prs.swap_pipeline_labels = AsyncMock()
+    prs.transition = AsyncMock()
+    prs.create_task = AsyncMock(return_value=99)
+    prs.close_task = AsyncMock()
+    stop_event = asyncio.Event()
+    phase = PlanPhase(
+        config,
+        state,
+        store,
+        planners,
+        prs,
+        bus,
+        stop_event,
+        transcript_summarizer=summarizer,
+    )
+    return phase, state, planners, prs, store, stop_event
+
+
+def make_implement_phase(
+    config,
+    issues,
+    *,
+    agent_run=None,
+    success=True,
+    push_return=True,
+    create_pr_return=None,
+):
+    """Build an ImplementPhase with standard mocks.
+
+    Promoted from test_implement_phase._make_phase() for reuse across test files.
+
+    Returns (phase, mock_wt, mock_prs).
+    """
+    from implement_phase import ImplementPhase
+    from issue_store import IssueStore
+    from models import Task, WorkerResult
+    from state import StateTracker
+    from tests.conftest import PRInfoFactory, WorkerResultFactory
+
+    state = StateTracker(config.state_file)
+    stop_event = asyncio.Event()
+
+    if agent_run is None:
+
+        async def _default_agent_run(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResultFactory.create(
+                issue_number=issue.id,
+                success=success,
+                worktree_path=str(wt_path),
+            )
+
+        agent_run = _default_agent_run
+
+    mock_agents = AsyncMock()
+    mock_agents.run = agent_run
+
+    # Mock IssueStore — get_implementable returns the supplied issues
+    mock_store = AsyncMock(spec=IssueStore)
+    mock_store.get_implementable = lambda limit: issues
+    mock_store.mark_active = lambda num, stage: None
+    mock_store.mark_complete = lambda num: None
+    mock_store.is_active = lambda num: False
+
+    mock_wt = AsyncMock()
+    mock_wt.create = AsyncMock(
+        side_effect=lambda num, branch: config.worktree_base / f"issue-{num}"
+    )
+
+    mock_prs = AsyncMock()
+    mock_prs.push_branch = AsyncMock(return_value=push_return)
+    mock_prs.create_pr = AsyncMock(
+        return_value=create_pr_return
+        if create_pr_return is not None
+        else PRInfoFactory.create()
+    )
+    mock_prs.find_open_pr_for_branch = AsyncMock(return_value=PRInfoFactory.create())
+    mock_prs.branch_has_diff_from_main = AsyncMock(return_value=True)
+    mock_prs.add_labels = AsyncMock()
+    mock_prs.remove_label = AsyncMock()
+    mock_prs.swap_pipeline_labels = AsyncMock()
+    mock_prs.transition = AsyncMock()
+    mock_prs.post_comment = AsyncMock()
+    mock_prs.close_task = AsyncMock()
+    mock_prs.add_pr_labels = AsyncMock()
+
+    phase = ImplementPhase(
+        config=config,
+        state=state,
+        worktrees=mock_wt,
+        agents=mock_agents,
+        prs=mock_prs,
+        store=mock_store,
+        stop_event=stop_event,
+    )
+
+    return phase, mock_wt, mock_prs
+
+
+def make_hitl_phase(config):
+    """Build a HITLPhase with mock dependencies.
+
+    Promoted from test_hitl_phase._make_phase() for reuse across test files.
+
+    Returns (phase, state, fetcher_mock, prs_mock, worktrees_mock,
+             hitl_runner_mock, bus).
+    """
+    from events import EventBus
+    from hitl_phase import HITLPhase
+    from issue_store import IssueStore
+    from state import StateTracker
+
+    state = StateTracker(config.state_file)
+    bus = EventBus()
+    fetcher_mock = AsyncMock()
+    store = IssueStore(config, AsyncMock(), bus)
+    worktrees = AsyncMock()
+    worktrees.create = AsyncMock(return_value=config.worktree_base / "issue-42")
+    worktrees.destroy = AsyncMock()
+    hitl_runner = AsyncMock()
+    prs = AsyncMock()
+    prs.remove_label = AsyncMock()
+    prs.add_labels = AsyncMock()
+    prs.swap_pipeline_labels = AsyncMock()
+    prs.push_branch = AsyncMock(return_value=True)
+    prs.post_comment = AsyncMock()
+    stop_event = asyncio.Event()
+    phase = HITLPhase(
+        config,
+        state,
+        store,
+        fetcher_mock,
+        worktrees,
+        hitl_runner,
+        prs,
+        bus,
+        stop_event,
+    )
+    return phase, state, fetcher_mock, prs, worktrees, hitl_runner, bus
+
+
+def make_triage_phase(config):
+    """Build a TriagePhase with mock dependencies.
+
+    Promoted from test_triage_phase._make_phase() for reuse across test files.
+
+    Returns (phase, state, triage_mock, prs_mock, store, stop_event).
+    """
+    from events import EventBus
+    from issue_store import IssueStore
+    from state import StateTracker
+    from triage_phase import TriagePhase
+
+    state = StateTracker(config.state_file)
+    bus = EventBus()
+    fetcher = AsyncMock()
+    store = IssueStore(config, fetcher, bus)
+    triage = AsyncMock()
+    prs = AsyncMock()
+    prs.remove_label = AsyncMock()
+    prs.add_labels = AsyncMock()
+    prs.swap_pipeline_labels = AsyncMock()
+    prs.post_comment = AsyncMock()
+    stop_event = asyncio.Event()
+    phase = TriagePhase(config, state, store, triage, prs, bus, stop_event)
+    return phase, state, triage, prs, store, stop_event
+
+
+def make_conflict_resolver(config, *, agents=None):
+    """Build a MergeConflictResolver with standard mock dependencies.
+
+    Promoted from test_merge_conflict_resolver._make_resolver() for reuse
+    across test files.
+    """
+    from events import EventBus
+    from merge_conflict_resolver import MergeConflictResolver
+    from state import StateTracker
+
+    state = StateTracker(config.state_file)
+    return MergeConflictResolver(
+        config=config,
+        worktrees=AsyncMock(),
+        agents=agents,
+        prs=AsyncMock(),
+        event_bus=EventBus(),
+        state=state,
+        summarizer=None,
+    )
+
+
 def make_review_phase(
     config,
     *,
