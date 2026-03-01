@@ -1723,6 +1723,8 @@ class PRManager:
             "gh",
             "api",
             f"repos/{self._repo}/milestones",
+            "--method",
+            "GET",
             "-f",
             f"state={state}",
             "-f",
