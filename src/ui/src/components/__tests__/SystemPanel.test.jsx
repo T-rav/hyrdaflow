@@ -555,6 +555,36 @@ describe('SystemPanel', () => {
       await waitFor(() => expect(epicsToggle).toHaveTextContent('Off')) // rolled back after failed PATCH
       fetchSpy.mockRestore()
     })
+
+    it('clicking bug reports toggle calls PATCH /api/control/config with correct payload', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true })
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { auto_process_epics: false, auto_process_bug_reports: false },
+      }))
+      render(<SystemPanel backgroundWorkers={[]} />)
+      fireEvent.click(screen.getByText('Processes'))
+      fireEvent.click(screen.getByTestId('auto-process-bugs-toggle'))
+      expect(fetchSpy).toHaveBeenCalledWith('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_process_bug_reports: true, persist: true }),
+      })
+      fetchSpy.mockRestore()
+    })
+
+    it('rolls back bug reports toggle optimistic update when fetch throws', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network error'))
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { auto_process_epics: false, auto_process_bug_reports: false },
+      }))
+      render(<SystemPanel backgroundWorkers={[]} />)
+      fireEvent.click(screen.getByText('Processes'))
+      const bugsToggle = screen.getByTestId('auto-process-bugs-toggle')
+      fireEvent.click(bugsToggle)
+      expect(bugsToggle).toHaveTextContent('On') // optimistic update applied immediately
+      await waitFor(() => expect(bugsToggle).toHaveTextContent('Off')) // rolled back after network error
+      fetchSpy.mockRestore()
+    })
   })
 
   describe('Worker Log Stream integration', () => {
