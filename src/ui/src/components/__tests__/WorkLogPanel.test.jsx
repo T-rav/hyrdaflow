@@ -128,6 +128,12 @@ describe('WorkLogPanel', () => {
     })
   })
 
+  it('shows loading text while fetching', () => {
+    global.fetch = vi.fn(() => new Promise(() => {}))
+    render(<WorkLogPanel />)
+    expect(screen.getByText('Loading delivery queue...')).toBeInTheDocument()
+  })
+
   it('shows error message when API fails', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('network error'))
     render(<WorkLogPanel />)

@@ -212,6 +212,13 @@ describe('Main tab bar', () => {
     expect(screen.queryByText('Livestream')).not.toBeInTheDocument()
   })
 
+  it('Delivery Queue tab is rendered first (tab order)', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    const tabContainer = screen.getByTestId('main-tabs')
+    expect(tabContainer.firstElementChild.textContent).toBe('Delivery Queue')
+  })
+
   it('Delivery Queue is the default tab', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
