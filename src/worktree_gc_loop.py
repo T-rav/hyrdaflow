@@ -73,8 +73,10 @@ class WorktreeGCLoop(BaseBackgroundLoop):
                 break
             try:
                 if await self._is_safe_to_gc(issue_number):
-                    await self._worktrees.destroy(issue_number)
+                    # Remove from state first so a crash between steps
+                    # leaves the entry gone (destroy is idempotent).
                     self._state.remove_worktree(issue_number)
+                    await self._worktrees.destroy(issue_number)
                     collected += 1
                     logger.info("GC: collected worktree for issue #%d", issue_number)
                 else:
@@ -100,7 +102,9 @@ class WorktreeGCLoop(BaseBackgroundLoop):
 
         # Phase 4: delete orphaned agent/issue-* local branches
         if not self._stop_event.is_set():
-            branch_count = await self._collect_orphaned_branches()
+            branch_count = await self._collect_orphaned_branches(
+                _MAX_GC_PER_CYCLE - collected
+            )
             collected += branch_count
 
         return {"collected": collected, "skipped": skipped, "errors": errors}
@@ -180,6 +184,11 @@ class WorktreeGCLoop(BaseBackgroundLoop):
             )
             return int(output.strip() or "0") > 0
         except (RuntimeError, ValueError):
+            logger.debug(
+                "GC: PR check failed for issue #%d",
+                issue_number,
+                exc_info=True,
+            )
             return True  # Assume PR exists on error — don't GC
 
     async def _collect_orphaned_dirs(self, tracked: dict[int, str], budget: int) -> int:
@@ -231,7 +240,7 @@ class WorktreeGCLoop(BaseBackgroundLoop):
 
     _AGENT_BRANCH_RE = re.compile(r"^agent/issue-(\d+)$")
 
-    async def _collect_orphaned_branches(self) -> int:
+    async def _collect_orphaned_branches(self, budget: int = _MAX_GC_PER_CYCLE) -> int:
         """Delete local ``agent/issue-*`` branches with no corresponding worktree."""
         collected = 0
         try:
@@ -251,7 +260,9 @@ class WorktreeGCLoop(BaseBackgroundLoop):
         active_issues = set(self._state.get_active_issue_numbers())
 
         for line in output.strip().splitlines():
-            branch = line.strip().lstrip("* ")
+            if collected >= budget:
+                break
+            branch = line.strip().removeprefix("* ")
             match = self._AGENT_BRANCH_RE.match(branch)
             if not match:
                 continue

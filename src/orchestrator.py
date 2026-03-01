@@ -377,6 +377,7 @@ class HydraFlowOrchestrator:
             "manifest_refresh": self._config.manifest_refresh_interval,
             "report_issue": self._config.report_issue_interval,
             "epic_monitor": self._config.epic_monitor_interval,
+            "worktree_gc": self._config.worktree_gc_interval,
         }
         return defaults.get(name, self._config.poll_interval)
 
