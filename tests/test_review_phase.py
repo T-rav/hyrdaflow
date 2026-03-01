@@ -606,7 +606,13 @@ class TestReviewPRs:
 
         await phase.review_prs([pr], [issue])
 
-        phase._prs.post_pr_comment.assert_awaited_once_with(101, "Looks good.")
+        # post_pr_comment may also be called for the visual validation comment
+        summary_calls = [
+            call
+            for call in phase._prs.post_pr_comment.await_args_list
+            if call.args == (101, "Looks good.")
+        ]
+        assert len(summary_calls) == 1
 
     @pytest.mark.asyncio
     async def test_review_skips_submit_review_for_approve(
@@ -699,8 +705,13 @@ class TestReviewPRs:
         assert phase._state.to_dict()["reviewed_prs"].get(str(101)) == "request-changes"
         # Issue should be marked as reviewed
         assert phase._state.to_dict()["processed_issues"].get(str(42)) == "reviewed"
-        # Review summary was posted as PR comment
-        phase._prs.post_pr_comment.assert_awaited_once_with(101, "Looks good.")
+        # Review summary was posted as PR comment (visual validation comment may also be present)
+        summary_calls = [
+            call
+            for call in phase._prs.post_pr_comment.await_args_list
+            if call.args == (101, "Looks good.")
+        ]
+        assert len(summary_calls) == 1
         # No exception propagated — result is returned normally
         assert results[0].verdict == ReviewVerdict.REQUEST_CHANGES
 
@@ -757,7 +768,7 @@ class TestReviewPRs:
     async def test_review_skips_pr_comment_when_summary_empty(
         self, config: HydraFlowConfig
     ) -> None:
-        """post_pr_comment should NOT be called when summary is empty."""
+        """Review summary comment should NOT be posted when summary is empty."""
         phase = make_review_phase(config)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
@@ -784,7 +795,13 @@ class TestReviewPRs:
 
         await phase.review_prs([pr], [issue])
 
-        phase._prs.post_pr_comment.assert_not_awaited()
+        # No review summary comment should be posted (visual validation comment may be present)
+        summary_calls = [
+            call
+            for call in phase._prs.post_pr_comment.await_args_list
+            if call.args[1] == ""
+        ]
+        assert len(summary_calls) == 0
         # submit_review should NOT be called for approve verdict
         phase._prs.submit_review.assert_not_awaited()
 

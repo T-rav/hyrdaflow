@@ -3220,9 +3220,33 @@ class TestPipelineStatsEmission:
         from orchestrator import HydraFlowOrchestrator
 
         orch = HydraFlowOrchestrator(config)
-        orch._session_issue_results = {1: True, 2: True, 3: False}
+        orch._state.reset_session_counters("2026-01-01T00:00:00+00:00")
+        orch._state.increment_session_counter("merged")
+        orch._state.increment_session_counter("merged")
         stats = orch.build_pipeline_stats()
         assert stats.stages["merged"].completed_session == 2
+
+    def test_build_pipeline_stats_per_stage_session_counters(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Each stage's completed_session should reflect its named session counter."""
+        from orchestrator import HydraFlowOrchestrator
+
+        orch = HydraFlowOrchestrator(config)
+        orch._state.reset_session_counters("2026-01-01T00:00:00+00:00")
+        orch._state.increment_session_counter("triaged")
+        orch._state.increment_session_counter("triaged")
+        orch._state.increment_session_counter("planned")
+        orch._state.increment_session_counter("implemented")
+        orch._state.increment_session_counter("implemented")
+        orch._state.increment_session_counter("implemented")
+        orch._state.increment_session_counter("reviewed")
+        stats = orch.build_pipeline_stats()
+        assert stats.stages["triage"].completed_session == 2
+        assert stats.stages["plan"].completed_session == 1
+        assert stats.stages["implement"].completed_session == 3
+        assert stats.stages["review"].completed_session == 1
+        assert stats.stages["hitl"].completed_session == 0
 
     @pytest.mark.asyncio
     async def test_emit_pipeline_stats_publishes_event(

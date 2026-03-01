@@ -23,6 +23,7 @@ from models import (
     PendingReport,
     PersistedWorkerHeartbeat,
     Release,
+    SessionCounters,
     SessionLog,
     SessionStatus,
     StateData,
@@ -586,6 +587,52 @@ class StateTracker:
     def get_lifetime_stats(self) -> LifetimeStats:
         """Return a copy of the lifetime stats counters."""
         return self._data.lifetime_stats.model_copy()
+
+    # --- session counters ---
+
+    _SESSION_COUNTER_FIELDS = frozenset(
+        {"triaged", "planned", "implemented", "reviewed", "merged"}
+    )
+
+    def increment_session_counter(self, stage: str) -> None:
+        """Increment the session counter for *stage* and persist.
+
+        Unknown stage names are silently ignored.
+        """
+        if stage not in self._SESSION_COUNTER_FIELDS:
+            return
+        sc = self._data.session_counters
+        setattr(sc, stage, getattr(sc, stage) + 1)
+        self.save()
+
+    def get_session_counters(self) -> SessionCounters:
+        """Return a copy of the current session counters."""
+        return self._data.session_counters.model_copy()
+
+    def reset_session_counters(self, session_start: str) -> None:
+        """Replace session counters with a fresh instance and persist."""
+        self._data.session_counters = SessionCounters(session_start=session_start)
+        self.save()
+
+    def compute_session_throughput(self) -> dict[str, float]:
+        """Compute issues/hour per stage from session counters and uptime.
+
+        Returns a dict with keys matching the counter fields, values in issues/hour.
+        Returns all zeros if session_start is empty or unparseable.
+        """
+        sc = self._data.session_counters
+        if not sc.session_start:
+            return dict.fromkeys(self._SESSION_COUNTER_FIELDS, 0.0)
+        try:
+            started = datetime.fromisoformat(sc.session_start)
+        except (ValueError, TypeError):
+            return dict.fromkeys(self._SESSION_COUNTER_FIELDS, 0.0)
+        uptime_hours = (datetime.now(UTC) - started).total_seconds() / 3600.0
+        uptime_hours = max(uptime_hours, 0.001)  # avoid division by near-zero
+        return {
+            f: round(getattr(sc, f) / uptime_hours, 2)
+            for f in self._SESSION_COUNTER_FIELDS
+        }
 
     # --- memory state ---
 

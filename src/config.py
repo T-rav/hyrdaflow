@@ -116,6 +116,13 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("visual_gate_enabled", "HYDRAFLOW_VISUAL_GATE_ENABLED", False),
     ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
+    ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
+    (
+        "screenshot_redaction_enabled",
+        "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED",
+        True,
+    ),
+    ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -655,6 +662,50 @@ class HydraFlowConfig(BaseModel):
     visual_gate_bypass: bool = Field(
         default=False,
         description="Emergency bypass for visual gate (audit-logged)",
+    )
+
+    # Visual validation scope
+    visual_validation_enabled: bool = Field(
+        default=True,
+        description="Enable deterministic visual validation scope checks during review",
+    )
+    visual_validation_trigger_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "src/ui/**",
+            "ui/**",
+            "frontend/**",
+            "web/**",
+            "*.css",
+            "*.scss",
+            "*.tsx",
+            "*.jsx",
+            "*.html",
+        ],
+        description="Glob patterns for files that trigger visual validation requirement",
+    )
+    visual_required_label: str = Field(
+        default="hydraflow-visual-required",
+        description="Override label to force visual validation regardless of file paths",
+    )
+    visual_skip_label: str = Field(
+        default="hydraflow-visual-skip",
+        description="Override label to skip visual validation with an audit reason",
+    )
+
+    # Screenshot security
+    screenshot_redaction_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run backend secret-pattern scan before uploading dashboard screenshots. "
+            "When True, payloads matching known secret patterns (GitHub tokens, AWS keys, "
+            "etc.) are rejected and the screenshot is stripped from the report. "
+            "Frontend DOM redaction of [data-sensitive] elements is always active "
+            "and is unaffected by this setting."
+        ),
+    )
+    screenshot_gist_public: bool = Field(
+        default=False,
+        description="Upload screenshot gists as public (True) or secret/unlisted (False)",
     )
 
     # Manifest detection

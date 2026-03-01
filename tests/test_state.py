@@ -2618,3 +2618,146 @@ class TestOutcomeTrackingAdditional:
         tracker.reset()
         assert tracker.get_outcome(1) is None
         assert tracker.get_all_outcomes() == {}
+
+
+# ---------------------------------------------------------------------------
+# Session Counters
+# ---------------------------------------------------------------------------
+
+
+class TestSessionCounters:
+    def test_increment_session_counter_triaged(self, tmp_path: Path) -> None:
+        """Incrementing 'triaged' should update only that counter."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("triaged")
+        counters = tracker.get_session_counters()
+        assert counters.triaged == 1
+        assert counters.planned == 0
+        assert counters.implemented == 0
+        assert counters.reviewed == 0
+        assert counters.merged == 0
+
+    def test_increment_session_counter_all_stages(self, tmp_path: Path) -> None:
+        """Each stage counter increments independently."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("planned")
+        tracker.increment_session_counter("implemented")
+        tracker.increment_session_counter("reviewed")
+        tracker.increment_session_counter("merged")
+        counters = tracker.get_session_counters()
+        assert counters.triaged == 2
+        assert counters.planned == 1
+        assert counters.implemented == 1
+        assert counters.reviewed == 1
+        assert counters.merged == 1
+
+    def test_increment_unknown_stage_is_noop(self, tmp_path: Path) -> None:
+        """Incrementing an unknown stage should not raise or change counters."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("nonexistent")
+        counters = tracker.get_session_counters()
+        assert counters.triaged == 0
+        assert counters.planned == 0
+
+    def test_session_counters_persist_across_reload(self, tmp_path: Path) -> None:
+        """Session counters should survive a StateTracker reload from disk."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-02-01T12:00:00+00:00")
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("planned")
+        tracker.increment_session_counter("implemented")
+
+        # Reload from disk
+        tracker2 = make_tracker(tmp_path)
+        counters = tracker2.get_session_counters()
+        assert counters.triaged == 1
+        assert counters.planned == 1
+        assert counters.implemented == 1
+        assert counters.session_start == "2026-02-01T12:00:00+00:00"
+
+    def test_reset_session_counters(self, tmp_path: Path) -> None:
+        """Resetting session counters should zero all counts and set new start time."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("merged")
+
+        tracker.reset_session_counters("2026-02-01T00:00:00+00:00")
+        counters = tracker.get_session_counters()
+        assert counters.triaged == 0
+        assert counters.merged == 0
+        assert counters.session_start == "2026-02-01T00:00:00+00:00"
+
+    def test_get_session_counters_returns_copy(self, tmp_path: Path) -> None:
+        """get_session_counters should return a copy, not a reference."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("triaged")
+        counters = tracker.get_session_counters()
+        counters.triaged = 999
+        assert tracker.get_session_counters().triaged == 1
+
+    def test_state_reset_clears_session_counters(self, tmp_path: Path) -> None:
+        """StateTracker.reset() should clear session counters."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("triaged")
+        tracker.reset()
+        counters = tracker.get_session_counters()
+        assert counters.triaged == 0
+        assert counters.session_start == ""
+
+    def test_session_counters_in_state_data(self, tmp_path: Path) -> None:
+        """session_counters should appear in to_dict() output."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("planned")
+        d = tracker.to_dict()
+        sc = d["session_counters"]
+        assert sc["planned"] == 1
+        assert sc["session_start"] == "2026-01-01T00:00:00+00:00"
+
+    def test_compute_throughput(self, tmp_path: Path) -> None:
+        """Throughput should be computed as count / uptime_hours."""
+        tracker = make_tracker(tmp_path)
+        # Set session_start to 2 hours ago
+        from datetime import UTC, datetime, timedelta
+
+        two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        tracker.reset_session_counters(two_hours_ago)
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("triaged")
+
+        throughput = tracker.compute_session_throughput()
+        # 4 triaged / ~2 hours ≈ 2.0/hr (allow some tolerance for test timing)
+        assert 1.5 <= throughput["triaged"] <= 2.5
+        assert throughput["planned"] == 0.0
+
+    def test_compute_throughput_no_session_start(self, tmp_path: Path) -> None:
+        """Throughput with empty session_start should return all zeros."""
+        tracker = make_tracker(tmp_path)
+        throughput = tracker.compute_session_throughput()
+        assert throughput["triaged"] == 0.0
+        assert throughput["planned"] == 0.0
+        assert throughput["implemented"] == 0.0
+        assert throughput["reviewed"] == 0.0
+        assert throughput["merged"] == 0.0
+
+    def test_compute_throughput_very_short_session(self, tmp_path: Path) -> None:
+        """Throughput with very short uptime should not divide by zero."""
+        from datetime import UTC, datetime
+
+        tracker = make_tracker(tmp_path)
+        just_now = datetime.now(UTC).isoformat()
+        tracker.reset_session_counters(just_now)
+        tracker.increment_session_counter("triaged")
+        throughput = tracker.compute_session_throughput()
+        # Should not raise; throughput may be very high but finite
+        assert throughput["triaged"] >= 0.0
