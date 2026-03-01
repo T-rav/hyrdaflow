@@ -481,8 +481,6 @@ class ReviewPhase:
     @staticmethod
     async def _noop_visual_check(screen_name: str) -> VisualScreenResult:
         """Default no-op visual check (placeholder for real implementation)."""
-        from models import VisualScreenResult  # noqa: PLC0415
-
         return VisualScreenResult(screen_name=screen_name, diff_ratio=0.0)
 
     async def _handle_visual_failure(

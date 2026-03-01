@@ -350,6 +350,29 @@ class TestVisualValidationReport:
         assert "large mismatch" in summary
         assert "visual_diff" in summary
 
+    def test_format_summary_singular_retry(self) -> None:
+        """Should use 'retry' (singular) when retries_used is 1."""
+        # Arrange
+        report = VisualValidationReport(
+            screens=[
+                VisualScreenResult(
+                    screen_name="page",
+                    diff_ratio=0.10,
+                    verdict=VisualScreenVerdict.WARN,
+                    retries_used=1,
+                ),
+            ],
+            overall_verdict=VisualScreenVerdict.WARN,
+            total_retries=1,
+        )
+
+        # Act
+        summary = report.format_summary()
+
+        # Assert
+        assert "(1 retry)" in summary
+        assert "1 retries" not in summary
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: Config thresholds

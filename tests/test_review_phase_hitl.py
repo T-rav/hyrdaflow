@@ -896,6 +896,17 @@ class TestEscalateToHitl:
 # ---------------------------------------------------------------------------
 
 
+def _mock_visual_phase(config: HydraFlowConfig, event_bus) -> ReviewPhase:
+    """Create a ReviewPhase with PR manager mocks for visual failure tests."""
+    phase = make_review_phase(config, event_bus=event_bus)
+    phase._prs.post_pr_comment = AsyncMock()
+    phase._prs.remove_label = AsyncMock()
+    phase._prs.remove_pr_label = AsyncMock()
+    phase._prs.add_labels = AsyncMock()
+    phase._prs.add_pr_labels = AsyncMock()
+    return phase
+
+
 class TestHandleVisualFailure:
     """Tests for _handle_visual_failure HITL escalation for each failure class."""
 
@@ -905,12 +916,7 @@ class TestHandleVisualFailure:
     ) -> None:
         """Infra-only failures should escalate with infrastructure-specific cause."""
         # Arrange
-        phase = make_review_phase(config, event_bus=event_bus)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-        phase._prs.add_pr_labels = AsyncMock()
+        phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -945,12 +951,7 @@ class TestHandleVisualFailure:
     ) -> None:
         """Visual diff failures should escalate with generic failure cause."""
         # Arrange
-        phase = make_review_phase(config, event_bus=event_bus)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-        phase._prs.add_pr_labels = AsyncMock()
+        phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -981,12 +982,7 @@ class TestHandleVisualFailure:
     ) -> None:
         """Mixed infra + visual diff failures should use the generic cause."""
         # Arrange
-        phase = make_review_phase(config, event_bus=event_bus)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-        phase._prs.add_pr_labels = AsyncMock()
+        phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -1023,12 +1019,7 @@ class TestHandleVisualFailure:
     ) -> None:
         """Should emit HITL_ESCALATION event with visual-specific metadata."""
         # Arrange
-        phase = make_review_phase(config, event_bus=event_bus)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-        phase._prs.add_pr_labels = AsyncMock()
+        phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -1068,12 +1059,7 @@ class TestHandleVisualFailure:
     ) -> None:
         """Should post a PR comment containing the visual validation report."""
         # Arrange
-        phase = make_review_phase(config, event_bus=event_bus)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-        phase._prs.add_pr_labels = AsyncMock()
+        phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -1106,12 +1092,7 @@ class TestHandleVisualFailure:
     ) -> None:
         """Should transition the issue to HITL."""
         # Arrange
-        phase = make_review_phase(config, event_bus=event_bus)
-        phase._prs.post_pr_comment = AsyncMock()
-        phase._prs.remove_label = AsyncMock()
-        phase._prs.remove_pr_label = AsyncMock()
-        phase._prs.add_labels = AsyncMock()
-        phase._prs.add_pr_labels = AsyncMock()
+        phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
         task = TaskFactory.create()

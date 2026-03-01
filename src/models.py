@@ -535,7 +535,8 @@ class VisualValidationReport(BaseModel):
             if screen.failure_class:
                 line += f" [{screen.failure_class.value}]"
             if screen.retries_used:
-                line += f" ({screen.retries_used} retries)"
+                label = "retry" if screen.retries_used == 1 else "retries"
+                line += f" ({screen.retries_used} {label})"
             if screen.error:
                 line += f" — {screen.error}"
             lines.append(line)
