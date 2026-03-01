@@ -322,6 +322,41 @@ class TestRollback:
         records = state.get_baseline_audit(99)
         assert len(records) == 1
 
+    @pytest.mark.asyncio
+    async def test_rollback_rejects_unauthorized_approver(
+        self, policy: BaselinePolicy, state: StateTracker
+    ):
+        """Rollback by a user not in baseline_approvers should raise ValueError."""
+        with pytest.raises(ValueError, match="not permitted"):
+            await policy.rollback(
+                issue_number=42,
+                pr_number=101,
+                approver="unauthorized_user",
+                reason="attempt by non-owner",
+            )
+
+    @pytest.mark.asyncio
+    async def test_rollback_accepts_any_approver_when_list_is_empty(
+        self, tmp_path: Path
+    ):
+        """When baseline_approvers is empty, any approver can trigger a rollback."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+            baseline_approval_required=True,
+            baseline_approvers=[],
+        )
+        st = StateTracker(tmp_path / "state.json")
+        bp = BaselinePolicy(config=cfg, state=st, event_bus=EventBus())
+        record = await bp.rollback(
+            issue_number=42,
+            pr_number=101,
+            approver="anyone",
+            reason="open policy rollback",
+        )
+        assert record.change_type == BaselineChangeType.ROLLBACK
+        assert record.approver == "anyone"
+
 
 # ---------------------------------------------------------------------------
 # Audit trail

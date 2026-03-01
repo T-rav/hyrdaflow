@@ -140,6 +140,15 @@ class BaselinePolicy:
                 record,
                 max_records=self._config.baseline_max_audit_records,
             )
+        else:
+            logger.warning(
+                "Baseline approval denied for PR #%d (issue #%d): %d file(s) require "
+                "approval from a designated owner. Files: %s",
+                pr_number,
+                issue_number,
+                len(baseline_files),
+                ", ".join(baseline_files),
+            )
 
         return result
 
@@ -153,7 +162,17 @@ class BaselinePolicy:
         """Record a baseline rollback and publish an event.
 
         Returns the rollback audit record.
+
+        Raises:
+            ValueError: If ``approver`` is not in the configured allowed list.
         """
+        allowed = self._config.baseline_approvers
+        if allowed and approver not in allowed:
+            raise ValueError(
+                f"Rollback by '{approver}' not permitted; "
+                f"authorised approvers: {allowed}"
+            )
+
         record = self._state.rollback_baseline(
             issue_number=issue_number,
             pr_number=pr_number,
