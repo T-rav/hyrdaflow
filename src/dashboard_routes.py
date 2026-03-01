@@ -1303,6 +1303,11 @@ def create_router(
             "Report Issue",
             "Processes queued bug reports into GitHub issues via the configured agent.",
         ),
+        (
+            "adr_reviewer",
+            "ADR Reviewer",
+            "Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.",
+        ),
     ]
 
     # Workers that have independent configurable intervals
@@ -1461,6 +1466,7 @@ def create_router(
         "metrics": (30, 14400),
         "pr_unsticker": (60, 86400),
         "pipeline_poller": (5, 14400),
+        "adr_reviewer": (3600, 604800),
     }
 
     @router.post("/api/control/bg-worker/interval")

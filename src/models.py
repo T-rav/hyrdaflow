@@ -2058,3 +2058,49 @@ class WorkFn(Protocol):
     """
 
     async def __call__(self) -> object: ...
+
+
+# --- ADR Council Review ---
+
+
+class CouncilVerdict(StrEnum):
+    """Possible verdicts from an ADR review judge."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    REQUEST_CHANGES = "request_changes"
+    DUPLICATE = "duplicate"
+
+
+class CouncilVote(BaseModel):
+    """A single judge's vote in an ADR review round."""
+
+    role: str  # "architect" | "pragmatist" | "editor"
+    verdict: CouncilVerdict
+    reasoning: str = ""
+    duplicate_of: int | None = None
+    round_number: int = 1
+
+
+class ADRCouncilResult(BaseModel):
+    """Full result of a multi-round ADR council review session."""
+
+    adr_number: int
+    adr_title: str = ""
+    rounds_needed: int = 1
+    votes: list[CouncilVote] = Field(default_factory=list)
+    all_round_votes: list[list[CouncilVote]] = Field(default_factory=list)
+    final_decision: str = ""
+    duplicate_detected: bool = False
+    duplicate_of: int | None = None
+    summary: str = ""
+    minority_note: str = ""
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def approve_count(self) -> int:
+        return sum(1 for v in self.votes if v.verdict == CouncilVerdict.APPROVE)
+
+    @property
+    def reject_count(self) -> int:
+        return sum(1 for v in self.votes if v.verdict == CouncilVerdict.REJECT)

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
+from adr_reviewer import ADRCouncilReviewer
+from adr_reviewer_loop import ADRReviewerLoop
 from agent import AgentRunner
 from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
@@ -101,6 +103,7 @@ class ServiceRegistry:
     epic_monitor_loop: EpicMonitorLoop
     worktree_gc_loop: WorktreeGCLoop
     runs_gc_loop: RunsGCLoop
+    adr_reviewer_loop: ADRReviewerLoop
 
 
 @dataclass
@@ -367,6 +370,18 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
+    adr_reviewer = ADRCouncilReviewer(config, event_bus, prs, subprocess_runner)
+    adr_reviewer_loop = ADRReviewerLoop(
+        config=config,
+        adr_reviewer=adr_reviewer,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
+
     return ServiceRegistry(
         worktrees=worktrees,
         subprocess_runner=subprocess_runner,
@@ -401,4 +416,5 @@ def build_services(
         epic_monitor_loop=epic_monitor_loop,
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
+        adr_reviewer_loop=adr_reviewer_loop,
     )

@@ -307,6 +307,11 @@ class ConfigFactory:
         visual_fail_threshold: float = 0.15,
         screenshot_redaction_enabled: bool = True,
         screenshot_gist_public: bool = False,
+        adr_review_interval: int = 86400,
+        adr_review_approval_threshold: int = 2,
+        adr_review_max_rounds: int = 3,
+        adr_review_enabled: bool = False,
+        adr_review_model: str = "sonnet",
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -515,6 +520,11 @@ class ConfigFactory:
             visual_fail_threshold=visual_fail_threshold,
             screenshot_redaction_enabled=screenshot_redaction_enabled,
             screenshot_gist_public=screenshot_gist_public,
+            adr_review_interval=adr_review_interval,
+            adr_review_approval_threshold=adr_review_approval_threshold,
+            adr_review_max_rounds=adr_review_max_rounds,
+            adr_review_enabled=adr_review_enabled,
+            adr_review_model=adr_review_model,
         )
 
 

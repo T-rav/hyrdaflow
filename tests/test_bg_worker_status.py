@@ -287,7 +287,7 @@ class TestSystemWorkersEndpoint:
 
         response = await endpoint()
         data = json.loads(response.body)
-        assert len(data["workers"]) == 11
+        assert len(data["workers"]) == 12
         names = [w["name"] for w in data["workers"]]
         assert names == [
             "triage",
@@ -301,6 +301,7 @@ class TestSystemWorkersEndpoint:
             "pipeline_poller",
             "pr_unsticker",
             "report_issue",
+            "adr_reviewer",
         ]
         assert all(
             isinstance(w["description"], str) and w["description"]

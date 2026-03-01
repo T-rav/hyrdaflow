@@ -47,6 +47,9 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
     ("artifact_max_size_mb", "HYDRAFLOW_ARTIFACT_MAX_SIZE_MB", 500),
     ("runs_gc_interval", "HYDRAFLOW_RUNS_GC_INTERVAL", 3600),
+    ("adr_review_interval", "HYDRAFLOW_ADR_REVIEW_INTERVAL", 86400),
+    ("adr_review_approval_threshold", "HYDRAFLOW_ADR_REVIEW_APPROVAL_THRESHOLD", 2),
+    ("adr_review_max_rounds", "HYDRAFLOW_ADR_REVIEW_MAX_ROUNDS", 3),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
     ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
@@ -88,6 +91,7 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
     ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
     ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "haiku"),
+    ("adr_review_model", "HYDRAFLOW_ADR_REVIEW_MODEL", "sonnet"),
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
 ]
@@ -137,6 +141,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
     ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
+    ("adr_review_enabled", "HYDRAFLOW_ADR_REVIEW_ENABLED", False),
     (
         "screenshot_redaction_enabled",
         "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED",
@@ -958,6 +963,34 @@ class HydraFlowConfig(BaseModel):
         default=True,
         description="After merge conflict resolution exhausts all attempts, "
         "try rebuilding on a fresh branch from main before escalating to HITL",
+    )
+
+    # ADR Council Review
+    adr_review_interval: int = Field(
+        default=86400,
+        ge=60,
+        le=604800,
+        description="Seconds between ADR review cycles",
+    )
+    adr_review_approval_threshold: int = Field(
+        default=2,
+        ge=1,
+        le=3,
+        description="Number of APPROVE votes needed for acceptance",
+    )
+    adr_review_max_rounds: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Maximum deliberation rounds before forcing a decision",
+    )
+    adr_review_enabled: bool = Field(
+        default=False,
+        description="Enable the ADR council review background loop",
+    )
+    adr_review_model: str = Field(
+        default="sonnet",
+        description="Model for the ADR council review orchestrator",
     )
 
     # Session retention
