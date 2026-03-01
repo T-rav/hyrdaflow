@@ -138,6 +138,14 @@ class TestEpicStateNewFields:
         epic = EpicState(epic_number=1, approved_children=[1, 2, 3])
         assert epic.approved_children == [1, 2, 3]
 
+    def test_released_defaults_to_false(self) -> None:
+        epic = EpicState(epic_number=1)
+        assert epic.released is False
+
+    def test_released_can_be_set(self) -> None:
+        epic = EpicState(epic_number=1, released=True)
+        assert epic.released is True
+
 
 # ---------------------------------------------------------------------------
 # EpicProgress: approved, ready_to_merge, merge_strategy
@@ -501,7 +509,10 @@ class TestReleaseEpic:
 
     @pytest.mark.asyncio
     async def test_release_merges_prs(self, tmp_path: Path) -> None:
-        mgr, state, bus, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled")
+        # Use bundled_hitl so on_child_approved doesn't auto-merge
+        mgr, state, bus, prs, _ = _make_manager(
+            tmp_path, epic_merge_strategy="bundled_hitl"
+        )
         await mgr.register_epic(100, "Epic", [1, 2])
         await mgr.on_child_approved(100, 1)
         await mgr.on_child_approved(100, 2)
@@ -516,7 +527,7 @@ class TestReleaseEpic:
 
     @pytest.mark.asyncio
     async def test_release_handles_no_pr(self, tmp_path: Path) -> None:
-        mgr, _, _, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled")
+        mgr, _, _, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled_hitl")
         await mgr.register_epic(100, "Epic", [1])
         await mgr.on_child_approved(100, 1)
 
@@ -527,7 +538,7 @@ class TestReleaseEpic:
 
     @pytest.mark.asyncio
     async def test_release_handles_merge_failure(self, tmp_path: Path) -> None:
-        mgr, _, _, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled")
+        mgr, _, _, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled_hitl")
         await mgr.register_epic(100, "Epic", [1])
         await mgr.on_child_approved(100, 1)
 
@@ -536,6 +547,97 @@ class TestReleaseEpic:
 
         result = await mgr.release_epic(100)
         assert result["merges"][0]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_release_idempotent_second_call_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """Calling release_epic twice returns an error on the second call."""
+        mgr, state, _, prs, _ = _make_manager(
+            tmp_path, epic_merge_strategy="bundled_hitl"
+        )
+        await mgr.register_epic(100, "Epic", [1, 2])
+        await mgr.on_child_approved(100, 1)
+        await mgr.on_child_approved(100, 2)
+
+        prs.find_pr_for_issue = AsyncMock(side_effect=[10, 20])
+        prs.merge_pr = AsyncMock(return_value=True)
+
+        first = await mgr.release_epic(100)
+        assert "error" not in first
+
+        second = await mgr.release_epic(100)
+        assert "error" in second
+        assert "already" in second["error"]
+
+    @pytest.mark.asyncio
+    async def test_release_sets_released_flag(self, tmp_path: Path) -> None:
+        """Successful release marks epic as released in state."""
+        mgr, state, _, prs, _ = _make_manager(
+            tmp_path, epic_merge_strategy="bundled_hitl"
+        )
+        await mgr.register_epic(100, "Epic", [1])
+        await mgr.on_child_approved(100, 1)
+
+        prs.find_pr_for_issue = AsyncMock(return_value=10)
+        prs.merge_pr = AsyncMock(return_value=True)
+
+        await mgr.release_epic(100)
+
+        epic = state.get_epic_state(100)
+        assert epic is not None
+        assert epic.released is True
+
+    @pytest.mark.asyncio
+    async def test_release_failure_does_not_set_released(self, tmp_path: Path) -> None:
+        """Failed release does NOT mark epic as released (can retry)."""
+        mgr, state, _, prs, _ = _make_manager(
+            tmp_path, epic_merge_strategy="bundled_hitl"
+        )
+        await mgr.register_epic(100, "Epic", [1])
+        await mgr.on_child_approved(100, 1)
+
+        prs.find_pr_for_issue = AsyncMock(return_value=10)
+        prs.merge_pr = AsyncMock(return_value=False)
+
+        await mgr.release_epic(100)
+
+        epic = state.get_epic_state(100)
+        assert epic is not None
+        assert epic.released is False
+
+    @pytest.mark.asyncio
+    async def test_bundled_auto_trigger_sets_released(self, tmp_path: Path) -> None:
+        """Bundled auto-trigger marks epic as released after merge."""
+        mgr, state, _, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled")
+        prs.find_pr_for_issue = AsyncMock(side_effect=[10, 20])
+        prs.merge_pr = AsyncMock(return_value=True)
+
+        await mgr.register_epic(100, "Epic", [1, 2])
+        await mgr.on_child_approved(100, 1)
+        await mgr.on_child_approved(100, 2)
+
+        # Auto-trigger should have merged and set released
+        epic = state.get_epic_state(100)
+        assert epic is not None
+        assert epic.released is True
+
+    @pytest.mark.asyncio
+    async def test_bundled_auto_trigger_blocks_manual_release(
+        self, tmp_path: Path
+    ) -> None:
+        """After bundled auto-trigger, manual release_epic is rejected."""
+        mgr, state, _, prs, _ = _make_manager(tmp_path, epic_merge_strategy="bundled")
+        prs.find_pr_for_issue = AsyncMock(side_effect=[10, 20])
+        prs.merge_pr = AsyncMock(return_value=True)
+
+        await mgr.register_epic(100, "Epic", [1, 2])
+        await mgr.on_child_approved(100, 1)
+        await mgr.on_child_approved(100, 2)
+
+        result = await mgr.release_epic(100)
+        assert "error" in result
+        assert "already" in result["error"]
 
 
 # ---------------------------------------------------------------------------

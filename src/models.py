@@ -742,6 +742,7 @@ class EpicState(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     closed: bool = False
+    released: bool = False
     auto_decomposed: bool = False
 
 

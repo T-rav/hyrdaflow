@@ -452,11 +452,16 @@ class EpicManager:
     async def release_epic(self, epic_number: int) -> dict[str, object]:
         """Trigger sequential merge for a bundled epic (called from API).
 
-        Returns a summary dict with merge results.
+        Returns a summary dict with merge results.  Idempotent: a second
+        call after a successful release returns an error instead of
+        attempting duplicate merges.
         """
         epic = self._state.get_epic_state(epic_number)
         if epic is None:
             return {"error": "epic not found"}
+
+        if epic.released:
+            return {"error": "epic has already been released"}
 
         progress = self.get_progress(epic_number)
         if progress is None or not progress.ready_to_merge:
@@ -502,6 +507,12 @@ class EpicManager:
                     "merges": results,
                     "error": f"exception merging child #{child_num}; bundle halted",
                 }
+
+        # Mark epic as released to prevent duplicate release attempts
+        epic = self._state.get_epic_state(epic_number)
+        if epic is not None:
+            epic.released = True
+            self._state.upsert_epic_state(epic)
 
         await self._publish_update(epic_number, "released")
         return {"epic_number": epic_number, "merges": results}
