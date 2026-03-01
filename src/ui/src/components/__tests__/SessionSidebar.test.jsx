@@ -23,6 +23,8 @@ function defaultContext(overrides = {}) {
     runtimes: [],
     startRuntime: vi.fn(),
     stopRuntime: vi.fn(),
+    addRepoShortcut: vi.fn(),
+    removeRepoShortcut: vi.fn(),
     ...overrides,
   }
 }
@@ -155,13 +157,25 @@ describe('SessionSidebar with multiple repos', () => {
     expect(screen.getByText('other-org/other-repo')).toBeDefined()
   })
 
-  it('does not render add/remove repo action buttons', () => {
+  it('renders add repo button and disconnect button per supervised repo', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        sessions: [SESSION_A],
+        supervisedRepos: [{ slug: 'repo', path: 'org/repo', running: false }],
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByLabelText('Add repo')).toBeDefined()
+    expect(screen.getByLabelText('Disconnect repo')).toBeDefined()
+  })
+
+  it('does not render disconnect button for session-only repos', () => {
     mockUseHydraFlow.mockReturnValue(
       defaultContext({ sessions: [SESSION_A] })
     )
     render(<SessionSidebar />)
-    expect(screen.queryByLabelText(/Add repo/)).toBeNull()
-    expect(screen.queryByLabelText(/Remove repo/)).toBeNull()
+    expect(screen.getByLabelText('Add repo')).toBeDefined()
+    expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
   })
 })
 
@@ -177,19 +191,18 @@ describe('SessionSidebar supervised repo state', () => {
     render(<SessionSidebar />)
     expect(screen.getByText('demo')).toBeDefined()
     expect(screen.getByText('/repos/demo')).toBeDefined()
-    expect(screen.getByText('RUNNING')).toBeDefined()
+    // Running repo shows Stop button instead of RUNNING label
+    expect(screen.getByText('Stop')).toBeDefined()
   })
 
-  it('shows STOPPED status for non-running supervised repo', () => {
+  it('shows Start button for non-running supervised repo', () => {
     mockUseHydraFlow.mockReturnValue(
       defaultContext({
         supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
       })
     )
     render(<SessionSidebar />)
-    expect(screen.getByText('STOPPED')).toBeDefined()
-    expect(screen.queryByLabelText(/Add repo/)).toBeNull()
-    expect(screen.queryByLabelText(/Remove repo/)).toBeNull()
+    expect(screen.getByText('Start')).toBeDefined()
   })
 })
 
@@ -407,5 +420,311 @@ describe('SessionSidebar delete button', () => {
     fireEvent.click(deleteBtn)
     // selectSession should not have been called by the click on the delete button
     expect(selectSession).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Add repo button ("+" next to All Repos)
+// ---------------------------------------------------------------------------
+
+describe('SessionSidebar add repo button', () => {
+  it('renders "+" button with aria-label next to All Repos', () => {
+    render(<SessionSidebar />)
+    expect(screen.getByLabelText('Add repo')).toBeDefined()
+  })
+
+  it('shows input field when "+" is clicked', () => {
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    expect(screen.getByPlaceholderText('owner/repo')).toBeDefined()
+  })
+
+  it('calls addRepoShortcut when input is submitted via Enter', () => {
+    const addRepoShortcut = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ addRepoShortcut })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'my-org/my-repo' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(addRepoShortcut).toHaveBeenCalledWith('my-org/my-repo')
+  })
+
+  it('hides input and clears value after submitting', () => {
+    const addRepoShortcut = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ addRepoShortcut })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'my-org/my-repo' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.queryByPlaceholderText('owner/repo')).toBeNull()
+  })
+
+  it('hides input on Escape without calling addRepoShortcut', () => {
+    const addRepoShortcut = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ addRepoShortcut })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(addRepoShortcut).not.toHaveBeenCalled()
+    expect(screen.queryByPlaceholderText('owner/repo')).toBeNull()
+  })
+
+  it('does not submit empty input', () => {
+    const addRepoShortcut = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ addRepoShortcut })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(addRepoShortcut).not.toHaveBeenCalled()
+  })
+
+  it('closes input when "+" is clicked again while input is visible (toggle off)', () => {
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    expect(screen.getByPlaceholderText('owner/repo')).toBeDefined()
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    expect(screen.queryByPlaceholderText('owner/repo')).toBeNull()
+  })
+
+  it('keeps panel open on empty Enter', () => {
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    // Press Enter with empty input — panel should stay open
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.getByPlaceholderText('owner/repo')).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Disconnect repo button ("−" per repo row)
+// ---------------------------------------------------------------------------
+
+describe('SessionSidebar disconnect repo button', () => {
+  it('renders disconnect button only for supervised repos', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        sessions: [SESSION_A, SESSION_OTHER],
+        supervisedRepos: [
+          { slug: 'repo', path: 'org/repo', running: false },
+          { slug: 'other-repo', path: 'other-org/other-repo', running: false },
+        ],
+      })
+    )
+    render(<SessionSidebar />)
+    const btns = screen.getAllByLabelText('Disconnect repo')
+    expect(btns.length).toBe(2)
+  })
+
+  it('does not render disconnect button for session-only repos without supervised entry', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        sessions: [SESSION_A, SESSION_OTHER],
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
+  })
+
+  it('calls removeRepoShortcut when disconnect button is clicked on a stopped repo', () => {
+    const removeRepoShortcut = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        removeRepoShortcut,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Disconnect repo'))
+    expect(removeRepoShortcut).toHaveBeenCalledWith('demo')
+  })
+
+  it('shows confirmation before disconnecting a running repo', () => {
+    const removeRepoShortcut = vi.fn()
+    window.confirm = vi.fn(() => false)
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+        runtimes: [{ slug: 'demo', running: true }],
+        removeRepoShortcut,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Disconnect repo'))
+    expect(window.confirm).toHaveBeenCalled()
+    // Declined — should not call removeRepoShortcut
+    expect(removeRepoShortcut).not.toHaveBeenCalled()
+  })
+
+  it('proceeds with disconnect when running repo confirmation is accepted', () => {
+    const removeRepoShortcut = vi.fn()
+    window.confirm = vi.fn(() => true)
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+        runtimes: [{ slug: 'demo', running: true }],
+        removeRepoShortcut,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Disconnect repo'))
+    expect(window.confirm).toHaveBeenCalled()
+    expect(removeRepoShortcut).toHaveBeenCalledWith('demo')
+  })
+
+  it('disconnect click does not trigger selectRepo', () => {
+    const selectRepo = vi.fn()
+    const removeRepoShortcut = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        selectRepo,
+        removeRepoShortcut,
+      })
+    )
+    render(<SessionSidebar />)
+    selectRepo.mockClear()
+    fireEvent.click(screen.getByLabelText('Disconnect repo'))
+    expect(selectRepo).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Per-repo Start/Stop always visible
+// ---------------------------------------------------------------------------
+
+describe('SessionSidebar per-repo Start/Stop', () => {
+  it('shows Start button for a stopped supervised repo without runtime data', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByTitle('Start this repo runtime')).toBeDefined()
+    expect(screen.getByText('Start')).toBeDefined()
+  })
+
+  it('shows Stop button for a running supervised repo without runtime data', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByTitle('Stop this repo runtime')).toBeDefined()
+    expect(screen.getByText('Stop')).toBeDefined()
+  })
+
+  it('shows Start button when runtime data exists and repo is stopped', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        runtimes: [{ slug: 'demo', running: false }],
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByText('Start')).toBeDefined()
+  })
+
+  it('shows Stop button when runtime data exists and repo is running', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+        runtimes: [{ slug: 'demo', running: true }],
+      })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByText('Stop')).toBeDefined()
+  })
+
+  it('calls startRuntime when Start button is clicked', () => {
+    const startRuntime = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        startRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByText('Start'))
+    expect(startRuntime).toHaveBeenCalledWith('demo')
+  })
+
+  it('calls stopRuntime when Stop button is clicked', () => {
+    const stopRuntime = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+        runtimes: [{ slug: 'demo', running: true }],
+        stopRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByText('Stop'))
+    expect(stopRuntime).toHaveBeenCalledWith('demo')
+  })
+
+  it('Start click does not trigger selectRepo', () => {
+    const selectRepo = vi.fn()
+    const startRuntime = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        selectRepo,
+        startRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    selectRepo.mockClear()
+    fireEvent.click(screen.getByText('Start'))
+    expect(selectRepo).not.toHaveBeenCalled()
+  })
+
+  it('Stop click does not trigger selectRepo', () => {
+    const selectRepo = vi.fn()
+    const stopRuntime = vi.fn()
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+        runtimes: [{ slug: 'demo', running: true }],
+        selectRepo,
+        stopRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    selectRepo.mockClear()
+    fireEvent.click(screen.getByText('Stop'))
+    expect(selectRepo).not.toHaveBeenCalled()
+  })
+
+  it('shows Start button for session-only repo (no supervised entry)', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_A] })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByText('Start')).toBeDefined()
+    expect(screen.getByTitle('Start this repo runtime')).toBeDefined()
+  })
+
+  it('session-only repo shows Start but no Disconnect button', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({ sessions: [SESSION_A] })
+    )
+    render(<SessionSidebar />)
+    expect(screen.getByText('Start')).toBeDefined()
+    expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
   })
 })

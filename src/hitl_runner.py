@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Literal
@@ -16,7 +17,7 @@ from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.hitl_runner")
 
-HITLCauseKey = Literal["ci", "merge_conflict", "needs_info", "default"]
+HITLCauseKey = Literal["ci", "merge_conflict", "needs_info", "visual", "default"]
 
 # Prompt instructions keyed by escalation cause category.
 _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
@@ -45,6 +46,16 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
         "5. Run `make quality` to verify.\n"
         '6. Commit with message: "hitl-fix: <description> (#{issue})".'
     ),
+    "visual": (
+        "This issue was escalated due to visual validation failure.\n"
+        "Screenshot diffs exceeded the allowed threshold.\n"
+        "1. Review the escalation reason above for affected screen names and diff percentages.\n"
+        "2. Check the HITL dashboard for artifact links (baseline/actual/diff images).\n"
+        "3. Compare baseline vs actual screenshots to identify the regression.\n"
+        "4. Fix the UI code causing the visual difference.\n"
+        "5. Run `make quality` to verify.\n"
+        '6. Commit with message: "hitl-fix: resolve visual regression (#{issue})".'
+    ),
     "default": (
         "This issue was escalated to human review.\n"
         "The human operator has provided guidance below.\n"
@@ -62,10 +73,14 @@ _MAX_HITL_CAUSE_CHARS = 2000
 def _classify_cause(cause: str) -> HITLCauseKey:
     """Map a free-text escalation cause to a prompt template key."""
     lower = cause.lower()
+    # Check visual BEFORE needs_info — visual summaries can contain "needs"
+    # (e.g. "login screen needs baseline update").
+    if any(kw in lower for kw in ("visual", "screenshot", "diff image")):
+        return "visual"
     # Check needs_info BEFORE ci — "insufficient" contains the substring "ci".
     if "insufficient" in lower or "needs" in lower or "detail" in lower:
         return "needs_info"
-    if "ci" in lower or "check" in lower or "test fail" in lower:
+    if re.search(r"\bci\b", lower) or "check" in lower or "test fail" in lower:
         return "ci"
     if "merge" in lower and "conflict" in lower:
         return "merge_conflict"

@@ -4589,6 +4589,124 @@ class TestReviewOneInner:
 
 
 # ---------------------------------------------------------------------------
+# Baseline policy integration in _review_one_inner
+# ---------------------------------------------------------------------------
+
+
+class TestBaselinePolicyIntegration:
+    """Integration tests for baseline policy enforcement in _review_one_inner."""
+
+    @pytest.mark.asyncio
+    async def test_no_policy_configured_continues_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When no baseline_policy is set, review proceeds normally."""
+        phase = make_review_phase(config, default_mocks=True)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        # Should complete normally without escalation
+        assert result.merged is True
+
+    @pytest.mark.asyncio
+    async def test_baseline_denied_escalates_to_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When baseline policy denies approval, escalate to HITL and return early."""
+        from baseline_policy import BaselinePolicy
+        from models import BaselineApprovalResult
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(
+            return_value=BaselineApprovalResult(
+                approved=False,
+                requires_approval=True,
+                changed_files=["tests/__snapshots__/home.snap.png"],
+                reason="No authorized approver",
+            )
+        )
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        assert "Baseline" in result.summary
+        assert result.merged is False
+        # Escalation should post a PR comment
+        phase._prs.post_pr_comment.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_baseline_approved_continues_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When baseline policy approves, review proceeds normally."""
+        from baseline_policy import BaselinePolicy
+        from models import BaselineApprovalResult
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(
+            return_value=BaselineApprovalResult(
+                approved=True,
+                requires_approval=True,
+                approver="alice",
+                changed_files=["tests/__snapshots__/home.snap.png"],
+                reason="Approved by alice",
+            )
+        )
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        # Approved baseline should not block merge
+        assert result.merged is True
+
+    @pytest.mark.asyncio
+    async def test_baseline_policy_exception_fails_closed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When the baseline policy check raises an exception, fail closed (deny)."""
+        from baseline_policy import BaselinePolicy
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(side_effect=RuntimeError("gh api error"))
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        # Fail closed: should escalate to HITL
+        assert result.merged is False
+        assert "Baseline" in result.summary
+
+
+# ---------------------------------------------------------------------------
 # _handle_rejected_review unit tests
 # ---------------------------------------------------------------------------
 

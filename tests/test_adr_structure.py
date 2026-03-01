@@ -90,18 +90,18 @@ class TestADRReadmeIndex:
             )
 
 
-class TestADR0009ScreenshotPipeline:
-    """Specific content tests for ADR-0009."""
+class TestADR0018ScreenshotPipeline:
+    """Specific content tests for ADR-0018."""
 
     @pytest.fixture
     def content(self) -> str:
-        return (ADR_DIR / "0009-screenshot-capture-pipeline.md").read_text()
+        return (ADR_DIR / "0018-screenshot-capture-pipeline.md").read_text()
 
     def test_links_to_source_memory(self, content: str) -> None:
-        assert "#1734" in content, "ADR-0009 must reference source memory #1734"
+        assert "#1734" in content, "ADR-0018 must reference source memory #1734"
 
     def test_links_to_adr_issue(self, content: str) -> None:
-        assert "#1749" in content, "ADR-0009 must reference ADR issue #1749"
+        assert "#1749" in content, "ADR-0018 must reference ADR issue #1749"
 
     def test_documents_frontend_redaction(self, content: str) -> None:
         assert "data-sensitive" in content

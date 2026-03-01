@@ -200,6 +200,7 @@ class HITLPhase:
 
                     self._state.remove_hitl_origin(issue_number)
                     self._state.remove_hitl_cause(issue_number)
+                    self._state.remove_hitl_visual_evidence(issue_number)
                     self._state.reset_issue_attempts(issue_number)
 
                     await self._prs.post_comment(

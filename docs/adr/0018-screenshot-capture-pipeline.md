@@ -1,4 +1,4 @@
-# ADR-0009: Screenshot Capture Pipeline Architecture
+# ADR-0018: Screenshot Capture Pipeline Architecture
 
 **Status:** Proposed
 **Date:** 2026-03-01

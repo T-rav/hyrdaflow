@@ -65,6 +65,8 @@ class TaskLinkKind(StrEnum):
     DUPLICATES = "duplicates"
     SUPERSEDES = "supersedes"
     REPLIES_TO = "replies_to"
+    BLOCKS = "blocks"
+    BLOCKED_BY = "blocked_by"
 
 
 class TaskLink(BaseModel):
@@ -90,6 +92,11 @@ _LINK_PATTERNS: list[tuple[re.Pattern[str], TaskLinkKind]] = [
     (
         re.compile(r"\bin\s+response\s+to\s+#(\d+)", re.IGNORECASE),
         TaskLinkKind.REPLIES_TO,
+    ),
+    (re.compile(r"\bblocks?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.BLOCKS),
+    (
+        re.compile(r"\bblocked\s+by\s+#(\d+)", re.IGNORECASE),
+        TaskLinkKind.BLOCKED_BY,
     ),
 ]
 
@@ -126,6 +133,7 @@ class Task(BaseModel):
     created_at: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     links: list[TaskLink] = Field(default_factory=list)
+    parent_epic: int | None = None
 
 
 # --- GitHub ---
@@ -416,6 +424,26 @@ class HITLResult(BaseModel):
     duration_seconds: float = 0.0
 
 
+class VisualEvidenceItem(BaseModel):
+    """A single visual check result (screenshot diff, etc.)."""
+
+    screen_name: str
+    diff_percent: float = 0.0
+    baseline_url: HttpUrl = ""
+    actual_url: HttpUrl = ""
+    diff_url: HttpUrl = ""
+    status: Literal["pass", "fail", "warn"]
+
+
+class VisualEvidence(BaseModel):
+    """Container for visual validation evidence attached to HITL items."""
+
+    items: list[VisualEvidenceItem] = Field(default_factory=list)
+    summary: str = ""
+    run_url: HttpUrl = ""
+    attempt: int = 1
+
+
 # --- Reviews ---
 
 
@@ -460,6 +488,7 @@ class ReviewResult(BaseModel):
     ci_passed: bool | None = None  # None = not checked, True/False = outcome
     ci_fix_attempts: int = 0
     duration_seconds: float = 0.0
+    visual_passed: bool | None = None  # None = not checked, True/False = outcome
 
 
 # --- Visual Validation ---
@@ -560,6 +589,40 @@ class BatchResult(BaseModel):
     pr_infos: list[PRInfo] = Field(default_factory=list)
     review_results: list[ReviewResult] = Field(default_factory=list)
     merged_prs: list[int] = Field(default_factory=list)
+
+
+# --- Baseline Policy ---
+
+
+class BaselineChangeType(StrEnum):
+    """Type of baseline image change."""
+
+    UPDATE = "update"
+    ROLLBACK = "rollback"
+    INITIAL = "initial"
+
+
+class BaselineAuditRecord(BaseModel):
+    """Audit trail entry for a baseline image change."""
+
+    pr_number: int
+    issue_number: int
+    changed_files: list[str] = Field(default_factory=list)
+    change_type: BaselineChangeType = BaselineChangeType.UPDATE
+    approver: str = ""
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    reason: str = ""
+    commit_sha: str = ""
+
+
+class BaselineApprovalResult(BaseModel):
+    """Result of a baseline approval check on a PR."""
+
+    approved: bool = False
+    approver: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    reason: str = ""
+    requires_approval: bool = False
 
 
 # --- Orchestrator Phases ---
@@ -759,9 +822,12 @@ class EpicState(BaseModel):
     child_issues: list[int] = Field(default_factory=list)
     completed_children: list[int] = Field(default_factory=list)
     failed_children: list[int] = Field(default_factory=list)
+    approved_children: list[int] = Field(default_factory=list)
+    merge_strategy: str = "independent"
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     closed: bool = False
+    released: bool = False
     auto_decomposed: bool = False
 
 
@@ -792,6 +858,7 @@ class StateData(BaseModel):
     hitl_summary_failures: dict[str, HITLSummaryFailureEntry] = Field(
         default_factory=dict
     )
+    hitl_visual_evidence: dict[str, VisualEvidence] = Field(default_factory=dict)
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
@@ -813,6 +880,7 @@ class StateData(BaseModel):
     metrics_last_snapshot_hash: str = ""
     metrics_last_synced: str | None = None
     worker_intervals: dict[str, int] = Field(default_factory=dict)
+    disabled_workers: list[str] = Field(default_factory=list)
     interrupted_issues: dict[str, str] = Field(default_factory=dict)
     last_reviewed_shas: dict[str, str] = Field(default_factory=dict)
     pending_reports: list[PendingReport] = Field(default_factory=list)
@@ -820,6 +888,7 @@ class StateData(BaseModel):
     hook_failures: dict[str, list[HookFailureRecord]] = Field(default_factory=dict)
     epic_states: dict[str, EpicState] = Field(default_factory=dict)
     releases: dict[str, Release] = Field(default_factory=dict)
+    baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -835,10 +904,13 @@ class EpicProgress(BaseModel):
     completed: int = 0
     failed: int = 0
     in_progress: int = 0
+    approved: int = 0
+    ready_to_merge: bool = False
     status: str = "active"  # "active", "completed", "stale", "blocked"
     percent_complete: float = 0.0
     last_activity: str = ""
     auto_decomposed: bool = False
+    merge_strategy: str = "independent"
     child_issues: list[int] = Field(default_factory=list)
 
 
@@ -850,8 +922,32 @@ class EpicChildInfo(BaseModel):
     url: str = ""
     state: str = "open"  # "open", "closed"
     stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
+    current_stage: str = ""  # UI-facing alias of stage
+    status: str = "queued"  # done, running, queued, failed
     is_completed: bool = False
     is_failed: bool = False
+    is_approved: bool = False
+    pr_number: int | None = None
+    pr_url: str = ""
+    pr_state: str | None = None  # open, merged, draft
+    branch: str = ""
+    ci_status: str | None = None  # passing, failing, pending
+    review_status: str | None = None  # approved, changes_requested, pending
+    time_in_stage_seconds: int = 0
+    stage_entered_at: str = ""
+    worker: str | None = None
+    mergeable: bool | None = None
+
+
+class EpicReadiness(BaseModel):
+    """Readiness checks for an epic before release."""
+
+    all_implemented: bool = False
+    all_approved: bool = False
+    all_ci_passing: bool = False
+    no_conflicts: bool = False
+    changelog_ready: bool = False
+    version: str | None = None
 
 
 class EpicDetail(BaseModel):
@@ -864,12 +960,20 @@ class EpicDetail(BaseModel):
     completed: int = 0
     failed: int = 0
     in_progress: int = 0
+    merged_children: int = 0
+    active_children: int = 0
+    queued_children: int = 0
+    approved: int = 0
+    ready_to_merge: bool = False
     status: str = "active"
     percent_complete: float = 0.0
     last_activity: str = ""
     created_at: str = ""
     auto_decomposed: bool = False
+    merge_strategy: str = "independent"
     children: list[EpicChildInfo] = Field(default_factory=list)
+    readiness: EpicReadiness = Field(default_factory=EpicReadiness)
+    release: dict | None = None
 
 
 class Crate(BaseModel):
@@ -1008,6 +1112,7 @@ class HITLItem(BaseModel):
     isMemorySuggestion: bool = False  # camelCase to match frontend contract
     llmSummary: str = ""  # cached, operator-focused context summary
     llmSummaryUpdatedAt: str | None = None
+    visualEvidence: VisualEvidence | None = None  # camelCase to match frontend
 
 
 class ControlStatusConfig(BaseModel):
@@ -1168,6 +1273,7 @@ class HITLEscalationPayload(TypedDict, total=False):
     status: str
     role: str
     repo: str
+    visual_evidence: dict[str, object]
 
 
 class IssueCreatedPayload(TypedDict):
@@ -1697,6 +1803,7 @@ class EscalateFn(Protocol):
         event_cause: str = ...,
         extra_event_data: dict[str, object] | None = ...,
         task: Task | None = ...,
+        visual_evidence: VisualEvidence | None = ...,
     ) -> None: ...
 
 
@@ -1723,6 +1830,21 @@ class CiGateFn(Protocol):
         result: ReviewResult,
         worker_id: int,
         code_scanning_alerts: list[dict] | None = None,
+    ) -> bool: ...
+
+
+class VisualGateFn(Protocol):
+    """Async callback for visual validation gate checks.
+
+    Matches ``ReviewPhase.check_visual_gate``.
+    """
+
+    async def __call__(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        result: ReviewResult,
+        worker_id: int,
     ) -> bool: ...
 
 

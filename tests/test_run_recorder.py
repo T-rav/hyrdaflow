@@ -176,6 +176,31 @@ class TestRunRecorder:
         recorder = self._make_recorder(tmp_path)
         assert recorder.get_run_artifact(42, "20260101T000000Z", "nope.txt") is None
 
+    def test_get_run_artifact_blocks_path_traversal(self, tmp_path: Path) -> None:
+        recorder = self._make_recorder(tmp_path)
+        ctx = recorder.start(42)
+        ctx.save_plan("the plan")
+        ctx.finalize("success")
+        timestamp = ctx.run_dir.name
+
+        # Create a file outside the runs dir that traversal would reach
+        secret = tmp_path / "secret.txt"
+        secret.write_text("sensitive data")
+
+        # Attempt traversal via filename
+        assert recorder.get_run_artifact(42, timestamp, "../../secret.txt") is None
+
+    def test_get_run_artifact_blocks_traversal_via_timestamp(
+        self, tmp_path: Path
+    ) -> None:
+        recorder = self._make_recorder(tmp_path)
+        # Create a file outside runs dir
+        secret = tmp_path / "secret.txt"
+        secret.write_text("sensitive data")
+
+        # Attempt traversal via timestamp component
+        assert recorder.get_run_artifact(42, "../../..", "secret.txt") is None
+
     def test_list_issues_empty(self, tmp_path: Path) -> None:
         recorder = self._make_recorder(tmp_path)
         assert recorder.list_issues() == []

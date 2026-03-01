@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { reducer } from '../HydraFlowContext'
 
 const emptyPipeline = {
@@ -35,6 +35,8 @@ const initialState = {
   metrics: null,
   systemAlert: null,
   intents: [],
+  epics: [],
+  epicReleasing: null,
   githubMetrics: null,
   pipelineIssues: { ...emptyPipeline },
   pipelinePollerLastRun: null,
@@ -456,6 +458,148 @@ describe('HydraFlowProvider', () => {
       </HydraFlowProvider>
     )
     expect(screen.getByText('Test Child')).toBeInTheDocument()
+  })
+})
+
+describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {
+  afterEach(() => {
+    delete window.__HYDRAFLOW_SEED_STATE__
+  })
+
+  it('uses seed state as initial state when window.__HYDRAFLOW_SEED_STATE__ is set', async () => {
+    const seedData = {
+      connected: true,
+      phase: 'implement',
+      orchestratorStatus: 'running',
+      workers: { 42: { status: 'active', role: 'implementer', title: 'Issue #42', branch: 'agent/issue-42', transcript: [], pr: null } },
+      pipelineIssues: {
+        triage: [],
+        plan: [],
+        implement: [{ issue_number: 42, title: 'Seed issue', url: '', status: 'active' }],
+        review: [],
+        hitl: [],
+        merged: [],
+      },
+    }
+    window.__HYDRAFLOW_SEED_STATE__ = seedData
+
+    // Fresh import so the module re-evaluates with seed state
+    vi.resetModules()
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+
+    let capturedState = null
+    function StateCapture() {
+      capturedState = useHydraFlow()
+      return <div>seeded</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <StateCapture />
+        </HydraFlowProvider>
+      )
+    })
+
+    expect(screen.getByText('seeded')).toBeInTheDocument()
+    expect(capturedState.phase).toBe('implement')
+    expect(capturedState.orchestratorStatus).toBe('running')
+    expect(capturedState.connected).toBe(true)
+  })
+
+  it('does not make network calls when seeded', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
+
+    vi.resetModules()
+    const fetchSpy = vi.spyOn(global, 'fetch')
+    const { HydraFlowProvider } = await import('../HydraFlowContext')
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <div>no-fetch</div>
+        </HydraFlowProvider>
+      )
+    })
+
+    // With seed state, no API or WebSocket calls should be made
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('EPIC_READY reducer', () => {
+  it('updates epic status to ready', () => {
+    const state = {
+      ...initialState,
+      epics: [
+        { epic_number: 100, status: 'active', title: 'Epic A' },
+        { epic_number: 200, status: 'active', title: 'Epic B' },
+      ],
+    }
+    const next = reducer(state, { type: 'EPIC_READY', data: { epic_number: 100 } })
+    expect(next.epics.find(e => e.epic_number === 100).status).toBe('ready')
+    expect(next.epics.find(e => e.epic_number === 200).status).toBe('active')
+  })
+
+  it('returns unchanged state when epic_number is missing', () => {
+    const state = { ...initialState, epics: [{ epic_number: 100, status: 'active' }] }
+    const next = reducer(state, { type: 'EPIC_READY', data: {} })
+    expect(next.epics[0].status).toBe('active')
+  })
+})
+
+describe('EPIC_RELEASING reducer', () => {
+  it('sets epicReleasing and updates epic status', () => {
+    const state = {
+      ...initialState,
+      epics: [{ epic_number: 100, status: 'ready', title: 'Epic A' }],
+      epicReleasing: null,
+    }
+    const next = reducer(state, {
+      type: 'EPIC_RELEASING',
+      data: { epic_number: 100, progress: 2, total: 5 },
+    })
+    expect(next.epicReleasing).toEqual({ epicNumber: 100, progress: 2, total: 5 })
+    expect(next.epics[0].status).toBe('releasing')
+  })
+
+  it('returns unchanged state when epic_number is missing', () => {
+    const state = { ...initialState, epicReleasing: null }
+    const next = reducer(state, { type: 'EPIC_RELEASING', data: {} })
+    expect(next.epicReleasing).toBeNull()
+  })
+
+  it('clears epicReleasing when data is null (release failure revert)', () => {
+    const state = {
+      ...initialState,
+      epicReleasing: { epicNumber: 100, progress: 0, total: 0 },
+    }
+    const next = reducer(state, { type: 'EPIC_RELEASING', data: null })
+    expect(next.epicReleasing).toBeNull()
+  })
+})
+
+describe('EPIC_RELEASED reducer', () => {
+  it('clears epicReleasing and updates epic status to released', () => {
+    const state = {
+      ...initialState,
+      epics: [{ epic_number: 100, status: 'releasing', title: 'Epic A' }],
+      epicReleasing: { epicNumber: 100, progress: 5, total: 5 },
+    }
+    const next = reducer(state, {
+      type: 'EPIC_RELEASED',
+      data: { epic_number: 100, version: 'v1.2.0', released_at: '2026-03-01T00:00:00Z' },
+    })
+    expect(next.epicReleasing).toBeNull()
+    expect(next.epics[0].status).toBe('released')
+    expect(next.epics[0].version).toBe('v1.2.0')
+    expect(next.epics[0].released_at).toBe('2026-03-01T00:00:00Z')
+  })
+
+  it('returns unchanged state when epic_number is missing', () => {
+    const state = { ...initialState, epicReleasing: { epicNumber: 100, progress: 3, total: 5 } }
+    const next = reducer(state, { type: 'EPIC_RELEASED', data: {} })
+    expect(next.epicReleasing).toEqual({ epicNumber: 100, progress: 3, total: 5 })
   })
 })
 
