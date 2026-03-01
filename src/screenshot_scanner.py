@@ -47,10 +47,16 @@ def scan_base64_for_secrets(png_base64: str) -> list[str]:
     Returns a list of matched pattern labels.  An empty list means no
     secrets were detected.
 
-    The scan works by searching the raw base64 string for token patterns.
-    While base64 encoding obscures binary data, text rendered in screenshots
-    may still appear as recognizable substrings depending on font rendering
-    and compression.  This provides a best-effort defence-in-depth check.
+    **Important limitation:** This scan operates on the raw base64 string, not
+    the decoded pixel data.  For actual PNG screenshots captured by html2canvas,
+    visible text goes through zlib compression before base64 encoding, which
+    means rendered secrets will NOT produce recognisable substrings in the
+    encoded payload.  This scanner is therefore primarily effective when the
+    payload is not a compressed binary (e.g. an SVG data URI, a plain-text
+    blob, or a payload erroneously containing a raw token).  The principal
+    protection against leaking sensitive UI content is the frontend DOM
+    redaction step (redactSensitiveElements), which runs before capture.
+    This scanner provides a defence-in-depth backstop for non-PNG payloads.
     """
     matches: list[str] = []
     for label, pattern in _SECRET_PATTERNS:

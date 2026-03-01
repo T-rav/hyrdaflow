@@ -70,7 +70,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
         # Upload screenshot gist if present (skip if secrets detected)
         screenshot_url = ""
         if report.screenshot_base64:
-            secret_hits = scan_base64_for_secrets(report.screenshot_base64)
+            secret_hits = (
+                scan_base64_for_secrets(report.screenshot_base64)
+                if self._config.screenshot_redaction_enabled
+                else []
+            )
             if secret_hits:
                 logger.warning(
                     "Screenshot for report %s contains potential secrets (%s); "

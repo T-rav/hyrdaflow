@@ -75,7 +75,6 @@ export const EVENT_PROCESS_MAP = {
  */
 export const SENSITIVE_SELECTORS = [
   '[data-sensitive]',
-  '[data-sensitive="true"]',
 ]
 
 /** Shared CSS animation value for the stream-pulse keyframe. */
