@@ -2,6 +2,9 @@ import React, { useState, useMemo } from 'react'
 import { theme } from '../theme'
 import { MERGE_STRATEGIES } from '../constants'
 import { EpicSwimlane } from './EpicSwimlane'
+import { EpicReadinessChecklist } from './EpicReadinessChecklist'
+import { EpicReleaseButton } from './EpicReleaseButton'
+import { EpicReleasedCard } from './EpicReleasedCard'
 
 /**
  * Looks up strategy metadata by key.
@@ -21,15 +24,20 @@ function shortDate(dateStr) {
 
 /**
  * EpicCard — renders a single epic with overview info and expandable swimlane.
+ * For released epics, shows a collapsed EpicReleasedCard instead.
+ * For bundled/bundled_hitl epics, shows readiness checklist + release button when expanded.
  *
  * Props:
  *   epic: {
  *     epic_number, title, url, status, merge_strategy,
  *     created_at, children: [...sub-issues],
- *     total_children, merged_children, active_children, queued_children
+ *     total_children, merged_children, active_children, queued_children,
+ *     readiness, version, released_at, release_url, changelog_url
  *   }
+ *   onRelease: (epicNumber) => Promise<{ ok, version?, error? }>
+ *   releasing: { epicNumber, progress, total } | null
  */
-export function EpicCard({ epic }) {
+export function EpicCard({ epic, onRelease, releasing }) {
   const [expanded, setExpanded] = useState(false)
   const strategy = getStrategy(epic.merge_strategy)
 
@@ -41,6 +49,13 @@ export function EpicCard({ epic }) {
     const pct = total > 0 ? Math.round((merged / total) * 100) : 0
     return { total, merged, active, queued, pct }
   }, [epic])
+
+  // Released/completed epics show the collapsed released card
+  if (epic.status === 'released' || epic.status === 'completed') {
+    return <EpicReleasedCard epic={epic} />
+  }
+
+  const isBundled = epic.merge_strategy === 'bundled' || epic.merge_strategy === 'bundled_hitl'
 
   return (
     <div style={styles.card} data-testid={`epic-card-${epic.epic_number}`}>
@@ -91,8 +106,17 @@ export function EpicCard({ epic }) {
       </div>
 
       {expanded && (
-        <div style={styles.swimlaneWrapper}>
-          <EpicSwimlane issues={epic.children || []} />
+        <div style={styles.expandedContent}>
+          <div style={styles.swimlaneWrapper}>
+            <EpicSwimlane issues={epic.children || []} />
+          </div>
+
+          {isBundled && (
+            <div style={styles.readinessSection} data-testid="readiness-section">
+              <EpicReadinessChecklist epic={epic} />
+              <EpicReleaseButton epic={epic} onRelease={onRelease} releasing={releasing} />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -207,7 +231,13 @@ const styles = {
     background: theme.green,
     transition: 'width 0.3s ease',
   },
+  expandedContent: {
+    borderTop: `1px solid ${theme.border}`,
+  },
   swimlaneWrapper: {
+    padding: '0 16px 12px 40px',
+  },
+  readinessSection: {
     padding: '0 16px 12px 40px',
     borderTop: `1px solid ${theme.border}`,
   },

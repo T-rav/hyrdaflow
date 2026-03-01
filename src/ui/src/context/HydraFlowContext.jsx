@@ -38,6 +38,7 @@ export const initialState = {
   systemAlert: null,
   intents: [],
   epics: [],
+  epicReleasing: null, // { epicNumber, progress, total } or null
   githubMetrics: null,
   metricsHistory: null,
   pipelineIssues: { ...emptyPipeline },
@@ -455,6 +456,49 @@ export function reducer(state, action) {
 
     case 'EPICS':
       return { ...state, epics: action.data || [] }
+
+    case 'EPIC_READY': {
+      const readyNum = action.data?.epic_number
+      if (!readyNum) return state
+      return {
+        ...state,
+        epics: state.epics.map(e =>
+          e.epic_number === readyNum ? { ...e, status: 'ready' } : e
+        ),
+      }
+    }
+
+    case 'EPIC_RELEASING': {
+      // null data signals a clear (e.g. release failure revert)
+      if (!action.data) return { ...state, epicReleasing: null }
+      const releasingNum = action.data.epic_number
+      if (!releasingNum) return state
+      return {
+        ...state,
+        epicReleasing: {
+          epicNumber: releasingNum,
+          progress: action.data.progress || 0,
+          total: action.data.total || 0,
+        },
+        epics: state.epics.map(e =>
+          e.epic_number === releasingNum ? { ...e, status: 'releasing' } : e
+        ),
+      }
+    }
+
+    case 'EPIC_RELEASED': {
+      const releasedNum = action.data?.epic_number
+      if (!releasedNum) return state
+      return {
+        ...state,
+        epicReleasing: null,
+        epics: state.epics.map(e =>
+          e.epic_number === releasedNum
+            ? { ...e, status: 'released', version: action.data.version || '', released_at: action.data.released_at || new Date().toISOString() }
+            : e
+        ),
+      }
+    }
 
     case 'system_alert':
       return { ...addEvent(state, action), systemAlert: action.data }
@@ -902,6 +946,26 @@ export function HydraFlowProvider({ children }) {
     }
   }, [state.config, state.orchestratorStatus, state.pipelineIssues])
 
+  const releaseEpic = useCallback(async (epicNumber) => {
+    dispatch({ type: 'EPIC_RELEASING', data: { epic_number: epicNumber, progress: 0, total: 0 } })
+    try {
+      const res = await fetch(`/api/epics/${epicNumber}/release`, { method: 'POST' })
+      if (!res.ok) {
+        // Revert optimistic update
+        fetchEpics()
+        dispatch({ type: 'EPIC_RELEASING', data: null })
+        return { ok: false, error: `Release failed: ${res.status}` }
+      }
+      const data = await res.json()
+      dispatch({ type: 'EPIC_RELEASED', data: { epic_number: epicNumber, version: data.version, released_at: data.released_at } })
+      return { ok: true, version: data.version }
+    } catch (err) {
+      dispatch({ type: 'EPIC_RELEASING', data: null })
+      fetchEpics()
+      return { ok: false, error: err.message }
+    }
+  }, [fetchEpics])
+
   const resetSession = useCallback(() => {
     dispatch({ type: 'SESSION_RESET' })
   }, [])
@@ -1063,6 +1127,7 @@ export function HydraFlowProvider({ children }) {
           fetchMetricsHistory()
         }
         if (event.type === 'hitl_update' || event.type === 'hitl_escalation') fetchHitlItems()
+        if (event.type === 'epic_update' || event.type === 'epic_ready' || event.type === 'epic_released') fetchEpics()
       } catch { /* ignore parse errors */ }
     }
 
@@ -1185,6 +1250,7 @@ export function HydraFlowProvider({ children }) {
     removeRepoShortcut,
     startRuntime,
     stopRuntime,
+    releaseEpic,
   }
 
   return (

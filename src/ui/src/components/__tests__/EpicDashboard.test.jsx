@@ -46,7 +46,7 @@ const mockEpics = [
 ]
 
 const { mockState } = vi.hoisted(() => ({
-  mockState: { epics: [] },
+  mockState: { epics: [], epicReleasing: null, releaseEpic: () => {} },
 }))
 
 vi.mock('../../context/HydraFlowContext', () => ({
@@ -70,7 +70,7 @@ describe('EpicDashboard', () => {
     render(<EpicDashboard />)
     expect(screen.getByTestId('epic-card-100')).toBeInTheDocument()
     expect(screen.getByTestId('epic-card-200')).toBeInTheDocument()
-    expect(screen.getByTestId('epic-card-300')).toBeInTheDocument()
+    expect(screen.getByTestId('released-card-300')).toBeInTheDocument()
   })
 
   it('renders filter pills', async () => {
@@ -91,7 +91,7 @@ describe('EpicDashboard', () => {
     // Epic Beta is active but all merged → "ready_to_release" category, should be hidden
     expect(screen.queryByTestId('epic-card-200')).not.toBeInTheDocument()
     // Epic Gamma is released, should be hidden
-    expect(screen.queryByTestId('epic-card-300')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('released-card-300')).not.toBeInTheDocument()
   })
 
   it('filters to Ready to Release epics', async () => {
@@ -101,14 +101,14 @@ describe('EpicDashboard', () => {
     // Epic Beta: all 3 children merged, status active → ready_to_release
     expect(screen.getByTestId('epic-card-200')).toBeInTheDocument()
     expect(screen.queryByTestId('epic-card-100')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('epic-card-300')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('released-card-300')).not.toBeInTheDocument()
   })
 
   it('filters to Released epics', async () => {
     const { EpicDashboard } = await import('../EpicDashboard')
     render(<EpicDashboard />)
     fireEvent.click(screen.getByText('Released'))
-    expect(screen.getByTestId('epic-card-300')).toBeInTheDocument()
+    expect(screen.getByTestId('released-card-300')).toBeInTheDocument()
     expect(screen.queryByTestId('epic-card-100')).not.toBeInTheDocument()
     expect(screen.queryByTestId('epic-card-200')).not.toBeInTheDocument()
   })
@@ -120,17 +120,18 @@ describe('EpicDashboard', () => {
     fireEvent.click(screen.getByText('All'))
     expect(screen.getByTestId('epic-card-100')).toBeInTheDocument()
     expect(screen.getByTestId('epic-card-200')).toBeInTheDocument()
-    expect(screen.getByTestId('epic-card-300')).toBeInTheDocument()
+    expect(screen.getByTestId('released-card-300')).toBeInTheDocument()
   })
 
   it('sorts by progress (ready_to_release first)', async () => {
     const { EpicDashboard } = await import('../EpicDashboard')
     const { container } = render(<EpicDashboard />)
-    const cards = container.querySelectorAll('[data-testid^="epic-card-"]')
+    // released cards have different testid prefix, query both patterns
+    const cards = container.querySelectorAll('[data-testid^="epic-card-"], [data-testid^="released-card-"]')
     // ready_to_release (200) should come before active (100), then released (300)
     expect(cards[0].dataset.testid).toBe('epic-card-200')
     expect(cards[1].dataset.testid).toBe('epic-card-100')
-    expect(cards[2].dataset.testid).toBe('epic-card-300')
+    expect(cards[2].dataset.testid).toBe('released-card-300')
   })
 
   it('sorts by created date when Created sort is selected', async () => {
@@ -140,10 +141,10 @@ describe('EpicDashboard', () => {
     // Within same category group, newest first
     // ready_to_release: 200 (Feb), active: 100 (Jan), released: 300 (Dec)
     // Category sort still applies (ready first, then active, then released)
-    const cards = screen.getByTestId('epic-dashboard').querySelectorAll('[data-testid^="epic-card-"]')
+    const cards = screen.getByTestId('epic-dashboard').querySelectorAll('[data-testid^="epic-card-"], [data-testid^="released-card-"]')
     expect(cards[0].dataset.testid).toBe('epic-card-200')
     expect(cards[1].dataset.testid).toBe('epic-card-100')
-    expect(cards[2].dataset.testid).toBe('epic-card-300')
+    expect(cards[2].dataset.testid).toBe('released-card-300')
   })
 
   it('filters by search text matching title', async () => {

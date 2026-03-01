@@ -66,6 +66,7 @@ vi.mock('../../context/HydraFlowContext', () => ({
 }))
 
 beforeEach(() => {
+  global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: async () => [] }))
   mockState.hitlItems = []
   mockState.prs = []
   mockState.events = []
@@ -191,11 +192,11 @@ describe('Main tab bar', () => {
   it('has exactly 6 main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Work Stream', 'Outcomes', 'HITL', 'Epics', 'Work Log', 'System']
+    const tabLabels = ['Delivery Queue', 'Work Stream', 'HITL', 'Epics', 'Outcomes', 'System']
     const tabContainer = screen.getByTestId('main-tabs')
     expect(tabContainer.childElementCount).toBe(tabLabels.length)
     for (const label of tabLabels) {
-      expect(screen.getByText(label)).toBeInTheDocument()
+      expect(within(tabContainer).getByText(label)).toBeInTheDocument()
     }
   })
 
@@ -212,11 +213,18 @@ describe('Main tab bar', () => {
     expect(screen.queryByText('Livestream')).not.toBeInTheDocument()
   })
 
-  it('Work Stream is the default tab', async () => {
+  it('Delivery Queue tab is rendered first (tab order)', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const issueStreamTab = screen.getByText('Work Stream')
-    expect(issueStreamTab.style.color).toBe('var(--accent)')
+    const tabContainer = screen.getByTestId('main-tabs')
+    expect(tabContainer.firstElementChild.textContent).toBe('Delivery Queue')
+  })
+
+  it('Delivery Queue is the default tab', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    const deliveryQueueTab = screen.getByText('Delivery Queue')
+    expect(deliveryQueueTab.style.color).toBe('var(--accent)')
   })
 })
 
@@ -246,7 +254,7 @@ describe('EventLog panel', () => {
   it('EventLog panel is visible on all main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabs = ['Work Stream', 'Outcomes', 'HITL', 'Epics', 'Work Log', 'System']
+    const tabs = ['Delivery Queue', 'Work Stream', 'HITL', 'Epics', 'Outcomes', 'System']
     for (const tabLabel of tabs) {
       fireEvent.click(screen.getByRole('tab', { name: tabLabel }))
       expect(screen.getByTestId('event-log-panel')).toBeVisible()

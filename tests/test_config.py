@@ -350,7 +350,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_workers == 2
+        assert cfg.max_workers == 1
 
     def test_improve_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -382,7 +382,7 @@ class TestHydraFlowConfigDefaults:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_reviewers == 2
+        assert cfg.max_reviewers == 1
 
     def test_max_triagers_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -392,18 +392,67 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.max_triagers == 1
 
-    def test_max_triagers_env_override(
+    def test_max_triagers_env_override_is_ignored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """HYDRAFLOW_MAX_TRIAGERS env var should be ignored; worker counts are config-file-only."""
         monkeypatch.setenv("HYDRAFLOW_MAX_TRIAGERS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_triagers == 4
+        assert cfg.max_triagers == 1
+
+    def test_max_workers_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_WORKERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_WORKERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_workers == 1
+
+    def test_max_reviewers_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_REVIEWERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_REVIEWERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_reviewers == 1
+
+    def test_max_planners_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_PLANNERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_PLANNERS", "4")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_planners == 1
 
     def test_max_hitl_workers_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.max_hitl_workers == 1
+
+    def test_max_hitl_workers_env_override_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_MAX_HITL_WORKERS env var should be ignored; worker counts are config-file-only."""
+        monkeypatch.setenv("HYDRAFLOW_MAX_HITL_WORKERS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -4653,7 +4702,7 @@ class TestLabelsMustNotBeEmpty:
 
 
 # ---------------------------------------------------------------------------
-# Repo-namespaced persistence (_namespace_repo_paths)
+# Repo-namespaced persistence (two-phase path resolution)
 # ---------------------------------------------------------------------------
 
 
@@ -4672,17 +4721,18 @@ class TestNamespaceRepoPaths:
         expected = tmp_path / ".hydraflow" / "acme-widgets" / "events.jsonl"
         assert cfg.event_log_path == expected
 
-    def test_config_file_namespaced_when_default(self, tmp_path: Path) -> None:
-        """Default config_file should be under data_root/<slug>/."""
+    def test_explicit_config_file_not_namespaced(self, tmp_path: Path) -> None:
+        """Explicitly-set config_file should not be repo-scoped."""
         data_root = tmp_path / ".hydraflow"
         data_root.mkdir()
+        explicit_cfg = data_root / "config.json"
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             repo="acme/widgets",
-            config_file=data_root / "config.json",
+            config_file=explicit_cfg,
         )
-        # config_file was explicitly set to the flat path, so it stays
-        assert cfg.config_file == data_root / "config.json"
+        # config_file was explicitly set to the flat path, so it stays (not scoped)
+        assert cfg.config_file == explicit_cfg.resolve()
 
     def test_explicit_state_file_not_namespaced(self, tmp_path: Path) -> None:
         """Explicitly-set state_file should not be repo-scoped."""
@@ -4748,3 +4798,188 @@ class TestNamespaceRepoPaths:
 
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
         assert cfg.state_file.read_text() == '{"new": true}'
+
+    def test_no_migration_when_scoped_event_log_already_exists(
+        self, tmp_path: Path
+    ) -> None:
+        """If scoped events.jsonl already exists, legacy file should not overwrite it."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        legacy_events = data_root / "events.jsonl"
+        legacy_events.write_text('{"event":"old"}\n')
+        scoped_dir = data_root / "acme-widgets"
+        scoped_dir.mkdir(parents=True)
+        (scoped_dir / "events.jsonl").write_text('{"event":"new"}\n')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.event_log_path.read_text() == '{"event":"new"}\n'
+
+
+# ---------------------------------------------------------------------------
+# Two-phase path resolution order (base paths → repo → repo-scoped paths)
+# ---------------------------------------------------------------------------
+
+
+class TestTwoPhasePathResolution:
+    """Tests verifying that repo-scoped paths depend on repo being resolved first.
+
+    The resolve_defaults validator must resolve base paths (repo_root, worktree_base,
+    data_root) before resolving the repo slug, and resolve the repo slug before
+    computing repo-scoped paths (state_file, event_log_path).
+    """
+
+    def test_state_file_never_flat_when_repo_available(self, tmp_path: Path) -> None:
+        """state_file must be repo-scoped, never flat data_root/state.json."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        flat_default = cfg.data_root / "state.json"
+        assert cfg.state_file != flat_default
+        assert cfg.repo_slug in str(cfg.state_file)
+
+    def test_event_log_never_flat_when_repo_available(self, tmp_path: Path) -> None:
+        """event_log_path must be repo-scoped, never flat data_root/events.jsonl."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        flat_default = cfg.data_root / "events.jsonl"
+        assert cfg.event_log_path != flat_default
+        assert cfg.repo_slug in str(cfg.event_log_path)
+
+    def test_base_paths_resolved_before_repo_detection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """repo_root and data_root must be resolved before repo slug detection."""
+        monkeypatch.setenv("HYDRAFLOW_GITHUB_REPO", "org/repo")
+        cfg = HydraFlowConfig(repo_root=tmp_path)
+        # repo_root should be resolved (absolute) despite repo coming from env
+        assert cfg.repo_root.is_absolute()
+        assert cfg.data_root.is_absolute()
+        # And repo-scoped paths should use the resolved data_root
+        assert str(cfg.state_file).startswith(str(cfg.data_root))
+
+    def test_no_repo_falls_back_to_directory_name_scoped_paths(
+        self, tmp_path: Path
+    ) -> None:
+        """Without a repo slug, paths should use repo_root dir name as fallback slug."""
+        cfg = HydraFlowConfig(repo_root=tmp_path)
+        # repo_slug falls back to repo_root.name
+        assert cfg.repo_slug == tmp_path.name
+        expected_state = cfg.data_root / tmp_path.name / "state.json"
+        assert cfg.state_file == expected_state
+
+    def test_env_detected_repo_scopes_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repo detected from env var should scope state_file and event_log_path."""
+        monkeypatch.setenv("HYDRAFLOW_GITHUB_REPO", "env-org/env-repo")
+        cfg = HydraFlowConfig(repo_root=tmp_path)
+        assert "env-org-env-repo" in str(cfg.state_file)
+        assert "env-org-env-repo" in str(cfg.event_log_path)
+
+    def test_config_file_stays_none_when_not_explicit(self, tmp_path: Path) -> None:
+        """config_file should remain None when not explicitly provided."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.config_file is None
+
+    def test_sessions_not_migrated_when_state_file_explicit(
+        self, tmp_path: Path
+    ) -> None:
+        """sessions.jsonl should not be migrated into a custom state_file parent dir."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        (data_root / "sessions.jsonl").write_text('{"id":"s1"}\n')
+        custom_state = tmp_path / "custom" / "state.json"
+
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="acme/widgets", state_file=custom_state
+        )
+        # sessions.jsonl must NOT appear next to the explicit state_file
+        assert not (cfg.state_file.parent / "sessions.jsonl").exists()
+
+    def test_migration_copy_failure_does_not_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shutil.copy2 failure during migration should log a warning, not raise."""
+        import shutil
+
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        (data_root / "state.json").write_text('{"processed_issues": []}')
+
+        def fail_copy(src: object, dst: object, **kw: object) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(shutil, "copy2", fail_copy)
+
+        # Should not raise; config must still instantiate successfully.
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.state_file == data_root / "acme-widgets" / "state.json"
+        assert not cfg.state_file.exists()  # copy failed, file was not created
+
+    def test_legacy_event_log_migrated(self, tmp_path: Path) -> None:
+        """If legacy flat events.jsonl exists, it should be copied to scoped path."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        legacy_events = data_root / "events.jsonl"
+        legacy_events.write_text('{"event":"deploy"}\n')
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.event_log_path.exists()
+        assert cfg.event_log_path.read_text() == '{"event":"deploy"}\n'
+        assert "acme-widgets" in str(cfg.event_log_path)
+
+    def test_event_log_migration_copy_failure_does_not_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shutil.copy2 failure migrating events.jsonl should log, not raise."""
+        import shutil
+
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        (data_root / "events.jsonl").write_text('{"event":"deploy"}\n')
+
+        def fail_copy(src: object, dst: object, **kw: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(shutil, "copy2", fail_copy)
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.event_log_path == data_root / "acme-widgets" / "events.jsonl"
+        assert not cfg.event_log_path.exists()
+
+    def test_hydraflow_home_env_scopes_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_HOME env var should set data_root and repo-scoped paths use it."""
+        custom_home = tmp_path / "custom-data"
+        custom_home.mkdir()
+        monkeypatch.setenv("HYDRAFLOW_HOME", str(custom_home))
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/project")
+        assert cfg.data_root == custom_home.resolve()
+        assert str(cfg.state_file).startswith(str(custom_home.resolve()))
+        assert "org-project" in str(cfg.state_file)
+
+    def test_sessions_migration_copy_failure_does_not_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shutil.copy2 failure migrating sessions.jsonl should log, not raise."""
+        import shutil
+
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        (data_root / "sessions.jsonl").write_text('{"id":"s1"}\n')
+
+        original_copy2 = shutil.copy2
+        call_count = 0
+
+        def selective_fail(src: object, dst: object, **kw: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            # Let state_file and event_log migrations succeed, fail on sessions
+            if "sessions.jsonl" in str(dst):
+                raise OSError("permission denied")
+            return original_copy2(src, dst, **kw)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(shutil, "copy2", selective_fail)
+
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        scoped_sessions = cfg.state_file.parent / "sessions.jsonl"
+        assert not scoped_sessions.exists()  # copy failed

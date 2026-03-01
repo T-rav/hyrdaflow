@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Literal, get_args
 
@@ -17,7 +18,6 @@ logger = logging.getLogger("hydraflow.config")
 # Data-driven env-var override tables.
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
-    ("max_triagers", "HYDRAFLOW_MAX_TRIAGERS", 1),
     ("min_plan_words", "HYDRAFLOW_MIN_PLAN_WORDS", 200),
     (
         "max_pre_quality_review_attempts",
@@ -193,13 +193,14 @@ class HydraFlowConfig(BaseModel):
         description="GitHub repo (owner/name); auto-detected from git remote if empty",
     )
 
-    # Worker configuration
-    max_workers: int = Field(default=2, ge=1, le=10, description="Concurrent agents")
+    # Worker configuration — managed via config JSON file and dashboard UI,
+    # not environment variables. All defaults are 1.
+    max_workers: int = Field(default=1, ge=1, le=10, description="Concurrent agents")
     max_planners: int = Field(
         default=1, ge=1, le=10, description="Concurrent planning agents"
     )
     max_reviewers: int = Field(
-        default=2, ge=1, le=10, description="Concurrent review agents"
+        default=1, ge=1, le=10, description="Concurrent review agents"
     )
     max_triagers: int = Field(
         default=1, ge=1, le=10, description="Concurrent triage agents"
@@ -1101,6 +1102,14 @@ class HydraFlowConfig(BaseModel):
     def resolve_defaults(self) -> HydraFlowConfig:
         """Resolve paths, repo slug, and apply env var overrides.
 
+        Resolution order (two-phase path resolution):
+          1. ``_resolve_base_paths`` — repo_root, worktree_base, data_root
+          2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
+          3. ``_resolve_repo_scoped_paths`` — state_file, event_log_path, config_file
+
+        Base paths are resolved first because repo detection depends on repo_root,
+        and repo-scoped paths depend on both data_root and the repo slug.
+
         Environment variables (checked when no explicit CLI value is given):
             HYDRAFLOW_GITHUB_REPO       → repo
             HYDRAFLOW_GITHUB_ASSIGNEE   → (used by slash commands only)
@@ -1121,9 +1130,9 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_EPIC        → epic_label
             HYDRAFLOW_LABEL_EPIC_CHILD  → epic_child_label
         """
-        _resolve_paths(self)
+        _resolve_base_paths(self)
         _resolve_repo_and_identity(self)
-        _namespace_repo_paths(self)
+        _resolve_repo_scoped_paths(self)
         _apply_env_overrides(self)
         _apply_profile_overrides(self)
         _harmonize_tool_model_defaults(self)
@@ -1194,8 +1203,13 @@ def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
         object.__setattr__(config, "model", "gpt-5-codex")
 
 
-def _resolve_paths(config: HydraFlowConfig) -> None:
-    """Resolve repo_root, worktree_base, state_file, and event_log_path."""
+def _resolve_base_paths(config: HydraFlowConfig) -> None:
+    """Resolve repo_root, worktree_base, and data_root.
+
+    These base paths have no dependency on the repo slug and must be resolved
+    first so that ``_resolve_repo_and_identity`` can use ``repo_root`` for
+    git-remote detection and ``_resolve_repo_scoped_paths`` can use ``data_root``.
+    """
     if config.repo_root == Path("."):
         object.__setattr__(config, "repo_root", _find_repo_root())
     else:
@@ -1215,18 +1229,6 @@ def _resolve_paths(config: HydraFlowConfig) -> None:
     else:
         data_root = config.data_root.expanduser().resolve()
     object.__setattr__(config, "data_root", data_root)
-    if config.state_file == Path("."):
-        object.__setattr__(config, "state_file", data_root / "state.json")
-    else:
-        object.__setattr__(
-            config, "state_file", config.state_file.expanduser().resolve()
-        )
-    if config.event_log_path == Path("."):
-        object.__setattr__(config, "event_log_path", data_root / "events.jsonl")
-    else:
-        object.__setattr__(
-            config, "event_log_path", config.event_log_path.expanduser().resolve()
-        )
 
 
 _REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
@@ -1303,65 +1305,88 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
             object.__setattr__(config, "git_user_email", env_email)
 
 
-def _namespace_repo_paths(config: HydraFlowConfig) -> None:
-    """Move state, event-log, and config paths under a repo-scoped subdirectory.
+def _resolve_repo_scoped_paths(config: HydraFlowConfig) -> None:
+    """Resolve state_file, event_log_path, and config_file under repo-scoped dirs.
 
-    Called after ``_resolve_repo_and_identity`` so that ``repo_slug`` is available.
-    Only adjusts paths that are still at their default (flat) locations —
-    explicitly-provided paths are left untouched.
+    Called after both ``_resolve_base_paths`` (which provides ``data_root``) and
+    ``_resolve_repo_and_identity`` (which provides the repo slug).  Default paths
+    are placed directly under ``data_root / <slug>`` — no intermediate flat
+    defaults are created first.
+
+    Explicitly-provided paths are left untouched (just expanded/resolved).
 
     Legacy flat files are migrated on first run: if the repo-scoped file does not
     exist but the legacy flat file does, a copy is made so no data is lost.
     """
-    import shutil  # noqa: PLC0415
-
+    data_root = config.data_root
     slug = config.repo_slug
-    if not slug:
-        return
-
     explicit = config.__pydantic_fields_set__
-    repo_dir = config.data_root / slug
 
-    # --- state_file (only namespace auto-resolved paths) ---
+    # Target directory: repo-scoped when a slug is available, flat otherwise.
+    # NOTE: repo_slug never returns "" for a non-root repo_root, so the `else
+    # data_root` branch below and the `if slug` migration guards are only
+    # reached when repo_root is the filesystem root ("/").
+    repo_dir = data_root / slug if slug else data_root
+
+    # --- state_file ---
     if "state_file" not in explicit:
-        default_flat = config.data_root / "state.json"
-        if config.state_file == default_flat:
-            scoped = repo_dir / "state.json"
-            if not scoped.exists() and default_flat.exists():
-                scoped.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(default_flat, scoped)
-            object.__setattr__(config, "state_file", scoped)
+        target = repo_dir / "state.json"
+        if slug:
+            flat = data_root / "state.json"
+            if not target.exists() and flat.exists():
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(flat, target)
+                except OSError as exc:
+                    logger.warning("Failed to migrate %s → %s: %s", flat, target, exc)
+        object.__setattr__(config, "state_file", target)
+    else:
+        object.__setattr__(
+            config, "state_file", config.state_file.expanduser().resolve()
+        )
 
     # --- event_log_path ---
     if "event_log_path" not in explicit:
-        default_events = config.data_root / "events.jsonl"
-        if config.event_log_path == default_events:
-            scoped = repo_dir / "events.jsonl"
-            if not scoped.exists() and default_events.exists():
-                scoped.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(default_events, scoped)
-            object.__setattr__(config, "event_log_path", scoped)
+        target = repo_dir / "events.jsonl"
+        if slug:
+            flat = data_root / "events.jsonl"
+            if not target.exists() and flat.exists():
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(flat, target)
+                except OSError as exc:
+                    logger.warning("Failed to migrate %s → %s: %s", flat, target, exc)
+        object.__setattr__(config, "event_log_path", target)
+    else:
+        object.__setattr__(
+            config, "event_log_path", config.event_log_path.expanduser().resolve()
+        )
 
     # --- config_file ---
-    if "config_file" not in explicit:
-        default_cfg = config.data_root / "config.json"
-        if config.config_file is not None and config.config_file == default_cfg:
-            scoped = repo_dir / "config.json"
-            if not scoped.exists() and default_cfg.exists():
-                scoped.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(default_cfg, scoped)
-            object.__setattr__(config, "config_file", scoped)
+    # config_file defaults to None (persistence disabled); only resolve if explicit.
+    if "config_file" in explicit and config.config_file is not None:
+        object.__setattr__(
+            config, "config_file", config.config_file.expanduser().resolve()
+        )
 
     # --- sessions.jsonl (derived from state_file parent, migrate if needed) ---
-    flat_sessions = config.data_root / "sessions.jsonl"
-    scoped_sessions = config.state_file.parent / "sessions.jsonl"
-    if (
-        scoped_sessions != flat_sessions
-        and not scoped_sessions.exists()
-        and flat_sessions.exists()
-    ):
-        scoped_sessions.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(flat_sessions, scoped_sessions)
+    # Only migrate when state_file is at its default location; skip when the user
+    # has pointed state_file at a custom path to avoid copying into arbitrary dirs.
+    if "state_file" not in explicit:
+        flat_sessions = data_root / "sessions.jsonl"
+        scoped_sessions = config.state_file.parent / "sessions.jsonl"
+        if (
+            scoped_sessions != flat_sessions
+            and not scoped_sessions.exists()
+            and flat_sessions.exists()
+        ):
+            try:
+                scoped_sessions.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(flat_sessions, scoped_sessions)
+            except OSError as exc:
+                logger.warning(
+                    "Failed to migrate %s → %s: %s", flat_sessions, scoped_sessions, exc
+                )
 
 
 def _dotenv_lookup(repo_root: Path, *keys: str) -> str:
@@ -1568,8 +1593,6 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
     if config.execution_mode == "docker":
-        import shutil  # noqa: PLC0415
-
         if shutil.which("docker") is None:
             msg = (
                 "execution_mode is 'docker' but the 'docker' command "

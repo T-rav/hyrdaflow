@@ -50,7 +50,7 @@ const SORT_OPTIONS = [
  * Renders filter pills, sort toggle, search box, and EpicCard list.
  */
 export function EpicDashboard() {
-  const { epics } = useHydraFlow()
+  const { epics, epicReleasing, releaseEpic } = useHydraFlow()
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState('progress')
   const [search, setSearch] = useState('')
@@ -130,7 +130,7 @@ export function EpicDashboard() {
           </div>
         ) : (
           filtered.map(epic => (
-            <EpicCard key={epic.epic_number} epic={epic} />
+            <EpicCard key={epic.epic_number} epic={epic} onRelease={releaseEpic} releasing={epicReleasing} />
           ))
         )}
       </div>

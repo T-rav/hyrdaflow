@@ -6,6 +6,7 @@ import { useHydraFlow } from '../context/HydraFlowContext'
 const STATUS_COLORS = {
   active: { color: theme.accent, bg: theme.accentSubtle },
   completed: { color: theme.green, bg: theme.greenSubtle },
+  released: { color: theme.green, bg: theme.greenSubtle },
   stale: { color: theme.yellow, bg: theme.yellowSubtle },
   blocked: { color: theme.red, bg: theme.redSubtle },
 }
@@ -258,7 +259,7 @@ export function WorkLogPanel() {
     ])
       .catch((err) => {
         if (err?.name === 'AbortError') return
-        if (!background) setError('Could not load work log data')
+        if (!background) setError('Could not load delivery queue data')
       })
       .finally(() => {
         if (!background) setLoading(false)
@@ -369,7 +370,7 @@ export function WorkLogPanel() {
         </div>
       </div>
 
-      {loading && <div style={styles.info}>Loading work log...</div>}
+      {loading && <div style={styles.info}>Loading delivery queue...</div>}
       {error && <div style={styles.error}>{error}</div>}
 
       {/* Crates section */}

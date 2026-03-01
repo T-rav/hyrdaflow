@@ -244,6 +244,7 @@ export const seedState = {
   systemAlert: null,
   intents: [],
   epics: seedEpics,
+  epicReleasing: null,
   githubMetrics: null,
   metricsHistory: null,
   pipelineIssues: seedPipelineIssues,

@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { theme } from '../theme'
 import { PIPELINE_STAGES, PULSE_ANIMATION } from '../constants'
+import { EpicWorkDetail } from './EpicWorkDetail'
 
 /**
  * Computes how long ago a timestamp was, as a human-readable string.
@@ -52,54 +53,76 @@ function nodeType(idx, currentIdx, status) {
 
 /**
  * EpicSwimlaneRow — renders a single sub-issue as a horizontal row of pipeline stage nodes.
+ * Clicking the expand chevron reveals the EpicWorkDetail panel.
  *
  * Props:
- *   issue: { issue_number, title, url, current_stage, status, stage_entered_at }
+ *   issue: { issue_number, title, url, current_stage, status, stage_entered_at, ... }
+ *   onRequestChanges: (issueNumber) => void (optional)
  */
-export function EpicSwimlaneRow({ issue }) {
+export function EpicSwimlaneRow({ issue, onRequestChanges }) {
+  const [expanded, setExpanded] = useState(false)
   const currentIdx = stageIndex(issue.current_stage)
 
   return (
-    <div style={styles.row} data-testid={`swimlane-row-${issue.issue_number}`}>
-      <a
-        href={issue.url || `#${issue.issue_number}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={styles.issueLink}
-        title={issue.title}
-      >
-        #{issue.issue_number}
-      </a>
+    <div data-testid={`swimlane-row-${issue.issue_number}`}>
+      <div style={styles.row}>
+        <span
+          role="button"
+          tabIndex={0}
+          style={styles.expandIcon}
+          onClick={() => setExpanded(!expanded)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
+          aria-expanded={expanded}
+          aria-label={`Expand details for #${issue.issue_number}`}
+          data-testid={`expand-${issue.issue_number}`}
+        >
+          {expanded ? '▾' : '▸'}
+        </span>
 
-      <div style={styles.nodes}>
-        {PIPELINE_STAGES.map((stage, idx) => {
-          const type = nodeType(idx, currentIdx, issue.status)
-          const isLast = idx === PIPELINE_STAGES.length - 1
+        <a
+          href={issue.url || `#${issue.issue_number}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={styles.issueLink}
+          title={issue.title}
+        >
+          #{issue.issue_number}
+        </a>
 
-          return (
-            <React.Fragment key={stage.key}>
-              <span
-                style={nodeStyles[type][stage.key]}
-                title={`${stage.label}: ${type}`}
-                data-testid={`node-${issue.issue_number}-${stage.key}`}
-              >
-                {type === 'done' && '✓'}
-              </span>
-              {!isLast && (
-                <span style={type === 'done' ? connectorSolidStyle : connectorDashedStyle} />
-              )}
-            </React.Fragment>
-          )
-        })}
+        <div style={styles.nodes}>
+          {PIPELINE_STAGES.map((stage, idx) => {
+            const type = nodeType(idx, currentIdx, issue.status)
+            const isLast = idx === PIPELINE_STAGES.length - 1
+
+            return (
+              <React.Fragment key={stage.key}>
+                <span
+                  style={nodeStyles[type][stage.key]}
+                  title={`${stage.label}: ${type}`}
+                  data-testid={`node-${issue.issue_number}-${stage.key}`}
+                >
+                  {type === 'done' && '✓'}
+                </span>
+                {!isLast && (
+                  <span style={type === 'done' ? connectorSolidStyle : connectorDashedStyle} />
+                )}
+              </React.Fragment>
+            )
+          })}
+        </div>
+
+        <span style={styles.stageLabel}>
+          {PIPELINE_STAGES[currentIdx]?.label || issue.current_stage || '—'}
+        </span>
+
+        <span style={{ ...styles.timeInStage, color: timeColor(issue.stage_entered_at) }}>
+          {timeAgo(issue.stage_entered_at)}
+        </span>
       </div>
 
-      <span style={styles.stageLabel}>
-        {PIPELINE_STAGES[currentIdx]?.label || issue.current_stage || '—'}
-      </span>
-
-      <span style={{ ...styles.timeInStage, color: timeColor(issue.stage_entered_at) }}>
-        {timeAgo(issue.stage_entered_at)}
-      </span>
+      {expanded && (
+        <EpicWorkDetail issue={issue} onRequestChanges={onRequestChanges} />
+      )}
     </div>
   )
 }
@@ -154,6 +177,15 @@ const styles = {
     gap: 12,
     padding: '6px 0',
     borderBottom: `1px solid ${theme.border}`,
+  },
+  expandIcon: {
+    fontSize: 10,
+    color: theme.textMuted,
+    cursor: 'pointer',
+    flexShrink: 0,
+    width: 12,
+    textAlign: 'center',
+    userSelect: 'none',
   },
   issueLink: {
     fontSize: 11,

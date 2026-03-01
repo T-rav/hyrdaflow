@@ -106,6 +106,7 @@ class StateTracker:
                 OSError,
                 ValueError,
                 UnicodeDecodeError,
+                ValidationError,
             ) as exc:
                 logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
@@ -738,6 +739,17 @@ class StateTracker:
     def set_worker_intervals(self, intervals: dict[str, int]) -> None:
         """Persist worker interval overrides."""
         self._data.worker_intervals = intervals
+        self.save()
+
+    # --- disabled workers ---
+
+    def get_disabled_workers(self) -> set[str]:
+        """Return the set of worker names that have been disabled."""
+        return set(self._data.disabled_workers)
+
+    def set_disabled_workers(self, names: set[str]) -> None:
+        """Persist the set of disabled worker names."""
+        self._data.disabled_workers = sorted(names)
         self.save()
 
     # --- background worker states ---

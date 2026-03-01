@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { EpicSwimlaneRow } from '../EpicSwimlaneRow'
 
 const baseIssue = {
@@ -9,6 +9,14 @@ const baseIssue = {
   current_stage: 'implement',
   status: 'running',
   stage_entered_at: new Date(Date.now() - 30 * 60000).toISOString(), // 30min ago
+  pr_number: 99,
+  pr_url: 'https://github.com/org/repo/pull/99',
+  pr_state: 'open',
+  approval_state: 'pending',
+  ci_status: 'passing',
+  branch: 'agent/issue-42',
+  worker: 'worker-1',
+  transcript: ['line 1', 'line 2', 'line 3'],
 }
 
 describe('EpicSwimlaneRow', () => {
@@ -98,5 +106,41 @@ describe('EpicSwimlaneRow', () => {
     render(<EpicSwimlaneRow issue={issue} />)
     // All nodes should be pending (no checkmarks)
     expect(screen.getByTestId('node-42-triage').textContent).toBe('')
+  })
+
+  // Expand/collapse tests
+  it('renders expand chevron', () => {
+    render(<EpicSwimlaneRow issue={baseIssue} />)
+    expect(screen.getByTestId('expand-42')).toBeInTheDocument()
+    expect(screen.getByText('▸')).toBeInTheDocument()
+  })
+
+  it('expands to show work detail on click', () => {
+    render(<EpicSwimlaneRow issue={baseIssue} />)
+    fireEvent.click(screen.getByTestId('expand-42'))
+    expect(screen.getByTestId('work-detail-42')).toBeInTheDocument()
+    expect(screen.getByText('▾')).toBeInTheDocument()
+  })
+
+  it('collapses work detail on second click', () => {
+    render(<EpicSwimlaneRow issue={baseIssue} />)
+    fireEvent.click(screen.getByTestId('expand-42'))
+    expect(screen.getByTestId('work-detail-42')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('expand-42'))
+    expect(screen.queryByTestId('work-detail-42')).not.toBeInTheDocument()
+  })
+
+  it('expands via keyboard Enter key', () => {
+    render(<EpicSwimlaneRow issue={baseIssue} />)
+    fireEvent.keyDown(screen.getByTestId('expand-42'), { key: 'Enter' })
+    expect(screen.getByTestId('work-detail-42')).toBeInTheDocument()
+  })
+
+  it('passes onRequestChanges to EpicWorkDetail', () => {
+    const fn = vi.fn()
+    render(<EpicSwimlaneRow issue={baseIssue} onRequestChanges={fn} />)
+    fireEvent.click(screen.getByTestId('expand-42'))
+    fireEvent.click(screen.getByTestId('request-changes-42'))
+    expect(fn).toHaveBeenCalledWith(42)
   })
 })
