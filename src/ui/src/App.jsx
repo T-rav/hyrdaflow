@@ -72,6 +72,7 @@ function AppContent() {
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
+  const activeEpicsCount = (epics || []).filter(e => e.status === 'active').length
 
   const handleStart = useCallback(async () => {
     resetSession()
@@ -142,7 +143,7 @@ function AppContent() {
               {tab === 'hitl' ? (
                 <>HITL{hitlItems?.length > 0 && <span style={hitlBadgeStyle}>{hitlItems.length}</span>}</>
               ) : tab === 'epics' ? (
-                <>{TAB_LABELS[tab]}{(epics || []).filter(e => e.status === 'active').length > 0 && <span style={epicsBadgeStyle}>{epics.filter(e => e.status === 'active').length}</span>}</>
+                <>{TAB_LABELS[tab]}{activeEpicsCount > 0 && <span style={epicsBadgeStyle}>{activeEpicsCount}</span>}</>
               ) : TAB_LABELS[tab]}
             </div>
           ))}

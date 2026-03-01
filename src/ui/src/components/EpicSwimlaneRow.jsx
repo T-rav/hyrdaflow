@@ -86,7 +86,7 @@ export function EpicSwimlaneRow({ issue }) {
                 {type === 'done' && '✓'}
               </span>
               {!isLast && (
-                <span style={type === 'done' || (type === 'active' && idx < currentIdx) ? connectorSolidStyle : connectorDashedStyle} />
+                <span style={type === 'done' ? connectorSolidStyle : connectorDashedStyle} />
               )}
             </React.Fragment>
           )

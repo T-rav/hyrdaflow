@@ -49,6 +49,7 @@ export function EpicCard({ epic }) {
         onClick={() => setExpanded(!expanded)}
         role="button"
         tabIndex={0}
+        aria-expanded={expanded}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
       >
         <span style={styles.expandIcon}>{expanded ? '▾' : '▸'}</span>
