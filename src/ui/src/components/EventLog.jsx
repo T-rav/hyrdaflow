@@ -67,7 +67,7 @@ export function EventLog({ events = [] }) {
   return (
     <div style={styles.panel} data-testid="event-log-panel">
       <div style={styles.title}>Event Log</div>
-      <div style={styles.log}>
+      <div style={styles.log} data-sensitive="true">
         {filtered.length === 0 && (
           <div style={styles.empty}>Waiting for events...</div>
         )}

@@ -20,7 +20,7 @@ export function TranscriptPreview({ transcript, maxCollapsedLines = 3, maxHeight
   const linesStyle = expanded ? { ...styles.lines, maxHeight, overflowY: 'auto' } : styles.lines
 
   return (
-    <div style={styles.container} data-testid="transcript-preview">
+    <div style={styles.container} data-testid="transcript-preview" data-sensitive="true">
       <div
         ref={scrollRef}
         style={linesStyle}

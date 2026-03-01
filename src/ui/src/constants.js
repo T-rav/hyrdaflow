@@ -68,6 +68,15 @@ export const EVENT_PROCESS_MAP = {
   background_worker_status: 'bg_worker',
 }
 
+/**
+ * CSS selectors for elements that should be redacted (masked) in dashboard
+ * screenshots before upload.  Elements matching these selectors have their
+ * content replaced with a placeholder overlay during the html2canvas capture.
+ */
+export const SENSITIVE_SELECTORS = [
+  '[data-sensitive]',
+]
+
 /** Shared CSS animation value for the stream-pulse keyframe. */
 export const PULSE_ANIMATION = 'stream-pulse 1.5s ease-in-out infinite'
 
