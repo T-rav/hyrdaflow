@@ -23,6 +23,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0010](0010-worktree-and-path-isolation.md) | Worktree and Path Isolation Architecture | Proposed |
 | [0011](0011-epic-release-creation-architecture.md) | Epic Release Creation Architecture | Proposed |
 | [0012](0012-epic-merge-coordination-architecture.md) | Epic Merge Coordination Architecture | Proposed |
+| [0013](0013-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Proposed |
 
 ## Adding a new ADR
 
