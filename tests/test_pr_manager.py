@@ -671,6 +671,50 @@ class TestUploadScreenshotGist:
 
         assert result == ""
 
+    @pytest.mark.asyncio
+    async def test_default_gist_visibility_is_secret(self, event_bus, tmp_path):
+        """By default (screenshot_gist_public=False), --public flag is omitted."""
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            screenshot_gist_public=False,
+        )
+        mgr = _make_manager(cfg, event_bus)
+        gist_url = "https://gist.github.com/testuser/abc123"
+        mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
+
+        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            await mgr.upload_screenshot_gist(png_b64)
+
+        args = mock_exec.call_args[0]
+        assert "--public" not in args
+
+    @pytest.mark.asyncio
+    async def test_public_gist_visibility(self, event_bus, tmp_path):
+        """When screenshot_gist_public=True, --public flag is included."""
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            screenshot_gist_public=True,
+        )
+        mgr = _make_manager(cfg, event_bus)
+        gist_url = "https://gist.github.com/testuser/abc123"
+        mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
+
+        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
+        with patch("asyncio.create_subprocess_exec", mock_exec):
+            await mgr.upload_screenshot_gist(png_b64)
+
+        args = mock_exec.call_args[0]
+        assert "--public" in args
+
 
 # ---------------------------------------------------------------------------
 # push_branch

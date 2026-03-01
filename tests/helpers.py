@@ -286,6 +286,8 @@ class ConfigFactory:
         visual_validation_trigger_patterns: list[str] | None = None,
         visual_required_label: str = "hydraflow-visual-required",
         visual_skip_label: str = "hydraflow-visual-skip",
+        screenshot_redaction_enabled: bool = True,
+        screenshot_gist_public: bool = False,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -471,6 +473,8 @@ class ConfigFactory:
             ),
             visual_required_label=visual_required_label,
             visual_skip_label=visual_skip_label,
+            screenshot_redaction_enabled=screenshot_redaction_enabled,
+            screenshot_gist_public=screenshot_gist_public,
         )
 
 
