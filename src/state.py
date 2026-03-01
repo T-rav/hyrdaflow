@@ -106,6 +106,7 @@ class StateTracker:
                 OSError,
                 ValueError,
                 UnicodeDecodeError,
+                ValidationError,
             ) as exc:
                 logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
@@ -491,6 +492,51 @@ class StateTracker:
         epic.last_activity = datetime.now(UTC).isoformat()
         self.save()
 
+    def mark_epic_child_approved(self, epic_number: int, child_number: int) -> None:
+        """Add *child_number* to approved_children for *epic_number*."""
+        epic = self._data.epic_states.get(str(epic_number))
+        if epic is None:
+            return
+        if child_number not in epic.approved_children:
+            epic.approved_children.append(child_number)
+        epic.last_activity = datetime.now(UTC).isoformat()
+        self.save()
+
+    def get_epic_progress(self, epic_number: int) -> dict[str, object]:
+        """Return epic progress summary for *epic_number*.
+
+        Returns a dict with keys: total, merged, in_progress, pending,
+        approved, ready_to_merge, merge_strategy.
+        """
+        epic = self._data.epic_states.get(str(epic_number))
+        if epic is None:
+            return {}
+        total = len(epic.child_issues)
+        merged = len(epic.completed_children)
+        failed = len(epic.failed_children)
+        approved = len(epic.approved_children)
+        in_progress = total - merged - failed
+        pending = total - merged - failed - approved
+        # Ready to merge: all children approved or merged, none failed, non-independent
+        ready = (
+            total > 0
+            and failed == 0
+            and epic.merge_strategy != "independent"
+            and all(
+                c in epic.approved_children or c in epic.completed_children
+                for c in epic.child_issues
+            )
+        )
+        return {
+            "total": total,
+            "merged": merged,
+            "in_progress": max(in_progress, 0),
+            "pending": max(pending, 0),
+            "approved": approved,
+            "ready_to_merge": ready,
+            "merge_strategy": epic.merge_strategy,
+        }
+
     def get_all_epic_states(self) -> dict[str, EpicState]:
         """Return all persisted epic states (deep copy)."""
         return {k: v.model_copy(deep=True) for k, v in self._data.epic_states.items()}
@@ -693,6 +739,17 @@ class StateTracker:
     def set_worker_intervals(self, intervals: dict[str, int]) -> None:
         """Persist worker interval overrides."""
         self._data.worker_intervals = intervals
+        self.save()
+
+    # --- disabled workers ---
+
+    def get_disabled_workers(self) -> set[str]:
+        """Return the set of worker names that have been disabled."""
+        return set(self._data.disabled_workers)
+
+    def set_disabled_workers(self, names: set[str]) -> None:
+        """Persist the set of disabled worker names."""
+        self._data.disabled_workers = sorted(names)
         self.save()
 
     # --- background worker states ---

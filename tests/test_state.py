@@ -2761,3 +2761,96 @@ class TestSessionCounters:
         throughput = tracker.compute_session_throughput()
         # Should not raise; throughput may be very high but finite
         assert throughput["triaged"] >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Disabled workers persistence
+# ---------------------------------------------------------------------------
+
+
+class TestDisabledWorkersPersistence:
+    def test_get_disabled_workers_empty_by_default(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_disabled_workers() == set()
+
+    def test_set_and_get_disabled_workers(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_disabled_workers({"memory_sync", "metrics"})
+        assert tracker.get_disabled_workers() == {"memory_sync", "metrics"}
+
+    def test_disabled_workers_survive_reload(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        t1 = StateTracker(state_file)
+        t1.set_disabled_workers({"memory_sync", "pr_unsticker"})
+
+        t2 = StateTracker(state_file)
+        assert t2.get_disabled_workers() == {"memory_sync", "pr_unsticker"}
+
+    def test_empty_disabled_workers_clears(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_disabled_workers({"memory_sync"})
+        tracker.set_disabled_workers(set())
+        assert tracker.get_disabled_workers() == set()
+
+    def test_partial_corruption_missing_disabled_workers(self, tmp_path: Path) -> None:
+        """State file with missing disabled_workers field loads gracefully."""
+        state_file = tmp_path / "state.json"
+        data = {
+            "processed_issues": {},
+            "active_worktrees": {},
+            "active_branches": {},
+            "reviewed_prs": {},
+            "bg_worker_states": {
+                "memory_sync": {
+                    "name": "memory_sync",
+                    "status": "ok",
+                    "last_run": "2026-02-20T10:00:00Z",
+                    "details": {},
+                }
+            },
+        }
+        state_file.write_text(json.dumps(data))
+
+        tracker = StateTracker(state_file)
+        assert tracker.get_disabled_workers() == set()
+        states = tracker.get_bg_worker_states()
+        assert "memory_sync" in states
+
+    def test_partial_corruption_invalid_bg_worker_states(self, tmp_path: Path) -> None:
+        """State file with corrupted bg_worker_states section but valid JSON loads gracefully."""
+        state_file = tmp_path / "state.json"
+        data = {
+            "processed_issues": {"42": "merged"},
+            "active_worktrees": {},
+            "active_branches": {},
+            "reviewed_prs": {},
+            "bg_worker_states": "not_a_dict",
+            "worker_heartbeats": {},
+            "disabled_workers": ["memory_sync"],
+        }
+        state_file.write_text(json.dumps(data))
+
+        # Pydantic validation will fail, resetting to defaults
+        tracker = StateTracker(state_file)
+        # After reset, disabled workers should be empty (defaults)
+        assert tracker.get_disabled_workers() == set()
+        assert tracker.get_bg_worker_states() == {}
+
+    def test_deleted_bg_worker_states_preserves_disabled_workers(
+        self, tmp_path: Path
+    ) -> None:
+        """Deleting bg_worker_states from state file preserves disabled_workers."""
+        state_file = tmp_path / "state.json"
+        data = {
+            "processed_issues": {},
+            "active_worktrees": {},
+            "active_branches": {},
+            "reviewed_prs": {},
+            "disabled_workers": ["memory_sync"],
+        }
+        state_file.write_text(json.dumps(data))
+
+        tracker = StateTracker(state_file)
+        assert tracker.get_disabled_workers() == {"memory_sync"}
+        # bg_worker_states defaults to empty when absent
+        assert tracker.get_bg_worker_states() == {}

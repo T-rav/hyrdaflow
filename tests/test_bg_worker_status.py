@@ -750,6 +750,249 @@ class TestBgWorkerIntervalEndpoint:
         assert "/api/control/bg-worker/interval" in paths
 
 
+class TestDisabledWorkerPersistenceAcrossRestart:
+    """Tests for disabled worker state persisting across orchestrator restarts."""
+
+    def test_disabled_worker_persists_across_restore(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Disabling a worker should persist so it stays disabled after _restore_state."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "state.json"
+        state1 = StateTracker(state_path)
+        orch1 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state1)
+        orch1.set_bg_worker_enabled("memory_sync", False)
+
+        # Simulate restart: new StateTracker loads from disk, new orchestrator restores
+        state2 = StateTracker(state_path)
+        orch2 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state2)
+        orch2._restore_state()
+
+        assert orch2.is_bg_worker_enabled("memory_sync") is False
+
+    def test_reenabled_worker_persists_across_restore(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Re-enabling a worker should also persist."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "state.json"
+        state1 = StateTracker(state_path)
+        orch1 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state1)
+        orch1.set_bg_worker_enabled("memory_sync", False)
+        orch1.set_bg_worker_enabled("memory_sync", True)
+
+        state2 = StateTracker(state_path)
+        orch2 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state2)
+        orch2._restore_state()
+
+        assert orch2.is_bg_worker_enabled("memory_sync") is True
+
+    def test_multiple_disabled_workers_persist(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Multiple disabled workers should all persist."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "state.json"
+        state1 = StateTracker(state_path)
+        orch1 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state1)
+        orch1.set_bg_worker_enabled("memory_sync", False)
+        orch1.set_bg_worker_enabled("metrics", False)
+
+        state2 = StateTracker(state_path)
+        orch2 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state2)
+        orch2._restore_state()
+
+        assert orch2.is_bg_worker_enabled("memory_sync") is False
+        assert orch2.is_bg_worker_enabled("metrics") is False
+        # Others should still default to True
+        assert orch2.is_bg_worker_enabled("pr_unsticker") is True
+
+    def test_error_status_persists_across_restart(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """A worker with error status should retain that status after restart."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "state.json"
+        state1 = StateTracker(state_path)
+        orch1 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state1)
+        orch1.update_bg_worker_status("memory_sync", "error", {"msg": "fail"})
+
+        state2 = StateTracker(state_path)
+        orch2 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state2)
+        orch2._restore_state()
+
+        states = orch2.get_bg_worker_states()
+        assert states["memory_sync"]["status"] == "error"
+        assert states["memory_sync"]["last_run"] is not None
+        assert states["memory_sync"]["enabled"] is True
+        assert states["memory_sync"]["details"] == {"msg": "fail"}
+
+    def test_fresh_install_shows_never(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """On a fresh install with no state, all workers should show no last_run."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state = StateTracker(tmp_path / "fresh_state.json")
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._restore_state()
+
+        states = orch.get_bg_worker_states()
+        # No workers have run yet, so the dict should be empty
+        assert states == {}
+
+    def test_disabled_worker_last_run_preserved(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Disabling a worker should preserve its last_run timestamp."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "state.json"
+        state1 = StateTracker(state_path)
+        orch1 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state1)
+        orch1.update_bg_worker_status("memory_sync", "ok", {"count": 5})
+        last_run = orch1.get_bg_worker_states()["memory_sync"]["last_run"]
+        orch1.set_bg_worker_enabled("memory_sync", False)
+
+        state2 = StateTracker(state_path)
+        orch2 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state2)
+        orch2._restore_state()
+
+        states = orch2.get_bg_worker_states()
+        assert states["memory_sync"]["last_run"] == last_run
+        assert states["memory_sync"]["enabled"] is False
+
+    def test_corrupt_disabled_workers_field_gracefully_resets(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """A corrupt disabled_workers type should reset the whole state to defaults, not crash."""
+        import json
+
+        state_path = tmp_path / "corrupt_state.json"
+        # Use integer 99, which cannot be coerced to list[str] and triggers ValidationError
+        state_path.write_text(json.dumps({"disabled_workers": 99}))
+
+        # StateTracker.__init__ calls load(); corrupt file resets to defaults
+        state = StateTracker(state_path)
+        assert state.get_disabled_workers() == set()
+
+    def test_corrupt_state_file_disabled_workers_defaults_on_restart(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """After a corrupt state file, orchestrator should start with no disabled workers."""
+        import json
+
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "corrupt2_state.json"
+        state_path.write_text(json.dumps({"disabled_workers": 99}))
+
+        state = StateTracker(state_path)
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._restore_state()
+
+        # All workers should be enabled (defaults) since state was corrupt
+        assert orch.is_bg_worker_enabled("memory_sync") is True
+        assert orch.is_bg_worker_enabled("metrics") is True
+
+    def test_interval_and_last_run_both_persist_after_restart(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Custom poll interval AND last_run timestamp should both survive a restart (issue req #6)."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state_path = tmp_path / "state.json"
+        state1 = StateTracker(state_path)
+        orch1 = HydraFlowOrchestrator(config, event_bus=event_bus, state=state1)
+        orch1.set_bg_worker_interval("memory_sync", 3600)
+        orch1.update_bg_worker_status("memory_sync", "ok", {"count": 1})
+        last_run = orch1.get_bg_worker_states()["memory_sync"]["last_run"]
+
+        state2 = StateTracker(state_path)
+        orch2 = HydraFlowOrchestrator(config, event_bus=EventBus(), state=state2)
+        orch2._restore_state()
+
+        assert orch2.get_bg_worker_interval("memory_sync") == 3600
+        assert orch2.get_bg_worker_states()["memory_sync"]["last_run"] == last_run
+
+
+class TestStaleDisabledWorkerPruning:
+    """Tests for pruning stale worker names from disabled_workers on startup."""
+
+    def test_stale_worker_name_pruned_on_startup(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Disabled worker names not in known_names should be pruned from state."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state = StateTracker(tmp_path / "state.json")
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch.set_bg_worker_enabled("memory_sync", False)
+        orch.set_bg_worker_enabled("removed_worker", False)
+
+        known = {"memory_sync", "metrics", "pr_unsticker"}
+        orch._prune_stale_disabled_workers(known)
+
+        # "removed_worker" should be pruned, "memory_sync" should remain disabled
+        assert orch.is_bg_worker_enabled("memory_sync") is False
+        assert (
+            orch.is_bg_worker_enabled("removed_worker") is True
+        )  # defaults to True after prune
+        assert state.get_disabled_workers() == {"memory_sync"}
+
+    def test_no_pruning_when_all_disabled_workers_are_valid(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Disabled workers remain unchanged after pruning when all names are valid."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state = StateTracker(tmp_path / "state.json")
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch.set_bg_worker_enabled("memory_sync", False)
+
+        known = {"memory_sync", "metrics", "pr_unsticker"}
+        orch._prune_stale_disabled_workers(known)
+
+        assert orch.is_bg_worker_enabled("memory_sync") is False
+        assert state.get_disabled_workers() == {"memory_sync"}
+
+    def test_no_pruning_when_no_workers_disabled(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Pruning is a no-op when no workers are disabled."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state = StateTracker(tmp_path / "state.json")
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+
+        known = {"memory_sync", "metrics"}
+        orch._prune_stale_disabled_workers(known)
+
+        assert state.get_disabled_workers() == set()
+
+    def test_all_disabled_workers_pruned_when_all_stale(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """When all disabled workers are stale, the disabled set should be empty after pruning."""
+        from orchestrator import HydraFlowOrchestrator
+
+        state = StateTracker(tmp_path / "state.json")
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch.set_bg_worker_enabled("old_worker_a", False)
+        orch.set_bg_worker_enabled("old_worker_b", False)
+
+        known = {"memory_sync", "metrics"}
+        orch._prune_stale_disabled_workers(known)
+
+        assert orch.is_bg_worker_enabled("old_worker_a") is True
+        assert orch.is_bg_worker_enabled("old_worker_b") is True
+        assert state.get_disabled_workers() == set()
+
+
 class TestOrchestratorIntervalManagement:
     """Tests for set_bg_worker_interval/get_bg_worker_interval."""
 

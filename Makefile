@@ -38,7 +38,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps bundle-assets embed-assets cli-release
+.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps bundle-assets embed-assets cli-release screenshot screenshot-update
 
 help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
@@ -447,6 +447,16 @@ ui-clean:
 	@echo "$(YELLOW)Cleaning dashboard build artifacts...$(RESET)"
 	@rm -rf $(HYDRAFLOW_DIR)src/ui/dist $(HYDRAFLOW_DIR)src/ui/node_modules
 	@echo "$(GREEN)Dashboard cleaned$(RESET)"
+
+screenshot:
+	@echo "$(BLUE)Capturing deterministic screenshots...$(RESET)"
+	@cd $(HYDRAFLOW_DIR)src/ui && npm ci && npx playwright install --with-deps chromium && npm run screenshot
+	@echo "$(GREEN)Screenshots captured → src/ui/e2e/screenshots/$(RESET)"
+
+screenshot-update:
+	@echo "$(BLUE)Updating screenshot baselines...$(RESET)"
+	@cd $(HYDRAFLOW_DIR)src/ui && npm ci && npx playwright install --with-deps chromium && npm run screenshot:update
+	@echo "$(GREEN)Screenshot baselines updated → src/ui/e2e/screenshots/$(RESET)"
 
 docker-build:
 	@echo "$(BLUE)Building Hydra agent Docker image...$(RESET)"
