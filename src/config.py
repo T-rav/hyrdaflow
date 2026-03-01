@@ -1325,7 +1325,10 @@ def _resolve_repo_scoped_paths(config: HydraFlowConfig) -> None:
             flat = data_root / "state.json"
             if not target.exists() and flat.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(flat, target)
+                try:
+                    shutil.copy2(flat, target)
+                except OSError as exc:
+                    logger.warning("Failed to migrate %s → %s: %s", flat, target, exc)
         object.__setattr__(config, "state_file", target)
     else:
         object.__setattr__(
@@ -1339,41 +1342,41 @@ def _resolve_repo_scoped_paths(config: HydraFlowConfig) -> None:
             flat = data_root / "events.jsonl"
             if not target.exists() and flat.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(flat, target)
+                try:
+                    shutil.copy2(flat, target)
+                except OSError as exc:
+                    logger.warning("Failed to migrate %s → %s: %s", flat, target, exc)
         object.__setattr__(config, "event_log_path", target)
     else:
         object.__setattr__(
             config, "event_log_path", config.event_log_path.expanduser().resolve()
         )
 
-    # --- config_file (namespace if set to flat default but not explicitly provided) ---
-    if "config_file" not in explicit:
-        default_cfg = data_root / "config.json"
-        if (
-            config.config_file is not None
-            and config.config_file == default_cfg
-            and slug
-        ):
-            scoped = repo_dir / "config.json"
-            if not scoped.exists() and default_cfg.exists():
-                scoped.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(default_cfg, scoped)
-            object.__setattr__(config, "config_file", scoped)
-    elif config.config_file is not None:
+    # --- config_file ---
+    # config_file defaults to None (persistence disabled); only resolve if explicit.
+    if "config_file" in explicit and config.config_file is not None:
         object.__setattr__(
             config, "config_file", config.config_file.expanduser().resolve()
         )
 
     # --- sessions.jsonl (derived from state_file parent, migrate if needed) ---
-    flat_sessions = data_root / "sessions.jsonl"
-    scoped_sessions = config.state_file.parent / "sessions.jsonl"
-    if (
-        scoped_sessions != flat_sessions
-        and not scoped_sessions.exists()
-        and flat_sessions.exists()
-    ):
-        scoped_sessions.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(flat_sessions, scoped_sessions)
+    # Only migrate when state_file is at its default location; skip when the user
+    # has pointed state_file at a custom path to avoid copying into arbitrary dirs.
+    if "state_file" not in explicit:
+        flat_sessions = data_root / "sessions.jsonl"
+        scoped_sessions = config.state_file.parent / "sessions.jsonl"
+        if (
+            scoped_sessions != flat_sessions
+            and not scoped_sessions.exists()
+            and flat_sessions.exists()
+        ):
+            scoped_sessions.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(flat_sessions, scoped_sessions)
+            except OSError as exc:
+                logger.warning(
+                    "Failed to migrate %s → %s: %s", flat_sessions, scoped_sessions, exc
+                )
 
 
 def _dotenv_lookup(repo_root: Path, *keys: str) -> str:

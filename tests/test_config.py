@@ -4808,3 +4808,43 @@ class TestTwoPhasePathResolution:
         cfg = HydraFlowConfig(repo_root=tmp_path)
         assert "env-org-env-repo" in str(cfg.state_file)
         assert "env-org-env-repo" in str(cfg.event_log_path)
+
+    def test_config_file_stays_none_when_not_explicit(self, tmp_path: Path) -> None:
+        """config_file should remain None when not explicitly provided."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.config_file is None
+
+    def test_sessions_not_migrated_when_state_file_explicit(
+        self, tmp_path: Path
+    ) -> None:
+        """sessions.jsonl should not be migrated into a custom state_file parent dir."""
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        (data_root / "sessions.jsonl").write_text('{"id":"s1"}\n')
+        custom_state = tmp_path / "custom" / "state.json"
+
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path, repo="acme/widgets", state_file=custom_state
+        )
+        # sessions.jsonl must NOT appear next to the explicit state_file
+        assert not (cfg.state_file.parent / "sessions.jsonl").exists()
+
+    def test_migration_copy_failure_does_not_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shutil.copy2 failure during migration should log a warning, not raise."""
+        import shutil
+
+        data_root = tmp_path / ".hydraflow"
+        data_root.mkdir()
+        (data_root / "state.json").write_text('{"processed_issues": []}')
+
+        def fail_copy(src: object, dst: object, **kw: object) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(shutil, "copy2", fail_copy)
+
+        # Should not raise; config must still instantiate successfully.
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.state_file == data_root / "acme-widgets" / "state.json"
+        assert not cfg.state_file.exists()  # copy failed, file was not created
