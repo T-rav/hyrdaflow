@@ -7,6 +7,7 @@ import logging
 import re
 from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, TypeVar
 
 from config import HydraFlowConfig
@@ -203,3 +204,22 @@ def adr_validation_reasons(body: str) -> list[str]:
     if missing:
         reasons.append("Missing required ADR sections: " + ", ".join(missing))
     return reasons
+
+
+_ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
+
+
+def next_adr_number(adr_dir: Path) -> int:
+    """Return the next available ADR number by scanning *adr_dir*.
+
+    Avoids number collisions when multiple ADR PRs are in flight
+    concurrently — each should call this against the worktree's
+    ``docs/adr/`` after merging main to pick a unique number.
+    """
+    highest = 0
+    if adr_dir.is_dir():
+        for f in adr_dir.iterdir():
+            m = _ADR_FILE_RE.match(f.name)
+            if m:
+                highest = max(highest, int(m.group(1)))
+    return highest + 1

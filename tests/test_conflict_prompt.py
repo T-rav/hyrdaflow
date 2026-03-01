@@ -32,6 +32,14 @@ class TestBuildConflictPrompt:
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
         assert "Do not push" in prompt
 
+    def test_includes_post_merge_checklist(self) -> None:
+        prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
+        assert "Post-Merge Checklist" in prompt
+        assert "Duplicate definitions" in prompt
+        assert "Duplicate keyword arguments" in prompt
+        assert "Sequential numbering" in prompt
+        assert "Stale assertions" in prompt
+
     def test_no_previous_error_on_first_attempt(self) -> None:
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
         assert "Previous Attempt Failed" not in prompt
@@ -161,6 +169,13 @@ class TestBuildRebuildPrompt:
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
         )
         assert "Fixes #42" in prompt
+
+    def test_includes_numbered_file_instruction(self) -> None:
+        prompt = build_rebuild_prompt(
+            ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
+        )
+        assert "numbered file" in prompt.lower()
+        assert "already exists" in prompt
 
     def test_includes_rules_section(self) -> None:
         prompt = build_rebuild_prompt(

@@ -16,6 +16,7 @@ from harness_insights import FailureCategory, HarnessInsightStore
 from models import PipelineStage
 from phase_utils import (
     escalate_to_hitl,
+    next_adr_number,
     publish_review_status,
     record_harness_failure,
     run_concurrent_batch,
@@ -417,3 +418,27 @@ class TestPublishReviewStatus:
 
         event = bus.publish.call_args[0][0]
         assert event.data["role"] == "reviewer"
+
+
+# ---------------------------------------------------------------------------
+# next_adr_number
+# ---------------------------------------------------------------------------
+
+
+class TestNextAdrNumber:
+    def test_returns_one_for_empty_dir(self, tmp_path: Path) -> None:
+        assert next_adr_number(tmp_path) == 1
+
+    def test_returns_one_for_missing_dir(self, tmp_path: Path) -> None:
+        assert next_adr_number(tmp_path / "nonexistent") == 1
+
+    def test_increments_past_highest(self, tmp_path: Path) -> None:
+        (tmp_path / "0001-first.md").touch()
+        (tmp_path / "0003-third.md").touch()
+        assert next_adr_number(tmp_path) == 4
+
+    def test_ignores_non_adr_files(self, tmp_path: Path) -> None:
+        (tmp_path / "0005-fifth.md").touch()
+        (tmp_path / "README.md").touch()
+        (tmp_path / "template.md").touch()
+        assert next_adr_number(tmp_path) == 6

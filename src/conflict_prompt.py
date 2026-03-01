@@ -46,7 +46,11 @@ def build_conflict_prompt(
         "There are merge conflicts on this branch.\n\n"
         f"- Issue: {issue_url}\n"
         f"- PR: {pr_url}\n\n"
-        "Resolve all conflicts, then run `make quality` to verify "
+        "Plan your approach before editing anything. Understand both sides "
+        "of each conflict — read the conflicted files, check git log to see "
+        "what changed on main vs the branch, and use `gh` CLI or read any "
+        "repo file if you need more context.\n\n"
+        "Then resolve all conflicts and run `make quality` to verify "
         "everything passes. Do not push."
     )
 
@@ -58,6 +62,24 @@ def build_conflict_prompt(
         digest = load_memory_digest(config)
         if digest:
             sections.append(f"## Accumulated Learnings\n\n{digest}")
+
+    # --- Post-merge checklist ---
+    sections.append(
+        "## Post-Merge Checklist\n\n"
+        "After resolving conflict markers, check for these common merge artifacts:\n\n"
+        "1. **Duplicate definitions**: Two PRs may add the same Pydantic Field, "
+        "function parameter, or env-override tuple. Pydantic silently uses the "
+        "last Field — remove the earlier duplicate and verify cross-field "
+        "validators still hold with the surviving default.\n"
+        "2. **Duplicate keyword arguments**: If a function signature had duplicate "
+        "params, the constructor call likely has duplicate kwargs too — remove them.\n"
+        "3. **Sequential numbering**: Files like `docs/adr/README.md` use "
+        "auto-incrementing IDs. When both sides added the same number, "
+        "keep main's entry and renumber the PR's entry to the next available.\n"
+        "4. **Stale assertions**: If source text changed on main "
+        '(e.g. "completed" → "resolved"), grep tests for the old string '
+        "and update assertions to match."
+    )
 
     # --- Previous attempt error ---
     if last_error and attempt > 1:
@@ -143,12 +165,14 @@ def build_rebuild_prompt(
     # --- Instructions ---
     sections.append(
         "## Instructions\n\n"
-        "1. Study the diff to understand what the PR accomplished.\n"
-        "2. Read the issue for full requirements context.\n"
-        "3. Apply the same logical changes to the current codebase.\n"
-        "4. Write or update tests as needed.\n"
-        "5. Run `make quality` to verify everything passes.\n"
-        f'6. Commit with message: "Rebuild: Fixes #{issue_number}"'
+        "Plan before coding. Read the diff, the issue, and the current "
+        "codebase to understand what changed and what the PR intended. "
+        "Use `gh` CLI or read any file you need for context.\n\n"
+        "Then re-apply the same logical changes. If the diff adds a "
+        "numbered file (ADR, migration, etc.), check the directory for "
+        "existing numbers — do not reuse one that already exists.\n\n"
+        "Write or update tests, run `make quality`, and commit with "
+        f'message: "Rebuild: Fixes #{issue_number}"'
     )
 
     # --- Rules ---

@@ -605,6 +605,7 @@ Quality: No issues — <justification>
    - Review code quality patterns (SRP, type hints, naming, complexity)
    - Review test quality (3As structure, factories, edge cases)
    - Check for security issues (injection, crypto, auth)
+   - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
 {ui_criteria}
 ## If Issues Found
 

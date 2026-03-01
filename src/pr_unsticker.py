@@ -485,11 +485,17 @@ PR URL: {pr_url}
 
 ## Instructions
 
-1. Run `make quality` to see current failures.
-2. Read the error output carefully and fix the root causes.
-3. Do NOT skip, disable, or weaken any tests or checks.
-4. Run `make quality` again to verify your fixes pass.
-5. Commit fixes with a descriptive message.
+Plan before fixing. Run `make quality` to see failures, then read the
+failing code and its context to understand the root cause. Check git log
+to see if a recent merge introduced the problem. You can read any file
+in the repo or use `gh` CLI for additional context.
+
+Common causes after a merge-main: duplicate Pydantic Field definitions,
+duplicate function parameters, or stale test assertions. grep for the
+field or string name if you suspect duplicates.
+
+Fix root causes — do NOT skip, disable, or weaken any tests or checks.
+Run `make quality` again to verify, then commit with a descriptive message.
 
 ## Rules
 
@@ -973,7 +979,12 @@ TROUBLESHOOTING_PATTERN_END
             self._state.record_pr_merged()
 
     async def _re_rebase_remaining(self, remaining: list[HITLItem]) -> None:
-        """Rebase remaining fixed items on updated main after a merge."""
+        """Rebase remaining fixed items on updated main after a merge.
+
+        When a merge introduces conflicts, the merge is aborted and the
+        item is flagged so the next unstick cycle can resolve it properly
+        rather than silently losing the failure.
+        """
         for item in remaining:
             issue_number = item.issue
             branch = self._config.branch_for_issue(issue_number)
@@ -983,7 +994,18 @@ TROUBLESHOOTING_PATTERN_END
                 continue
 
             try:
-                await self._worktrees.start_merge_main(wt_path, branch)
+                clean = await self._worktrees.start_merge_main(wt_path, branch)
+                if not clean:
+                    await self._worktrees.abort_merge(wt_path)
+                    logger.warning(
+                        "Re-rebase for issue #%d hit conflicts after sibling "
+                        "merge — will resolve on next unstick cycle",
+                        issue_number,
+                    )
+                    self._state.set_hitl_cause(
+                        issue_number,
+                        "Cascade conflict: merge main after sibling PR merged",
+                    )
             except Exception:
                 logger.warning(
                     "Re-rebase failed for issue #%d after merge",
