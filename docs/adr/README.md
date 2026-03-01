@@ -21,6 +21,9 @@ and optionally **Alternatives considered** and **Related** links.
 | [0008](0008-multi-repo-dashboard-architecture.md) | Multi-Repo Dashboard Architecture | Proposed |
 | [0009](0009-multi-repo-process-per-repo-model.md) | Multi-Repo Process-Per-Repo Model | Proposed |
 | [0010](0010-worktree-and-path-isolation.md) | Worktree and Path Isolation Architecture | Proposed |
+| [0011](0011-epic-release-creation-architecture.md) | Epic Release Creation Architecture | Proposed |
+| [0012](0012-epic-merge-coordination-architecture.md) | Epic Merge Coordination Architecture | Proposed |
+| [0013](0013-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Proposed |
 | [0014](0014-session-counter-forward-progression-semantics.md) | Session Counter Forward-Progression Semantics | Proposed |
 
 ## Adding a new ADR
