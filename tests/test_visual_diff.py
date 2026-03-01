@@ -195,6 +195,14 @@ class TestVisualReport:
         assert report.is_pass is False
         assert report.is_fail is False
 
+    def test_is_error_property(self) -> None:
+        report = VisualReport(aggregate_verdict=ScreenVerdict.ERROR)
+        assert report.is_error is True
+        report_pass = VisualReport(aggregate_verdict=ScreenVerdict.PASS)
+        assert report_pass.is_error is False
+        report_fail = VisualReport(aggregate_verdict=ScreenVerdict.FAIL)
+        assert report_fail.is_error is False
+
     def test_model_dump_serialization(self) -> None:
         report = VisualReport(
             aggregate_verdict=ScreenVerdict.PASS,
@@ -486,6 +494,17 @@ class TestRunVisualDiff:
         assert report.retry_count == 0
         assert report.diff_threshold == 0.01
         assert report.warn_threshold == 0.005
+
+    def test_retry_count_propagated(self, tmp_path: Path) -> None:
+        baseline_dir = tmp_path / "baseline"
+        candidate_dir = tmp_path / "candidate"
+        baseline_dir.mkdir()
+        candidate_dir.mkdir()
+        _write_png(baseline_dir / "s.png")
+        _write_png(candidate_dir / "s.png")
+
+        report = run_visual_diff(baseline_dir, candidate_dir, retry_count=3)
+        assert report.retry_count == 3
 
     def test_custom_thresholds(self, tmp_path: Path) -> None:
         baseline_dir = tmp_path / "baseline"

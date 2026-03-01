@@ -1716,6 +1716,11 @@ class VisualReport(BaseModel):
         """Return True if the aggregate verdict is FAIL or ERROR."""
         return self.aggregate_verdict in (ScreenVerdict.FAIL, ScreenVerdict.ERROR)
 
+    @property
+    def is_error(self) -> bool:
+        """Return True if the aggregate verdict is ERROR (config/load failure)."""
+        return self.aggregate_verdict == ScreenVerdict.ERROR
+
 
 # --- Callback Protocols ---
 # These replace Callable[..., None] and Callable[..., Coroutine[Any, Any, ...]]

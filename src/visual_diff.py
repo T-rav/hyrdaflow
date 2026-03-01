@@ -57,8 +57,7 @@ def _count_diff_bytes(a: bytes, b: bytes) -> int:
     Operates on raw file bytes — not decoded pixel data — so the result
     is a proxy for visual difference rather than exact pixel-count.
     """
-    min_len = min(len(a), len(b))
-    diff = sum(1 for i in range(min_len) if a[i] != b[i])
+    diff = sum(x != y for x, y in zip(a, b, strict=False))
     # Any excess bytes in the longer file count as differences.
     diff += abs(len(a) - len(b))
     return diff
@@ -181,6 +180,7 @@ def run_visual_diff(
     warn_threshold: float = 0.005,
     max_screens: int = 20,
     budget_bytes: int = 5_000_000,
+    retry_count: int = 0,
 ) -> VisualReport:
     """Run visual diff across all PNG screens in *baseline_dir*.
 
@@ -255,6 +255,7 @@ def run_visual_diff(
         diff_threshold=diff_threshold,
         warn_threshold=warn_threshold,
         total_runtime_seconds=total_runtime,
+        retry_count=retry_count,
         total_artifact_bytes=total_artifact,
         failure_category=failure_category,
         generated_at=datetime.now(UTC).isoformat(),
