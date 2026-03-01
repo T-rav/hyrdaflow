@@ -28,6 +28,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0015](0015-protocol-callback-gate-pattern.md) | Protocol-Based Callback Injection Gate Pattern | Proposed |
 | [0016](0016-visual-validation-skipped-override-semantics.md) | VisualValidation SKIPPED Override Semantics | Proposed |
 | [0017](0017-auto-decompose-triage-counter-exclusion.md) | Auto-Decompose Triage Counter Exclusion | Proposed |
+| [0018](0018-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Proposed |
 
 ## Adding a new ADR
 
