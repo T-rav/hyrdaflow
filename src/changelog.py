@@ -58,8 +58,8 @@ def extract_summary(body: str) -> str:
 
 def _clean_title(title: str) -> str:
     """Remove conventional commit prefix from a title for display."""
-    # Strip "feat: ", "fix(scope): ", etc.
-    cleaned = re.sub(r"^[a-zA-Z]+(\(.+?\))?[!:]?\s*", "", title)
+    # Strip "feat: ", "fix(scope): ", "feat!: ", etc.
+    cleaned = re.sub(r"^[a-zA-Z]+(\(.+?\))?!?:\s*", "", title)
     return cleaned.strip() or title.strip()
 
 

@@ -646,12 +646,17 @@ class PRManager:
         """Create a GitHub Release for the given *tag*.
 
         Returns *True* on success, *False* on failure.
+        Uses a temp file for the notes body to avoid argument length limits.
         """
         self._assert_repo()
         if self._config.dry_run:
             logger.info("[dry-run] Would create release %s", tag)
             return True
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-release-")
         try:
+            with os.fdopen(fd, "w") as f:
+                f.write(body)
             await self._run_gh(
                 "gh",
                 "release",
@@ -661,13 +666,15 @@ class PRManager:
                 self._repo,
                 "--title",
                 title,
-                "--notes",
-                body,
+                "--notes-file",
+                tmp_path,
             )
             return True
         except RuntimeError as exc:
             logger.warning("Could not create release %s: %s", tag, exc)
             return False
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
     async def remove_pr_label(self, pr_number: int, label: str) -> None:
         """Remove *label* from a GitHub pull request."""
@@ -1248,39 +1255,6 @@ class PRManager:
                 )
 
         return 0
-
-    async def create_release(self, tag: str, title: str, body: str) -> bool:
-        """Create a GitHub release with the given *tag*, *title*, and *body*.
-
-        Returns *True* on success.
-        """
-        self._assert_repo()
-        if self._config.dry_run:
-            logger.info("[dry-run] Would create release %s", tag)
-            return True
-
-        fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-release-")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(body)
-            await self._run_gh(
-                "gh",
-                "release",
-                "create",
-                tag,
-                "--repo",
-                self._repo,
-                "--title",
-                title,
-                "--notes-file",
-                tmp_path,
-            )
-            return True
-        except RuntimeError as exc:
-            logger.error("Release creation failed for tag %s: %s", tag, exc)
-            return False
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
 
     # --- dashboard query helpers ---
 
