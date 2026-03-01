@@ -192,6 +192,7 @@ const styles = {
   loopChip: {
     display: 'flex',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 6,
     padding: '4px 8px',
     border: `1px solid ${theme.border}`,
