@@ -24,12 +24,18 @@ const STATUS_OPTIONS = [
   'merged',
 ]
 
+const OUTCOME_TYPES = [
+  'all', 'merged', 'already_satisfied', 'hitl_closed',
+  'hitl_skipped', 'hitl_approved', 'failed', 'manual_close',
+]
+
 const OUTCOME_COLORS = {
   merged: { color: theme.green, bg: theme.greenSubtle },
   already_satisfied: { color: theme.accent, bg: theme.accentSubtle },
   hitl_closed: { color: theme.orange, bg: theme.orangeSubtle },
   hitl_skipped: { color: theme.yellow, bg: theme.yellowSubtle },
   failed: { color: theme.red, bg: theme.redSubtle },
+  hitl_approved: { color: theme.green, bg: theme.greenSubtle },
   manual_close: { color: theme.textMuted, bg: theme.surfaceInset },
 }
 
@@ -50,6 +56,7 @@ function statusStyle(status) {
     padding: '2px 8px',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
+    whiteSpace: 'nowrap',
   }
   if (status === 'merged') return { ...common, background: theme.greenSubtle || theme.surface, color: theme.green }
   if (status === 'failed') return { ...common, background: theme.redSubtle || theme.surface, color: theme.red }
@@ -81,6 +88,20 @@ function formatNumber(n) {
   return (Number.isFinite(n) ? n : 0).toLocaleString()
 }
 
+function formatCompact(n) {
+  const v = Number.isFinite(n) ? n : 0
+  const fmt = (val, suffix) => {
+    const s = val.toFixed(1)
+    return `${s.replace(/\.0$/, '')}${suffix}`
+  }
+  // Check thresholds top-down; use 999.95 cutoffs so .toFixed(1) rounding
+  // doesn't overflow into the next magnitude (e.g. 999_950 → "1M" not "1000K")
+  if (v >= 999_950_000) return fmt(v / 1e9, 'B')
+  if (v >= 999_950) return fmt(v / 1e6, 'M')
+  if (v >= 1e3) return fmt(v / 1e3, 'K')
+  return v.toLocaleString()
+}
+
 function estimateSavedTokens(prunedChars) {
   const chars = Number(prunedChars || 0)
   if (!Number.isFinite(chars) || chars <= 0) return 0
@@ -92,6 +113,22 @@ function formatTs(ts) {
   const d = new Date(ts)
   if (Number.isNaN(d.getTime())) return '-'
   return d.toLocaleString()
+}
+
+function formatShortTs(ts) {
+  if (!ts) return '-'
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return '-'
+  const now = new Date()
+  const diffMs = now - d
+  const diffHours = diffMs / (1000 * 60 * 60)
+  if (diffHours < 24) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  if (diffHours < 24 * 7) {
+    return d.toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 function buildTimeRange(preset, customStart, customEnd) {
@@ -114,7 +151,6 @@ function buildTimeRange(preset, customStart, customEnd) {
 }
 
 function renderLinkedIssue(linked, index) {
-  // Backward compat: if entry is a plain int (old data), render as before
   if (typeof linked === 'number') {
     return <span key={linked} style={styles.linkedPill}>#{linked}</span>
   }
@@ -133,11 +169,15 @@ function renderLinkedIssue(linked, index) {
   )
 }
 
-export function IssueHistoryPanel() {
-  const [preset, setPreset] = useState('30d')
+// Grid column template — shared between header and data rows
+const GRID_COLUMNS = '26px 52px minmax(180px, 2fr) 84px 100px 50px minmax(80px, 1fr) 70px 100px'
+
+export function OutcomesPanel() {
+  const [preset, setPreset] = useState('all')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [outcomeFilter, setOutcomeFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [epicOnly, setEpicOnly] = useState(false)
   const [groupByEpic, setGroupByEpic] = useState(false)
@@ -154,9 +194,10 @@ export function IssueHistoryPanel() {
     [preset, customStart, customEnd],
   )
 
-  const fetchHistory = useCallback((params, { background = false } = {}) => {
+  const abortRef = useRef(null)
+
+  const fetchHistory = useCallback((params, { background = false, signal } = {}) => {
     if (!background) {
-      // Show cached data immediately if available (stale-while-revalidate)
       if (cachedPayload.current) {
         setPayload(cachedPayload.current)
       }
@@ -164,7 +205,7 @@ export function IssueHistoryPanel() {
       setError('')
     }
 
-    return fetch(`/api/issues/history?${params.toString()}`)
+    return fetch(`/api/issues/history?${params.toString()}`, { signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`status ${res.status}`)
         return await res.json()
@@ -177,7 +218,8 @@ export function IssueHistoryPanel() {
         cachedPayload.current = next
         setPayload(next)
       })
-      .catch(() => {
+      .catch((err) => {
+        if (err?.name === 'AbortError') return
         if (!background) setError('Could not load issue history')
       })
       .finally(() => {
@@ -186,26 +228,28 @@ export function IssueHistoryPanel() {
   }, [])
 
   useEffect(() => {
+    const ac = new AbortController()
+    abortRef.current = ac
     const params = new URLSearchParams()
     if (timeRange.since) params.set('since', timeRange.since)
     if (timeRange.until) params.set('until', timeRange.until)
     params.set('limit', '500')
 
-    fetchHistory(params)
+    fetchHistory(params, { signal: ac.signal })
 
-    // Background refresh every 30s
     clearInterval(refreshTimer.current)
     refreshTimer.current = setInterval(() => {
       fetchHistory(params, { background: true })
     }, 30_000)
 
-    return () => clearInterval(refreshTimer.current)
+    return () => { ac.abort(); clearInterval(refreshTimer.current) }
   }, [timeRange.since, timeRange.until, fetchHistory])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return (payload.items || []).filter(item => {
       if (statusFilter !== 'all' && (item.status || 'unknown') !== statusFilter) return false
+      if (outcomeFilter !== 'all' && item.outcome?.outcome !== outcomeFilter) return false
       if (epicOnly && !item.epic) return false
       if (!q) return true
       const issueText = `#${item.issue_number} ${(item.title || '').toLowerCase()}`
@@ -213,7 +257,7 @@ export function IssueHistoryPanel() {
       if ((item.epic || '').toLowerCase().includes(q)) return true
       return false
     })
-  }, [payload.items, statusFilter, epicOnly, search])
+  }, [payload.items, statusFilter, outcomeFilter, epicOnly, search])
 
   const grouped = useMemo(() => {
     if (!groupByEpic) return null
@@ -235,8 +279,16 @@ export function IssueHistoryPanel() {
     }, { total_tokens: 0, inference_calls: 0, pruned_chars_total: 0 })
   }, [filtered])
 
+  const summaryCounts = useMemo(() => {
+    const counts = {}
+    for (const item of filtered) {
+      const t = item.outcome?.outcome || 'unknown'
+      counts[t] = (counts[t] || 0) + 1
+    }
+    return counts
+  }, [filtered])
+
   const visibleSavedTokens = estimateSavedTokens(visibleTotals.pruned_chars_total)
-  const visibleUnprunedTokens = visibleTotals.total_tokens + visibleSavedTokens
 
   const toggleExpanded = (issueNumber) => {
     setExpanded(prev => ({ ...prev, [issueNumber]: !prev[issueNumber] }))
@@ -258,6 +310,7 @@ export function IssueHistoryPanel() {
     const issueSavedTokens = estimateSavedTokens(item.inference?.pruned_chars_total || 0)
     const issueUnprunedTokens = issueActualTokens + issueSavedTokens
     const outcomeType = item.outcome?.outcome
+    const title = item.title || ''
     return (
       <div key={issueNum} style={styles.rowWrap}>
         <div style={styles.row}>
@@ -269,26 +322,24 @@ export function IssueHistoryPanel() {
           >
             {isExpanded ? '▾' : '▸'}
           </button>
-          <div style={styles.issueCell}>
-            <a href={item.issue_url || '#'} target="_blank" rel="noreferrer" style={styles.issueLink}>
-              #{issueNum}
-            </a>
-            <span style={styles.issueTitle}>{item.title || `Issue #${issueNum}`}</span>
-          </div>
+          <a href={item.issue_url || '#'} target="_blank" rel="noreferrer" style={styles.issueLink}>
+            #{issueNum}
+          </a>
+          <span style={styles.titleCell} title={title || `Issue #${issueNum}`}>
+            {title || <span style={styles.dimText}>Untitled</span>}
+          </span>
           <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
           <span style={styles.outcomeCell}>
             {outcomeType
               ? <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.manual_close}>{outcomeType.replace(/_/g, ' ')}</span>
-              : <span style={styles.metaCell}>-</span>}
+              : <span style={styles.dimText}>\u2014</span>}
           </span>
-          <span style={styles.metaCell}>{item.prs?.length || 0} PRs</span>
-          <span style={styles.metaCell}>{item.epic || '-'}</span>
-          <span style={styles.metaCell}>
-            {formatNumber(issueActualTokens)} tok
-            {' · '}
-            {formatNumber(issueSavedTokens)} saved
+          <span style={styles.metaCell}>{item.prs?.length || 0}</span>
+          <span style={styles.epicCell} title={item.epic || ''}>{item.epic || <span style={styles.dimText}>\u2014</span>}</span>
+          <span style={styles.tokenCell} title={`${formatNumber(issueActualTokens)} actual · ${formatNumber(issueSavedTokens)} saved`}>
+            {formatCompact(issueActualTokens)}
           </span>
-          <span style={styles.metaCell}>{formatTs(item.last_seen)}</span>
+          <span style={styles.timeCell} title={formatTs(item.last_seen)}>{formatShortTs(item.last_seen)}</span>
         </div>
 
         {isExpanded && (
@@ -407,6 +458,11 @@ export function IssueHistoryPanel() {
               <option key={opt} value={opt}>{opt === 'all' ? 'All statuses' : opt}</option>
             ))}
           </select>
+          <select value={outcomeFilter} onChange={e => setOutcomeFilter(e.target.value)} style={styles.select} data-testid="outcome-filter">
+            {OUTCOME_TYPES.map(opt => (
+              <option key={opt} value={opt}>{opt === 'all' ? 'All outcomes' : opt.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
           <label style={styles.checkboxLabel}>
             <input type="checkbox" checked={epicOnly} onChange={e => setEpicOnly(e.target.checked)} />
             Epic only
@@ -419,44 +475,69 @@ export function IssueHistoryPanel() {
       </div>
 
       <div style={styles.summaryRow}>
-        <span>{filtered.length} issues</span>
-        <span>{formatNumber(visibleTotals.inference_calls)} calls</span>
-        <span>{formatNumber(visibleTotals.total_tokens)} tokens (actual)</span>
-        <span>{formatNumber(visibleSavedTokens)} tokens saved (est)</span>
-        <span>{formatNumber(visibleUnprunedTokens)} tokens w/o pruning (est)</span>
+        <span style={styles.summaryCount}>{filtered.length} issues</span>
+        <span>{formatCompact(visibleTotals.total_tokens)} tok</span>
+        <span>{formatCompact(visibleSavedTokens)} saved</span>
+        <span style={styles.summaryDivider}>|</span>
+        {Object.entries(summaryCounts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([type, count]) => (
+            <span key={type} style={styles.summaryPill}>
+              <span style={outcomeBadgeStyles[type] || outcomeBadgeStyles.manual_close}>
+                {type.replace(/_/g, ' ')}
+              </span>
+              {' '}{count}
+            </span>
+          ))}
       </div>
 
-      {loading && <div style={styles.info}>Loading issue history...</div>}
+      {loading && <div style={styles.info}>Loading...</div>}
       {error && <div style={styles.error}>{error}</div>}
 
       <div style={styles.table}>
-        {grouped ? (
-          Object.entries(grouped)
-            .sort(([a], [b]) => (a === 'Ungrouped' ? 1 : b === 'Ungrouped' ? -1 : a.localeCompare(b)))
-            .map(([epicLabel, items]) => {
-              const isCollapsed = collapsedEpics.has(epicLabel)
-              return (
-                <div key={epicLabel}>
-                  <button
-                    type="button"
-                    onClick={() => toggleEpicCollapse(epicLabel)}
-                    style={styles.epicHeader}
-                  >
-                    <span>{isCollapsed ? '▸' : '▾'}</span>
-                    <span style={styles.epicTitle}>{epicLabel}</span>
-                    <span style={styles.epicCount}>{items.length} issue{items.length !== 1 ? 's' : ''}</span>
-                  </button>
-                  {!isCollapsed && items.map(item => renderIssueRow(item))}
-                </div>
-              )
-            })
-        ) : (
-          filtered.map(item => renderIssueRow(item))
-        )}
+        <div style={styles.headerRow}>
+          <span />
+          <span style={styles.headerCell}>#</span>
+          <span style={styles.headerCell}>Title</span>
+          <span style={styles.headerCell}>Stage</span>
+          <span style={styles.headerCell}>Outcome</span>
+          <span style={styles.headerCell}>PRs</span>
+          <span style={styles.headerCell}>Epic</span>
+          <span style={styles.headerCellRight}>Tokens</span>
+          <span style={styles.headerCellRight}>Last Seen</span>
+        </div>
 
-        {!loading && filtered.length === 0 && (
-          <div style={styles.info}>No issues match this filter.</div>
-        )}
+        <div style={styles.tableBody}>
+          {grouped ? (
+            Object.entries(grouped)
+              .sort(([a], [b]) => (a === 'Ungrouped' ? 1 : b === 'Ungrouped' ? -1 : a.localeCompare(b)))
+              .map(([epicLabel, items]) => {
+                const isCollapsed = collapsedEpics.has(epicLabel)
+                return (
+                  <div key={epicLabel}>
+                    <button
+                      type="button"
+                      onClick={() => toggleEpicCollapse(epicLabel)}
+                      style={styles.epicHeader}
+                      aria-expanded={!isCollapsed}
+                      aria-label={`Toggle ${epicLabel} group`}
+                    >
+                      <span>{isCollapsed ? '▸' : '▾'}</span>
+                      <span style={styles.epicTitle}>{epicLabel}</span>
+                      <span style={styles.epicCount}>{items.length} issue{items.length !== 1 ? 's' : ''}</span>
+                    </button>
+                    {!isCollapsed && items.map(item => renderIssueRow(item))}
+                  </div>
+                )
+              })
+          ) : (
+            filtered.map(item => renderIssueRow(item))
+          )}
+
+          {!loading && filtered.length === 0 && (
+            <div style={styles.info}>No issues match this filter.</div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -479,6 +560,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: 10,
+    flexShrink: 0,
   },
   controlGroup: {
     display: 'flex',
@@ -515,7 +597,7 @@ const styles = {
     fontSize: 12,
   },
   searchInput: {
-    minWidth: 260,
+    minWidth: 220,
     flex: 1,
     border: `1px solid ${theme.border}`,
     background: theme.surfaceInset,
@@ -525,7 +607,7 @@ const styles = {
     fontSize: 12,
   },
   select: {
-    minWidth: 140,
+    minWidth: 130,
     border: `1px solid ${theme.border}`,
     background: theme.surfaceInset,
     color: theme.text,
@@ -551,15 +633,61 @@ const styles = {
   },
   summaryRow: {
     display: 'flex',
-    gap: 16,
-    fontSize: 12,
+    gap: 12,
+    fontSize: 11,
     color: theme.textMuted,
     padding: '0 2px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    flexShrink: 0,
+  },
+  summaryCount: {
+    fontWeight: 700,
+    color: theme.textBright,
+  },
+  summaryDivider: {
+    color: theme.border,
+  },
+  summaryPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
   },
   table: {
     border: `1px solid ${theme.border}`,
     borderRadius: 8,
     background: theme.surface,
+    flex: 1,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  headerRow: {
+    display: 'grid',
+    gridTemplateColumns: GRID_COLUMNS,
+    gap: 8,
+    alignItems: 'center',
+    padding: '6px 10px',
+    fontSize: 10,
+    fontWeight: 700,
+    color: theme.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+    borderBottom: `1px solid ${theme.border}`,
+    background: theme.surfaceInset,
+    flexShrink: 0,
+  },
+  headerCell: {
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+  },
+  headerCellRight: {
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textAlign: 'right',
+  },
+  tableBody: {
     overflowY: 'auto',
     flex: 1,
     minHeight: 0,
@@ -569,10 +697,10 @@ const styles = {
   },
   row: {
     display: 'grid',
-    gridTemplateColumns: '26px minmax(260px, 1.4fr) auto 100px 80px minmax(120px, 1fr) 120px 170px',
+    gridTemplateColumns: GRID_COLUMNS,
     gap: 8,
     alignItems: 'center',
-    padding: '8px 10px',
+    padding: '7px 10px',
     fontSize: 12,
   },
   expandButton: {
@@ -581,23 +709,23 @@ const styles = {
     color: theme.textMuted,
     cursor: 'pointer',
     fontSize: 12,
-  },
-  issueCell: {
-    minWidth: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
+    padding: 0,
   },
   issueLink: {
     color: theme.accent,
     textDecoration: 'none',
     fontWeight: 700,
-    flexShrink: 0,
+    whiteSpace: 'nowrap',
   },
-  issueTitle: {
+  titleCell: {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    minWidth: 0,
+  },
+  dimText: {
+    color: theme.textMuted,
+    opacity: 0.5,
   },
   outcomeCell: {
     whiteSpace: 'nowrap',
@@ -606,6 +734,26 @@ const styles = {
   metaCell: {
     color: theme.textMuted,
     whiteSpace: 'nowrap',
+    textAlign: 'center',
+  },
+  epicCell: {
+    color: theme.textMuted,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    minWidth: 0,
+  },
+  tokenCell: {
+    color: theme.textMuted,
+    whiteSpace: 'nowrap',
+    textAlign: 'right',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  timeCell: {
+    color: theme.textMuted,
+    whiteSpace: 'nowrap',
+    textAlign: 'right',
+    fontSize: 11,
   },
   expanded: {
     borderTop: `1px dashed ${theme.border}`,

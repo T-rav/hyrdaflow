@@ -111,6 +111,9 @@ class TestCreateRouter:
             "/api/runtimes/{slug}",
             "/api/runtimes/{slug}/start",
             "/api/runtimes/{slug}/stop",
+            "/api/crates",
+            "/api/crates/{crate_number}",
+            "/api/crates/{crate_number}/items",
             "/ws",
             "/{path:path}",
         }
@@ -5838,3 +5841,257 @@ class TestRetrospectivesEdgeCases:
         data = json.loads(response.body)
         assert data["total_entries"] == 1
         assert data["avg_plan_accuracy"] == 90.0
+
+
+# ---------------------------------------------------------------------------
+# Crate (milestone) endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestCrateEndpoints:
+    """Tests for /api/crates routes backed by GitHub milestones."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path, method=None):
+        for route in router.routes:
+            if not (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                continue
+            if method is None or (
+                hasattr(route, "methods") and method in route.methods
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_list_crates_returns_empty_list(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.list_milestones = AsyncMock(return_value=[])
+        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        assert endpoint is not None
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data == []
+
+    @pytest.mark.asyncio
+    async def test_list_crates_returns_enriched_data(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import Crate
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.list_milestones = AsyncMock(
+            return_value=[
+                Crate(
+                    number=1,
+                    title="Sprint 1",
+                    state="open",
+                    open_issues=3,
+                    closed_issues=2,
+                )
+            ]
+        )
+        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert len(data) == 1
+        assert data[0]["title"] == "Sprint 1"
+        assert data[0]["total_issues"] == 5
+        assert data[0]["progress"] == 40
+
+    @pytest.mark.asyncio
+    async def test_list_crates_zero_total_issues(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """progress should be 0 when a crate has zero issues (no division by zero)."""
+        import json
+
+        from models import Crate
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.list_milestones = AsyncMock(
+            return_value=[
+                Crate(
+                    number=2,
+                    title="Empty",
+                    state="open",
+                    open_issues=0,
+                    closed_issues=0,
+                )
+            ]
+        )
+        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data[0]["total_issues"] == 0
+        assert data[0]["progress"] == 0
+
+    @pytest.mark.asyncio
+    async def test_list_crates_runtime_error(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.list_milestones = AsyncMock(side_effect=RuntimeError("gh failed"))
+        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        response = await endpoint()
+        assert response.status_code == 500
+        data = json.loads(response.body)
+        assert "gh failed" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_crate_success(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import Crate, CrateCreateRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.create_milestone = AsyncMock(
+            return_value=Crate(number=5, title="Sprint 3", state="open")
+        )
+        endpoint = self._find_endpoint(router, "/api/crates", "POST")
+        body = CrateCreateRequest(title="Sprint 3")
+        response = await endpoint(body)
+        data = json.loads(response.body)
+        assert data["title"] == "Sprint 3"
+        assert data["number"] == 5
+        pr_mgr.create_milestone.assert_called_once_with(
+            title="Sprint 3", description="", due_on=None
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_crate_error(self, config, event_bus, state, tmp_path) -> None:
+        import json
+
+        from models import CrateCreateRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.create_milestone = AsyncMock(side_effect=RuntimeError("rate limit"))
+        endpoint = self._find_endpoint(router, "/api/crates", "POST")
+        body = CrateCreateRequest(title="Fail")
+        response = await endpoint(body)
+        assert response.status_code == 500
+        data = json.loads(response.body)
+        assert "rate limit" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_update_crate_success(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import Crate, CrateUpdateRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.update_milestone = AsyncMock(
+            return_value=Crate(number=1, title="Updated", state="closed")
+        )
+        endpoint = self._find_endpoint(router, "/api/crates/{crate_number}", "PATCH")
+        body = CrateUpdateRequest(title="Updated", state="closed")
+        response = await endpoint(1, body)
+        data = json.loads(response.body)
+        assert data["title"] == "Updated"
+        assert data["state"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_delete_crate_success(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.delete_milestone = AsyncMock()
+        endpoint = self._find_endpoint(router, "/api/crates/{crate_number}", "DELETE")
+        response = await endpoint(1)
+        data = json.loads(response.body)
+        assert data["ok"] is True
+        pr_mgr.delete_milestone.assert_called_once_with(1)
+
+    @pytest.mark.asyncio
+    async def test_add_crate_items_success(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from models import CrateItemsRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.set_issue_milestone = AsyncMock()
+        endpoint = self._find_endpoint(
+            router, "/api/crates/{crate_number}/items", "POST"
+        )
+        body = CrateItemsRequest(issue_numbers=[10, 11, 12])
+        response = await endpoint(5, body)
+        data = json.loads(response.body)
+        assert data["ok"] is True
+        assert data["added"] == 3
+        assert pr_mgr.set_issue_milestone.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_remove_crate_items_only_removes_matching(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Only issues currently assigned to the target milestone should be cleared."""
+        import json
+
+        from models import CrateItemsRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        # Issue 10 belongs to milestone 5, issue 99 does not
+        pr_mgr.list_milestone_issues = AsyncMock(
+            return_value=[{"number": 10}, {"number": 11}]
+        )
+        pr_mgr.set_issue_milestone = AsyncMock()
+        endpoint = self._find_endpoint(
+            router, "/api/crates/{crate_number}/items", "DELETE"
+        )
+        body = CrateItemsRequest(issue_numbers=[10, 99])
+        response = await endpoint(5, body)
+        data = json.loads(response.body)
+        assert data["ok"] is True
+        assert data["removed"] == 1  # Only issue 10 was actually in milestone 5
+        pr_mgr.set_issue_milestone.assert_called_once_with(10, None)
+
+    @pytest.mark.asyncio
+    async def test_remove_crate_items_error(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+
+        from models import CrateItemsRequest
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.list_milestone_issues = AsyncMock(side_effect=RuntimeError("fail"))
+        endpoint = self._find_endpoint(
+            router, "/api/crates/{crate_number}/items", "DELETE"
+        )
+        body = CrateItemsRequest(issue_numbers=[10])
+        response = await endpoint(5, body)
+        assert response.status_code == 500

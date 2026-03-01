@@ -4,21 +4,19 @@ import { Header } from './components/Header'
 import { HumanInputBanner } from './components/HumanInputBanner'
 import { HITLTable } from './components/HITLTable'
 import { SystemPanel } from './components/SystemPanel'
-import { IssueHistoryPanel } from './components/IssueHistoryPanel'
+import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
-import { OutcomesPanel } from './components/OutcomesPanel'
-import { EpicsPanel } from './components/EpicsPanel'
+import { WorkLogPanel } from './components/WorkLogPanel'
 import { SessionSidebar } from './components/SessionSidebar'
 import { theme } from './theme'
 
-const TABS = ['issues', 'history', 'outcomes', 'hitl', 'epics', 'system']
+const TABS = ['issues', 'outcomes', 'hitl', 'worklog', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
-  history: 'History',
   outcomes: 'Outcomes',
   hitl: 'HITL',
-  epics: 'Epics',
+  worklog: 'Work Log',
   system: 'System',
 }
 
@@ -35,7 +33,8 @@ function SystemAlertBanner({ alert }) {
 
 function SessionFilterBanner({ session, onClear, liveStats }) {
   if (!session) return null
-  const startDate = new Date(session.started_at).toLocaleString()
+  const d = new Date(session.started_at)
+  const startDate = Number.isNaN(d.getTime()) ? '-' : d.toLocaleString()
   const succeeded = liveStats?.issues_succeeded ?? session.issues_succeeded ?? 0
   const failed = liveStats?.issues_failed ?? session.issues_failed ?? 0
   const issueCount = liveStats?.issues_processed_count ?? (session.issues_processed?.length ?? 0)
@@ -50,7 +49,7 @@ function SessionFilterBanner({ session, onClear, liveStats }) {
         {succeeded > 0 && ` · ${succeeded} passed`}
         {failed > 0 && ` · ${failed} failed`}
       </span>
-      <span onClick={onClear} style={styles.sessionBannerClear}>Clear filter</span>
+      <span role="button" tabIndex={0} onClick={onClear} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClear() } }} style={styles.sessionBannerClear}>Clear filter</span>
     </div>
   )
 }
@@ -124,11 +123,15 @@ function AppContent() {
         <SystemAlertBanner alert={systemAlert} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
 
-        <div style={styles.tabs} data-testid="main-tabs">
+        <div style={styles.tabs} data-testid="main-tabs" role="tablist">
           {TABS.map((tab) => (
             <div
               key={tab}
+              role="tab"
+              tabIndex={0}
+              aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab(tab) } }}
               style={activeTab === tab ? tabActiveStyle : tabInactiveStyle}
             >
               {tab === 'hitl' ? (
@@ -148,10 +151,9 @@ function AppContent() {
                 onRequestChanges={handleRequestChanges}
               />
             )}
-            {activeTab === 'history' && <IssueHistoryPanel />}
             {activeTab === 'outcomes' && <OutcomesPanel />}
             {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
-            {activeTab === 'epics' && <EpicsPanel />}
+            {activeTab === 'worklog' && <WorkLogPanel />}
             {activeTab === 'system' && (
               <SystemPanel
                 backgroundWorkers={backgroundWorkers}

@@ -31,6 +31,9 @@ from models import (
     BGWorkerHealth,
     ControlStatusConfig,
     ControlStatusResponse,
+    CrateCreateRequest,
+    CrateItemsRequest,
+    CrateUpdateRequest,
     HITLCloseRequest,
     HITLSkipRequest,
     IntentRequest,
@@ -630,6 +633,111 @@ def create_router(
         if detail is None:
             return JSONResponse({"error": "epic not found"}, status_code=404)
         return JSONResponse(detail.model_dump())
+
+    # --- Crate (milestone) routes ---
+
+    @router.get("/api/crates")
+    async def get_crates() -> JSONResponse:
+        """List all milestones as crates with enriched progress data."""
+        try:
+            crates = await pr_manager.list_milestones()
+            result = []
+            for crate in crates:
+                data = crate.model_dump()
+                data["total_issues"] = crate.open_issues + crate.closed_issues
+                data["progress"] = (
+                    round(
+                        crate.closed_issues
+                        / (crate.open_issues + crate.closed_issues)
+                        * 100
+                    )
+                    if (crate.open_issues + crate.closed_issues) > 0
+                    else 0
+                )
+                result.append(data)
+            return JSONResponse(result)
+        except RuntimeError as exc:
+            logger.error("Failed to fetch crates: %s", exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @router.post("/api/crates")
+    async def create_crate(body: CrateCreateRequest) -> JSONResponse:
+        """Create a new milestone (crate)."""
+        if not body.title.strip():
+            return JSONResponse({"error": "title is required"}, status_code=400)
+        try:
+            crate = await pr_manager.create_milestone(
+                title=body.title.strip(),
+                description=body.description,
+                due_on=body.due_on,
+            )
+            return JSONResponse(crate.model_dump())
+        except RuntimeError as exc:
+            logger.error("Failed to create crate: %s", exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @router.patch("/api/crates/{crate_number}")
+    async def update_crate(crate_number: int, body: CrateUpdateRequest) -> JSONResponse:
+        """Update a milestone (crate).
+
+        Only fields present in the request JSON are forwarded.  Sending
+        ``"due_on": null`` clears the milestone due date.
+        """
+        fields = {k: body.model_dump()[k] for k in body.model_fields_set}
+        if not fields:
+            return JSONResponse({"error": "no fields to update"}, status_code=400)
+        try:
+            crate = await pr_manager.update_milestone(crate_number, **fields)
+            return JSONResponse(crate.model_dump())
+        except RuntimeError as exc:
+            logger.error("Failed to update crate #%d: %s", crate_number, exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @router.delete("/api/crates/{crate_number}")
+    async def delete_crate(crate_number: int) -> JSONResponse:
+        """Delete a milestone (crate)."""
+        try:
+            await pr_manager.delete_milestone(crate_number)
+            return JSONResponse({"ok": True})
+        except RuntimeError as exc:
+            logger.error("Failed to delete crate #%d: %s", crate_number, exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @router.post("/api/crates/{crate_number}/items")
+    async def add_crate_items(
+        crate_number: int, body: CrateItemsRequest
+    ) -> JSONResponse:
+        """Assign issues to a milestone (crate)."""
+        try:
+            for issue_num in body.issue_numbers:
+                await pr_manager.set_issue_milestone(issue_num, crate_number)
+            return JSONResponse({"ok": True, "added": len(body.issue_numbers)})
+        except RuntimeError as exc:
+            logger.error("Failed to add items to crate #%d: %s", crate_number, exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @router.delete("/api/crates/{crate_number}/items")
+    async def remove_crate_items(
+        crate_number: int, body: CrateItemsRequest
+    ) -> JSONResponse:
+        """Remove issues from a milestone (crate) by clearing their milestone.
+
+        Only clears the milestone if the issue is currently assigned to the
+        specified crate (milestone), avoiding unintended removal from a
+        different milestone.
+        """
+        try:
+            current_issues = await pr_manager.list_milestone_issues(crate_number)
+            current_nums = {i.get("number") for i in current_issues}
+            removed = 0
+            for issue_num in body.issue_numbers:
+                if issue_num in current_nums:
+                    await pr_manager.set_issue_milestone(issue_num, None)
+                    removed += 1
+            return JSONResponse({"ok": True, "removed": removed})
+        except RuntimeError as exc:
+            logger.error("Failed to remove items from crate #%d: %s", crate_number, exc)
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     @router.get("/api/hitl")
     async def get_hitl(

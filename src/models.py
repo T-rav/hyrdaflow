@@ -820,6 +820,48 @@ class EpicDetail(BaseModel):
     children: list[EpicChildInfo] = Field(default_factory=list)
 
 
+class Crate(BaseModel):
+    """A GitHub milestone used as a delivery work package (crate)."""
+
+    number: int
+    title: str
+    description: str = ""
+    due_on: str | None = None
+    state: str = "open"
+    open_issues: int = 0
+    closed_issues: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class CrateCreateRequest(BaseModel):
+    """Request body for POST /api/crates."""
+
+    title: str
+    description: str = ""
+    due_on: str | None = None
+
+
+class CrateUpdateRequest(BaseModel):
+    """Request body for PATCH /api/crates/{number}.
+
+    Fields use a sentinel pattern: only fields present in the request JSON
+    are forwarded to GitHub.  Sending ``"due_on": null`` explicitly clears
+    the milestone due date.
+    """
+
+    title: str | None = None
+    description: str | None = None
+    due_on: str | None = None
+    state: Literal["open", "closed"] | None = None
+
+
+class CrateItemsRequest(BaseModel):
+    """Request body for POST/DELETE /api/crates/{number}/items."""
+
+    issue_numbers: list[int] = Field(default_factory=list)
+
+
 class PipelineIssueStatus(StrEnum):
     """Status of an issue in the pipeline snapshot."""
 
