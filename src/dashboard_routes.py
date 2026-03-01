@@ -580,6 +580,20 @@ def create_router(
             return JSONResponse(snapshot.model_dump())
         return JSONResponse(PipelineSnapshot().model_dump())
 
+    @router.get("/api/pipeline/stats")
+    async def get_pipeline_stats(
+        repo: str | None = Query(
+            default=None, description="Repo slug to scope the request"
+        ),
+    ) -> JSONResponse:
+        """Return lightweight pipeline stats (counts only, no issue details)."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
+        if orch:
+            stats = orch.build_pipeline_stats()
+            return JSONResponse(stats.model_dump())
+        return JSONResponse({})
+
     @router.get("/api/events")
     async def get_events(since: str | None = None) -> JSONResponse:
         if since is not None:

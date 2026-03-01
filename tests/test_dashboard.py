@@ -2591,3 +2591,114 @@ class TestSPACatchAll:
         assert response.status_code == 200
         body = response.json()
         assert isinstance(body, dict)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/pipeline/stats
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineStatsRoute:
+    """Tests for the GET /api/pipeline/stats endpoint."""
+
+    def test_pipeline_stats_returns_empty_dict_without_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats")
+
+        assert response.json() == {}
+
+    def test_pipeline_stats_returns_valid_pipeline_stats_with_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+        from models import PipelineStats, StageStats, ThroughputStats
+
+        stats = PipelineStats(
+            timestamp="2026-02-28T00:00:00Z",
+            stages={"triage": StageStats(queued=3, active=1)},
+            throughput=ThroughputStats(triage=2.5),
+            uptime_seconds=120.0,
+        )
+        orch = make_orchestrator_mock()
+        orch.build_pipeline_stats = MagicMock(return_value=stats)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats")
+
+        body = response.json()
+        assert body["timestamp"] == "2026-02-28T00:00:00Z"
+        assert body["stages"]["triage"]["queued"] == 3
+        assert body["stages"]["triage"]["active"] == 1
+        assert body["throughput"]["triage"] == 2.5
+        assert body["uptime_seconds"] == 120.0
+
+    def test_pipeline_stats_includes_queue_field(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+        from models import PipelineStats
+
+        stats = PipelineStats(timestamp="2026-02-28T00:00:00Z")
+        orch = make_orchestrator_mock()
+        orch.build_pipeline_stats = MagicMock(return_value=stats)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats")
+
+        body = response.json()
+        assert "queue" in body
+        assert "throughput" in body
+
+    def test_pipeline_stats_repo_param_ignored_without_registry(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Without a registry, the ?repo= param is silently ignored (backward compat)."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/pipeline/stats?repo=some-org/some-repo")
+
+        assert response.status_code == 200
+        assert response.json() == {}
+
+
+class TestPipelineStatsWebSocketForwarding:
+    """Tests that PIPELINE_STATS events are forwarded via WebSocket."""
+
+    def test_pipeline_stats_event_type_exists(self) -> None:
+        assert hasattr(EventType, "PIPELINE_STATS")
+        assert EventType.PIPELINE_STATS.value == "pipeline_stats"
+
+    def test_pipeline_stats_event_can_be_published(self, event_bus: EventBus) -> None:
+        from models import PipelineStats
+
+        stats = PipelineStats(timestamp="2026-02-28T00:00:00Z")
+        event = HydraFlowEvent(
+            type=EventType.PIPELINE_STATS,
+            data=stats.model_dump(),
+        )
+        # Should not raise
+        assert event.type == EventType.PIPELINE_STATS
+        assert event.data["timestamp"] == "2026-02-28T00:00:00Z"

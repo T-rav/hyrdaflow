@@ -41,6 +41,7 @@ export const initialState = {
   githubMetrics: null,
   metricsHistory: null,
   pipelineIssues: { ...emptyPipeline },
+  pipelineStats: null,
   pipelinePollerLastRun: null,
   sessions: [],
   currentSessionId: null,
@@ -498,6 +499,11 @@ export function reducer(state, action) {
       }
     }
 
+    case 'pipeline_stats':
+    case 'PIPELINE_STATS': {
+      return { ...state, pipelineStats: action.data }
+    }
+
     case 'WS_PIPELINE_UPDATE': {
       const { issueNumber, fromStage, toStage, status: pipeStatus } = action.data
       const next = { ...state.pipelineIssues }
@@ -702,6 +708,13 @@ export function HydraFlowProvider({ children }) {
     fetch('/api/pipeline')
       .then(r => r.json())
       .then(data => dispatch({ type: 'PIPELINE_SNAPSHOT', data: data.stages || {} }))
+      .catch(() => {})
+  }, [])
+
+  const fetchPipelineStats = useCallback(() => {
+    fetch('/api/pipeline/stats')
+      .then(r => r.json())
+      .then(data => dispatch({ type: 'PIPELINE_STATS', data }))
       .catch(() => {})
   }, [])
 
@@ -992,6 +1005,7 @@ export function HydraFlowProvider({ children }) {
       fetchGithubMetrics()
       fetchMetricsHistory()
       fetchPipeline()
+      fetchPipelineStats()
       fetchEpics()
       fetchSessions()
       fetchRepos()
@@ -1051,7 +1065,7 @@ export function HydraFlowProvider({ children }) {
 
     ws.onerror = () => ws.close()
     wsRef.current = ws
-  }, [fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
+  }, [fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
 
   useEffect(() => {
     const poll = () => {
@@ -1065,11 +1079,14 @@ export function HydraFlowProvider({ children }) {
     return () => clearInterval(interval)
   }, [])
 
-  // Pipeline polling — interval is editable via system worker controls
+  // Pipeline polling — interval is editable via system worker controls.
+  // When WebSocket is connected and pipeline_stats events are flowing,
+  // double the polling interval since stats arrive via WebSocket.
   const pipelinePollerIntervalMs = useMemo(() => {
     const worker = state.backgroundWorkers.find(w => w.name === 'pipeline_poller')
-    return (worker?.interval_seconds ?? SYSTEM_WORKER_INTERVALS.pipeline_poller) * 1000
-  }, [state.backgroundWorkers])
+    const baseMs = (worker?.interval_seconds ?? SYSTEM_WORKER_INTERVALS.pipeline_poller) * 1000
+    return (state.connected && state.pipelineStats) ? baseMs * 2 : baseMs
+  }, [state.backgroundWorkers, state.connected, state.pipelineStats])
 
   useEffect(() => {
     fetchPipeline()

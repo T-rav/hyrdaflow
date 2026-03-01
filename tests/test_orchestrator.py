@@ -3187,7 +3187,7 @@ class TestPipelineStatsEmission:
         from orchestrator import HydraFlowOrchestrator
 
         orch = HydraFlowOrchestrator(config)
-        stats = orch._build_pipeline_stats()
+        stats = orch.build_pipeline_stats()
         assert stats.timestamp
         assert stats.uptime_seconds == 0.0
         assert "triage" in stats.stages
@@ -3203,7 +3203,7 @@ class TestPipelineStatsEmission:
         from orchestrator import HydraFlowOrchestrator
 
         orch = HydraFlowOrchestrator(config)
-        stats = orch._build_pipeline_stats()
+        stats = orch.build_pipeline_stats()
         assert stats.stages["triage"].worker_cap == config.max_triagers
         assert stats.stages["plan"].worker_cap == config.max_planners
         assert stats.stages["implement"].worker_cap == config.max_workers
@@ -3224,7 +3224,7 @@ class TestPipelineStatsEmission:
             repo="test/repo",
             started_at=(datetime.now(UTC)).isoformat(),
         )
-        stats = orch._build_pipeline_stats()
+        stats = orch.build_pipeline_stats()
         # Uptime should be positive since session just started
         assert stats.uptime_seconds >= 0.0
 
@@ -3235,7 +3235,7 @@ class TestPipelineStatsEmission:
 
         orch = HydraFlowOrchestrator(config)
         orch._session_issue_results = {1: True, 2: True, 3: False}
-        stats = orch._build_pipeline_stats()
+        stats = orch.build_pipeline_stats()
         assert stats.stages["merged"].completed_session == 2
 
     @pytest.mark.asyncio
@@ -3264,7 +3264,7 @@ class TestPipelineStatsEmission:
         from orchestrator import HydraFlowOrchestrator
 
         orch = HydraFlowOrchestrator(config)
-        stats = orch._build_pipeline_stats()
+        stats = orch.build_pipeline_stats()
         data = stats.model_dump()
         # Should not raise
         json_str = json.dumps(data)

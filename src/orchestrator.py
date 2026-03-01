@@ -397,7 +397,7 @@ class HydraFlowOrchestrator:
             )
         )
 
-    def _build_pipeline_stats(self) -> PipelineStats:
+    def build_pipeline_stats(self) -> PipelineStats:
         """Build a unified snapshot of the pipeline state."""
         queue_stats = self._store.get_queue_stats()
         lifetime = self._state.get_lifetime_stats()
@@ -489,7 +489,7 @@ class HydraFlowOrchestrator:
 
     async def emit_pipeline_stats(self) -> None:
         """Build and publish a PIPELINE_STATS event."""
-        stats = self._build_pipeline_stats()
+        stats = self.build_pipeline_stats()
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.PIPELINE_STATS,
