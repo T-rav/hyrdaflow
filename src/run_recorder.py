@@ -256,8 +256,13 @@ class RunRecorder:
             if not issue_dir.is_dir() or not issue_dir.name.isdigit():
                 continue
             for run_dir in issue_dir.iterdir():
-                if run_dir.is_dir():
-                    runs.append((run_dir.name, run_dir))
+                if not run_dir.is_dir():
+                    continue
+                try:
+                    datetime.strptime(run_dir.name, "%Y%m%dT%H%M%SZ")
+                except ValueError:
+                    continue
+                runs.append((run_dir.name, run_dir))
 
         # Sort descending so pop() removes the oldest (O(1) vs pop(0) O(n))
         runs.sort(key=lambda r: r[0], reverse=True)
@@ -272,6 +277,11 @@ class RunRecorder:
                 f.stat().st_size for f in oldest_run.rglob("*") if f.is_file()
             )
             shutil.rmtree(oldest_run, ignore_errors=True)
+            if oldest_run.exists():
+                logger.warning(
+                    "Failed to remove oversized run %s, skipping", oldest_run
+                )
+                continue
             current_bytes -= run_bytes
             removed += 1
             logger.info("Purged oversized run %s", oldest_run)
