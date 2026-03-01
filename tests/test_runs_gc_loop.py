@@ -95,6 +95,18 @@ class TestGetStorageStats:
         assert stats["total_bytes"] > 0
         assert stats["total_mb"] >= 0  # small files may round to 0.0
 
+    def test_skips_non_digit_issue_dirs(self, tmp_path: Path) -> None:
+        _config, recorder = _make_recorder(tmp_path)
+        _seed_run(recorder, 42, "20260101T100000Z")
+        # Create a non-digit dir that should be ignored
+        junk = recorder.runs_dir / "not-an-issue"
+        junk.mkdir(parents=True, exist_ok=True)
+        (junk / "file.txt").write_text("junk")
+
+        stats = recorder.get_storage_stats()
+        assert stats["issues"] == 1
+        assert stats["total_runs"] == 1
+
 
 # ===========================================================================
 # RunRecorder.purge_expired
@@ -132,6 +144,20 @@ class TestPurgeExpired:
         _config, recorder = _make_recorder(tmp_path)
         assert recorder.purge_expired(retention_days=30) == 0
 
+    def test_purges_across_multiple_issues(self, tmp_path: Path) -> None:
+        _config, recorder = _make_recorder(tmp_path)
+        # Old runs in two different issues
+        _seed_run(recorder, 10, "20200101T000000Z")
+        _seed_run(recorder, 42, "20200101T000000Z")
+        # Recent runs that should survive
+        _seed_run(recorder, 10, "20261231T000000Z")
+        _seed_run(recorder, 42, "20261231T000000Z")
+
+        removed = recorder.purge_expired(retention_days=30)
+        assert removed == 2
+        assert len(recorder.list_runs(10)) == 1
+        assert len(recorder.list_runs(42)) == 1
+
     def test_skips_non_timestamp_dirs(self, tmp_path: Path) -> None:
         _config, recorder = _make_recorder(tmp_path)
         # Create a dir with a non-timestamp name
@@ -167,6 +193,28 @@ class TestPurgeOversized:
         _seed_run(recorder, 42, "20260101T100000Z")
         removed = recorder.purge_oversized(max_size_mb=500)
         assert removed == 0
+
+    def test_removes_oldest_first(self, tmp_path: Path) -> None:
+        _config, recorder = _make_recorder(tmp_path)
+        # Create three runs with large files so each exceeds 1 byte
+        for ts in ("20260101T100000Z", "20260101T200000Z", "20260101T300000Z"):
+            run_dir = _seed_run(recorder, 42, ts)
+            (run_dir / "data.bin").write_bytes(b"x" * 1024)
+
+        total = recorder._compute_total_bytes()
+        assert total > 0
+        # Remove with 0 limit — all get removed; verify count
+        removed = recorder.purge_oversized(max_size_mb=0)
+        assert removed == 3
+
+    def test_removes_empty_issue_dirs(self, tmp_path: Path) -> None:
+        _config, recorder = _make_recorder(tmp_path)
+        run_dir = _seed_run(recorder, 42, "20260101T100000Z")
+        (run_dir / "big.bin").write_bytes(b"x" * 512)
+
+        recorder.purge_oversized(max_size_mb=0)
+        # Issue dir should be removed since all runs were purged
+        assert not (recorder.runs_dir / "42").exists()
 
     def test_empty_runs_dir(self, tmp_path: Path) -> None:
         _config, recorder = _make_recorder(tmp_path)
