@@ -495,7 +495,8 @@ duplicate function parameters, or stale test assertions. grep for the
 field or string name if you suspect duplicates.
 
 Fix root causes — do NOT skip, disable, or weaken any tests or checks.
-Run `make quality` again to verify, then commit with a descriptive message.
+Run `make quality` again to verify, then review your own diff (`git diff`)
+as a reviewer would — fix any findings before committing.
 
 ## Rules
 

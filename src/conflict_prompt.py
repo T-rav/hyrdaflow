@@ -50,8 +50,10 @@ def build_conflict_prompt(
         "of each conflict — read the conflicted files, check git log to see "
         "what changed on main vs the branch, and use `gh` CLI or read any "
         "repo file if you need more context.\n\n"
-        "Then resolve all conflicts and run `make quality` to verify "
-        "everything passes. Do not push."
+        "Then resolve all conflicts, run `make quality`, and review your "
+        "own diff with `git diff` — read it back as a reviewer would to "
+        "catch logical mistakes, stale references, or anything that looks "
+        "wrong. Fix any findings before committing. Do not push."
     )
 
     # --- Project manifest & memory digest ---
@@ -171,8 +173,10 @@ def build_rebuild_prompt(
         "Then re-apply the same logical changes. If the diff adds a "
         "numbered file (ADR, migration, etc.), check the directory for "
         "existing numbers — do not reuse one that already exists.\n\n"
-        "Write or update tests, run `make quality`, and commit with "
-        f'message: "Rebuild: Fixes #{issue_number}"'
+        "Write or update tests, run `make quality`, then review your "
+        "own diff (`git diff`) — read it as a reviewer would and fix "
+        "anything that looks wrong before committing with message: "
+        f'"Rebuild: Fixes #{issue_number}"'
     )
 
     # --- Rules ---
