@@ -927,6 +927,26 @@ class HydraFlowConfig(BaseModel):
         description="Additional volume mounts as host:container:mode strings",
     )
 
+    # Baseline policy
+    baseline_snapshot_patterns: list[str] = Field(
+        default=["**/__snapshots__/**", "**/*.snap.png", "**/*.baseline.png"],
+        description="Glob patterns matching visual baseline files in the repo",
+    )
+    baseline_approval_required: bool = Field(
+        default=True,
+        description="Whether baseline updates require explicit approval",
+    )
+    baseline_approvers: list[str] = Field(
+        default=[],
+        description="GitHub usernames allowed to approve baseline updates (empty = repo collaborators)",
+    )
+    baseline_max_audit_records: int = Field(
+        default=100,
+        ge=10,
+        le=1000,
+        description="Maximum baseline audit records to retain per issue",
+    )
+
     # GitHub authentication
     gh_token: str = Field(
         default="",

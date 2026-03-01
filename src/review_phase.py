@@ -10,12 +10,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
+    BaselineApprovalResult,
     ConflictResolutionResult,
     JudgeResult,
     PipelineStage,
@@ -70,6 +72,7 @@ class ReviewPhase:
         conflict_resolver: MergeConflictResolver | None = None,
         post_merge: PostMergeHandler | None = None,
         update_bg_worker_status: StatusCallback | None = None,
+        baseline_policy: BaselinePolicy | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -104,6 +107,7 @@ class ReviewPhase:
             verification_judge=None,
             epic_checker=None,
         )
+        self._baseline_policy = baseline_policy
 
     async def review_prs(
         self,
@@ -288,6 +292,34 @@ class ReviewPhase:
             )
             return None
 
+    async def _check_baseline_policy(
+        self, pr: PRInfo, task: Task
+    ) -> BaselineApprovalResult | None:
+        """Run baseline policy check if a policy is configured.
+
+        Returns the approval result or ``None`` when no policy is active.
+        """
+        if self._baseline_policy is None:
+            return None
+        try:
+            changed_files = await self._prs.get_pr_diff_names(pr.number)
+            if not changed_files:
+                return None
+            pr_approvers = await self._prs.get_pr_approvers(pr.number)
+            return await self._baseline_policy.check_approval(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                changed_files=changed_files,
+                pr_approvers=pr_approvers,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Baseline policy check failed for PR #%d",
+                pr.number,
+                exc_info=True,
+            )
+            return None
+
     async def _review_one_inner(
         self,
         idx: int,
@@ -323,6 +355,35 @@ class ReviewPhase:
             )
 
         diff = await self._prs.get_pr_diff(pr.number)
+
+        # Baseline policy check: detect and enforce approval for baseline changes
+        baseline_result = await self._check_baseline_policy(pr, task)
+        if (
+            baseline_result
+            and baseline_result.requires_approval
+            and not baseline_result.approved
+        ):
+            await self._escalate_to_hitl(
+                pr.issue_number,
+                pr.number,
+                cause="Baseline changes require approval",
+                origin_label=self._config.review_label[0],
+                comment=(
+                    "## Baseline Policy Violation\n\n"
+                    "This PR modifies visual baseline files that require "
+                    "explicit approval from a designated owner before merging.\n\n"
+                    "**Changed baseline files:**\n"
+                    + "\n".join(f"- `{f}`" for f in baseline_result.changed_files)
+                    + "\n\nPlease request a review from an authorized baseline approver."
+                ),
+                event_cause="baseline_approval_required",
+                task=task,
+            )
+            return ReviewResult(
+                pr_number=pr.number,
+                issue_number=pr.issue_number,
+                summary="Baseline changes require approval — escalated to HITL",
+            )
 
         # Fetch code scanning alerts (opt-in)
         code_scanning_alerts = await self._fetch_code_scanning_alerts(pr)

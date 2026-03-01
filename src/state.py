@@ -13,6 +13,8 @@ from pydantic import ValidationError
 from file_util import atomic_write
 from models import (
     BackgroundWorkerState,
+    BaselineAuditRecord,
+    BaselineChangeType,
     EpicState,
     HITLSummaryCacheEntry,
     HITLSummaryFailureEntry,
@@ -1021,3 +1023,64 @@ class StateTracker:
                 self.clear_threshold_fired(name)
 
         return proposals
+
+    # --- Baseline audit trail ---
+
+    _MAX_BASELINE_AUDIT_RECORDS = 100
+
+    def record_baseline_change(
+        self,
+        issue_number: int,
+        record: BaselineAuditRecord,
+        max_records: int = 0,
+    ) -> None:
+        """Append a baseline audit record for *issue_number*.
+
+        Caps at *max_records* (falls back to ``_MAX_BASELINE_AUDIT_RECORDS``).
+        """
+        cap = max_records or self._MAX_BASELINE_AUDIT_RECORDS
+        key = str(issue_number)
+        if key not in self._data.baseline_audit:
+            self._data.baseline_audit[key] = []
+        self._data.baseline_audit[key].append(record)
+        if len(self._data.baseline_audit[key]) > cap:
+            self._data.baseline_audit[key] = self._data.baseline_audit[key][-cap:]
+        self.save()
+
+    def get_baseline_audit(self, issue_number: int) -> list[BaselineAuditRecord]:
+        """Return baseline audit records for *issue_number*."""
+        return list(self._data.baseline_audit.get(str(issue_number), []))
+
+    def get_latest_baseline_record(
+        self, issue_number: int
+    ) -> BaselineAuditRecord | None:
+        """Return the most recent baseline audit record, or *None*."""
+        records = self._data.baseline_audit.get(str(issue_number), [])
+        return records[-1] if records else None
+
+    def rollback_baseline(
+        self,
+        issue_number: int,
+        pr_number: int,
+        approver: str,
+        reason: str,
+    ) -> BaselineAuditRecord:
+        """Record a baseline rollback for *issue_number*."""
+        # Find the last non-rollback record to identify files
+        records = self._data.baseline_audit.get(str(issue_number), [])
+        changed_files: list[str] = []
+        for record in reversed(records):
+            if record.change_type != BaselineChangeType.ROLLBACK:
+                changed_files = list(record.changed_files)
+                break
+
+        rollback_record = BaselineAuditRecord(
+            pr_number=pr_number,
+            issue_number=issue_number,
+            changed_files=changed_files,
+            change_type=BaselineChangeType.ROLLBACK,
+            approver=approver,
+            reason=reason,
+        )
+        self.record_baseline_change(issue_number, rollback_record)
+        return rollback_record

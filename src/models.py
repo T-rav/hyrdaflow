@@ -543,6 +543,40 @@ class BatchResult(BaseModel):
     merged_prs: list[int] = Field(default_factory=list)
 
 
+# --- Baseline Policy ---
+
+
+class BaselineChangeType(StrEnum):
+    """Type of baseline image change."""
+
+    UPDATE = "update"
+    ROLLBACK = "rollback"
+    INITIAL = "initial"
+
+
+class BaselineAuditRecord(BaseModel):
+    """Audit trail entry for a baseline image change."""
+
+    pr_number: int
+    issue_number: int
+    changed_files: list[str] = Field(default_factory=list)
+    change_type: BaselineChangeType = BaselineChangeType.UPDATE
+    approver: str = ""
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    reason: str = ""
+    commit_sha: str = ""
+
+
+class BaselineApprovalResult(BaseModel):
+    """Result of a baseline approval check on a PR."""
+
+    approved: bool = False
+    approver: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    reason: str = ""
+    requires_approval: bool = False
+
+
 # --- Orchestrator Phases ---
 
 
@@ -789,6 +823,7 @@ class StateData(BaseModel):
     hook_failures: dict[str, list[HookFailureRecord]] = Field(default_factory=dict)
     epic_states: dict[str, EpicState] = Field(default_factory=dict)
     releases: dict[str, Release] = Field(default_factory=dict)
+    baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     last_updated: str | None = None
 
 

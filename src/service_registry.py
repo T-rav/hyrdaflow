@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from agent import AgentRunner
+from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
 from docker_runner import get_docker_runner
 from epic import EpicCompletionChecker, EpicManager
@@ -236,6 +237,11 @@ def build_services(
         config, prs, event_bus, runner=subprocess_runner
     )
     verification_judge = VerificationJudge(config, event_bus, runner=subprocess_runner)
+    baseline_policy = BaselinePolicy(
+        config=config,
+        state=state,
+        event_bus=event_bus,
+    )
     post_merge_handler = PostMergeHandler(
         config=config,
         state=state,
@@ -261,6 +267,7 @@ def build_services(
         conflict_resolver=conflict_resolver,
         post_merge=post_merge_handler,
         update_bg_worker_status=callbacks.update_bg_worker_status,
+        baseline_policy=baseline_policy,
     )
 
     # Background loops
