@@ -152,7 +152,7 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
 
       <div style={styles.loopStack}>
         {PIPELINE_LOOPS.map((loop) => {
-          const status = stageStatus[loop.key] || {}
+          const status = stageStatus?.[loop.key] || {}
           const enabled = status.enabled !== false
           const activeCount = status.workerCount || 0
           const effectiveMax = localCaps[loop.key] ?? workerCaps[loop.key] ?? null
