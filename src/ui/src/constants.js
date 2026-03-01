@@ -107,7 +107,7 @@ export const PIPELINE_POLLER_PRESETS = [
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller', 'report_issue'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -120,6 +120,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   memory_sync: 3600,
   metrics: 7200,
   report_issue: 30,
+  worktree_gc: 1800,
 }
 
 /**
@@ -147,4 +148,5 @@ export const BACKGROUND_WORKERS = [
   { key: 'metrics',         label: 'Metrics Munger', description: 'Updates operational and GitHub metrics used by the dashboard.', color: theme.yellow, system: true },
   { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true },
   { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red },
+  { key: 'worktree_gc',    label: 'Worktree GC',    description: 'Garbage-collects stale worktrees and orphaned branches.', color: theme.textMuted, system: true },
 ]

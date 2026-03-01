@@ -47,6 +47,7 @@ from triage_phase import TriagePhase
 from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
 from worktree import WorktreeManager
+from worktree_gc_loop import WorktreeGCLoop
 
 if TYPE_CHECKING:
     from metrics_manager import MetricsManager
@@ -96,6 +97,7 @@ class ServiceRegistry:
     manifest_refresh_loop: ManifestRefreshLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
+    worktree_gc_loop: WorktreeGCLoop
 
 
 @dataclass
@@ -332,6 +334,19 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
+    worktree_gc_loop = WorktreeGCLoop(
+        config=config,
+        worktrees=worktrees,
+        prs=prs,
+        state=state,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
+
     return ServiceRegistry(
         worktrees=worktrees,
         subprocess_runner=subprocess_runner,
@@ -364,4 +379,5 @@ def build_services(
         manifest_refresh_loop=manifest_refresh_loop,
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
+        worktree_gc_loop=worktree_gc_loop,
     )

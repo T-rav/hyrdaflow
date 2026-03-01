@@ -271,6 +271,7 @@ class ConfigFactory:
         auto_process_epics: bool = False,
         auto_process_bug_reports: bool = False,
         epic_monitor_interval: int = 1800,
+        worktree_gc_interval: int = 1800,
         epic_stale_days: int = 7,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
@@ -428,6 +429,7 @@ class ConfigFactory:
             epic_auto_decompose=epic_auto_decompose,
             epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
             epic_monitor_interval=epic_monitor_interval,
+            worktree_gc_interval=worktree_gc_interval,
             epic_stale_days=epic_stale_days,
             auto_process_epics=auto_process_epics,
             auto_process_bug_reports=auto_process_bug_reports,

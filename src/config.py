@@ -42,6 +42,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
+    ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
     ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
@@ -360,6 +361,12 @@ class HydraFlowConfig(BaseModel):
     epic_monitor_interval: int = Field(
         default=1800,
         description="Epic monitor loop interval in seconds (default 30 min)",
+    )
+    worktree_gc_interval: int = Field(
+        default=1800,
+        ge=300,
+        le=86400,
+        description="Worktree GC loop interval in seconds (default 30 min)",
     )
     epic_stale_days: int = Field(
         default=7,
