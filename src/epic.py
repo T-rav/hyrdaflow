@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -235,6 +236,7 @@ class EpicManager:
         self._fetcher = fetcher
         self._bus = event_bus
         self._checker = EpicCompletionChecker(config, prs, fetcher, state=state)
+        self._release_locks: dict[int, asyncio.Lock] = {}
 
     async def register_epic(
         self,
@@ -253,6 +255,7 @@ class EpicManager:
             created_at=now,
             last_activity=now,
             auto_decomposed=auto_decomposed,
+            merge_strategy=self._config.epic_merge_strategy,
         )
         self._state.upsert_epic_state(epic_state)
         await self._publish_update(epic_number, "registered")
@@ -275,6 +278,39 @@ class EpicManager:
             epic_number,
             child_number,
         )
+
+    async def on_child_approved(self, epic_number: int, child_number: int) -> None:
+        """Record that a child's PR was approved (not yet merged).
+
+        For bundled strategies, this is the trigger to check if all siblings
+        are approved and optionally auto-merge or escalate for human review.
+        """
+        self._state.mark_epic_child_approved(epic_number, child_number)
+        await self._publish_update(epic_number, "child_approved")
+        logger.info("Epic #%d child #%d approved", epic_number, child_number)
+
+        epic = self._state.get_epic_state(epic_number)
+        if epic is None:
+            return
+
+        if epic.released:
+            return
+
+        strategy = epic.merge_strategy
+        if strategy == "independent":
+            return
+
+        # Check if all siblings are approved or already merged
+        progress = self.get_progress(epic_number)
+        if progress is None or not progress.ready_to_merge:
+            return
+
+        if strategy == "bundled":
+            await self._handle_bundled_ready(epic_number)
+        elif strategy == "bundled_hitl":
+            await self._handle_bundled_hitl_ready(epic_number)
+        elif strategy == "ordered":
+            await self._handle_ordered_ready(epic_number)
 
     async def on_child_completed(self, epic_number: int, child_number: int) -> None:
         """Record child completion and attempt auto-close."""
@@ -306,6 +342,7 @@ class EpicManager:
         total = len(epic.child_issues)
         completed = len(epic.completed_children)
         failed = len(epic.failed_children)
+        approved = len(epic.approved_children)
         in_progress = total - completed - failed
 
         if epic.closed:
@@ -319,6 +356,19 @@ class EpicManager:
 
         pct = (completed / total * 100) if total > 0 else 0.0
 
+        # Ready to merge when all children are approved or already merged,
+        # the strategy is not independent, and the epic has not yet been released.
+        ready_to_merge = (
+            total > 0
+            and failed == 0
+            and not epic.released
+            and epic.merge_strategy != "independent"
+            and all(
+                c in epic.approved_children or c in epic.completed_children
+                for c in epic.child_issues
+            )
+        )
+
         return EpicProgress(
             epic_number=epic.epic_number,
             title=epic.title,
@@ -326,6 +376,9 @@ class EpicManager:
             completed=completed,
             failed=failed,
             in_progress=max(in_progress, 0),
+            approved=approved,
+            ready_to_merge=ready_to_merge,
+            merge_strategy=epic.merge_strategy,
             status=status,
             percent_complete=round(pct, 1),
             last_activity=epic.last_activity,
@@ -360,6 +413,7 @@ class EpicManager:
                 url=f"https://github.com/{repo}/issues/{child_num}",
                 is_completed=child_num in epic.completed_children,
                 is_failed=child_num in epic.failed_children,
+                is_approved=child_num in epic.approved_children,
             )
             # Try to fetch live title from GitHub
             try:
@@ -383,6 +437,9 @@ class EpicManager:
             completed=progress.completed,
             failed=progress.failed,
             in_progress=progress.in_progress,
+            approved=progress.approved,
+            ready_to_merge=progress.ready_to_merge,
+            merge_strategy=progress.merge_strategy,
             status=progress.status,
             percent_complete=progress.percent_complete,
             last_activity=epic.last_activity,
@@ -426,6 +483,194 @@ class EpicManager:
                 )
             )
         return stale
+
+    def _get_merge_order(self, epic: EpicState) -> list[int]:
+        """Return child issues that still need merging, in their registered order.
+
+        Returns children that are not yet completed, preserving the order they
+        were registered in ``child_issues``.
+
+        Note: BLOCKS/BLOCKED_BY dependency ordering is not yet implemented.
+        For the "ordered" strategy, ensure children are registered in the
+        correct dependency order at registration time.
+        """
+        return [c for c in epic.child_issues if c not in epic.completed_children]
+
+    async def _handle_bundled_ready(self, epic_number: int) -> None:
+        """All siblings approved — merge all in sequence automatically."""
+        epic = self._state.get_epic_state(epic_number)
+        if epic is None:
+            return
+        merge_order = self._get_merge_order(epic)
+        logger.info(
+            "Epic #%d: all children approved — auto-merging %d PRs (bundled)",
+            epic_number,
+            len(merge_order),
+        )
+        await self._publish_ready_event(epic_number, "bundled")
+        await self._prs.post_comment(
+            epic_number,
+            "## Epic Bundle Ready\n\n"
+            "All sub-issues are approved and CI is passing. "
+            "Merging all PRs automatically (bundled strategy).\n\n"
+            "---\n*HydraFlow Epic Coordinator*",
+        )
+        result = await self.release_epic(epic_number)
+        if "error" in result:
+            logger.warning(
+                "Epic #%d bundled release failed: %s", epic_number, result["error"]
+            )
+            await self._prs.post_comment(
+                epic_number,
+                f"## Epic Bundle Release Failed\n\n"
+                f"Auto-merge encountered an error: {result['error']}\n\n"
+                f"Please resolve any merge conflicts and retry via the dashboard "
+                f"or `POST /api/epics/{epic_number}/release`.\n\n"
+                "---\n*HydraFlow Epic Coordinator*",
+            )
+
+    async def _handle_bundled_hitl_ready(self, epic_number: int) -> None:
+        """All siblings approved — pause and notify for human review."""
+        logger.info(
+            "Epic #%d: all children approved — awaiting human release (bundled_hitl)",
+            epic_number,
+        )
+        await self._publish_ready_event(epic_number, "bundled_hitl")
+        await self._prs.post_comment(
+            epic_number,
+            "## Epic Bundle Ready for Release\n\n"
+            "All sub-issues are approved and CI is passing. "
+            "Awaiting human confirmation to merge.\n\n"
+            "Use the dashboard **Merge & Release** button or "
+            f"`POST /api/epics/{epic_number}/release` to trigger the merge.\n\n"
+            "---\n*HydraFlow Epic Coordinator*",
+        )
+
+    async def _handle_ordered_ready(self, epic_number: int) -> None:
+        """All siblings approved — merge in dependency order."""
+        epic = self._state.get_epic_state(epic_number)
+        if epic is None:
+            return
+        merge_order = self._get_merge_order(epic)
+        logger.info(
+            "Epic #%d: all children approved — merging in dependency order (%d PRs)",
+            epic_number,
+            len(merge_order),
+        )
+        await self._publish_ready_event(epic_number, "ordered")
+        await self._prs.post_comment(
+            epic_number,
+            "## Epic Bundle Ready (Ordered)\n\n"
+            "All sub-issues are approved and CI is passing. "
+            "Merging PRs in dependency order.\n\n"
+            "---\n*HydraFlow Epic Coordinator*",
+        )
+        result = await self.release_epic(epic_number)
+        if "error" in result:
+            logger.warning(
+                "Epic #%d ordered release failed: %s", epic_number, result["error"]
+            )
+            await self._prs.post_comment(
+                epic_number,
+                f"## Epic Bundle Release Failed (Ordered)\n\n"
+                f"Auto-merge encountered an error: {result['error']}\n\n"
+                f"Please resolve any merge conflicts and retry via the dashboard "
+                f"or `POST /api/epics/{epic_number}/release`.\n\n"
+                "---\n*HydraFlow Epic Coordinator*",
+            )
+
+    async def release_epic(self, epic_number: int) -> dict[str, object]:
+        """Trigger sequential merge for a bundled epic (called from API).
+
+        Returns a summary dict with merge results.  Idempotent: a second
+        call after a successful release returns an error instead of
+        attempting duplicate merges.  A per-epic asyncio.Lock prevents
+        concurrent invocations from both passing the ``released`` guard.
+        """
+        if epic_number not in self._release_locks:
+            self._release_locks[epic_number] = asyncio.Lock()
+        async with self._release_locks[epic_number]:
+            return await self._do_release_epic(epic_number)
+
+    async def _do_release_epic(self, epic_number: int) -> dict[str, object]:
+        """Inner (lock-protected) implementation of release_epic."""
+        epic = self._state.get_epic_state(epic_number)
+        if epic is None:
+            return {"error": "epic not found"}
+
+        if epic.released:
+            return {"error": "epic has already been released"}
+
+        progress = self.get_progress(epic_number)
+        if progress is None or not progress.ready_to_merge:
+            return {"error": "epic is not ready to merge"}
+
+        merge_order = self._get_merge_order(epic)
+        results: list[dict[str, object]] = []
+        for child_num in merge_order:
+            halt_msg: str | None = None
+            try:
+                pr_number = await self._prs.find_pr_for_issue(child_num)
+                if not pr_number:
+                    # Halt on missing PR — bundle guarantee requires all PRs to merge
+                    results.append({"issue": child_num, "status": "no_pr"})
+                    halt_msg = f"no PR found for child #{child_num}; bundle halted"
+                else:
+                    merged = await self._prs.merge_pr(pr_number)
+                    if merged:
+                        self._state.mark_epic_child_complete(epic_number, child_num)
+                        results.append(
+                            {"issue": child_num, "pr": pr_number, "status": "merged"}
+                        )
+                    else:
+                        results.append(
+                            {"issue": child_num, "pr": pr_number, "status": "failed"}
+                        )
+                        halt_msg = f"merge failed for child #{child_num} (PR #{pr_number}); bundle halted"
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to merge child #%d of epic #%d",
+                    child_num,
+                    epic_number,
+                    exc_info=True,
+                )
+                results.append({"issue": child_num, "status": "error"})
+                halt_msg = f"exception merging child #{child_num}; bundle halted"
+            if halt_msg:
+                await self._publish_update(epic_number, "release_failed")
+                return {
+                    "epic_number": epic_number,
+                    "merges": results,
+                    "error": halt_msg,
+                }
+
+        # Mark epic as released to prevent duplicate release attempts
+        epic = self._state.get_epic_state(epic_number)
+        if epic is not None:
+            epic.released = True
+            self._state.upsert_epic_state(epic)
+
+        await self._publish_update(epic_number, "released")
+        return {"epic_number": epic_number, "merges": results}
+
+    async def _publish_ready_event(self, epic_number: int, strategy: str) -> None:
+        """Publish an EPIC_READY event when all children are approved."""
+        progress = self.get_progress(epic_number)
+        data: dict[str, object] = {
+            "epic_number": epic_number,
+            "strategy": strategy,
+        }
+        if progress is not None:
+            data["progress"] = progress.model_dump()
+        await self._bus.publish(HydraFlowEvent(type=EventType.EPIC_READY, data=data))
+
+    def find_parent_epics(self, child_number: int) -> list[int]:
+        """Return epic numbers that include *child_number* as a child."""
+        parents: list[int] = []
+        for epic in self._state.get_all_epic_states().values():
+            if child_number in epic.child_issues:
+                parents.append(epic.epic_number)
+        return parents
 
     async def _try_auto_close(self, epic_number: int) -> None:
         """Attempt to auto-close an epic if all children are completed."""

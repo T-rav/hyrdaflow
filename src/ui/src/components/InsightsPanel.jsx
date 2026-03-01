@@ -311,16 +311,108 @@ function formatDuration(seconds) {
 }
 
 // ---------------------------------------------------------------------------
-// Learnings sub-section
+// Learnings sub-section: collapsible inner section
+// ---------------------------------------------------------------------------
+
+function LearningsSubSection({ title, defaultExpanded, children }) {
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false)
+  return (
+    <div style={styles.subSection}>
+      <div style={styles.subSectionHeader} onClick={() => setExpanded(!expanded)}>
+        <span style={styles.subSectionTitle}>{title}</span>
+        <span style={styles.expandIcon}>{expanded ? '\u25B4' : '\u25BE'}</span>
+      </div>
+      {expanded && <div style={styles.subSectionBody}>{children}</div>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Troubleshooting pattern card
+// ---------------------------------------------------------------------------
+
+function TroubleshootingCard({ pattern }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div style={styles.patternCard}>
+      <div style={styles.patternHeader} onClick={() => setExpanded(!expanded)}>
+        <span style={styles.patternDot} />
+        <span style={styles.patternTitle}>{pattern.pattern_name}</span>
+        <span style={styles.langTag}>{pattern.language}</span>
+        <span style={styles.patternCount}>{pattern.frequency}x</span>
+        <span style={styles.expandIcon}>{expanded ? '\u25B4' : '\u25BE'}</span>
+      </div>
+      {expanded && (
+        <div style={styles.patternBody}>
+          <div style={styles.tsDetail}>
+            <span style={styles.tsDetailLabel}>Cause:</span> {pattern.description}
+          </div>
+          <div style={styles.tsDetail}>
+            <span style={styles.tsDetailLabel}>Fix:</span> {pattern.fix_strategy}
+          </div>
+          {pattern.source_issues && pattern.source_issues.length > 0 && (
+            <div style={styles.tsDetail}>
+              <span style={styles.tsDetailLabel}>Issues:</span>{' '}
+              {pattern.source_issues.map((n) => `#${n}`).join(', ')}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Troubleshooting sub-section
+// ---------------------------------------------------------------------------
+
+function TroubleshootingSubSection() {
+  const { data, loading } = usePolledData('/api/troubleshooting')
+
+  if (loading) return <div style={styles.empty}>Loading troubleshooting patterns...</div>
+  if (!data || data.total_patterns === 0) {
+    return <div style={styles.empty}>No troubleshooting patterns recorded yet.</div>
+  }
+
+  return (
+    <div style={styles.sectionContainer}>
+      <div style={styles.header}>
+        <span style={styles.totalBadge}>{data.total_patterns}</span>
+        <span style={styles.headerText}>patterns learned</span>
+      </div>
+      {(data.patterns || []).map((p) => (
+        <TroubleshootingCard key={`${p.language}:${p.pattern_name}`} pattern={p} />
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Learnings section (wrapper with three sub-sections)
 // ---------------------------------------------------------------------------
 
 function LearningsSection() {
   const { data, loading } = usePolledData('/api/memories')
+  const [memoryFilter, setMemoryFilter] = useState('')
 
   if (loading) return <div style={styles.empty}>Loading learnings...</div>
   if (!data || data.total_items === 0) return <div style={styles.empty}>No learnings recorded yet.</div>
 
   const curated = data.curated || {}
+  const hasCurated =
+    curated.overview ||
+    (curated.architecture && curated.architecture.length > 0) ||
+    (curated.key_services && curated.key_services.length > 0) ||
+    (curated.standards && curated.standards.length > 0)
+
+  const filterLower = memoryFilter.toLowerCase()
+  const filteredItems = (data.items || []).filter((item) => {
+    if (!filterLower) return true
+    return (
+      String(item.issue_number).includes(filterLower) ||
+      (item.learning && item.learning.toLowerCase().includes(filterLower))
+    )
+  })
 
   return (
     <div style={styles.sectionContainer}>
@@ -332,53 +424,73 @@ function LearningsSection() {
         )}
       </div>
 
-      {curated.overview && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Project Overview</div>
-          <div style={styles.overviewText}>{curated.overview}</div>
-        </div>
-      )}
-
-      {curated.architecture && curated.architecture.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Architecture Notes</div>
-          {curated.architecture.map((note, i) => (
-            <div key={i} style={styles.learningItem}>{note}</div>
-          ))}
-        </div>
-      )}
-
-      {curated.key_services && curated.key_services.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Key Services</div>
-          <div style={styles.tagCloud}>
-            {curated.key_services.map((svc, i) => (
-              <span key={i} style={styles.serviceTag}>{svc}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {curated.standards && curated.standards.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Standards</div>
-          {curated.standards.map((std, i) => (
-            <div key={i} style={styles.learningItem}>{std}</div>
-          ))}
-        </div>
-      )}
-
-      {data.items && data.items.length > 0 && (
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Recent Memory Items</div>
-          {data.items.slice(-20).reverse().map((item, i) => (
-            <div key={i} style={styles.memoryCard}>
-              <span style={styles.memoryIssue}>#{item.issue_number}</span>
-              <span style={styles.memoryText}>{item.learning}</span>
+      {hasCurated && (
+        <LearningsSubSection title="Curated Knowledge" defaultExpanded>
+          {curated.overview && (
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Project Overview</div>
+              <div style={styles.overviewText}>{curated.overview}</div>
             </div>
-          ))}
-        </div>
+          )}
+
+          {curated.architecture && curated.architecture.length > 0 && (
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Architecture Notes</div>
+              {curated.architecture.map((note, i) => (
+                <div key={i} style={styles.learningItem}>{note}</div>
+              ))}
+            </div>
+          )}
+
+          {curated.key_services && curated.key_services.length > 0 && (
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Key Services</div>
+              <div style={styles.tagCloud}>
+                {curated.key_services.map((svc, i) => (
+                  <span key={i} style={styles.serviceTag}>{svc}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {curated.standards && curated.standards.length > 0 && (
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Standards</div>
+              {curated.standards.map((std, i) => (
+                <div key={i} style={styles.learningItem}>{std}</div>
+              ))}
+            </div>
+          )}
+        </LearningsSubSection>
       )}
+
+      <LearningsSubSection title="Memory Items" defaultExpanded={false}>
+        <div style={styles.section}>
+          <input
+            type="text"
+            placeholder="Filter by issue # or text..."
+            value={memoryFilter}
+            onChange={(e) => setMemoryFilter(e.target.value)}
+            style={styles.filterInput}
+          />
+          {filteredItems.length > 0 ? (
+            [...filteredItems].reverse().map((item, i) => (
+              <div key={i} style={styles.memoryCard}>
+                <span style={styles.memoryIssue}>#{item.issue_number}</span>
+                <span style={styles.memoryText}>{item.learning}</span>
+              </div>
+            ))
+          ) : (
+            <div style={styles.empty}>
+              {memoryFilter ? 'No items match filter.' : 'No memory items yet.'}
+            </div>
+          )}
+        </div>
+      </LearningsSubSection>
+
+      <LearningsSubSection title="Troubleshooting Patterns" defaultExpanded={false}>
+        <TroubleshootingSubSection />
+      </LearningsSubSection>
     </div>
   )
 }
@@ -598,12 +710,11 @@ const styles = {
     color: theme.textMuted,
   },
   patternBody: {
-    padding: '0 12px 12px',
+    padding: '8px 12px 12px',
     borderTop: `1px solid ${theme.border}`,
     display: 'flex',
     flexDirection: 'column',
     gap: 4,
-    paddingTop: 8,
   },
   evidenceItem: {
     fontSize: 11,
@@ -701,6 +812,65 @@ const styles = {
     fontSize: 12,
     color: theme.text,
     lineHeight: 1.4,
+  },
+  subSection: {
+    border: `1px solid ${theme.border}`,
+    borderRadius: 8,
+    background: theme.surface,
+    overflow: 'hidden',
+  },
+  subSectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 12px',
+    cursor: 'pointer',
+    transition: 'background 0.15s',
+  },
+  subSectionTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: theme.textBright,
+    letterSpacing: '0.3px',
+  },
+  subSectionBody: {
+    borderTop: `1px solid ${theme.border}`,
+    padding: 12,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
+  filterInput: {
+    width: '100%',
+    padding: '6px 10px',
+    fontSize: 12,
+    color: theme.text,
+    background: theme.surfaceInset,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 6,
+    outline: 'none',
+    boxSizing: 'border-box',
+    marginBottom: 8,
+  },
+  langTag: {
+    fontSize: 10,
+    color: theme.accent,
+    background: theme.accentSubtle,
+    border: `1px solid ${theme.accent}`,
+    borderRadius: 12,
+    padding: '1px 6px',
+    flexShrink: 0,
+  },
+  tsDetail: {
+    fontSize: 12,
+    color: theme.text,
+    lineHeight: 1.5,
+    paddingLeft: 12,
+    borderLeft: `2px solid ${theme.border}`,
+  },
+  tsDetailLabel: {
+    fontWeight: 600,
+    color: theme.textMuted,
   },
 }
 

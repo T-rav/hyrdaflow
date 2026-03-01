@@ -142,6 +142,7 @@ _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
     ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
     ("debug_tool", "HYDRAFLOW_DEBUG_TOOL"),
     ("report_issue_tool", "HYDRAFLOW_REPORT_ISSUE_TOOL"),
+    ("epic_merge_strategy", "HYDRAFLOW_EPIC_MERGE_STRATEGY"),
     ("release_version_source", "HYDRAFLOW_RELEASE_VERSION_SOURCE"),
 ]
 
@@ -396,6 +397,12 @@ class HydraFlowConfig(BaseModel):
         default=7,
         ge=1,
         description="Days without activity before an epic is flagged as stale",
+    )
+    epic_merge_strategy: Literal[
+        "independent", "bundled", "bundled_hitl", "ordered"
+    ] = Field(
+        default="independent",
+        description="How to coordinate merging of epic sub-issue PRs",
     )
     auto_process_epics: bool = Field(
         default=False,

@@ -275,6 +275,9 @@ class ConfigFactory:
         epic_monitor_interval: int = 1800,
         worktree_gc_interval: int = 1800,
         epic_stale_days: int = 7,
+        epic_merge_strategy: Literal[
+            "independent", "bundled", "bundled_hitl", "ordered"
+        ] = "independent",
         collaborator_check_enabled: bool = False,
         collaborator_cache_ttl: int = 600,
         release_on_epic_close: bool = False,
@@ -448,6 +451,7 @@ class ConfigFactory:
             epic_monitor_interval=epic_monitor_interval,
             worktree_gc_interval=worktree_gc_interval,
             epic_stale_days=epic_stale_days,
+            epic_merge_strategy=epic_merge_strategy,
             auto_process_epics=auto_process_epics,
             auto_process_bug_reports=auto_process_bug_reports,
             collaborator_check_enabled=collaborator_check_enabled,

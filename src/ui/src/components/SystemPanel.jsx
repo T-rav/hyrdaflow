@@ -405,7 +405,10 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
         {SUB_TABS.map(tab => (
           <div
             key={tab.key}
+            role="tab"
+            aria-selected={activeSubTab === tab.key}
             onClick={() => setActiveSubTab(tab.key)}
+            data-testid={`system-subtab-${tab.key}`}
             style={activeSubTab === tab.key ? subTabActiveStyle : subTabInactiveStyle}
           >
             {tab.label}

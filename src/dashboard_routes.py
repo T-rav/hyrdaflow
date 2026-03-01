@@ -648,6 +648,20 @@ def create_router(
             return JSONResponse({"error": "epic not found"}, status_code=404)
         return JSONResponse(detail.model_dump())
 
+    @router.post("/api/epics/{epic_number}/release")
+    async def release_epic(epic_number: int) -> JSONResponse:
+        """Trigger sequential merge for a bundled epic.
+
+        Called from the dashboard "Merge & Release" button or externally.
+        """
+        orch = get_orchestrator()
+        if orch is None:
+            return JSONResponse({"error": "orchestrator not running"}, status_code=503)
+        result = await orch._epic_manager.release_epic(epic_number)
+        if "error" in result:
+            return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
+
     # --- Crate (milestone) routes ---
 
     @router.get("/api/crates")
@@ -2261,6 +2275,24 @@ def create_router(
                 "digest_chars": digest_chars,
                 "curated": curated,
                 "items": items[-50:],
+            }
+        )
+
+    @router.get("/api/troubleshooting")
+    async def get_troubleshooting() -> JSONResponse:
+        """Return learned troubleshooting patterns."""
+        from troubleshooting_store import TroubleshootingPatternStore
+
+        memory_dir = config.data_path("memory")
+        store = TroubleshootingPatternStore(memory_dir)
+        all_patterns = store.load_patterns(limit=None)
+        total = len(all_patterns)
+        capped = all_patterns[:100]
+
+        return JSONResponse(
+            {
+                "total_patterns": total,
+                "patterns": [p.model_dump() for p in capped],
             }
         )
 
