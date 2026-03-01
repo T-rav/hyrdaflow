@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
 import { BACKGROUND_WORKERS } from '../../constants'
 import { deriveStageStatus } from '../../hooks/useStageStatus'
 
@@ -441,6 +441,14 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Workers').style.borderLeftColor).toBe('transparent')
     })
 
+    it('clicking Processes sub-tab applies accent styling', () => {
+      render(<SystemPanel backgroundWorkers={[]} />)
+      fireEvent.click(screen.getByText('Processes'))
+      expect(screen.getByText('Processes').style.color).toBe('var(--accent)')
+      expect(screen.getByText('Processes').style.borderLeftColor).toBe('var(--accent)')
+      expect(screen.getByText('Workers').style.color).toBe('var(--text-muted)')
+    })
+
     it('clicking Pipeline sub-tab shows pipeline controls', () => {
       render(<SystemPanel backgroundWorkers={[]} />)
       fireEvent.click(screen.getByText('Pipeline'))
@@ -531,6 +539,20 @@ describe('SystemPanel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ auto_process_epics: true, persist: true }),
       })
+      fetchSpy.mockRestore()
+    })
+
+    it('rolls back toggle optimistic update when PATCH returns non-ok', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false })
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        config: { auto_process_epics: false, auto_process_bug_reports: false },
+      }))
+      render(<SystemPanel backgroundWorkers={[]} />)
+      fireEvent.click(screen.getByText('Processes'))
+      const epicsToggle = screen.getByTestId('auto-process-epics-toggle')
+      fireEvent.click(epicsToggle)
+      expect(epicsToggle).toHaveTextContent('On') // optimistic update applied immediately
+      await waitFor(() => expect(epicsToggle).toHaveTextContent('Off')) // rolled back after failed PATCH
       fetchSpy.mockRestore()
     })
   })
