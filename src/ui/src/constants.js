@@ -68,6 +68,15 @@ export const EVENT_PROCESS_MAP = {
   background_worker_status: 'bg_worker',
 }
 
+/**
+ * CSS selectors for elements that should be redacted (masked) in dashboard
+ * screenshots before upload.  Elements matching these selectors have their
+ * content replaced with a placeholder overlay during the html2canvas capture.
+ */
+export const SENSITIVE_SELECTORS = [
+  '[data-sensitive]',
+]
+
 /** Shared CSS animation value for the stream-pulse keyframe. */
 export const PULSE_ANIMATION = 'stream-pulse 1.5s ease-in-out infinite'
 
@@ -135,6 +144,27 @@ export const SESSION_STATUSES = ['active', 'completed']
 
 /** Epic lifecycle statuses for the epic overview panel. */
 export const EPIC_STATUSES = ['active', 'completed', 'stale', 'blocked']
+
+/**
+ * Merge strategy definitions for epics.
+ * Each strategy has a key, display label, and theme color for badges.
+ */
+export const MERGE_STRATEGIES = [
+  { key: 'independent', label: 'Independent', color: theme.accent,  subtleColor: theme.accentSubtle },
+  { key: 'bundled',     label: 'Bundled',     color: theme.purple,  subtleColor: theme.purpleSubtle },
+  { key: 'bundled_hitl', label: 'Bundled HITL', color: theme.orange, subtleColor: theme.orangeSubtle },
+  { key: 'ordered',     label: 'Ordered',     color: theme.yellow,  subtleColor: theme.yellowSubtle },
+]
+
+/**
+ * Filter pill options for the Epic Dashboard.
+ */
+export const EPIC_FILTERS = [
+  { key: 'all',              label: 'All' },
+  { key: 'active',           label: 'Active' },
+  { key: 'ready_to_release', label: 'Ready to Release' },
+  { key: 'released',         label: 'Released' },
+]
 
 /** Crate (milestone) states for the work log panel. */
 export const CRATE_STATUSES = ['open', 'closed']

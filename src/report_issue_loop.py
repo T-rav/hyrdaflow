@@ -19,6 +19,7 @@ from execution import SubprocessRunner
 from models import StatusCallback, TranscriptEventData
 from pr_manager import PRManager
 from runner_utils import stream_claude_process
+from screenshot_scanner import scan_base64_for_secrets
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.report_issue_loop")
@@ -66,12 +67,25 @@ class ReportIssueLoop(BaseBackgroundLoop):
         if report is None:
             return None
 
-        # Upload screenshot gist if present
+        # Upload screenshot gist if present (skip if secrets detected)
         screenshot_url = ""
         if report.screenshot_base64:
-            screenshot_url = await self._pr_manager.upload_screenshot_gist(
-                report.screenshot_base64
+            secret_hits = (
+                scan_base64_for_secrets(report.screenshot_base64)
+                if self._config.screenshot_redaction_enabled
+                else []
             )
+            if secret_hits:
+                logger.warning(
+                    "Screenshot for report %s contains potential secrets (%s); "
+                    "stripping screenshot from report",
+                    report.id,
+                    ", ".join(secret_hits),
+                )
+            else:
+                screenshot_url = await self._pr_manager.upload_screenshot_gist(
+                    report.screenshot_base64
+                )
 
         # Build the agent prompt
         title = f"[Bug Report] {report.description[:100]}"

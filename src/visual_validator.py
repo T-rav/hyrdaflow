@@ -140,7 +140,7 @@ class VisualValidator:
 
         Returns ``(result, retries_used)``.
         """
-        max_retries = self._config.visual_max_retries
+        max_retries = max(0, self._config.visual_max_retries)
         delay = self._config.visual_retry_delay
 
         last_result: VisualScreenResult | None = None
@@ -185,7 +185,10 @@ class VisualValidator:
             # Non-transient or retries exhausted
             break
 
-        assert last_result is not None  # noqa: S101
+        if last_result is None:
+            raise RuntimeError(
+                f"Visual check '{screen_name}' produced no result after {max_retries + 1} attempt(s)"
+            )
         return last_result, retries_used
 
     @staticmethod

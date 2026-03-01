@@ -290,6 +290,8 @@ class ConfigFactory:
         visual_retry_delay: float = 0.0,
         visual_warn_threshold: float = 0.05,
         visual_fail_threshold: float = 0.15,
+        screenshot_redaction_enabled: bool = True,
+        screenshot_gist_public: bool = False,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -479,6 +481,8 @@ class ConfigFactory:
             visual_retry_delay=visual_retry_delay,
             visual_warn_threshold=visual_warn_threshold,
             visual_fail_threshold=visual_fail_threshold,
+            screenshot_redaction_enabled=screenshot_redaction_enabled,
+            screenshot_gist_public=screenshot_gist_public,
         )
 
 

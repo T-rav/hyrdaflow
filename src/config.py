@@ -125,6 +125,12 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("code_scanning_enabled", "HYDRAFLOW_CODE_SCANNING_ENABLED", False),
     ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
+    (
+        "screenshot_redaction_enabled",
+        "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED",
+        True,
+    ),
+    ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -706,6 +712,22 @@ class HydraFlowConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Diff ratio above which a screen gets a FAIL verdict",
+    )
+
+    # Screenshot security
+    screenshot_redaction_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run backend secret-pattern scan before uploading dashboard screenshots. "
+            "When True, payloads matching known secret patterns (GitHub tokens, AWS keys, "
+            "etc.) are rejected and the screenshot is stripped from the report. "
+            "Frontend DOM redaction of [data-sensitive] elements is always active "
+            "and is unaffected by this setting."
+        ),
+    )
+    screenshot_gist_public: bool = Field(
+        default=False,
+        description="Upload screenshot gists as public (True) or secret/unlisted (False)",
     )
 
     # Manifest detection
@@ -1518,20 +1540,29 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
     # invariant (e.g. warn was also overridden to a value >= the fail default), revert
     # visual_warn_threshold too so we always land on a valid pair.
     if config.visual_fail_threshold <= config.visual_warn_threshold:
+        _fail_default: float = HydraFlowConfig.model_fields[
+            "visual_fail_threshold"
+        ].default
+        _warn_default: float = HydraFlowConfig.model_fields[
+            "visual_warn_threshold"
+        ].default
         logger.warning(
             "visual_fail_threshold (%.4f) is not greater than visual_warn_threshold (%.4f) "
-            "after env overrides; reverting visual_fail_threshold to default (0.15)",
+            "after env overrides; reverting visual_fail_threshold to default (%.4f)",
             config.visual_fail_threshold,
             config.visual_warn_threshold,
+            _fail_default,
         )
-        object.__setattr__(config, "visual_fail_threshold", 0.15)
+        object.__setattr__(config, "visual_fail_threshold", _fail_default)
         if config.visual_fail_threshold <= config.visual_warn_threshold:
             logger.warning(
-                "visual_warn_threshold (%.4f) still >= fail default (0.15); "
-                "reverting visual_warn_threshold to default (0.05) as well",
+                "visual_warn_threshold (%.4f) still >= fail default (%.4f); "
+                "reverting visual_warn_threshold to default (%.4f) as well",
                 config.visual_warn_threshold,
+                _fail_default,
+                _warn_default,
             )
-            object.__setattr__(config, "visual_warn_threshold", 0.05)
+            object.__setattr__(config, "visual_warn_threshold", _warn_default)
 
     # Data-driven env var overrides (bool fields)
     for field, env_key, default in _ENV_BOOL_OVERRIDES:
