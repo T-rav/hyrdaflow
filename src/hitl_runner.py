@@ -16,7 +16,7 @@ from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.hitl_runner")
 
-HITLCauseKey = Literal["ci", "merge_conflict", "needs_info", "default"]
+HITLCauseKey = Literal["ci", "merge_conflict", "needs_info", "visual", "default"]
 
 # Prompt instructions keyed by escalation cause category.
 _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
@@ -45,6 +45,15 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
         "5. Run `make quality` to verify.\n"
         '6. Commit with message: "hitl-fix: <description> (#{issue})".'
     ),
+    "visual": (
+        "This issue was escalated due to visual validation failure.\n"
+        "Screenshot diffs exceeded the allowed threshold.\n"
+        "1. Review the visual evidence links in the escalation reason.\n"
+        "2. Compare baseline vs actual screenshots to identify the regression.\n"
+        "3. Fix the UI code causing the visual difference.\n"
+        "4. Run `make quality` to verify.\n"
+        '5. Commit with message: "hitl-fix: resolve visual regression (#{issue})".'
+    ),
     "default": (
         "This issue was escalated to human review.\n"
         "The human operator has provided guidance below.\n"
@@ -65,6 +74,8 @@ def _classify_cause(cause: str) -> HITLCauseKey:
     # Check needs_info BEFORE ci — "insufficient" contains the substring "ci".
     if "insufficient" in lower or "needs" in lower or "detail" in lower:
         return "needs_info"
+    if any(kw in lower for kw in ("visual", "screenshot", "diff image")):
+        return "visual"
     if "ci" in lower or "check" in lower or "test fail" in lower:
         return "ci"
     if "merge" in lower and "conflict" in lower:

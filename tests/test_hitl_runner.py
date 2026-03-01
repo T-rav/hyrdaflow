@@ -72,6 +72,19 @@ class TestClassifyCause:
     def test_empty_cause_maps_to_default(self) -> None:
         assert _classify_cause("") == "default"
 
+    def test_visual_keyword_maps_to_visual(self) -> None:
+        assert _classify_cause("Visual validation failed on 3 screens") == "visual"
+
+    def test_screenshot_keyword_maps_to_visual(self) -> None:
+        assert _classify_cause("Screenshot diff exceeded threshold") == "visual"
+
+    def test_diff_image_keyword_maps_to_visual(self) -> None:
+        assert _classify_cause("diff image mismatch on login page") == "visual"
+
+    def test_visual_before_ci_priority(self) -> None:
+        """Visual keywords should match before CI keywords when both present."""
+        assert _classify_cause("Visual check failed in CI") == "visual"
+
 
 # ---------------------------------------------------------------------------
 # Prompt building
@@ -124,6 +137,17 @@ class TestBuildPrompt:
             issue, "Add logging", "Insufficient issue detail for triage"
         )
         assert "TDD" in prompt
+
+    def test_prompt_uses_visual_instructions_for_visual_cause(
+        self, hitl_runner
+    ) -> None:
+        issue = IssueFactory.create(number=42)
+        prompt = hitl_runner._build_prompt(
+            issue, "Fix the button", "Visual validation failed on login screen"
+        )
+        assert "visual" in prompt.lower()
+        assert "screenshot" in prompt.lower()
+        assert "visual regression" in prompt.lower()
 
     def test_prompt_includes_issue_number_in_commit_message(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=99)

@@ -26,6 +26,7 @@ from models import (
     SessionStatus,
     StateData,
     ThresholdProposal,
+    VisualEvidence,
     WorkerResultMeta,
 )
 
@@ -240,6 +241,24 @@ class StateTracker:
     def clear_hitl_summary_failure(self, issue_number: int) -> None:
         """Clear summary-generation failure metadata for *issue_number*."""
         self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self.save()
+
+    # --- HITL visual evidence ---
+
+    def set_hitl_visual_evidence(
+        self, issue_number: int, evidence: VisualEvidence
+    ) -> None:
+        """Persist visual validation evidence for *issue_number*."""
+        self._data.hitl_visual_evidence[str(issue_number)] = evidence
+        self.save()
+
+    def get_hitl_visual_evidence(self, issue_number: int) -> VisualEvidence | None:
+        """Return visual evidence for *issue_number*, or ``None``."""
+        return self._data.hitl_visual_evidence.get(str(issue_number))
+
+    def remove_hitl_visual_evidence(self, issue_number: int) -> None:
+        """Clear visual evidence for *issue_number*."""
+        self._data.hitl_visual_evidence.pop(str(issue_number), None)
         self.save()
 
     # --- review attempt tracking ---

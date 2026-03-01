@@ -797,6 +797,9 @@ def create_router(
             cached_summary = state.get_hitl_summary(item.issue)
             data["llmSummary"] = cached_summary or ""
             data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
+            visual_ev = state.get_hitl_visual_evidence(item.issue)
+            if visual_ev:
+                data["visualEvidence"] = visual_ev.model_dump()
             if (
                 not cached_summary
                 and config.transcript_summarization_enabled

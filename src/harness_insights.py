@@ -38,6 +38,8 @@ class FailureCategory(StrEnum):
     CI_FAILURE = "ci_failure"
     HITL_ESCALATION = "hitl_escalation"
     IMPLEMENTATION_ERROR = "implementation_error"
+    VISUAL_FAIL = "visual_fail"
+    VISUAL_WARN = "visual_warn"
 
 
 CATEGORY_DESCRIPTIONS: dict[str, str] = {
@@ -47,6 +49,8 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     FailureCategory.CI_FAILURE: "CI pipeline failure after fix attempts",
     FailureCategory.HITL_ESCALATION: "Escalated to human-in-the-loop",
     FailureCategory.IMPLEMENTATION_ERROR: "Implementation agent error or exception",
+    FailureCategory.VISUAL_FAIL: "Visual validation failed — screenshot diff exceeded threshold",
+    FailureCategory.VISUAL_WARN: "Visual validation warning — minor screenshot differences detected",
 }
 
 # Keyword mapping for subcategory extraction from failure details
@@ -61,6 +65,12 @@ SUBCATEGORY_KEYWORDS: dict[str, list[str]] = {
     "missing_tests": ["missing test", "no test", "untested"],
     "naming": ["naming", "convention", "rename"],
     "error_handling": ["error handling", "exception", "try/except"],
+    "visual_diff": ["screenshot", "visual diff", "pixel diff", "diff image"],
+    "visual_regression": [
+        "visual regression",
+        "baseline mismatch",
+        "screenshot mismatch",
+    ],
 }
 
 

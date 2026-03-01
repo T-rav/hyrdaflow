@@ -416,6 +416,26 @@ class HITLResult(BaseModel):
     duration_seconds: float = 0.0
 
 
+class VisualEvidenceItem(BaseModel):
+    """A single visual check result (screenshot diff, etc.)."""
+
+    screen_name: str
+    diff_percent: float = 0.0
+    baseline_url: HttpUrl = ""
+    actual_url: HttpUrl = ""
+    diff_url: HttpUrl = ""
+    status: Literal["pass", "fail", "warn"] = "fail"
+
+
+class VisualEvidence(BaseModel):
+    """Container for visual validation evidence attached to HITL items."""
+
+    items: list[VisualEvidenceItem] = Field(default_factory=list)
+    summary: str = ""
+    run_url: HttpUrl = ""
+    attempt: int = 1
+
+
 # --- Reviews ---
 
 
@@ -748,6 +768,7 @@ class StateData(BaseModel):
     hitl_summary_failures: dict[str, HITLSummaryFailureEntry] = Field(
         default_factory=dict
     )
+    hitl_visual_evidence: dict[str, VisualEvidence] = Field(default_factory=dict)
     review_attempts: dict[str, int] = Field(default_factory=dict)
     review_feedback: dict[str, str] = Field(default_factory=dict)
     worker_result_meta: dict[str, WorkerResultMeta] = Field(default_factory=dict)
@@ -962,6 +983,7 @@ class HITLItem(BaseModel):
     isMemorySuggestion: bool = False  # camelCase to match frontend contract
     llmSummary: str = ""  # cached, operator-focused context summary
     llmSummaryUpdatedAt: str | None = None
+    visualEvidence: VisualEvidence | None = None  # camelCase to match frontend
 
 
 class ControlStatusConfig(BaseModel):
@@ -1122,6 +1144,7 @@ class HITLEscalationPayload(TypedDict, total=False):
     status: str
     role: str
     repo: str
+    visual_evidence: dict[str, object]
 
 
 class IssueCreatedPayload(TypedDict):
