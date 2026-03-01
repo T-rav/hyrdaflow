@@ -2,7 +2,7 @@
 // Extracted from templates/index.html (issue #24)
 
 // State
-const workers = {};       // {issueNum: {status, title, branch, transcript[]}}
+const workers = Object.create(null);  // {issueNum: {status, title, branch, transcript[]}}
 const prs = [];           // [{pr, issue, branch, draft, url}]
 const reviews = [];       // [{pr, verdict, summary}]
 let selectedWorker = null;
@@ -75,7 +75,7 @@ function handleEvent(event) {
 
     case 'transcript_line': {
       const issueNum = data.issue || data.pr;
-      if (issueNum && workers[issueNum]) {
+      if (issueNum && isSafeKey(issueNum) && workers[issueNum]) {
         workers[issueNum].transcript.push(data.line);
         if (selectedWorker === issueNum) {
           appendTranscriptLine(data.line);
@@ -88,7 +88,7 @@ function handleEvent(event) {
       prs.push(data);
       document.getElementById('prs-count').textContent = prs.length;
       updatePRTable();
-      if (data.issue && workers[data.issue]) {
+      if (data.issue && isSafeKey(data.issue) && workers[data.issue]) {
         workers[data.issue].pr = data;
       }
       break;
@@ -110,7 +110,12 @@ function handleEvent(event) {
   }
 }
 
+function isSafeKey(key) {
+  return key != null && typeof key !== 'object' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
+}
+
 function updateWorker(issueNum, status, workerId) {
+  if (!isSafeKey(issueNum)) return;
   if (!workers[issueNum]) {
     workers[issueNum] = {
       status: status,

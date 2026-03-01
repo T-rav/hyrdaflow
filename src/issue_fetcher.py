@@ -28,12 +28,16 @@ class IssueFetcher:
         self._rate_limited_until: datetime | None = None
         self._rate_limit_recovery_attempts = 0
         self._rate_limit_lock = asyncio.Lock()
+        self._collaborators: set[str] | None = None
+        self._collaborators_fetched_at: datetime | None = None
 
     @staticmethod
     def _normalize_issue_payload(item: dict) -> dict:
         """Map REST/CLI issue shapes to the GitHubIssue-compatible payload."""
         comments_raw = item.get("comments", [])
         comments: list = comments_raw if isinstance(comments_raw, list) else []
+        user = item.get("user")
+        author = user.get("login", "") if isinstance(user, dict) else ""
         return {
             "number": item.get("number"),
             "title": item.get("title", ""),
@@ -42,7 +46,65 @@ class IssueFetcher:
             "comments": comments,
             "url": item.get("html_url", item.get("url", "")),
             "createdAt": item.get("createdAt", item.get("created_at", "")),
+            "author": author,
         }
+
+    async def _get_collaborators(self) -> set[str] | None:
+        """Fetch and cache the repo's collaborator logins.
+
+        Returns ``None`` on API failure (fail-open).  The cache is
+        refreshed after ``collaborator_cache_ttl`` seconds.
+        """
+        now = datetime.now(UTC)
+        if (
+            self._collaborators is not None
+            and self._collaborators_fetched_at is not None
+            and (now - self._collaborators_fetched_at).total_seconds()
+            < self._config.collaborator_cache_ttl
+        ):
+            return self._collaborators
+
+        try:
+            raw = await run_subprocess(
+                "gh",
+                "api",
+                f"repos/{self._config.repo}/collaborators",
+                "--paginate",
+                "--jq",
+                ".[].login",
+                gh_token=self._config.gh_token,
+            )
+            logins = {line.strip() for line in raw.strip().splitlines() if line.strip()}
+            self._collaborators = logins
+            self._collaborators_fetched_at = now
+            return logins
+        except (RuntimeError, json.JSONDecodeError, FileNotFoundError) as exc:
+            logger.warning("Could not fetch collaborators (fail-open): %s", exc)
+            return None
+
+    def _filter_non_collaborators(
+        self,
+        issues: list[GitHubIssue],
+        collaborators: set[str] | None,
+    ) -> list[GitHubIssue]:
+        """Remove issues authored by non-collaborators.
+
+        Issues with an empty author pass through.  If *collaborators* is
+        ``None`` (API failure), all issues pass through (fail-open).
+        """
+        if collaborators is None:
+            return issues
+        result: list[GitHubIssue] = []
+        for issue in issues:
+            if not issue.author or issue.author in collaborators:
+                result.append(issue)
+            else:
+                logger.warning(
+                    "Skipping issue #%d from non-collaborator %s",
+                    issue.number,
+                    issue.author,
+                )
+        return result
 
     async def fetch_issues_by_labels(
         self,
@@ -150,6 +212,9 @@ class IssueFetcher:
             )
 
         issues = [GitHubIssue.model_validate(raw) for raw in seen.values()]
+        if self._config.collaborator_check_enabled:
+            collaborators = await self._get_collaborators()
+            issues = self._filter_non_collaborators(issues, collaborators)
         return issues[:limit]
 
     def _is_rate_limited_now(self) -> bool:
@@ -251,7 +316,7 @@ class IssueFetcher:
                 "api",
                 f"repos/{self._config.repo}/issues/{issue_number}",
                 "--jq",
-                "{number, title, body, labels, url: .html_url, createdAt: .created_at}",
+                '{number, title, body, labels, url: .html_url, createdAt: .created_at, author: (.user.login // "")}',
                 gh_token=self._config.gh_token,
             )
             data = json.loads(raw)

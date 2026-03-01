@@ -43,6 +43,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
+    ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
     ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
     ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
@@ -108,6 +109,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("auto_process_epics", "HYDRAFLOW_AUTO_PROCESS_EPICS", False),
     ("auto_process_bug_reports", "HYDRAFLOW_AUTO_PROCESS_BUG_REPORTS", False),
+    ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
 ]
 
 # Literal-typed env-var overrides.
@@ -367,6 +369,16 @@ class HydraFlowConfig(BaseModel):
         ge=300,
         le=86400,
         description="Worktree GC loop interval in seconds (default 30 min)",
+    )
+    collaborator_check_enabled: bool = Field(
+        default=True,
+        description="When True, skip issues from non-collaborators at fetch time",
+    )
+    collaborator_cache_ttl: int = Field(
+        default=600,
+        ge=60,
+        le=7200,
+        description="Collaborator list cache TTL in seconds (default 10 min)",
     )
     epic_stale_days: int = Field(
         default=7,

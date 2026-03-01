@@ -3798,7 +3798,7 @@ class TestListSupervisedReposEndpoint:
 
         data = json.loads(response.body)
         assert response.status_code == 503
-        assert "hf supervisor is not running" in data["error"]
+        assert data["error"] == "Supervisor unavailable"
         mock_logger.warning.assert_not_called()
 
     @pytest.mark.asyncio
@@ -3826,7 +3826,7 @@ class TestListSupervisedReposEndpoint:
 
         data = json.loads(response.body)
         assert response.status_code == 503
-        assert "Supervisor connection failed" in data["error"]
+        assert data["error"] == "Supervisor unavailable"
         mock_logger.warning.assert_called_once()
 
 
@@ -5963,7 +5963,7 @@ class TestCrateEndpoints:
         response = await endpoint()
         assert response.status_code == 500
         data = json.loads(response.body)
-        assert "gh failed" in data["error"]
+        assert data["error"] == "Failed to fetch crates"
 
     @pytest.mark.asyncio
     async def test_create_crate_success(
@@ -6000,7 +6000,7 @@ class TestCrateEndpoints:
         response = await endpoint(body)
         assert response.status_code == 500
         data = json.loads(response.body)
-        assert "rate limit" in data["error"]
+        assert data["error"] == "Failed to create crate"
 
     @pytest.mark.asyncio
     async def test_update_crate_success(
