@@ -908,6 +908,48 @@ class PRManager:
         ]
         return "\n\n".join(sections)
 
+    async def fetch_code_scanning_alerts(self, branch: str) -> list[dict]:
+        """Fetch open code scanning alerts for *branch*.
+
+        Uses the GitHub code-scanning API via ``gh api``.  Returns a list
+        of alert dicts (projected to key fields) or ``[]`` on error, 404,
+        or when the repository has no code scanning configured.
+        """
+        if self._config.dry_run:
+            return []
+
+        jq_expr = (
+            "[.[] | {number, rule: .rule.description, "
+            "severity: .rule.severity, "
+            "security_severity: .rule.security_severity_level, "
+            "path: .most_recent_instance.location.path, "
+            "start_line: .most_recent_instance.location.start_line, "
+            "message: .most_recent_instance.message.text}]"
+        )
+        try:
+            stdout = await run_subprocess(
+                "gh",
+                "api",
+                f"repos/{self._config.repo}/code-scanning/alerts",
+                "--field",
+                f"ref={branch}",
+                "--field",
+                "state=open",
+                "--field",
+                "per_page=50",
+                "--jq",
+                jq_expr,
+                timeout=30,
+            )
+            return json.loads(stdout) if stdout.strip() else []
+        except (RuntimeError, json.JSONDecodeError):
+            logger.debug(
+                "Could not fetch code scanning alerts for branch %s",
+                branch,
+                exc_info=True,
+            )
+            return []
+
     _PASSING_STATES = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
     _PENDING_STATES = frozenset(
         {"PENDING", "QUEUED", "IN_PROGRESS", "REQUESTED", "WAITING"}

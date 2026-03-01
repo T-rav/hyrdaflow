@@ -78,7 +78,7 @@ class TestReviewPRs:
         """At most config.max_reviewers concurrent reviews."""
         concurrency_counter = {"current": 0, "peak": 0}
 
-        async def fake_review(pr, issue, wt_path, diff, worker_id=0):
+        async def fake_review(pr, issue, wt_path, diff, worker_id=0, **_kwargs):
             concurrency_counter["current"] += 1
             concurrency_counter["peak"] = max(
                 concurrency_counter["peak"],
@@ -551,7 +551,7 @@ class TestReviewPRs:
             PRInfoFactory.create(number=102, issue_number=2),
         ]
 
-        async def fake_review(pr, issue, wt_path, diff, worker_id=0):
+        async def fake_review(pr, issue, wt_path, diff, worker_id=0, **_kwargs):
             return ReviewResultFactory.create(
                 pr_number=pr.number,
                 issue_number=issue.id,
@@ -738,6 +738,7 @@ class TestReviewExceptionIsolation:
             wt_path: Path,
             diff: str,
             worker_id: int = 0,
+            **_kwargs: object,
         ) -> ReviewResult:
             nonlocal call_count
             call_count += 1

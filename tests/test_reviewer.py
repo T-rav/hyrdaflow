@@ -1507,3 +1507,201 @@ def test_build_review_prompt_excludes_runtime_logs_when_disabled(config, event_b
         prompt = runner._build_review_prompt(pr, issue, "diff --git a/foo.py")
 
     assert "## Recent Application Logs" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# _format_code_scanning_alerts
+# ---------------------------------------------------------------------------
+
+
+class TestFormatCodeScanningAlerts:
+    """Tests for ReviewRunner._format_code_scanning_alerts."""
+
+    def test_empty_alerts_returns_empty_string(self):
+        assert ReviewRunner._format_code_scanning_alerts([], 6000) == ""
+
+    def test_formats_single_alert(self):
+        alerts = [
+            {
+                "severity": "error",
+                "security_severity": "high",
+                "path": "src/db.js",
+                "start_line": 42,
+                "rule": "js/sql-injection",
+                "message": "SQL injection vulnerability",
+            }
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(alerts, 6000)
+        assert "[HIGH]" in result
+        assert "src/db.js:42" in result
+        assert "js/sql-injection" in result
+        assert "SQL injection vulnerability" in result
+
+    def test_uses_severity_when_no_security_severity(self):
+        alerts = [
+            {
+                "severity": "warning",
+                "security_severity": None,
+                "path": "foo.py",
+                "start_line": 10,
+                "rule": "py/unused-import",
+                "message": "",
+            }
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(alerts, 6000)
+        assert "[WARNING]" in result
+
+    def test_truncates_at_max_chars(self):
+        alerts = [
+            {
+                "severity": "error",
+                "path": f"src/file{i}.py",
+                "start_line": i,
+                "rule": f"rule-{i}",
+                "message": f"Alert message {i}",
+            }
+            for i in range(100)
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(alerts, 200)
+        assert "truncated" in result
+        assert "Showing" in result
+        assert "100 alerts" in result
+
+    def test_truncation_includes_gh_command(self):
+        alerts = [
+            {
+                "severity": "error",
+                "path": f"src/file{i}.py",
+                "start_line": i,
+                "rule": f"rule-{i}",
+                "message": "x" * 50,
+            }
+            for i in range(100)
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(
+            alerts, 200, repo="org/repo", branch="main"
+        )
+        assert "gh api repos/org/repo/code-scanning/alerts" in result
+
+    def test_no_truncation_within_limit(self):
+        alerts = [
+            {
+                "severity": "error",
+                "path": "foo.py",
+                "start_line": 1,
+                "rule": "test-rule",
+                "message": "msg",
+            }
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(alerts, 6000)
+        assert "truncated" not in result
+
+
+# ---------------------------------------------------------------------------
+# _build_review_prompt — code scanning alerts injection
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_prompt_includes_code_scanning_alerts(config, event_bus):
+    """Review prompt includes Code Scanning Alerts section when provided."""
+    from tests.conftest import PRInfoFactory, TaskFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = TaskFactory.create()
+    alerts = [
+        {
+            "severity": "error",
+            "security_severity": "high",
+            "path": "src/db.js",
+            "start_line": 42,
+            "rule": "js/sql-injection",
+            "message": "SQL injection",
+        }
+    ]
+
+    with (
+        patch("base_runner.load_project_manifest", return_value=""),
+        patch("base_runner.load_memory_digest", return_value=""),
+    ):
+        prompt = runner._build_review_prompt(
+            pr,
+            issue,
+            "diff --git a/foo.py",
+            code_scanning_alerts=alerts,
+        )
+
+    assert "## Code Scanning Alerts" in prompt
+    assert "src/db.js:42" in prompt
+    assert "js/sql-injection" in prompt
+
+
+def test_build_review_prompt_excludes_code_scanning_when_none(config, event_bus):
+    """Review prompt does NOT include code scanning section when alerts is None."""
+    from tests.conftest import PRInfoFactory, TaskFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = TaskFactory.create()
+
+    with (
+        patch("base_runner.load_project_manifest", return_value=""),
+        patch("base_runner.load_memory_digest", return_value=""),
+    ):
+        prompt = runner._build_review_prompt(pr, issue, "diff --git a/foo.py")
+
+    assert "## Code Scanning Alerts" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# _build_ci_fix_prompt — code scanning alerts injection
+# ---------------------------------------------------------------------------
+
+
+def test_build_ci_fix_prompt_includes_code_scanning_alerts(config, event_bus):
+    """CI fix prompt includes Code Scanning Alerts when provided."""
+    from tests.conftest import PRInfoFactory, TaskFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = TaskFactory.create()
+    alerts = [
+        {
+            "severity": "error",
+            "security_severity": "critical",
+            "path": "src/auth.py",
+            "start_line": 10,
+            "rule": "py/hardcoded-credentials",
+            "message": "Hardcoded password",
+        }
+    ]
+
+    prompt, _stats = runner._build_ci_fix_prompt(
+        pr,
+        issue,
+        "Failed checks: CodeQL",
+        attempt=1,
+        code_scanning_alerts=alerts,
+    )
+
+    assert "## Code Scanning Alerts" in prompt
+    assert "src/auth.py:10" in prompt
+    assert "py/hardcoded-credentials" in prompt
+
+
+def test_build_ci_fix_prompt_excludes_code_scanning_when_none(config, event_bus):
+    """CI fix prompt does NOT include code scanning section when alerts is None."""
+    from tests.conftest import PRInfoFactory, TaskFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = TaskFactory.create()
+
+    prompt, _stats = runner._build_ci_fix_prompt(
+        pr,
+        issue,
+        "Failed checks: Build",
+        attempt=1,
+    )
+
+    assert "## Code Scanning Alerts" not in prompt

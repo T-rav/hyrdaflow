@@ -559,7 +559,9 @@ class TestReviewPhaseStop:
 
         call_count = 0
 
-        async def _review_side_effect(pr, _issue, _wt_path, _diff, worker_id=0):
+        async def _review_side_effect(
+            pr, _issue, _wt_path, _diff, worker_id=0, **_kwargs
+        ):
             nonlocal call_count
             call_count += 1
             # Set stop after first review completes

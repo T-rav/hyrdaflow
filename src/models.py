@@ -1671,6 +1671,7 @@ class CiGateFn(Protocol):
         wt_path: Path,
         result: ReviewResult,
         worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> bool: ...
 
 

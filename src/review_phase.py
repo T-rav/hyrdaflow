@@ -264,6 +264,30 @@ class ReviewPhase:
             return None
         return wt_path
 
+    async def _fetch_code_scanning_alerts(self, pr: PRInfo) -> list[dict] | None:
+        """Fetch code scanning alerts if the feature is enabled.
+
+        Returns the alert list or ``None`` when disabled / on error.
+        """
+        if not self._config.code_scanning_enabled:
+            return None
+        try:
+            alerts = await self._prs.fetch_code_scanning_alerts(pr.branch)
+            if alerts:
+                logger.info(
+                    "PR #%d: fetched %d code scanning alert(s)",
+                    pr.number,
+                    len(alerts),
+                )
+            return alerts or None
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Could not fetch code scanning alerts for PR #%d",
+                pr.number,
+                exc_info=True,
+            )
+            return None
+
     async def _review_one_inner(
         self,
         idx: int,
@@ -300,10 +324,20 @@ class ReviewPhase:
 
         diff = await self._prs.get_pr_diff(pr.number)
 
+        # Fetch code scanning alerts (opt-in)
+        code_scanning_alerts = await self._fetch_code_scanning_alerts(pr)
+
         # Delta verification: compare planned vs actual files
         await self._run_delta_verification(pr, diff)
 
-        result = await self._run_and_post_review(pr, task, wt_path, diff, idx)
+        result = await self._run_and_post_review(
+            pr,
+            task,
+            wt_path,
+            diff,
+            idx,
+            code_scanning_alerts=code_scanning_alerts,
+        )
 
         # If reviewer fixed its own findings, re-review the updated code
         if result.fixes_made and result.verdict in (
@@ -311,7 +345,13 @@ class ReviewPhase:
             ReviewVerdict.COMMENT,
         ):
             result, diff = await self._handle_self_fix_re_review(
-                pr, task, wt_path, result, diff, idx
+                pr,
+                task,
+                wt_path,
+                result,
+                diff,
+                idx,
+                code_scanning_alerts=code_scanning_alerts,
             )
 
         await self._record_review_outcome(pr, result)
@@ -319,7 +359,14 @@ class ReviewPhase:
         # Verdict-specific handling
         skip_worktree_cleanup = False
         if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
-            await self._handle_approved_merge(pr, task, result, diff, idx)
+            await self._handle_approved_merge(
+                pr,
+                task,
+                result,
+                diff,
+                idx,
+                code_scanning_alerts=code_scanning_alerts,
+            )
         elif result.verdict in (
             ReviewVerdict.REQUEST_CHANGES,
             ReviewVerdict.COMMENT,
@@ -425,10 +472,16 @@ class ReviewPhase:
         wt_path: Path,
         diff: str,
         worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> ReviewResult:
         """Run the reviewer, push fixes, post summary, submit formal review."""
         result = await self._reviewers.review(
-            pr, issue, wt_path, diff, worker_id=worker_id
+            pr,
+            issue,
+            wt_path,
+            diff,
+            worker_id=worker_id,
+            code_scanning_alerts=code_scanning_alerts,
         )
 
         if result.fixes_made:
@@ -450,7 +503,13 @@ class ReviewPhase:
 
         if result.verdict == ReviewVerdict.APPROVE:
             result = await self._check_adversarial_threshold(
-                pr, issue, wt_path, diff, result, worker_id
+                pr,
+                issue,
+                wt_path,
+                diff,
+                result,
+                worker_id,
+                code_scanning_alerts=code_scanning_alerts,
             )
 
         return result
@@ -463,6 +522,7 @@ class ReviewPhase:
         result: ReviewResult,
         diff: str,
         worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> tuple[ReviewResult, str]:
         """Re-review a PR after the reviewer self-fixed findings.
 
@@ -479,7 +539,12 @@ class ReviewPhase:
             await self._publish_review_status(pr, worker_id, "re_reviewing")
             updated_diff = await self._prs.get_pr_diff(pr.number)
             re_result = await self._reviewers.review(
-                pr, issue, wt_path, updated_diff, worker_id=worker_id
+                pr,
+                issue,
+                wt_path,
+                updated_diff,
+                worker_id=worker_id,
+                code_scanning_alerts=code_scanning_alerts,
             )
             if re_result.fixes_made:
                 await self._prs.push_branch(wt_path, pr.branch)
@@ -548,6 +613,7 @@ class ReviewPhase:
         result: ReviewResult,
         diff: str,
         worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate)."""
         await self._post_merge.handle_approved(
@@ -559,6 +625,7 @@ class ReviewPhase:
             ci_gate_fn=self.wait_and_fix_ci,
             escalate_fn=self._escalate_to_hitl,
             publish_fn=self._publish_review_status,
+            code_scanning_alerts=code_scanning_alerts,
         )
 
     async def _run_ci_wait_attempt(
@@ -583,6 +650,7 @@ class ReviewPhase:
         attempt: int,
         *,
         ci_logs: str = "",
+        code_scanning_alerts: list[dict] | None = None,
     ) -> bool:
         """Run the CI fix agent. Return True if changes were made and pushed."""
         await self._publish_review_status(pr, worker_id, "ci_fix")
@@ -594,6 +662,7 @@ class ReviewPhase:
             attempt=attempt,
             worker_id=worker_id,
             ci_logs=ci_logs,
+            code_scanning_alerts=code_scanning_alerts,
         )
         if not fix_result.fixes_made:
             logger.info(
@@ -644,6 +713,7 @@ class ReviewPhase:
         wt_path: Path,
         result: ReviewResult,
         worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> bool:
         """Wait for CI and attempt fixes if it fails.
 
@@ -679,7 +749,14 @@ class ReviewPhase:
                     )
 
             made_changes = await self._run_ci_fix_attempt(
-                pr, issue, wt_path, summary, worker_id, attempt + 1, ci_logs=ci_logs
+                pr,
+                issue,
+                wt_path,
+                summary,
+                worker_id,
+                attempt + 1,
+                ci_logs=ci_logs,
+                code_scanning_alerts=code_scanning_alerts,
             )
             result.ci_fix_attempts += 1
             if not made_changes:
@@ -822,6 +899,7 @@ class ReviewPhase:
         diff: str,
         result: ReviewResult,
         worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> ReviewResult:
         """Re-review if APPROVE has too few findings and no justification.
 
@@ -848,7 +926,12 @@ class ReviewPhase:
         await self._publish_review_status(pr, worker_id, "re_reviewing")
 
         re_result = await self._reviewers.review(
-            pr, issue, wt_path, diff, worker_id=worker_id
+            pr,
+            issue,
+            wt_path,
+            diff,
+            worker_id=worker_id,
+            code_scanning_alerts=code_scanning_alerts,
         )
 
         # If re-review still under threshold without justification, accept

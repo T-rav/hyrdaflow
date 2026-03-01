@@ -4041,3 +4041,81 @@ class TestUpdateIssueBody:
             await mgr.update_issue_body(42, "body")
 
         assert "Could not update body" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# fetch_code_scanning_alerts
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCodeScanningAlerts:
+    """Tests for PRManager.fetch_code_scanning_alerts."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
+        """Dry-run mode returns empty list."""
+        manager = _make_manager(dry_config, event_bus)
+        result = await manager.fetch_code_scanning_alerts("feature-branch")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_alerts_on_success(self, config, event_bus):
+        """Successful API call returns parsed alert list."""
+        manager = _make_manager(config, event_bus)
+        alerts = [
+            {
+                "number": 1,
+                "rule": "js/sql-injection",
+                "severity": "error",
+                "security_severity": "high",
+                "path": "src/db.js",
+                "start_line": 42,
+                "message": "SQL injection vulnerability",
+            }
+        ]
+        mock_create = SubprocessMockBuilder().with_stdout(json.dumps(alerts)).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert len(result) == 1
+        assert result[0]["number"] == 1
+        assert result[0]["path"] == "src/db.js"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_404(self, config, event_bus):
+        """404 (no code scanning configured) returns empty list."""
+        manager = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("HTTP 404: Not Found")
+            .build()
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_json_error(self, config, event_bus):
+        """Malformed JSON returns empty list."""
+        manager = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("not-json{").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_empty_stdout(self, config, event_bus):
+        """Empty stdout returns empty list."""
+        manager = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("  ").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.fetch_code_scanning_alerts("feature-branch")
+
+        assert result == []

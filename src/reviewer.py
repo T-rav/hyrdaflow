@@ -47,6 +47,56 @@ class ReviewRunner(BaseRunner):
     _log = logger
     _MAX_CI_LOG_PROMPT_CHARS = 6_000
 
+    @staticmethod
+    def _format_code_scanning_alerts(
+        alerts: list[dict],
+        max_chars: int,
+        *,
+        repo: str = "",
+        branch: str = "",
+    ) -> str:
+        """Format code scanning alerts for prompt injection.
+
+        Each alert is rendered as a single line:
+        ``- [SEVERITY] path:line — rule (message)``
+
+        When the formatted output exceeds *max_chars*, it is truncated and
+        a note with the ``gh`` command to fetch the full set is appended.
+        """
+        if not alerts:
+            return ""
+
+        lines: list[str] = []
+        for alert in alerts:
+            severity = (
+                alert.get("security_severity") or alert.get("severity") or "unknown"
+            ).upper()
+            path = alert.get("path", "?")
+            line = alert.get("start_line", "?")
+            rule = alert.get("rule", "unknown rule")
+            message = alert.get("message", "")
+            entry = f"- [{severity}] {path}:{line} — {rule}"
+            if message:
+                entry += f" ({message})"
+            lines.append(entry)
+
+        formatted = "\n".join(lines)
+        if len(formatted) <= max_chars:
+            return formatted
+
+        # Truncate and add instructions to fetch the full set
+        truncated = formatted[:max_chars]
+        shown = truncated.count("\n") + 1
+        total = len(alerts)
+        gh_cmd = "gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
+        if repo:
+            gh_cmd = f"gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
+        note = (
+            f"\n\n[Showing {shown} of {total} alerts — truncated at {max_chars:,} chars. "
+            f"Run `{gh_cmd}` for the full set.]"
+        )
+        return truncated + note
+
     async def review(
         self,
         pr: PRInfo,
@@ -54,6 +104,7 @@ class ReviewRunner(BaseRunner):
         worktree_path: Path,
         diff: str,
         worker_id: int = 0,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> ReviewResult:
         """Run the review agent for *pr*.
 
@@ -91,7 +142,11 @@ class ReviewRunner(BaseRunner):
             )
             cmd = self._build_command(worktree_path)
             prompt, prompt_stats = self._build_review_prompt_with_stats(
-                pr, issue, diff, precheck_context=precheck_context
+                pr,
+                issue,
+                diff,
+                precheck_context=precheck_context,
+                code_scanning_alerts=code_scanning_alerts,
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
@@ -148,6 +203,7 @@ class ReviewRunner(BaseRunner):
         attempt: int = 1,
         worker_id: int = 0,
         ci_logs: str = "",
+        code_scanning_alerts: list[dict] | None = None,
     ) -> ReviewResult:
         """Run an agent to fix CI failures.
 
@@ -184,7 +240,12 @@ class ReviewRunner(BaseRunner):
         try:
             cmd = self._build_command(worktree_path)
             prompt, prompt_stats = self._build_ci_fix_prompt(
-                pr, issue, failure_summary, attempt, ci_logs=ci_logs
+                pr,
+                issue,
+                failure_summary,
+                attempt,
+                ci_logs=ci_logs,
+                code_scanning_alerts=code_scanning_alerts,
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
@@ -230,6 +291,7 @@ class ReviewRunner(BaseRunner):
         failure_summary: str,
         attempt: int,
         ci_logs: str = "",
+        code_scanning_alerts: list[dict] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build a focused prompt for fixing CI failures."""
         raw_ci_logs = ci_logs or ""
@@ -246,12 +308,23 @@ class ReviewRunner(BaseRunner):
                 f"\n\n## Full CI Failure Logs\n\n```\n{compact_ci_logs}\n```"
             )
 
+        scanning_section = ""
+        if code_scanning_alerts:
+            formatted = self._format_code_scanning_alerts(
+                code_scanning_alerts,
+                self._config.max_code_scanning_chars,
+                repo=self._config.repo,
+                branch=pr.branch,
+            )
+            if formatted:
+                scanning_section = f"\n\n## Code Scanning Alerts\n\n{formatted}"
+
         test_cmd = self._config.test_command
         prompt = f"""You are fixing CI failures on PR #{pr.number} (issue #{issue.id}: {issue.title}).
 
 ## CI Failure Summary
 
-{failure_summary}{ci_logs_section}
+{failure_summary}{ci_logs_section}{scanning_section}
 
 ## Fix Attempt {attempt}
 
@@ -426,10 +499,15 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         issue: Task,
         diff: str,
         precheck_context: str = "",
+        code_scanning_alerts: list[dict] | None = None,
     ) -> str:
         """Build the review prompt for the agent."""
         prompt, _stats = self._build_review_prompt_with_stats(
-            pr, issue, diff, precheck_context=precheck_context
+            pr,
+            issue,
+            diff,
+            precheck_context=precheck_context,
+            code_scanning_alerts=code_scanning_alerts,
         )
         return prompt
 
@@ -439,6 +517,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         issue: Task,
         diff: str,
         precheck_context: str = "",
+        code_scanning_alerts: list[dict] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
@@ -481,13 +560,25 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             if logs:
                 log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
 
+        # Code scanning alerts injection (opt-in)
+        scanning_section = ""
+        if code_scanning_alerts:
+            formatted = self._format_code_scanning_alerts(
+                code_scanning_alerts,
+                self._config.max_code_scanning_chars,
+                repo=self._config.repo,
+                branch=pr.branch,
+            )
+            if formatted:
+                scanning_section = f"\n\n## Code Scanning Alerts\n\n{formatted}"
+
         issue_body = self._summarize_issue_body(issue.body)
 
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{manifest_section}{memory_section}{log_section}
+{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}
 
 ## Precheck Context
 

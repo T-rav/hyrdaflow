@@ -51,6 +51,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
     ("max_runtime_log_chars", "HYDRAFLOW_MAX_RUNTIME_LOG_CHARS", 8_000),
     ("max_ci_log_chars", "HYDRAFLOW_MAX_CI_LOG_CHARS", 12_000),
+    ("max_code_scanning_chars", "HYDRAFLOW_MAX_CODE_SCANNING_CHARS", 6_000),
     ("agent_timeout", "HYDRAFLOW_AGENT_TIMEOUT", 3600),
     ("transcript_summary_timeout", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", 120),
     ("memory_compaction_timeout", "HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", 60),
@@ -110,6 +111,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("auto_process_epics", "HYDRAFLOW_AUTO_PROCESS_EPICS", False),
     ("auto_process_bug_reports", "HYDRAFLOW_AUTO_PROCESS_BUG_REPORTS", False),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
+    ("code_scanning_enabled", "HYDRAFLOW_CODE_SCANNING_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -614,6 +616,16 @@ class HydraFlowConfig(BaseModel):
         ge=1_000,
         le=100_000,
         description="Max characters for CI failure log injection",
+    )
+    code_scanning_enabled: bool = Field(
+        default=False,
+        description="Fetch GitHub code scanning alerts and inject into review context",
+    )
+    max_code_scanning_chars: int = Field(
+        default=6_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for code scanning alert injection",
     )
 
     # Manifest detection

@@ -144,6 +144,10 @@ class PRPort(Protocol):
         """Return aggregated CI failure logs for *pr_number*."""
         ...
 
+    async def fetch_code_scanning_alerts(self, branch: str) -> list[dict]:
+        """Return open code scanning alerts for *branch*."""
+        ...
+
     # --- Issue management ---
 
     async def close_issue(self, issue_number: int) -> None:

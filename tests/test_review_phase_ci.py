@@ -465,3 +465,137 @@ class TestWaitAndFixCIWithLogs:
         await phase.wait_and_fix_ci(pr, issue, wt, result, 0)
 
         phase._prs.fetch_ci_failure_logs.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Code scanning alerts in review phase
+# ---------------------------------------------------------------------------
+
+
+class TestCodeScanningAlertsFetch:
+    """Tests for _fetch_code_scanning_alerts helper."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_disabled(self, config: HydraFlowConfig) -> None:
+        """When code_scanning_enabled is False, returns None."""
+        cfg = ConfigFactory.create(
+            code_scanning_enabled=False,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        pr = PRInfoFactory.create()
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_alerts_when_enabled(self, config: HydraFlowConfig) -> None:
+        """When code_scanning_enabled is True and alerts exist, returns them."""
+        cfg = ConfigFactory.create(
+            code_scanning_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        pr = PRInfoFactory.create()
+
+        alerts = [{"number": 1, "path": "foo.py", "severity": "error"}]
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result == alerts
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_empty_alerts(self, config: HydraFlowConfig) -> None:
+        """When API returns empty list, returns None."""
+        cfg = ConfigFactory.create(
+            code_scanning_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        pr = PRInfoFactory.create()
+
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=[])
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_exception(self, config: HydraFlowConfig) -> None:
+        """When API raises, returns None gracefully."""
+        cfg = ConfigFactory.create(
+            code_scanning_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        pr = PRInfoFactory.create()
+
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=RuntimeError("API error")
+        )
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+
+class TestCodeScanningAlertThreading:
+    """Tests that code scanning alerts are threaded through the review flow."""
+
+    @pytest.mark.asyncio
+    async def test_alerts_passed_to_reviewer(self, config: HydraFlowConfig) -> None:
+        """Alerts are passed through to the reviewer.review call."""
+        cfg = ConfigFactory.create(
+            code_scanning_enabled=True,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        alerts = [{"number": 1, "path": "foo.py", "severity": "error"}]
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
+
+        await phase.review_prs([pr], [issue])
+
+        # Verify review was called with code_scanning_alerts
+        call_kwargs = phase._reviewers.review.call_args
+        assert call_kwargs.kwargs.get("code_scanning_alerts") == alerts
+
+    @pytest.mark.asyncio
+    async def test_alerts_passed_to_ci_fix(self, config: HydraFlowConfig) -> None:
+        """Alerts are threaded through to the CI fix agent."""
+        cfg = ConfigFactory.create(
+            code_scanning_enabled=True,
+            max_ci_fix_attempts=1,
+            repo_root=config.repo_root,
+            worktree_base=config.worktree_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        alerts = [{"number": 1, "path": "foo.py", "severity": "error"}]
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
+
+        # CI fails first time, fix makes changes, then passes
+        phase._prs.wait_for_ci = AsyncMock(
+            side_effect=[(False, "Failed"), (True, "Passed")]
+        )
+        fix_result = ReviewResultFactory.create(fixes_made=True)
+        phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
+
+        await phase.review_prs([pr], [issue])
+
+        # Verify fix_ci was called with code_scanning_alerts
+        call_kwargs = phase._reviewers.fix_ci.call_args
+        assert call_kwargs.kwargs.get("code_scanning_alerts") == alerts

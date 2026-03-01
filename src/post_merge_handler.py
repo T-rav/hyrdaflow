@@ -112,6 +112,7 @@ class PostMergeHandler:
         ci_gate_fn: CiGateFn,
         escalate_fn: EscalateFn,
         publish_fn: PublishFn,
+        code_scanning_alerts: list[dict] | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate)."""
         should_merge = True
@@ -122,6 +123,7 @@ class PostMergeHandler:
                 self._config.worktree_path_for_issue(pr.issue_number),
                 result,
                 worker_id,
+                code_scanning_alerts=code_scanning_alerts,
             )
         if not should_merge:
             return
