@@ -31,6 +31,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0018](0018-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Proposed |
 | [0019](0019-background-task-delegation-abstraction-layer.md) | Background Task Delegation Abstraction Layer | Proposed |
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Proposed |
+| [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Proposed |
 
 ## Adding a new ADR
 

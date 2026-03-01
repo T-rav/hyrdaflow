@@ -123,3 +123,48 @@ class TestADR0018ScreenshotPipeline:
         assert "screenshot_redaction_enabled" in content
         assert "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED" in content
         assert "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC" in content
+
+
+class TestADR0021PersistenceArchitecture:
+    """Content checks specific to ADR-0021 (persistence architecture)."""
+
+    @pytest.fixture()
+    def content(self) -> str:
+        path = ADR_DIR / "0021-persistence-architecture-and-data-layout.md"
+        assert path.exists(), "ADR-0021 file not found"
+        return path.read_text()
+
+    def test_title(self, content: str) -> None:
+        assert "# ADR-0021: Persistence Architecture and Data Layout" in content
+
+    def test_status_proposed(self, content: str) -> None:
+        assert "**Status:** Proposed" in content
+
+    def test_references_source_memory(self, content: str) -> None:
+        assert "#1624" in content, "ADR-0021 must link to source memory issue #1624"
+
+    def test_references_this_issue(self, content: str) -> None:
+        assert "#1633" in content, "ADR-0021 must link to this issue #1633"
+
+    def test_documents_data_root(self, content: str) -> None:
+        assert "data_root" in content
+        assert ".hydraflow" in content
+
+    def test_documents_state_json(self, content: str) -> None:
+        assert "state.json" in content
+
+    def test_documents_config_precedence(self, content: str) -> None:
+        assert "HYDRAFLOW_HOME" in content
+        assert "Pydantic defaults" in content
+
+    def test_documents_atomic_writes(self, content: str) -> None:
+        assert "atomic_write" in content
+
+    def test_documents_repo_slug_namespacing(self, content: str) -> None:
+        assert "repo_slug" in content or "repo-slug" in content
+
+    def test_has_alternatives_considered(self, content: str) -> None:
+        assert "## Alternatives considered" in content
+
+    def test_has_related_section(self, content: str) -> None:
+        assert "## Related" in content

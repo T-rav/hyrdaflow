@@ -81,6 +81,7 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
     ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
     ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "haiku"),
+    ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
 ]
 
@@ -838,6 +839,13 @@ class HydraFlowConfig(BaseModel):
     config_file: Path | None = Field(
         default=None,
         description="Path to JSON config file for persisting runtime changes",
+    )
+
+    # Changelog
+    changelog_file: str = Field(
+        default="",
+        description="Path to CHANGELOG.md file for epic completion changelog generation; "
+        "empty string disables file output",
     )
 
     # Dashboard

@@ -646,12 +646,17 @@ class PRManager:
         """Create a GitHub Release for the given *tag*.
 
         Returns *True* on success, *False* on failure.
+        Uses a temp file for the notes body to avoid argument length limits.
         """
         self._assert_repo()
         if self._config.dry_run:
             logger.info("[dry-run] Would create release %s", tag)
             return True
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-release-")
         try:
+            with os.fdopen(fd, "w") as f:
+                f.write(body)
             await self._run_gh(
                 "gh",
                 "release",
@@ -661,13 +666,15 @@ class PRManager:
                 self._repo,
                 "--title",
                 title,
-                "--notes",
-                body,
+                "--notes-file",
+                tmp_path,
             )
             return True
         except RuntimeError as exc:
             logger.warning("Could not create release %s: %s", tag, exc)
             return False
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
     async def remove_pr_label(self, pr_number: int, label: str) -> None:
         """Remove *label* from a GitHub pull request."""
@@ -1227,6 +1234,84 @@ class PRManager:
         except (RuntimeError, json.JSONDecodeError) as exc:
             logger.warning("Could not fetch comments for PR #%d: %s", pr_number, exc)
             return []
+
+    # --- Changelog query helpers ---
+
+    async def get_pr_title_and_body(self, pr_number: int) -> tuple[str, str]:
+        """Fetch the title and body of *pr_number*.
+
+        Returns ``("", "")`` on failure or in dry-run mode.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fetch title/body for PR #%d", pr_number)
+            return ("", "")
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "title,body",
+            )
+            data = json.loads(raw)
+            return (data.get("title", ""), data.get("body", ""))
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Could not fetch title/body for PR #%d: %s", pr_number, exc)
+            return ("", "")
+
+    async def get_pr_for_issue(self, issue_number: int) -> int:
+        """Find the merged (or open) PR number for *issue_number*.
+
+        Searches for a PR whose branch matches the ``agent/issue-{N}`` pattern.
+        Returns the PR number, or ``0`` when not found.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would look up PR for issue #%d", issue_number)
+            return 0
+
+        branch = f"agent/issue-{issue_number}"
+        head_filter = f"{self._repo_owner}:{branch}" if self._repo_owner else branch
+
+        # Search merged PRs first, then open
+        for pr_state in ("closed", "open"):
+            try:
+                raw = await self._run_gh(
+                    "gh",
+                    "api",
+                    f"repos/{self._repo}/pulls",
+                    "--method",
+                    "GET",
+                    "--field",
+                    f"state={pr_state}",
+                    "--field",
+                    f"head={head_filter}",
+                    "--field",
+                    "per_page=1",
+                    "--jq",
+                    "[.[] | {number}]",
+                )
+                prs = json.loads(raw)
+                if prs:
+                    return int(prs[0]["number"])
+            except (
+                RuntimeError,
+                ValueError,
+                KeyError,
+                TypeError,
+                json.JSONDecodeError,
+            ):
+                logger.debug(
+                    "Could not resolve PR for issue #%d (state=%s)",
+                    issue_number,
+                    pr_state,
+                    exc_info=True,
+                )
+
+        return 0
 
     # --- dashboard query helpers ---
 

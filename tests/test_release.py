@@ -12,7 +12,6 @@ import pytest
 from epic import (
     EpicCompletionChecker,
     extract_version_from_title,
-    generate_changelog,
 )
 from models import GitHubIssue, Release
 from state import StateTracker
@@ -112,29 +111,6 @@ class TestExtractVersionFromTitle:
     def test_bare_integer_without_prefix_not_extracted(self) -> None:
         # A bare number without v-prefix should not create a spurious release
         assert extract_version_from_title("5 Features") == ""
-
-
-# ---------------------------------------------------------------------------
-# generate_changelog
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateChangelog:
-    def test_generates_markdown_list(self) -> None:
-        titles = ["Add login page", "Fix auth bug", "Update docs"]
-        result = generate_changelog(titles)
-        assert "## What's Changed" in result
-        assert "- Add login page" in result
-        assert "- Fix auth bug" in result
-        assert "- Update docs" in result
-
-    def test_returns_empty_for_no_titles(self) -> None:
-        assert generate_changelog([]) == ""
-
-    def test_single_title(self) -> None:
-        result = generate_changelog(["Implement feature X"])
-        assert "- Implement feature X" in result
-        assert result.startswith("## What's Changed")
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +376,12 @@ class TestEpicCompletionWithRelease:
             tmp_path=tmp_path,
         )
 
-        await checker.check_and_close_epics(1)
+        changelog_body = "## [epic-100]\n\n### Features\n- Add login\n- Fix auth\n"
+        with patch(
+            "epic.generate_changelog",
+            AsyncMock(return_value=changelog_body),
+        ):
+            await checker.check_and_close_epics(1)
 
         prs.create_tag.assert_called_once_with("v1.0.0")
         prs.create_release.assert_called_once()
@@ -440,7 +421,8 @@ class TestEpicCompletionWithRelease:
             tmp_path=tmp_path,
         )
 
-        await checker.check_and_close_epics(1)
+        with patch("epic.generate_changelog", AsyncMock(return_value="changelog")):
+            await checker.check_and_close_epics(1)
 
         comment = prs.post_comment.call_args[0][1]
         assert "Release" in comment
