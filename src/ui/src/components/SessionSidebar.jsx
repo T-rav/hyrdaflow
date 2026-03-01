@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
 import { PULSE_ANIMATION } from '../constants'
@@ -17,10 +17,15 @@ export function SessionSidebar() {
     runtimes = [],
     startRuntime,
     stopRuntime,
+    addRepoShortcut,
+    removeRepoShortcut,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
   const [hoveredSession, setHoveredSession] = useState(null)
   const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
+  const [showAddRepo, setShowAddRepo] = useState(false)
+  const [addRepoValue, setAddRepoValue] = useState('')
+  const addRepoInputRef = useRef(null)
 
   const shortRepo = (repo) => {
     const parts = (repo || '').split('/')
@@ -90,6 +95,42 @@ export function SessionSidebar() {
     deleteSession(sessionId)
   }
 
+  useEffect(() => {
+    if (showAddRepo && addRepoInputRef.current) {
+      addRepoInputRef.current.focus()
+    }
+  }, [showAddRepo])
+
+  const handleAddRepoSubmit = () => {
+    const trimmed = addRepoValue.trim()
+    if (trimmed && addRepoShortcut) {
+      addRepoShortcut(trimmed)
+    }
+    setAddRepoValue('')
+    setShowAddRepo(false)
+  }
+
+  const handleAddRepoKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleAddRepoSubmit()
+    } else if (e.key === 'Escape') {
+      setAddRepoValue('')
+      setShowAddRepo(false)
+    }
+  }
+
+  const handleDisconnect = (e, slug, isRunning) => {
+    e.stopPropagation()
+    if (isRunning) {
+      if (!window.confirm(`Repo "${slug}" is currently running. Disconnect anyway?`)) {
+        return
+      }
+    }
+    if (removeRepoShortcut) {
+      removeRepoShortcut(slug)
+    }
+  }
+
   return (
     <div style={styles.sidebar}>
       <div style={styles.header}>
@@ -103,8 +144,29 @@ export function SessionSidebar() {
         onClick={() => { selectRepo(null); selectSession(null) }}
         style={selectedRepoSlug === null && selectedSessionId === null ? styles.allButtonActive : styles.allButton}
       >
-        All Repos
+        <span>All Repos</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowAddRepo(prev => !prev) }}
+          style={styles.addRepoBtn}
+          aria-label="Add repo"
+          title="Connect a new repo"
+        >
+          +
+        </button>
       </div>
+      {showAddRepo && (
+        <div style={styles.addRepoRow}>
+          <input
+            ref={addRepoInputRef}
+            type="text"
+            value={addRepoValue}
+            onChange={(e) => setAddRepoValue(e.target.value)}
+            onKeyDown={handleAddRepoKeyDown}
+            placeholder="owner/repo"
+            style={styles.addRepoInput}
+          />
+        </div>
+      )}
 
       <div style={styles.list}>
         {repoEntries.map(entry => {
@@ -135,24 +197,22 @@ export function SessionSidebar() {
                   </div>
                 </div>
                 <div style={styles.repoMeta}>
-                  {rt && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); isRunning ? stopRuntime(entry.slug) : startRuntime(entry.slug) }}
-                      style={isRunning ? styles.repoStopBtn : styles.repoStartBtn}
-                      title={isRunning ? 'Stop this repo runtime' : 'Start this repo runtime'}
-                    >
-                      {isRunning ? 'Stop' : 'Start'}
-                    </button>
-                  )}
-                  {!rt && entry.info && (
-                    <span
-                      style={isRunning ? styles.repoStatusRunning : styles.repoStatusStopped}
-                      title={isRunning ? 'Repo is running' : 'Repo is stopped'}
-                    >
-                      {isRunning ? 'RUNNING' : 'STOPPED'}
-                    </span>
-                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); isRunning ? stopRuntime(entry.slug) : startRuntime(entry.slug) }}
+                    style={isRunning ? styles.repoStopBtn : styles.repoStartBtn}
+                    title={isRunning ? 'Stop this repo runtime' : 'Start this repo runtime'}
+                  >
+                    {isRunning ? 'Stop' : 'Start'}
+                  </button>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
+                  <button
+                    onClick={(e) => handleDisconnect(e, entry.slug, isRunning)}
+                    style={styles.disconnectBtn}
+                    aria-label="Disconnect repo"
+                    title="Disconnect repo"
+                  >
+                    −
+                  </button>
                 </div>
               </div>
 
@@ -263,6 +323,9 @@ const styles = {
     color: theme.accent,
   },
   allButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     padding: '8px 12px',
     fontSize: 11,
     fontWeight: 600,
@@ -272,6 +335,9 @@ const styles = {
     transition: 'background 0.15s',
   },
   allButtonActive: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     padding: '8px 12px',
     fontSize: 11,
     fontWeight: 600,
@@ -280,6 +346,46 @@ const styles = {
     borderBottom: `1px solid ${theme.border}`,
     background: theme.accentSubtle,
     transition: 'background 0.15s',
+  },
+  addRepoBtn: {
+    background: 'none',
+    border: `1px solid ${theme.border}`,
+    borderRadius: 4,
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: '0 6px',
+    lineHeight: '18px',
+    transition: 'color 0.15s, border-color 0.15s',
+  },
+  addRepoRow: {
+    padding: '4px 12px 8px',
+    borderBottom: `1px solid ${theme.border}`,
+  },
+  addRepoInput: {
+    width: '100%',
+    padding: '4px 8px',
+    fontSize: 11,
+    background: theme.bg,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 4,
+    color: theme.text,
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  disconnectBtn: {
+    background: 'none',
+    border: 'none',
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: '0 4px',
+    lineHeight: 1,
+    borderRadius: 4,
+    transition: 'color 0.15s',
+    flexShrink: 0,
   },
   list: {
     flex: 1,
@@ -339,22 +445,6 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-  },
-  repoStatusRunning: {
-    fontSize: 9,
-    fontWeight: 700,
-    color: theme.success ?? theme.accent,
-    background: theme.successSubtle ?? theme.accentSubtle,
-    borderRadius: 6,
-    padding: '0 6px',
-  },
-  repoStatusStopped: {
-    fontSize: 9,
-    fontWeight: 700,
-    color: theme.textMuted,
-    background: theme.surfaceAlt ?? theme.surface,
-    borderRadius: 6,
-    padding: '0 6px',
   },
   repoStartBtn: {
     fontSize: 9,
