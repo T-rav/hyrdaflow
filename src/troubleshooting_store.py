@@ -83,11 +83,12 @@ class TroubleshootingPatternStore:
         self._write_all(all_patterns)
 
     def load_patterns(
-        self, *, language: str | None = None, limit: int = 10
+        self, *, language: str | None = None, limit: int | None = 10
     ) -> list[TroubleshootingPattern]:
         """Load patterns filtered by *language* (always includes ``"general"``).
 
         Returns up to *limit* patterns sorted by frequency descending.
+        Pass ``limit=None`` to return all patterns without a cap.
         """
         all_patterns = self._load_all()
         if language:
@@ -98,7 +99,7 @@ class TroubleshootingPatternStore:
                 if p.language.lower() == lang_lower or p.language.lower() == "general"
             ]
         all_patterns.sort(key=lambda p: p.frequency, reverse=True)
-        return all_patterns[:limit]
+        return all_patterns if limit is None else all_patterns[:limit]
 
     def increment_frequency(self, language: str, pattern_name: str) -> None:
         """Bump the frequency counter for an existing pattern."""

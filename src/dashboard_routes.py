@@ -2271,7 +2271,7 @@ def create_router(
 
         memory_dir = config.data_path("memory")
         store = TroubleshootingPatternStore(memory_dir)
-        all_patterns = store.load_patterns(limit=9999)
+        all_patterns = store.load_patterns(limit=None)
         total = len(all_patterns)
         capped = all_patterns[:100]
 

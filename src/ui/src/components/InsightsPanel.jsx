@@ -380,8 +380,8 @@ function TroubleshootingSubSection() {
         <span style={styles.totalBadge}>{data.total_patterns}</span>
         <span style={styles.headerText}>patterns learned</span>
       </div>
-      {(data.patterns || []).map((p, i) => (
-        <TroubleshootingCard key={i} pattern={p} />
+      {(data.patterns || []).map((p) => (
+        <TroubleshootingCard key={`${p.language}:${p.pattern_name}`} pattern={p} />
       ))}
     </div>
   )
@@ -710,12 +710,11 @@ const styles = {
     color: theme.textMuted,
   },
   patternBody: {
-    padding: '0 12px 12px',
+    padding: '8px 12px 12px',
     borderTop: `1px solid ${theme.border}`,
     display: 'flex',
     flexDirection: 'column',
     gap: 4,
-    paddingTop: 8,
   },
   evidenceItem: {
     fontSize: 11,
