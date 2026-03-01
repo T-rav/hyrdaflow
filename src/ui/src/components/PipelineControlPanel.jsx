@@ -184,14 +184,16 @@ const styles = {
   },
   loopStack: {
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
     gap: 8,
     marginBottom: 16,
   },
   loopChip: {
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     padding: '4px 8px',
     border: `1px solid ${theme.border}`,
     borderRadius: 12,
@@ -201,13 +203,11 @@ const styles = {
     fontSize: 11,
     fontWeight: 600,
     color: theme.text,
-    flex: 1,
   },
   loopLabelDim: {
     fontSize: 11,
     fontWeight: 600,
     color: theme.textMuted,
-    flex: 1,
   },
   loopCount: {
     fontSize: 10,
