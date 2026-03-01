@@ -96,7 +96,11 @@ class ADRCouncilReviewer:
             if not match:
                 continue
             adr_number = int(match.group(1))
-            content = path.read_text(encoding="utf-8")
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                logger.warning("Skipping unreadable ADR file: %s", path)
+                continue
             status_match = _STATUS_RE.search(content)
             if status_match and status_match.group(1).lower() == "proposed":
                 results.append((adr_number, path, content))
@@ -115,7 +119,11 @@ class ADRCouncilReviewer:
                 if "-" in path.stem
                 else path.stem
             )
-            content = path.read_text(encoding="utf-8")
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                logger.warning("Skipping unreadable ADR file: %s", path)
+                continue
             results.append((adr_number, title, content))
         return results
 
@@ -285,9 +293,9 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         self, transcript: str, adr_number: int, adr_title: str
     ) -> ADRCouncilResult:
         """Parse COUNCIL_RESULT block from orchestrator transcript."""
-        match = re.search(
-            r"COUNCIL_RESULT:\s*\n(.*?)(?:\n\n|\Z)", transcript, re.DOTALL
-        )
+        # Greedy match to capture full block (fields are single-line key:value,
+        # so we grab everything after the header until end-of-string).
+        match = re.search(r"COUNCIL_RESULT:\s*\n(.+)", transcript, re.DOTALL)
         if not match:
             logger.warning("ADR-%04d: no COUNCIL_RESULT block found", adr_number)
             return ADRCouncilResult(
@@ -300,10 +308,16 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         block = match.group(1)
         fields = self._parse_kv_block(block)
 
-        rounds_needed = int(fields.get("rounds_needed", "1"))
+        try:
+            rounds_needed = int(fields.get("rounds_needed", "1"))
+        except ValueError:
+            rounds_needed = 1
         final_decision = fields.get("final_decision", "REQUEST_CHANGES").upper()
         duplicate_of_str = fields.get("duplicate_of", "none")
-        duplicate_of = int(duplicate_of_str) if duplicate_of_str.isdigit() else None
+        try:
+            duplicate_of = int(duplicate_of_str) if duplicate_of_str.isdigit() else None
+        except ValueError:
+            duplicate_of = None
 
         votes: list[CouncilVote] = []
         all_round_votes: list[list[CouncilVote]] = []
@@ -389,7 +403,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             ]
             cmd_input = None
         else:
-            cmd = ["claude", "-p", "--model", model]
+            cmd = [tool, "-p", "--model", model]
             cmd_input = prompt.encode()
 
         env = make_clean_env(self._config.gh_token)
@@ -448,8 +462,13 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         """Accept an ADR: update status, update README, commit and create PR."""
         logger.info("ADR-%04d accepted by council", result.adr_number)
 
+        try:
+            content = adr_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            logger.exception("Failed to read ADR file: %s", adr_path)
+            return
+
         # Update status in ADR file
-        content = adr_path.read_text(encoding="utf-8")
         updated = _STATUS_RE.sub("**Status:** Accepted", content, count=1)
         adr_path.write_text(updated, encoding="utf-8")
 
@@ -479,33 +498,57 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         readme_path: Path,
         result: ADRCouncilResult,
     ) -> None:
-        """Create branch, commit status update, push, and create PR."""
+        """Create worktree, commit status update, push, and create PR."""
+        if self._config.dry_run:
+            logger.info(
+                "[dry-run] Would commit acceptance for ADR-%04d", result.adr_number
+            )
+            return
 
         repo_root = Path(self._config.repo_root)
         branch = f"adr/accept-{result.adr_number:04d}"
+        worktree_path = (
+            Path(self._config.worktree_base) / f"adr-accept-{result.adr_number:04d}"
+        )
 
         try:
+            # Create an isolated worktree to avoid corrupting the primary checkout
             await run_subprocess(
                 "git",
-                "checkout",
+                "worktree",
+                "add",
                 "-b",
                 branch,
+                str(worktree_path),
                 cwd=repo_root,
                 gh_token=self._config.gh_token,
+            )
+
+            # Copy updated files into the worktree
+            wt_adr_path = worktree_path / adr_path.relative_to(repo_root)
+            wt_adr_path.parent.mkdir(parents=True, exist_ok=True)
+            wt_adr_path.write_text(
+                adr_path.read_text(encoding="utf-8"), encoding="utf-8"
             )
             await run_subprocess(
                 "git",
                 "add",
-                str(adr_path),
-                cwd=repo_root,
+                str(wt_adr_path.relative_to(worktree_path)),
+                cwd=worktree_path,
                 gh_token=self._config.gh_token,
             )
+
             if readme_path.exists():
+                wt_readme = worktree_path / readme_path.relative_to(repo_root)
+                wt_readme.parent.mkdir(parents=True, exist_ok=True)
+                wt_readme.write_text(
+                    readme_path.read_text(encoding="utf-8"), encoding="utf-8"
+                )
                 await run_subprocess(
                     "git",
                     "add",
-                    str(readme_path),
-                    cwd=repo_root,
+                    str(wt_readme.relative_to(worktree_path)),
+                    cwd=worktree_path,
                     gh_token=self._config.gh_token,
                 )
 
@@ -514,13 +557,16 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 if result.minority_note and result.minority_note != "none"
                 else ""
             )
-            message = f"Accept ADR-{result.adr_number:04d}: {result.adr_title}\n\nCouncil decision: {result.summary}{minority}"
+            message = (
+                f"Accept ADR-{result.adr_number:04d}: {result.adr_title}"
+                f"\n\nCouncil decision: {result.summary}{minority}"
+            )
             await run_subprocess(
                 "git",
                 "commit",
                 "-m",
                 message,
-                cwd=repo_root,
+                cwd=worktree_path,
                 gh_token=self._config.gh_token,
             )
             await run_subprocess(
@@ -529,12 +575,26 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 "-u",
                 "origin",
                 branch,
-                cwd=repo_root,
+                cwd=worktree_path,
                 gh_token=self._config.gh_token,
             )
         except RuntimeError:
             logger.exception("Failed to commit ADR-%04d acceptance", result.adr_number)
             return
+        finally:
+            # Always clean up the worktree
+            try:
+                await run_subprocess(
+                    "git",
+                    "worktree",
+                    "remove",
+                    str(worktree_path),
+                    "--force",
+                    cwd=repo_root,
+                    gh_token=self._config.gh_token,
+                )
+            except RuntimeError:
+                logger.debug("Worktree cleanup failed for %s", worktree_path)
 
         summary = self._build_council_summary(result)
         title = f"Accept ADR-{result.adr_number:04d}: {result.adr_title}"
@@ -542,31 +602,31 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             title = title[:67] + "..."
         body = (
             f"## ADR Council Review\n\n"
-            f"The ADR review council has voted to **accept** ADR-{result.adr_number:04d}.\n\n"
+            f"The ADR review council has voted to **accept** "
+            f"ADR-{result.adr_number:04d}.\n\n"
             f"{summary}\n\n"
             f"---\n"
             f"Generated by HydraFlow ADR Council"
         )
 
-        if not self._config.dry_run:
-            try:
-                await run_subprocess(
-                    "gh",
-                    "pr",
-                    "create",
-                    "--title",
-                    title,
-                    "--body",
-                    body,
-                    "--base",
-                    self._config.main_branch,
-                    "--head",
-                    branch,
-                    cwd=repo_root,
-                    gh_token=self._config.gh_token,
-                )
-            except RuntimeError:
-                logger.exception("Failed to create PR for ADR-%04d", result.adr_number)
+        try:
+            await run_subprocess(
+                "gh",
+                "pr",
+                "create",
+                "--title",
+                title,
+                "--body",
+                body,
+                "--base",
+                self._config.main_branch,
+                "--head",
+                branch,
+                cwd=repo_root,
+                gh_token=self._config.gh_token,
+            )
+        except RuntimeError:
+            logger.exception("Failed to create PR for ADR-%04d", result.adr_number)
 
     async def _escalate_to_hitl(self, result: ADRCouncilResult, *, reason: str) -> None:
         """Create a GitHub issue for HITL escalation."""
@@ -597,17 +657,23 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
 
     async def _handle_duplicate(self, result: ADRCouncilResult) -> None:
         """Create a GitHub issue flagging a duplicate ADR pair."""
+        dup_of = result.duplicate_of
         logger.info(
-            "ADR-%04d flagged as duplicate of ADR-%04d",
+            "ADR-%04d flagged as duplicate of ADR-%s",
             result.adr_number,
-            result.duplicate_of,
+            f"{dup_of:04d}" if dup_of is not None else "unknown",
         )
 
-        title = (
-            f"[ADR Duplicate] ADR-{result.adr_number:04d} may duplicate ADR-{result.duplicate_of:04d}"
-            if result.duplicate_of
-            else f"[ADR Duplicate] ADR-{result.adr_number:04d}"
-        )
+        if dup_of is not None:
+            title = (
+                f"[ADR Duplicate] ADR-{result.adr_number:04d} "
+                f"may duplicate ADR-{dup_of:04d}"
+            )
+            dup_line = f"**Potential duplicate of:** ADR-{dup_of:04d}\n\n"
+        else:
+            title = f"[ADR Duplicate] ADR-{result.adr_number:04d}"
+            dup_line = "**Potential duplicate of:** unknown\n\n"
+
         if len(title) > 70:
             title = title[:67] + "..."
         summary = self._build_council_summary(result)
@@ -615,9 +681,10 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         body = (
             f"## Duplicate ADR Detected\n\n"
             f"**ADR under review:** {result.adr_number:04d} — {result.adr_title}\n"
-            f"**Potential duplicate of:** ADR-{result.duplicate_of:04d}\n\n"
+            f"{dup_line}"
             f"A council judge flagged this ADR as a potential duplicate.\n"
-            f"Please review both ADRs and determine whether to merge, supersede, or keep both.\n\n"
+            f"Please review both ADRs and determine whether to merge, "
+            f"supersede, or keep both.\n\n"
             f"## Council Summary\n\n{summary}\n\n"
             f"---\n"
             f"Generated by HydraFlow ADR Council"

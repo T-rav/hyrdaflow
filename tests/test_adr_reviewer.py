@@ -103,6 +103,66 @@ class TestFindProposedADRs:
         result = reviewer._find_proposed_adrs(adr_dir)
         assert len(result) == 1
 
+    def test_skips_unreadable_files(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        _write_adr(adr_dir, 1, "Good ADR", "Proposed")
+        # Write a binary file with ADR naming pattern
+        bad_path = adr_dir / "0002-bad.md"
+        bad_path.write_bytes(b"\x80\x81\x82\xff\xfe")
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._find_proposed_adrs(adr_dir)
+        assert len(result) == 1
+        assert result[0][0] == 1
+
+
+class TestLoadAllADRs:
+    """Tests for _load_all_adrs."""
+
+    def test_skips_unreadable_files(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 1, "Good ADR", "Proposed")
+        bad_path = adr_dir / "0002-bad.md"
+        bad_path.write_bytes(b"\x80\x81\x82\xff\xfe")
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._load_all_adrs(adr_dir)
+        assert len(result) == 1
+        assert result[0][0] == 1
+
+    def test_extracts_title_from_filename(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 5, "Use Docker Containers", "Accepted")
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._load_all_adrs(adr_dir)
+        assert result[0][1] == "use docker containers"
+
+
+class TestBuildIndexContext:
+    """Tests for _build_index_context."""
+
+    def test_empty_list(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._build_index_context([])
+        assert result == "No existing ADRs found."
+
+    def test_unknown_status(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = [(1, "No Status ADR", "No status field in content")]
+        result = reviewer._build_index_context(all_adrs)
+        assert "Unknown" in result
+
+    def test_formats_multiple_adrs(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = [
+            (1, "First", "**Status:** Accepted"),
+            (2, "Second", "**Status:** Proposed"),
+        ]
+        result = reviewer._build_index_context(all_adrs)
+        assert "ADR-0001" in result
+        assert "ADR-0002" in result
+        assert "Accepted" in result
+        assert "Proposed" in result
+
 
 class TestDuplicateDetection:
     """Tests for _detect_duplicates."""
@@ -317,6 +377,51 @@ summary: unclear
         # Unknown verdicts map to REQUEST_CHANGES
         assert all(v.verdict == CouncilVerdict.REQUEST_CHANGES for v in result.votes)
 
+    def test_non_numeric_rounds_needed_defaults_to_one(self, tmp_path: Path) -> None:
+        """Bug fix: non-numeric rounds_needed should not crash."""
+        reviewer = _make_reviewer(tmp_path)
+        transcript = """COUNCIL_RESULT:
+rounds_needed: three
+architect_verdict: APPROVE
+architect_reasoning: OK
+pragmatist_verdict: APPROVE
+pragmatist_reasoning: Fine
+editor_verdict: APPROVE
+editor_reasoning: Good
+final_decision: ACCEPT
+summary: All agree
+duplicate_of: none
+minority_note: none
+"""
+        result = reviewer._parse_council_result(transcript, 1, "Test")
+        assert result.rounds_needed == 1
+        assert result.final_decision == "ACCEPT"
+
+    def test_blank_lines_in_council_result_block(self, tmp_path: Path) -> None:
+        """Bug fix: blank lines in output should not truncate parsing."""
+        reviewer = _make_reviewer(tmp_path)
+        transcript = """Some preamble.
+
+COUNCIL_RESULT:
+rounds_needed: 1
+architect_verdict: APPROVE
+architect_reasoning: Good structure
+
+pragmatist_verdict: REJECT
+pragmatist_reasoning: Not practical
+
+editor_verdict: APPROVE
+editor_reasoning: Clear
+final_decision: ACCEPT
+summary: Approved despite pragmatist dissent
+duplicate_of: none
+minority_note: Pragmatist dissented
+"""
+        result = reviewer._parse_council_result(transcript, 1, "Test")
+        # Should still parse all fields despite blank lines
+        assert result.final_decision == "ACCEPT"
+        assert len(result.votes) == 3
+
 
 class TestVerdictRouting:
     """Tests for _route_result."""
@@ -501,7 +606,7 @@ class TestAcceptADR:
     @pytest.mark.asyncio
     async def test_updates_status_in_file(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
-        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
         adr_path = _write_adr(adr_dir, 1, "Test ADR", "Proposed")
         result = ADRCouncilResult(
             adr_number=1,
@@ -525,7 +630,7 @@ class TestAcceptADR:
     @pytest.mark.asyncio
     async def test_updates_readme_row(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
-        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
         adr_path = _write_adr(adr_dir, 1, "Test ADR", "Proposed")
         readme = adr_dir / "README.md"
         readme.write_text(
@@ -556,7 +661,7 @@ class TestAcceptADR:
     @pytest.mark.asyncio
     async def test_minority_note_included(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
-        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
         adr_path = _write_adr(adr_dir, 1, "Test ADR", "Proposed")
         result = ADRCouncilResult(
             adr_number=1,
@@ -696,6 +801,325 @@ class TestHandleDuplicate:
         body = reviewer._prs.create_issue.await_args.args[1]
         assert "ADR-0013" in body
 
+    @pytest.mark.asyncio
+    async def test_duplicate_of_none_does_not_crash(self, tmp_path: Path) -> None:
+        """Bug fix: duplicate_of=None should not cause TypeError on :04d format."""
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=18,
+            adr_title="Mystery Dup",
+            final_decision="DUPLICATE",
+            duplicate_detected=True,
+            duplicate_of=None,
+        )
+
+        await reviewer._handle_duplicate(result)
+
+        reviewer._prs.create_issue.assert_awaited_once()
+        call_args = reviewer._prs.create_issue.await_args
+        title = call_args.args[0]
+        body = call_args.args[1]
+        assert "0018" in body
+        assert "unknown" in body.lower()
+        assert "ADR-0018" in title or "0018" in title
+
+
+class TestExecuteOrchestrator:
+    """Tests for _execute_orchestrator."""
+
+    @pytest.mark.asyncio
+    async def test_claude_tool(self, tmp_path: Path) -> None:
+        """Default tool uses claude CLI."""
+        reviewer = _make_reviewer(tmp_path)
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "COUNCIL_RESULT:\nfinal_decision: ACCEPT"
+        mock_result.stderr = ""
+        reviewer._runner.run_simple = AsyncMock(return_value=mock_result)
+
+        result = await reviewer._execute_orchestrator("test prompt")
+
+        assert result == "COUNCIL_RESULT:\nfinal_decision: ACCEPT"
+        call_args = reviewer._runner.run_simple.call_args
+        cmd = call_args.args[0]
+        assert cmd[0] == "claude"
+        assert "-p" in cmd
+
+    @pytest.mark.asyncio
+    async def test_codex_tool(self, tmp_path: Path) -> None:
+        """Codex tool uses codex exec."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            adr_review_enabled=True,
+            background_tool="codex",
+        )
+        from events import EventBus
+
+        reviewer = ADRCouncilReviewer(config, EventBus(), MagicMock(), MagicMock())
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "output"
+        mock_result.stderr = ""
+        reviewer._runner.run_simple = AsyncMock(return_value=mock_result)
+
+        result = await reviewer._execute_orchestrator("prompt")
+
+        assert result == "output"
+        cmd = reviewer._runner.run_simple.call_args.args[0]
+        assert cmd[0] == "codex"
+        assert "exec" in cmd
+
+    @pytest.mark.asyncio
+    async def test_inherit_tool_defaults_to_claude(self, tmp_path: Path) -> None:
+        """inherit tool should resolve to claude."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            adr_review_enabled=True,
+            background_tool="inherit",
+        )
+        from events import EventBus
+
+        reviewer = ADRCouncilReviewer(config, EventBus(), MagicMock(), MagicMock())
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "output"
+        mock_result.stderr = ""
+        reviewer._runner.run_simple = AsyncMock(return_value=mock_result)
+
+        await reviewer._execute_orchestrator("prompt")
+
+        cmd = reviewer._runner.run_simple.call_args.args[0]
+        assert cmd[0] == "claude"
+
+    @pytest.mark.asyncio
+    async def test_nonzero_returncode_returns_none(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "Error happened"
+        reviewer._runner.run_simple = AsyncMock(return_value=mock_result)
+
+        result = await reviewer._execute_orchestrator("prompt")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_empty_stdout_returns_none(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        reviewer._runner.run_simple = AsyncMock(return_value=mock_result)
+
+        result = await reviewer._execute_orchestrator("prompt")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_none(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        reviewer._runner.run_simple = AsyncMock(side_effect=TimeoutError)
+
+        result = await reviewer._execute_orchestrator("prompt")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_oserror_returns_none(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        reviewer._runner.run_simple = AsyncMock(
+            side_effect=OSError("command not found")
+        )
+
+        result = await reviewer._execute_orchestrator("prompt")
+
+        assert result is None
+
+
+class TestRunCouncilSession:
+    """Tests for _run_council_session."""
+
+    @pytest.mark.asyncio
+    async def test_none_transcript_returns_no_consensus(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        with patch.object(
+            reviewer, "_execute_orchestrator", new_callable=AsyncMock, return_value=None
+        ):
+            result = await reviewer._run_council_session(
+                1, "Test", "content", "index", "no dupes"
+            )
+        assert result.final_decision == "NO_CONSENSUS"
+        assert result.adr_number == 1
+
+    @pytest.mark.asyncio
+    async def test_valid_transcript_parses(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        transcript = """COUNCIL_RESULT:
+rounds_needed: 1
+architect_verdict: APPROVE
+architect_reasoning: Good
+pragmatist_verdict: APPROVE
+pragmatist_reasoning: Fine
+editor_verdict: APPROVE
+editor_reasoning: Clear
+final_decision: ACCEPT
+summary: All agree
+duplicate_of: none
+minority_note: none
+"""
+        with patch.object(
+            reviewer,
+            "_execute_orchestrator",
+            new_callable=AsyncMock,
+            return_value=transcript,
+        ):
+            result = await reviewer._run_council_session(
+                1, "Test", "content", "index", "no dupes"
+            )
+        assert result.final_decision == "ACCEPT"
+        assert result.rounds_needed == 1
+
+
+class TestAcceptADREdgeCases:
+    """Additional edge case tests for _accept_adr."""
+
+    @pytest.mark.asyncio
+    async def test_unreadable_file_returns_early(self, tmp_path: Path) -> None:
+        """Bug fix: unreadable ADR file should not crash."""
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        adr_path = adr_dir / "0001-test.md"
+        # Write binary content that can't be decoded as UTF-8
+        adr_path.write_bytes(b"\x80\x81\x82\xff\xfe")
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="ACCEPT",
+            summary="Approved",
+            votes=[CouncilVote(role="architect", verdict=CouncilVerdict.APPROVE)],
+        )
+
+        # Should not raise
+        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock) as mock_run:
+            await reviewer._accept_adr(result, adr_path, adr_dir)
+            # Should not reach commit since file couldn't be read
+            mock_run.assert_not_awaited()
+
+
+class TestCommitAcceptance:
+    """Tests for _commit_acceptance."""
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips_git_ops(self, tmp_path: Path) -> None:
+        """Bug fix: dry_run should skip all git operations."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            adr_review_enabled=True,
+            dry_run=True,
+        )
+        from events import EventBus
+
+        reviewer = ADRCouncilReviewer(config, EventBus(), MagicMock(), MagicMock())
+        result = ADRCouncilResult(
+            adr_number=1, adr_title="Test", final_decision="ACCEPT", summary="OK"
+        )
+
+        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock) as mock_run:
+            await reviewer._commit_acceptance(
+                tmp_path / "adr.md", tmp_path / "README.md", result
+            )
+            mock_run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_git_failure_logs_and_returns(self, tmp_path: Path) -> None:
+        """Worktree creation failure should be caught and logged."""
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1, adr_title="Test", final_decision="ACCEPT", summary="OK"
+        )
+        adr_path = tmp_path / "repo" / "docs" / "adr" / "0001-test.md"
+        adr_path.parent.mkdir(parents=True)
+        adr_path.write_text("**Status:** Accepted")
+
+        with patch(
+            "adr_reviewer.run_subprocess",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("git worktree add failed"),
+        ):
+            # Should not raise
+            await reviewer._commit_acceptance(
+                adr_path, tmp_path / "repo" / "docs" / "adr" / "README.md", result
+            )
+
+    @pytest.mark.asyncio
+    async def test_pr_creation_failure_does_not_crash(self, tmp_path: Path) -> None:
+        """PR creation failure after successful commit should be caught."""
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1, adr_title="Test", final_decision="ACCEPT", summary="OK"
+        )
+        adr_path = tmp_path / "repo" / "docs" / "adr" / "0001-test.md"
+        adr_path.parent.mkdir(parents=True)
+        adr_path.write_text("**Status:** Accepted")
+
+        call_count = 0
+
+        async def _mock_run(*args: object, **kwargs: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            # Last call is `gh pr create` — make it fail
+            if call_count >= 6 and args[0] == "gh":
+                raise RuntimeError("gh pr create failed")
+
+        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = _mock_run
+            # Should not raise
+            await reviewer._commit_acceptance(
+                adr_path, tmp_path / "repo" / "docs" / "adr" / "README.md", result
+            )
+
+
+class TestTitleTruncation:
+    """Tests for title truncation in escalation and duplicate methods."""
+
+    @pytest.mark.asyncio
+    async def test_escalation_title_truncated(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="REJECT",
+        )
+        # Use a custom reason that, combined with prefix, exceeds 70 chars
+        await reviewer._escalate_to_hitl(
+            result,
+            reason="a_very_long_custom_reason_that_makes_the_title_exceed_seventy_characters",
+        )
+
+        title = reviewer._prs.create_issue.await_args.args[0]
+        assert len(title) <= 70
+        assert title.endswith("...")
+
+    @pytest.mark.asyncio
+    async def test_duplicate_title_within_bounds(self, tmp_path: Path) -> None:
+        """Duplicate issue titles stay within 70 chars."""
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="A" * 100,
+            final_decision="DUPLICATE",
+            duplicate_detected=True,
+            duplicate_of=2,
+        )
+
+        await reviewer._handle_duplicate(result)
+
+        title = reviewer._prs.create_issue.await_args.args[0]
+        assert len(title) <= 70
+
 
 class TestBuildCouncilSummary:
     """Tests for _build_council_summary."""
@@ -783,6 +1207,53 @@ class TestBuildCouncilSummary:
         assert "Clear prose" in summary
 
 
+class TestBuildCouncilSummaryEdgeCases:
+    """Edge case tests for _build_council_summary."""
+
+    def test_no_minority_note(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="ACCEPT",
+            minority_note="none",
+            votes=[
+                CouncilVote(
+                    role="architect", verdict=CouncilVerdict.APPROVE, reasoning="OK"
+                ),
+            ],
+        )
+        summary = reviewer._build_council_summary(result)
+        assert "Minority Note" not in summary
+
+    def test_no_summary(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="REJECT",
+            summary="",
+            votes=[
+                CouncilVote(
+                    role="architect", verdict=CouncilVerdict.REJECT, reasoning="Bad"
+                ),
+            ],
+        )
+        summary = reviewer._build_council_summary(result)
+        assert "### Summary" not in summary
+
+    def test_no_votes(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="NO_CONSENSUS",
+            votes=[],
+        )
+        summary = reviewer._build_council_summary(result)
+        assert "NO_CONSENSUS" in summary
+
+
 class TestReviewProposedADRs:
     """Integration-level tests for review_proposed_adrs."""
 
@@ -829,3 +1300,71 @@ class TestReviewProposedADRs:
 
         assert stats["reviewed"] == 1
         assert stats["accepted"] == 1
+
+    @pytest.mark.asyncio
+    async def test_multiple_adrs_mixed_outcomes(self, tmp_path: Path) -> None:
+        """Integration test: multiple ADRs with different council outcomes."""
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = Path(reviewer._config.repo_root) / "docs" / "adr"
+        _write_adr(adr_dir, 1, "Good ADR", "Proposed")
+        _write_adr(adr_dir, 2, "Bad ADR", "Proposed")
+        _write_adr(adr_dir, 3, "Duplicate ADR", "Proposed")
+        _write_adr(adr_dir, 4, "Already Accepted", "Accepted")
+
+        results = [
+            ADRCouncilResult(
+                adr_number=1,
+                adr_title="good adr",
+                final_decision="ACCEPT",
+                votes=[
+                    CouncilVote(role="architect", verdict=CouncilVerdict.APPROVE),
+                    CouncilVote(role="pragmatist", verdict=CouncilVerdict.APPROVE),
+                    CouncilVote(role="editor", verdict=CouncilVerdict.APPROVE),
+                ],
+            ),
+            ADRCouncilResult(
+                adr_number=2,
+                adr_title="bad adr",
+                final_decision="REJECT",
+                rounds_needed=2,
+                votes=[
+                    CouncilVote(role="architect", verdict=CouncilVerdict.REJECT),
+                    CouncilVote(role="pragmatist", verdict=CouncilVerdict.REJECT),
+                    CouncilVote(role="editor", verdict=CouncilVerdict.APPROVE),
+                ],
+            ),
+            ADRCouncilResult(
+                adr_number=3,
+                adr_title="duplicate adr",
+                final_decision="DUPLICATE",
+                duplicate_detected=True,
+                duplicate_of=1,
+                votes=[
+                    CouncilVote(
+                        role="editor", verdict=CouncilVerdict.DUPLICATE, duplicate_of=1
+                    ),
+                ],
+            ),
+        ]
+
+        call_idx = 0
+
+        async def _mock_council(*_args: object, **_kwargs: object) -> ADRCouncilResult:
+            nonlocal call_idx
+            r = results[call_idx]
+            call_idx += 1
+            return r
+
+        with (
+            patch.object(reviewer, "_run_council_session", side_effect=_mock_council),
+            patch.object(reviewer, "_accept_adr", new_callable=AsyncMock),
+            patch.object(reviewer, "_escalate_to_hitl", new_callable=AsyncMock),
+            patch.object(reviewer, "_handle_duplicate", new_callable=AsyncMock),
+        ):
+            stats = await reviewer.review_proposed_adrs()
+
+        assert stats["reviewed"] == 3
+        assert stats["accepted"] == 1
+        assert stats["rejected"] == 1
+        assert stats["duplicates"] == 1
+        assert stats["rounds_total"] == 4  # 1 + 2 + 1
