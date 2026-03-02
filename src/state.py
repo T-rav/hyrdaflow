@@ -655,6 +655,17 @@ class StateTracker:
         """Return a copy of the lifetime stats counters."""
         return self._data.lifetime_stats.model_copy()
 
+    # --- active crate ---
+
+    def get_active_crate_number(self) -> int | None:
+        """Return the persisted active crate (milestone) number, or None."""
+        return self._data.active_crate_number
+
+    def set_active_crate_number(self, number: int | None) -> None:
+        """Persist the active crate number (or clear it with None)."""
+        self._data.active_crate_number = number
+        self.save()
+
     # --- session counters ---
 
     _SESSION_COUNTER_FIELDS = frozenset(

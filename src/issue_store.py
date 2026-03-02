@@ -8,12 +8,16 @@ import re
 from collections import deque
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import PipelineSnapshotEntry, QueueStats, Task
 from subprocess_util import AuthenticationError
 from task_source import TaskFetcher
+
+if TYPE_CHECKING:
+    from crate_manager import CrateManager
 
 logger = logging.getLogger("hydraflow.issue_store")
 
@@ -116,6 +120,20 @@ class IssueStore:
 
         self._last_poll_ts: str | None = None
         self._lock = asyncio.Lock()
+        self._crate_manager: CrateManager | None = None
+
+    def set_crate_manager(self, cm: CrateManager) -> None:
+        """Inject the crate manager after construction (avoids circular init)."""
+        self._crate_manager = cm
+
+    def get_uncrated_issues(self) -> list[Task]:
+        """Return queued tasks that have no ``milestone_number`` in metadata."""
+        uncrated: list[Task] = []
+        for q in self._queues.values():
+            for task in q:
+                if task.metadata.get("milestone_number") is None:
+                    uncrated.append(task)
+        return uncrated
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -406,7 +424,11 @@ class IssueStore:
         while q and len(result) < max_count:
             task = q.popleft()
             self._queue_members[stage].discard(task.id)
-            if task.id in self._active:
+            if task.id in self._active or (
+                stage != STAGE_FIND
+                and self._crate_manager is not None
+                and not self._crate_manager.is_in_active_crate(task)
+            ):
                 skipped.append(task)
             else:
                 result.append(task)

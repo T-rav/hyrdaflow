@@ -413,6 +413,8 @@ def create_router(
             "issue_url": "",
             "status": "unknown",
             "epic": "",
+            "crate_number": None,
+            "crate_title": "",
             "linked_issues": {},
             "prs": {},
             "session_ids": set(),
@@ -458,6 +460,9 @@ def create_router(
             if not row.get("epic"):
                 epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
                 row["epic"] = epic
+            ms_num = _coerce_int(getattr(issue, "milestone_number", None))
+            if ms_num > 0 and not row.get("crate_number"):
+                row["crate_number"] = ms_num
             for link in parse_task_links(issue.body or ""):
                 tid = int(link.target_id)
                 row["linked_issues"][tid] = {
@@ -837,6 +842,99 @@ def create_router(
             return JSONResponse(
                 {"error": "Failed to remove items from crate"}, status_code=500
             )
+
+    @router.get("/api/crates/active")
+    async def get_active_crate() -> JSONResponse:
+        """Return the active crate number, title, progress, and auto_crate flag."""
+        orch = get_orchestrator()
+        active_number = state.get_active_crate_number()
+        result: dict[str, Any] = {
+            "crate_number": active_number,
+            "title": None,
+            "progress": 0,
+            "open_issues": 0,
+            "closed_issues": 0,
+            "total_issues": 0,
+            "auto_crate": config.auto_crate,
+        }
+        if active_number is not None and orch is not None:
+            try:
+                crates = await pr_manager.list_milestones(state="all")
+                active = next((c for c in crates if c.number == active_number), None)
+                if active:
+                    total = active.open_issues + active.closed_issues
+                    result["title"] = active.title
+                    result["open_issues"] = active.open_issues
+                    result["closed_issues"] = active.closed_issues
+                    result["total_issues"] = total
+                    result["progress"] = (
+                        round(active.closed_issues / total * 100) if total > 0 else 0
+                    )
+            except Exception:
+                logger.warning("Failed to enrich active crate details", exc_info=True)
+        return JSONResponse(result)
+
+    @router.post("/api/crates/active")
+    async def set_active_crate(body: dict[str, Any]) -> JSONResponse:
+        """Set the active crate. Body: ``{"crate_number": N}`` or ``{"crate_number": null}``."""
+        crate_number = body.get("crate_number")
+        if crate_number is not None and not isinstance(crate_number, int):
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "detail": "crate_number must be an integer or null",
+                },
+                status_code=400,
+            )
+        orch = get_orchestrator()
+        if orch is None:
+            # Fallback: update state directly when orchestrator isn't running
+            state.set_active_crate_number(crate_number)
+            return JSONResponse({"status": "ok", "crate_number": crate_number})
+        if crate_number is not None:
+            await orch.crate_manager.activate_crate(crate_number)
+        else:
+            state.set_active_crate_number(None)
+        return JSONResponse({"status": "ok", "crate_number": crate_number})
+
+    @router.post("/api/crates/advance")
+    async def advance_crate() -> JSONResponse:
+        """Advance past the current active crate to the next open one.
+
+        Calls ``check_and_advance()`` which completes the active crate
+        and activates the next milestone with open issues.  If the
+        current crate still has open issues, it is force-cleared first
+        so the pipeline moves forward regardless.
+        """
+        orch = get_orchestrator()
+        cm = orch.crate_manager if orch is not None else None
+        if cm is None:
+            state.set_active_crate_number(None)
+            return JSONResponse({"status": "ok", "previous": None, "next": None})
+        previous = cm.active_crate_number
+        # Force-clear first so check_and_advance will see no active
+        # crate (if it still has open issues, check_and_advance would
+        # be a no-op otherwise).
+        state.set_active_crate_number(None)
+        # Now find the next open crate
+        try:
+            crates = await pr_manager.list_milestones(state="open")
+            candidates = sorted(
+                (c for c in crates if c.open_issues > 0 and c.number != previous),
+                key=lambda c: c.number,
+            )
+            if candidates:
+                await cm.activate_crate(candidates[0].number)
+                return JSONResponse(
+                    {
+                        "status": "ok",
+                        "previous": previous,
+                        "next": candidates[0].number,
+                    }
+                )
+        except Exception:
+            logger.warning("Failed to find next crate during advance", exc_info=True)
+        return JSONResponse({"status": "ok", "previous": previous, "next": None})
 
     @router.get("/api/hitl")
     async def get_hitl(
@@ -1269,6 +1367,7 @@ def create_router(
         "auto_process_epics",
         "auto_process_bug_reports",
         "worktree_base",
+        "auto_crate",
     }
 
     @router.patch("/api/control/config")
@@ -1848,6 +1947,9 @@ def create_router(
                             if s and "epic" in s.lower():
                                 row["epic"] = s
                                 break
+                    milestone_num = _coerce_int(event.data.get("milestone_number"))
+                    if milestone_num > 0 and not row.get("crate_number"):
+                        row["crate_number"] = milestone_num
 
                 if event.type == EventType.PR_CREATED:
                     pr_number = _coerce_int(event.data.get("pr"))
@@ -1941,6 +2043,8 @@ def create_router(
                     issue_url=str(row.get("issue_url", "")),
                     status=row_status,
                     epic=str(row.get("epic", "")),
+                    crate_number=row.get("crate_number"),
+                    crate_title=str(row.get("crate_title", "")),
                     linked_issues=linked_issues,
                     prs=pr_rows,
                     session_ids=sorted(
@@ -2024,6 +2128,8 @@ def create_router(
                         issue_url=str(row.get("issue_url", "")),
                         status=row_status,
                         epic=str(row.get("epic", "")),
+                        crate_number=row.get("crate_number"),
+                        crate_title=str(row.get("crate_title", "")),
                         linked_issues=linked_issues,
                         prs=pr_rows,
                         session_ids=sorted(
@@ -2050,6 +2156,41 @@ def create_router(
             reverse=True,
         )
         items = items[:clamped_limit]
+
+        # Populate crate titles from milestones for items that have a
+        # crate_number but no title yet.
+        needs_title = any(i.crate_number and not i.crate_title for i in items)
+        if needs_title:
+            try:
+                milestones = await pr_manager.list_milestones(state="all")
+                title_map = {m.number: m.title for m in milestones}
+                items = [
+                    i.model_copy(
+                        update={"crate_title": title_map.get(i.crate_number, "")}
+                    )
+                    if i.crate_number and not i.crate_title
+                    else i
+                    for i in items
+                ]
+                # Also backfill into the raw rows so the cache carries titles.
+                backfilled = False
+                for i in items:
+                    if i.crate_number and i.crate_title:
+                        raw = issue_rows.get(i.issue_number)
+                        if raw is not None and raw.get("crate_title") != i.crate_title:
+                            raw["crate_title"] = i.crate_title
+                            backfilled = True
+                if (
+                    backfilled
+                    and use_unfiltered
+                    and _history_cache.get("issue_rows") is not None
+                ):
+                    import copy
+
+                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
+                    _save_history_cache()
+            except Exception:
+                logger.debug("Failed to fetch milestones for crate titles")
 
         totals = {
             "issues": len(items),

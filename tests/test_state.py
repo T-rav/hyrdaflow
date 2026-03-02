@@ -2970,3 +2970,38 @@ class TestDisabledWorkersPersistence:
         assert tracker.get_disabled_workers() == {"memory_sync"}
         # bg_worker_states defaults to empty when absent
         assert tracker.get_bg_worker_states() == {}
+
+
+class TestActiveCrate:
+    """Tests for active crate number persistence."""
+
+    def test_defaults_to_none(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_active_crate_number() is None
+
+    def test_set_and_get(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_active_crate_number(5)
+        assert tracker.get_active_crate_number() == 5
+
+    def test_clear_with_none(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_active_crate_number(5)
+        tracker.set_active_crate_number(None)
+        assert tracker.get_active_crate_number() is None
+
+    def test_persists_across_reload(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        tracker.set_active_crate_number(7)
+
+        tracker2 = StateTracker(state_file)
+        assert tracker2.get_active_crate_number() == 7
+
+    def test_migration_from_old_state_file(self, tmp_path: Path) -> None:
+        """Old state files without active_crate_number should default to None."""
+        state_file = tmp_path / "state.json"
+        state_file.write_text(json.dumps({"processed_issues": {}}))
+
+        tracker = StateTracker(state_file)
+        assert tracker.get_active_crate_number() is None

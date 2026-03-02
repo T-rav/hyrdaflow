@@ -1041,3 +1041,78 @@ class TestEagerTransitionProtection:
 
         stats = store.get_queue_stats()
         assert stats.in_flight_count == 3
+
+
+# ── Crate Gate ────────────────────────────────────────────────────────
+
+
+class TestCrateGate:
+    """_take_from_queue skips issues not in the active crate."""
+
+    def test_take_skips_non_crated_issues_when_crate_manager_set(self) -> None:
+        from unittest.mock import MagicMock
+
+        store = _make_store()
+        cm = MagicMock()
+        cm.is_in_active_crate.return_value = False
+        store.set_crate_manager(cm)
+
+        task = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        store._route_issues([task])
+
+        result = store.get_plannable(10)
+        assert result == []
+        # Task should still be in the queue (skipped, not discarded)
+        assert 1 in store._queue_members[STAGE_PLAN]
+
+    def test_take_allows_crated_issues(self) -> None:
+        from unittest.mock import MagicMock
+
+        store = _make_store()
+        cm = MagicMock()
+        cm.is_in_active_crate.return_value = True
+        store.set_crate_manager(cm)
+
+        task = TaskFactory.create(id=2, tags=["hydraflow-plan"])
+        store._route_issues([task])
+
+        result = store.get_plannable(10)
+        assert len(result) == 1
+        assert result[0].id == 2
+
+    def test_take_works_without_crate_manager(self) -> None:
+        """When no crate manager is set, all issues pass through."""
+        store = _make_store()
+
+        task = TaskFactory.create(id=3, tags=["hydraflow-plan"])
+        store._route_issues([task])
+
+        result = store.get_plannable(10)
+        assert len(result) == 1
+
+    def test_triage_not_gated_by_crate(self) -> None:
+        """Triage (FIND) queue ignores the crate gate — issues always triage."""
+        from unittest.mock import MagicMock
+
+        store = _make_store()
+        cm = MagicMock()
+        cm.is_in_active_crate.return_value = False
+        store.set_crate_manager(cm)
+
+        task = TaskFactory.create(id=10, tags=["hydraflow-find"])
+        store._route_issues([task])
+
+        result = store.get_triageable(10)
+        assert len(result) == 1
+        assert result[0].id == 10
+
+    def test_get_uncrated_issues_returns_tasks_without_milestone(self) -> None:
+        store = _make_store()
+        task_crated = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        task_crated.metadata["milestone_number"] = 5
+        task_uncrated = TaskFactory.create(id=2, tags=["hydraflow-plan"])
+        store._route_issues([task_crated, task_uncrated])
+
+        uncrated = store.get_uncrated_issues()
+        assert len(uncrated) == 1
+        assert uncrated[0].id == 2

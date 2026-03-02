@@ -38,6 +38,10 @@ class IssueFetcher:
         comments: list = comments_raw if isinstance(comments_raw, list) else []
         user = item.get("user")
         author = user.get("login", "") if isinstance(user, dict) else ""
+        milestone_raw = item.get("milestone")
+        milestone_number = (
+            milestone_raw.get("number") if isinstance(milestone_raw, dict) else None
+        )
         return {
             "number": item.get("number"),
             "title": item.get("title", ""),
@@ -48,6 +52,7 @@ class IssueFetcher:
             "state": item.get("state", "open"),
             "createdAt": item.get("createdAt", item.get("created_at", "")),
             "author": author,
+            "milestone_number": milestone_number,
         }
 
     async def _get_collaborators(self) -> set[str] | None:

@@ -93,7 +93,7 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.queryByText('Fix auth cache')).not.toBeInTheDocument()
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByPlaceholderText('Search issue #, title, epic'), { target: { value: 'auth' } })
+    fireEvent.change(screen.getByPlaceholderText('Search issue #, title, epic, crate'), { target: { value: 'auth' } })
     expect(screen.getByText('No issues match this filter.')).toBeInTheDocument()
   })
 
@@ -149,9 +149,11 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     render(<OutcomesPanel />)
     await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
-    // Enable group-by-epic
-    const groupCheckbox = screen.getByLabelText('Group by epic')
-    fireEvent.click(groupCheckbox)
+    // Enable group-by-epic via select dropdown
+    const groupSelect = screen.getAllByRole('combobox').find(
+      el => el.querySelector('option[value="epic"]')
+    )
+    fireEvent.change(groupSelect, { target: { value: 'epic' } })
 
     // Should show two groups: "epic:auth" (in header + in row) and "Ungrouped"
     expect(screen.getAllByText('epic:auth').length).toBeGreaterThanOrEqual(2)

@@ -32,6 +32,7 @@ from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
 if TYPE_CHECKING:
+    from crate_manager import CrateManager
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
     from run_recorder import RunRecorder
@@ -140,6 +141,12 @@ class HydraFlowOrchestrator:
         self._worktree_gc_loop = svc.worktree_gc_loop
         self._runs_gc_loop = svc.runs_gc_loop
         self._adr_reviewer_loop = svc.adr_reviewer_loop
+        self._crate_manager = svc.crate_manager
+
+    @property
+    def crate_manager(self) -> CrateManager:
+        """Expose the crate manager for dashboard integration."""
+        return self._crate_manager
 
     @property
     def event_bus(self) -> EventBus:
@@ -517,6 +524,17 @@ class HydraFlowOrchestrator:
                 await self.emit_pipeline_stats()
             except Exception:
                 logger.exception("Pipeline stats emission failed")
+            # Auto-package uncrated issues into a new crate when enabled
+            try:
+                if (
+                    self._config.auto_crate
+                    and self._crate_manager.active_crate_number is None
+                ):
+                    uncrated = self._store.get_uncrated_issues()
+                    if uncrated:
+                        await self._crate_manager.auto_package_if_needed(uncrated)
+            except Exception:
+                logger.exception("Auto-crate packaging failed")
             await self._sleep_or_stop(interval)
 
     def _restore_worker_intervals(self) -> None:
@@ -1132,6 +1150,7 @@ class HydraFlowOrchestrator:
                 if any(r.merged for r in review_results):
                     await asyncio.sleep(_POST_MERGE_DELAY)
                     await self._prs.pull_main()
+                    await self._crate_manager.check_and_advance()
                 did_work = did_work or cycle_did_work
             finally:
                 release_batch_in_flight(self._store, {i.id for i in review_issues})

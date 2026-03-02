@@ -1311,3 +1311,22 @@ class TestCollaboratorCheck:
         payload = {"number": 1, "title": "Test", "user": None}
         result = IssueFetcher._normalize_issue_payload(payload)
         assert result["author"] == ""
+
+    def test_normalize_extracts_milestone_number(self) -> None:
+        payload = {
+            "number": 1,
+            "title": "Test",
+            "milestone": {"number": 5, "title": "Sprint 1"},
+        }
+        result = IssueFetcher._normalize_issue_payload(payload)
+        assert result["milestone_number"] == 5
+
+    def test_normalize_handles_missing_milestone(self) -> None:
+        payload = {"number": 1, "title": "Test"}
+        result = IssueFetcher._normalize_issue_payload(payload)
+        assert result["milestone_number"] is None
+
+    def test_normalize_handles_null_milestone(self) -> None:
+        payload = {"number": 1, "title": "Test", "milestone": None}
+        result = IssueFetcher._normalize_issue_payload(payload)
+        assert result["milestone_number"] is None
