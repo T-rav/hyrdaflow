@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import importlib
 import logging
+import tempfile
 import time
 from collections import Counter
 from collections.abc import Callable, Iterable
@@ -100,6 +101,15 @@ _INFERENCE_COUNTER_KEYS: tuple[str, ...] = (
     "cache_hits",
     "cache_misses",
 )
+
+
+def _is_allowed_local_repo_path(path: Path) -> bool:
+    """Allow user-supplied repo paths only under trusted local roots."""
+    roots = (
+        Path.home().resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+    )
+    return any(path.is_relative_to(root) for root in roots)
 
 
 def _parse_iso_or_none(raw: str | None) -> datetime | None:
@@ -2753,6 +2763,11 @@ def create_router(
                 {"error": f"path does not exist: {raw_path}"},
                 status_code=400,
             )
+        if not _is_allowed_local_repo_path(repo_path):
+            return JSONResponse(
+                {"error": "path must be inside your home directory or temp directory"},
+                status_code=400,
+            )
         # Validate it's a git repo
         is_git = False
         try:
@@ -2807,7 +2822,7 @@ def create_router(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Supervisor register_repo failed: %s", exc)
             return JSONResponse(
-                {"error": f"Failed to register repo: {exc}"},
+                {"error": "Failed to register repo"},
                 status_code=500,
             )
         return JSONResponse(
