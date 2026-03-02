@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +28,30 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _UI_DIST_DIR = _REPO_ROOT / "src" / "ui" / "dist"
 _TEMPLATE_DIR = _REPO_ROOT / "templates"
 _STATIC_DIR = _REPO_ROOT / "static"
+
+
+def _auto_start_supervisor_enabled() -> bool:
+    """Whether dashboard startup should auto-start the local supervisor."""
+    raw = os.environ.get("HYDRAFLOW_AUTO_START_SUPERVISOR")
+    if raw is None:
+        legacy = os.environ.get("HF_AUTO_START_SUPERVISOR")
+        if legacy is not None:
+            logger.warning(
+                "HF_AUTO_START_SUPERVISOR is deprecated; use HYDRAFLOW_AUTO_START_SUPERVISOR"
+            )
+            raw = legacy
+    if raw is None:
+        return True
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    logger.warning(
+        "Invalid HYDRAFLOW_AUTO_START_SUPERVISOR=%r; defaulting to enabled",
+        raw,
+    )
+    return True
 
 
 class HydraFlowDashboard:
@@ -114,6 +140,19 @@ class HydraFlowDashboard:
         except ImportError:
             logger.warning("uvicorn not installed — dashboard disabled")
             return
+
+        if _auto_start_supervisor_enabled():
+            try:
+                supervisor_manager = importlib.import_module(
+                    "hf_cli.supervisor_manager"
+                )
+                await asyncio.to_thread(supervisor_manager.ensure_running)
+            except ImportError:
+                logger.debug(
+                    "hf_cli.supervisor_manager not importable; skipping supervisor auto-start"
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Supervisor auto-start failed: %s", exc)
 
         app = self.create_app()
         config = uvicorn.Config(
