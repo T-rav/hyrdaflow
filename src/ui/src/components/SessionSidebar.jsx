@@ -31,6 +31,7 @@ export function SessionSidebar() {
   const [showAddRepo, setShowAddRepo] = useState(false)
   const [addRepoValue, setAddRepoValue] = useState('')
   const [addRepoError, setAddRepoError] = useState('')
+  const [isAddRepoSubmitting, setIsAddRepoSubmitting] = useState(false)
   const addRepoInputRef = useRef(null)
 
   const repoEntries = useMemo(() => {
@@ -104,17 +105,24 @@ export function SessionSidebar() {
 
   const handleAddRepoSubmit = async () => {
     const trimmed = addRepoValue.trim()
-    if (!trimmed) return
-    if (addRepoShortcut) {
-      const result = await addRepoShortcut(trimmed)
-      if (result && !result.ok) {
-        setAddRepoError(result.error || 'Failed to add repo')
-        return
+    if (!trimmed || isAddRepoSubmitting) return
+    setIsAddRepoSubmitting(true)
+    try {
+      if (addRepoShortcut) {
+        const result = await addRepoShortcut(trimmed)
+        if (result && !result.ok) {
+          setAddRepoError(result.error || 'Failed to add repo')
+          return
+        }
       }
+      setAddRepoError('')
+      setAddRepoValue('')
+      setShowAddRepo(false)
+    } catch {
+      setAddRepoError('Failed to add repo')
+    } finally {
+      setIsAddRepoSubmitting(false)
     }
-    setAddRepoError('')
-    setAddRepoValue('')
-    setShowAddRepo(false)
   }
 
   const handleAddRepoKeyDown = (e) => {
@@ -154,7 +162,13 @@ export function SessionSidebar() {
       >
         <span>All Repos</span>
         <button
-          onClick={(e) => { e.stopPropagation(); setShowAddRepo(prev => !prev) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowAddRepo(prev => {
+              if (prev) { setAddRepoError(''); setAddRepoValue('') }
+              return !prev
+            })
+          }}
           style={styles.addRepoBtn}
           aria-label="Add repo"
           title="Connect a new repo"
@@ -171,10 +185,12 @@ export function SessionSidebar() {
             onChange={(e) => { setAddRepoError(''); setAddRepoValue(e.target.value) }}
             onKeyDown={handleAddRepoKeyDown}
             placeholder="owner/repo"
+            disabled={isAddRepoSubmitting}
+            aria-invalid={addRepoError ? 'true' : undefined}
             style={addRepoError ? addRepoInputError : styles.addRepoInput}
           />
           {addRepoError && (
-            <div style={styles.addRepoErrorMsg}>{addRepoError}</div>
+            <div style={styles.addRepoErrorMsg} role="alert">{addRepoError}</div>
           )}
         </div>
       )}

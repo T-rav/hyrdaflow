@@ -440,7 +440,7 @@ describe('SessionSidebar add repo button', () => {
   })
 
   it('calls addRepoShortcut when input is submitted via Enter', () => {
-    const addRepoShortcut = vi.fn()
+    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
     mockUseHydraFlow.mockReturnValue(
       defaultContext({ addRepoShortcut })
     )
@@ -581,6 +581,91 @@ describe('SessionSidebar add repo button', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await vi.waitFor(() => {
       expect(screen.queryByPlaceholderText('owner/repo')).toBeNull()
+    })
+  })
+
+  it('clears error and value when "+" toggle closes the input', async () => {
+    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'stale error' })
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
+    render(<SessionSidebar />)
+    // Open, trigger error
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'bad' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => {
+      expect(screen.getByText('stale error')).toBeDefined()
+    })
+    // Close via "+" toggle
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    expect(screen.queryByText('stale error')).toBeNull()
+    // Reopen — error and value should be gone
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    expect(screen.queryByText('stale error')).toBeNull()
+    expect(screen.getByPlaceholderText('owner/repo').value).toBe('')
+  })
+
+  it('handles rejected addRepoShortcut gracefully', async () => {
+    const addRepoShortcut = vi.fn().mockRejectedValue(new Error('Network error'))
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'org/repo' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => {
+      expect(screen.getByText('Failed to add repo')).toBeDefined()
+    })
+    // Input should stay open
+    expect(screen.getByPlaceholderText('owner/repo')).toBeDefined()
+  })
+
+  it('succeeds when addRepoShortcut returns undefined', async () => {
+    const addRepoShortcut = vi.fn().mockResolvedValue(undefined)
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'org/repo' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => {
+      expect(screen.queryByPlaceholderText('owner/repo')).toBeNull()
+    })
+  })
+
+  it('disables input while submitting', async () => {
+    let resolvePromise
+    const addRepoShortcut = vi.fn().mockImplementation(() =>
+      new Promise(resolve => { resolvePromise = resolve })
+    )
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'org/repo' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // Input should be disabled while request is in-flight
+    await vi.waitFor(() => {
+      expect(input.disabled).toBe(true)
+    })
+    // Resolve the promise
+    resolvePromise({ ok: true })
+    await vi.waitFor(() => {
+      expect(screen.queryByPlaceholderText('owner/repo')).toBeNull()
+    })
+  })
+
+  it('error message has role="alert" for accessibility', async () => {
+    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'a11y test' })
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    const input = screen.getByPlaceholderText('owner/repo')
+    fireEvent.change(input, { target: { value: 'bad' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert.textContent).toBe('a11y test')
     })
   })
 })

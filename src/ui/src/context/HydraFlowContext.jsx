@@ -887,10 +887,10 @@ export function HydraFlowProvider({ children }) {
   }, [fetchRepos])
 
   const removeRepo = useCallback(async (repoSlug) => {
-    const short = (repoSlug || '').split('/').pop()
-    if (!short) return
+    const slug = (repoSlug || '').trim()
+    if (!slug) return
     try {
-      const res = await fetch(`/api/repos/${encodeURIComponent(short)}`, {
+      const res = await fetch(`/api/repos/${encodeURIComponent(slug)}`, {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error(`status ${res.status}`)
