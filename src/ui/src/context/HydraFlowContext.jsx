@@ -853,6 +853,10 @@ export function HydraFlowProvider({ children }) {
     return fallback
   }, [])
 
+  const canonicalSlug = useCallback((value) => {
+    return String(value || '').trim().replace(/[\\/]+/g, '-').toLowerCase()
+  }, [])
+
   const startRuntime = useCallback(async (slug) => {
     try {
       const encodedSlug = encodeURIComponent(slug)
@@ -864,13 +868,50 @@ export function HydraFlowProvider({ children }) {
         return { ok: true }
       }
 
-      // Compatibility mode: when no runtime registry is configured, start via supervisor.
-      if (runtimeRes.status === 404 || runtimeRes.status === 501) {
+      // Compatibility mode: when runtime registry route is unavailable, start via supervisor.
+      if (runtimeRes.status === 404 || runtimeRes.status === 405 || runtimeRes.status === 501) {
         const repoRes = await fetch('/api/repos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ slug }),
         })
+        // Older backends may not support POST /api/repos; fallback to /api/repos/add by path.
+        if (repoRes.status === 404 || repoRes.status === 405) {
+          const listRes = await fetch('/api/repos')
+          if (!listRes.ok) {
+            const message = await parseApiError(
+              listRes,
+              `Failed to list repos (${listRes.status})`,
+            )
+            return { ok: false, error: message }
+          }
+          const payload = await listRes.json()
+          const repos = Array.isArray(payload?.repos) ? payload.repos : []
+          const targetSlug = canonicalSlug(slug)
+          const match = repos.find((repo) => {
+            const repoSlug = canonicalSlug(repo?.slug)
+            const repoPath = canonicalSlug(repo?.path)
+            return repoSlug === targetSlug || repoPath.endsWith(`-${targetSlug}`)
+          })
+          const path = String(match?.path || '').trim()
+          if (!path) {
+            return { ok: false, error: `Repo not found for slug: ${slug}` }
+          }
+          const addRes = await fetch('/api/repos/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path }),
+          })
+          if (!addRes.ok) {
+            const message = await parseApiError(
+              addRes,
+              `Failed to start repo (${addRes.status})`,
+            )
+            return { ok: false, error: message }
+          }
+          await Promise.all([fetchRepos(), fetchRuntimes()])
+          return { ok: true }
+        }
         if (!repoRes.ok) {
           const message = await parseApiError(
             repoRes,
@@ -891,7 +932,7 @@ export function HydraFlowProvider({ children }) {
       console.warn('Failed to start runtime', slug, err)
       return { ok: false, error: err?.message || 'Failed to start runtime' }
     }
-  }, [fetchRuntimes, fetchRepos, parseApiError])
+  }, [fetchRuntimes, fetchRepos, parseApiError, canonicalSlug])
 
   const stopRuntime = useCallback(async (slug) => {
     try {
