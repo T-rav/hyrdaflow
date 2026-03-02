@@ -112,6 +112,7 @@ class TestCreateRouter:
             "/api/runtimes/{slug}/start",
             "/api/runtimes/{slug}/stop",
             "/api/crates",
+            "/api/crates/active",
             "/api/crates/{crate_number}",
             "/api/crates/{crate_number}/items",
             "/api/epics",
@@ -568,6 +569,256 @@ class TestIssueHistoryEndpoint:
         issue = next((x for x in payload["items"] if x["issue_number"] == 201), None)
         assert issue is not None
         assert issue["linked_issues"] == []
+
+    @pytest.mark.asyncio
+    async def test_issue_history_includes_crate_fields(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Issue history items include crate_number and crate_title fields."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={"issue": 301, "title": "Crate test issue"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 301), None)
+        assert issue is not None
+        assert "crate_number" in issue
+        assert "crate_title" in issue
+        # Default values when no milestone is attached
+        assert issue["crate_number"] is None
+        assert issue["crate_title"] == ""
+
+    @pytest.mark.asyncio
+    async def test_issue_history_crate_number_from_event(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Milestone number from ISSUE_CREATED event flows into crate_number."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={
+                    "issue": 302,
+                    "title": "Issue with milestone",
+                    "milestone_number": 5,
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 302), None)
+        assert issue is not None
+        assert issue["crate_number"] == 5
+
+    @pytest.mark.asyncio
+    async def test_issue_history_crate_number_string_coerced(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Milestone number supplied as string is coerced to int."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={
+                    "issue": 303,
+                    "title": "String milestone",
+                    "milestone_number": "7",
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 303), None)
+        assert issue is not None
+        assert issue["crate_number"] == 7
+
+    @pytest.mark.asyncio
+    async def test_issue_history_crate_number_not_overwritten(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """First milestone_number wins; later events do not overwrite."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={
+                    "issue": 304,
+                    "title": "First milestone",
+                    "milestone_number": 3,
+                },
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T01:00:00+00:00",
+                data={
+                    "issue": 304,
+                    "title": "Second milestone",
+                    "milestone_number": 9,
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 304), None)
+        assert issue is not None
+        assert issue["crate_number"] == 3
+
+    @pytest.mark.asyncio
+    async def test_issue_history_crate_title_empty_on_fetch_failure(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When milestone lookup fails, items still have empty crate_title."""
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-02-21T00:00:00+00:00",
+                data={
+                    "issue": 305,
+                    "title": "Milestone fetch fails",
+                    "milestone_number": 10,
+                },
+            )
+        )
+
+        with patch.object(
+            pr_mgr,
+            "list_milestones",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("API down"),
+        ):
+            response = await endpoint(limit=100)
+
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 305), None)
+        assert issue is not None
+        assert issue["crate_number"] == 10
+        assert issue["crate_title"] == ""
 
 
 class TestControlStatusImproveLabel:

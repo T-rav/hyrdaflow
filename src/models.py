@@ -150,6 +150,7 @@ class GitHubIssue(BaseModel):
     url: HttpUrl = ""
     author: str = ""
     state: str = "open"  # "open" or "closed" from GitHub API
+    milestone_number: int | None = None
     created_at: str = Field(
         default="",
         validation_alias=AliasChoices("createdAt", "created_at"),
@@ -176,6 +177,8 @@ class GitHubIssue(BaseModel):
         metadata: dict[str, Any] = {}
         if self.author:
             metadata["author"] = self.author
+        if self.milestone_number is not None:
+            metadata["milestone_number"] = self.milestone_number
         return Task(
             id=self.number,
             title=self.title,
@@ -970,6 +973,7 @@ class StateData(BaseModel):
     epic_states: dict[str, EpicState] = Field(default_factory=dict)
     releases: dict[str, Release] = Field(default_factory=dict)
     baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
+    active_crate_number: int | None = None
     last_updated: str | None = None
 
 
@@ -1697,6 +1701,8 @@ class IssueHistoryEntry(BaseModel):
     issue_url: HttpUrl = ""
     status: str = "unknown"
     epic: str = ""
+    crate_number: int | None = None
+    crate_title: str = ""
     linked_issues: list[IssueHistoryLink] = Field(default_factory=list)
     prs: list[IssueHistoryPR] = Field(default_factory=list)
     session_ids: list[str] = Field(default_factory=list)

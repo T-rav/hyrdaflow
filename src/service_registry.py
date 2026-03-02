@@ -13,6 +13,7 @@ from adr_reviewer_loop import ADRReviewerLoop
 from agent import AgentRunner
 from baseline_policy import BaselinePolicy
 from config import HydraFlowConfig
+from crate_manager import CrateManager
 from docker_runner import get_docker_runner
 from epic import EpicCompletionChecker, EpicManager
 from epic_monitor_loop import EpicMonitorLoop
@@ -75,6 +76,7 @@ class ServiceRegistry:
     # Data layer
     fetcher: IssueFetcher
     store: IssueStore
+    crate_manager: CrateManager
 
     # Phase coordinators
     triager: TriagePhase
@@ -145,6 +147,10 @@ def build_services(
     # Data layer
     fetcher = IssueFetcher(config)
     store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
+
+    # Crate management
+    crate_manager = CrateManager(config, state, prs, event_bus)
+    store.set_crate_manager(crate_manager)
 
     # Harness insight store (shared across phases)
     harness_insights = HarnessInsightStore(config.data_path("memory"))
@@ -394,6 +400,7 @@ def build_services(
         summarizer=summarizer,
         fetcher=fetcher,
         store=store,
+        crate_manager=crate_manager,
         triager=triager,
         planner_phase=planner_phase,
         hitl_phase=hitl_phase,

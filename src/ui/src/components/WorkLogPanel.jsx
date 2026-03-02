@@ -25,12 +25,7 @@ const crateBadgeStyles = Object.fromEntries(
   ])
 )
 
-function formatTs(ts) {
-  if (!ts) return '-'
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return '-'
-  return d.toLocaleString()
-}
+const activeBadge = { ...badgeBase, color: theme.green, background: theme.greenSubtle }
 
 function formatDate(iso) {
   if (!iso) return ''
@@ -39,15 +34,19 @@ function formatDate(iso) {
   return d.toLocaleDateString()
 }
 
-function CrateRow({ crate }) {
+function CrateRow({ crate, isActive, onActivate }) {
   const [expanded, setExpanded] = useState(false)
   const total = crate.total_issues || 0
   const progress = crate.progress || 0
   const badge = crateBadgeStyles[crate.state] || crateBadgeStyles.open
   const toggle = () => setExpanded(prev => !prev)
 
+  const cardStyle = isActive
+    ? { ...styles.crateCard, borderLeft: `3px solid ${theme.accent}` }
+    : styles.crateCard
+
   return (
-    <div style={styles.crateCard}>
+    <div style={cardStyle}>
       <div
         style={styles.crateCardHeader}
         onClick={toggle}
@@ -59,14 +58,25 @@ function CrateRow({ crate }) {
       >
         <span style={styles.chevron}>{expanded ? '\u25BE' : '\u25B8'}</span>
         <span style={styles.crateTitle}>{crate.title}</span>
+        {isActive && <span style={activeBadge}>ACTIVE</span>}
         {crate.due_on && <span style={styles.crateDue}>Due {formatDate(crate.due_on)}</span>}
         <span style={badge}>{crate.state}</span>
         <span style={styles.crateCount}>{total} {total === 1 ? 'issue' : 'issues'}</span>
+        {!isActive && crate.state === 'open' && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onActivate(crate.number) }}
+            style={styles.activateButton}
+            data-testid={`activate-crate-${crate.number}`}
+          >
+            Activate
+          </button>
+        )}
       </div>
       <div style={styles.crateCardBody}>
         <div style={styles.barTrack}>
           {progress > 0 && (
-            <div style={{ ...styles.barGreen, width: `${progress}%` }} />
+            <div style={{ ...styles.barGreen, width: `${Math.min(100, progress)}%` }} />
           )}
         </div>
         <div style={styles.progressRow}>
@@ -82,18 +92,64 @@ function CrateRow({ crate }) {
   )
 }
 
+function ActiveCrateBanner({ activeCrate, onAdvance }) {
+  if (!activeCrate || activeCrate.crate_number == null) return null
+  const total = activeCrate.total_issues || 0
+  const progress = activeCrate.progress || 0
+
+  return (
+    <div style={styles.banner} data-testid="active-crate-banner">
+      <div style={styles.bannerHeader}>
+        <span style={styles.bannerLabel}>Active Crate</span>
+        <span style={styles.bannerTitle}>{activeCrate.title || `Crate #${activeCrate.crate_number}`}</span>
+        <button
+          type="button"
+          onClick={onAdvance}
+          style={styles.advanceButton}
+          data-testid="advance-crate-btn"
+        >
+          Next
+        </button>
+      </div>
+      <div style={styles.barTrack}>
+        {progress > 0 && (
+          <div style={{ ...styles.barGreen, width: `${progress}%` }} />
+        )}
+      </div>
+      <div style={styles.bannerStats}>
+        {activeCrate.closed_issues}/{total} closed · {progress}%
+      </div>
+    </div>
+  )
+}
+
 export function WorkLogPanel() {
   const [search, setSearch] = useState('')
   const [crateFilter, setCrateFilter] = useState('all')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [crates, setCrates] = useState([])
+  const [activeCrate, setActiveCrate] = useState(null)
   const [newCrateName, setNewCrateName] = useState('')
   const [creating, setCreating] = useState(false)
   const cachedCrates = useRef(null)
   const refreshTimer = useRef(null)
 
   const abortRef = useRef(null)
+
+  const fetchActiveCrate = useCallback(async (signal) => {
+    try {
+      const res = await fetch('/api/crates/active', { signal })
+      if (res.ok) {
+        const data = await res.json()
+        setActiveCrate(data)
+      }
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        // Silently ignore — banner just won't show
+      }
+    }
+  }, [])
 
   const fetchData = useCallback((opts = {}) => {
     const { background = false, signal } = opts
@@ -103,7 +159,7 @@ export function WorkLogPanel() {
       setError('')
     }
 
-    return fetch('/api/crates', { signal })
+    const cratesPromise = fetch('/api/crates', { signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`status ${res.status}`)
         return await res.json()
@@ -120,7 +176,10 @@ export function WorkLogPanel() {
       .finally(() => {
         if (!background) setLoading(false)
       })
-  }, [])
+
+    fetchActiveCrate(signal)
+    return cratesPromise
+  }, [fetchActiveCrate])
 
   useEffect(() => {
     const ac = new AbortController()
@@ -163,8 +222,58 @@ export function WorkLogPanel() {
     setCreating(false)
   }, [newCrateName, fetchData])
 
+  const handleActivate = useCallback(async (crateNumber) => {
+    try {
+      const res = await fetch('/api/crates/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crate_number: crateNumber }),
+      })
+      if (res.ok) fetchData()
+    } catch {
+      setError('Failed to activate crate')
+    }
+  }, [fetchData])
+
+  const handleAdvance = useCallback(async () => {
+    try {
+      const res = await fetch('/api/crates/advance', { method: 'POST' })
+      if (res.ok) fetchData()
+      else setError('Failed to advance crate')
+    } catch {
+      setError('Failed to advance crate')
+    }
+  }, [fetchData])
+
+  const handleToggleAutoCrate = useCallback(async () => {
+    const newValue = !(activeCrate?.auto_crate)
+    try {
+      const res = await fetch('/api/control/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_crate: newValue }),
+      })
+      if (res.ok) {
+        setActiveCrate(prev => prev ? { ...prev, auto_crate: newValue } : prev)
+      }
+    } catch {
+      setError('Failed to toggle auto-crate')
+    }
+  }, [activeCrate])
+
+  const activeCrateNumber = activeCrate?.crate_number
+  const noActiveCrate = activeCrateNumber == null && !activeCrate?.auto_crate
+
   return (
     <div style={styles.container}>
+      <ActiveCrateBanner activeCrate={activeCrate} onAdvance={handleAdvance} />
+
+      {noActiveCrate && (
+        <div style={styles.noCrateBanner} data-testid="no-active-crate-msg">
+          No active crate — assign issues to a crate and activate it to start processing
+        </div>
+      )}
+
       <div style={styles.controls}>
         <div style={styles.summaryCards}>
           <div style={styles.summaryCard}>
@@ -197,9 +306,18 @@ export function WorkLogPanel() {
       <div style={styles.sectionHeader}>
         <span style={styles.sectionTitle}>Crates</span>
         <div style={styles.createRow}>
+          <label style={styles.toggleLabel}>
+            <input
+              type="checkbox"
+              checked={!!activeCrate?.auto_crate}
+              onChange={handleToggleAutoCrate}
+              data-testid="auto-crate-toggle"
+            />
+            <span style={styles.toggleText}>Auto-crate</span>
+          </label>
           <input
             type="text"
-            placeholder="New crate name..."
+            placeholder="yyyy-mm-dd.N"
             value={newCrateName}
             onChange={e => setNewCrateName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleCreateCrate()}
@@ -220,7 +338,12 @@ export function WorkLogPanel() {
 
       <div style={styles.list} data-testid="crates-list">
         {filteredCrates.map(crate => (
-          <CrateRow key={crate.number} crate={crate} />
+          <CrateRow
+            key={crate.number}
+            crate={crate}
+            isActive={crate.number === activeCrateNumber}
+            onActivate={handleActivate}
+          />
         ))}
         {!loading && filteredCrates.length === 0 && (
           <div style={styles.info}>No crates yet. Create one to group your work.</div>
@@ -238,6 +361,56 @@ const styles = {
     overflow: 'auto',
     padding: 16,
     gap: 10,
+  },
+  banner: {
+    border: `1px solid ${theme.accent}`,
+    borderRadius: 8,
+    background: theme.accentSubtle,
+    padding: 12,
+  },
+  bannerHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  bannerLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: theme.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  bannerTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: theme.textBright,
+    flex: 1,
+  },
+  bannerStats: {
+    fontSize: 11,
+    color: theme.textMuted,
+    marginTop: 4,
+  },
+  advanceButton: {
+    border: `1px solid ${theme.accent}`,
+    background: 'transparent',
+    color: theme.accent,
+    borderRadius: 6,
+    padding: '2px 10px',
+    fontSize: 10,
+    fontWeight: 600,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  noCrateBanner: {
+    border: `1px solid ${theme.yellow}`,
+    borderRadius: 8,
+    background: theme.yellowSubtle || theme.surface,
+    padding: 12,
+    fontSize: 12,
+    color: theme.yellow,
+    textAlign: 'center',
   },
   controls: {
     border: `1px solid ${theme.border}`,
@@ -315,6 +488,18 @@ const styles = {
     gap: 8,
     alignItems: 'center',
   },
+  toggleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    cursor: 'pointer',
+    fontSize: 11,
+    color: theme.textMuted,
+  },
+  toggleText: {
+    fontSize: 11,
+    color: theme.textMuted,
+  },
   createInput: {
     width: 200,
     border: `1px solid ${theme.border}`,
@@ -344,6 +529,17 @@ const styles = {
     fontWeight: 600,
     cursor: 'default',
     opacity: 0.5,
+  },
+  activateButton: {
+    border: `1px solid ${theme.accent}`,
+    background: 'transparent',
+    color: theme.accent,
+    borderRadius: 6,
+    padding: '2px 8px',
+    fontSize: 10,
+    fontWeight: 600,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   list: {
     border: `1px solid ${theme.border}`,
@@ -395,6 +591,33 @@ const styles = {
     color: theme.textMuted,
     borderTop: `1px dashed ${theme.border}`,
     paddingTop: 8,
+  },
+  chevron: {
+    fontSize: 11,
+    color: theme.textMuted,
+    flexShrink: 0,
+    width: 12,
+  },
+  barTrack: {
+    height: 4,
+    borderRadius: 2,
+    background: theme.surfaceInset,
+    overflow: 'hidden',
+  },
+  barGreen: {
+    height: '100%',
+    borderRadius: 2,
+    background: theme.green,
+    transition: 'width 0.3s',
+  },
+  progressRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  progressText: {
+    fontSize: 10,
+    color: theme.textMuted,
   },
   info: {
     padding: 12,

@@ -84,6 +84,8 @@ class EventType(StrEnum):
     PIPELINE_STATS = "pipeline_stats"
     VISUAL_GATE = "visual_gate"
     BASELINE_UPDATE = "baseline_update"
+    CRATE_ACTIVATED = "crate_activated"
+    CRATE_COMPLETED = "crate_completed"
 
 
 class HydraFlowEvent(BaseModel):
