@@ -137,6 +137,16 @@ class TestCheckAndAdvance:
 
         state_mock.set_active_crate_number.assert_any_call(None)
 
+    @pytest.mark.asyncio
+    async def test_survives_list_milestones_exception(self) -> None:
+        """check_and_advance must not crash when list_milestones fails."""
+        cm, state_mock, pr_mock, _ = _make_manager(active_crate=3)
+        pr_mock.list_milestones.side_effect = RuntimeError("API error")
+
+        await cm.check_and_advance()  # should not raise
+
+        state_mock.set_active_crate_number.assert_not_called()
+
 
 class TestAutoPackageIfNeeded:
     """Tests for auto_package_if_needed milestone creation."""
@@ -170,9 +180,8 @@ class TestAutoPackageIfNeeded:
     @pytest.mark.asyncio
     async def test_creates_milestone_assigns_and_activates(self) -> None:
         cm, state_mock, pr_mock, bus = _make_manager(auto_crate=True, active_crate=None)
-        pr_mock.create_milestone.return_value = Crate(
-            number=10, title="Delivery 2026-03-01"
-        )
+        pr_mock.list_milestones.return_value = []
+        pr_mock.create_milestone.return_value = Crate(number=10, title="2026-03-01.1")
         task1 = TaskFactory.create(id=1, tags=["hydraflow-plan"])
         task2 = TaskFactory.create(id=2, tags=["hydraflow-plan"])
 
@@ -183,3 +192,73 @@ class TestAutoPackageIfNeeded:
         pr_mock.set_issue_milestone.assert_any_call(1, 10)
         pr_mock.set_issue_milestone.assert_any_call(2, 10)
         state_mock.set_active_crate_number.assert_called_with(10)
+
+    @pytest.mark.asyncio
+    async def test_survives_create_milestone_failure(self) -> None:
+        """auto_package_if_needed must not crash when milestone creation fails."""
+        cm, state_mock, pr_mock, _ = _make_manager(auto_crate=True, active_crate=None)
+        pr_mock.list_milestones.return_value = []
+        pr_mock.create_milestone.side_effect = RuntimeError("API error")
+        task = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+
+        await cm.auto_package_if_needed([task])  # should not raise
+
+        state_mock.set_active_crate_number.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_continues_when_set_milestone_fails_for_some(self) -> None:
+        """If assigning one issue fails, others should still be assigned."""
+        cm, state_mock, pr_mock, _ = _make_manager(auto_crate=True, active_crate=None)
+        pr_mock.list_milestones.return_value = []
+        pr_mock.create_milestone.return_value = Crate(number=10, title="2026-03-01.1")
+        pr_mock.set_issue_milestone.side_effect = [
+            RuntimeError("fail"),
+            None,
+        ]
+        task1 = TaskFactory.create(id=1, tags=["hydraflow-plan"])
+        task2 = TaskFactory.create(id=2, tags=["hydraflow-plan"])
+
+        await cm.auto_package_if_needed([task1, task2])  # should not raise
+
+        assert pr_mock.set_issue_milestone.call_count == 2
+        # Should still activate despite one assignment failure
+        state_mock.set_active_crate_number.assert_called_with(10)
+
+
+class TestNextCrateTitle:
+    """Tests for _next_crate_title iteration naming."""
+
+    @pytest.mark.asyncio
+    async def test_first_crate_of_day_gets_dot_one(self) -> None:
+        cm, _, pr_mock, _ = _make_manager()
+        pr_mock.list_milestones.return_value = []
+
+        title = await cm._next_crate_title()
+
+        assert title.endswith(".1")
+
+    @pytest.mark.asyncio
+    async def test_increments_past_existing(self) -> None:
+        cm, _, pr_mock, _ = _make_manager()
+        from datetime import UTC, datetime
+
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        pr_mock.list_milestones.return_value = [
+            Crate(number=1, title=f"{today}.1"),
+            Crate(number=2, title=f"{today}.2"),
+        ]
+
+        title = await cm._next_crate_title()
+
+        assert title == f"{today}.3"
+
+    @pytest.mark.asyncio
+    async def test_ignores_other_date_prefixes(self) -> None:
+        cm, _, pr_mock, _ = _make_manager()
+        pr_mock.list_milestones.return_value = [
+            Crate(number=1, title="2020-01-01.5"),
+        ]
+
+        title = await cm._next_crate_title()
+
+        assert title.endswith(".1")

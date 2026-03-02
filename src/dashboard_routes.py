@@ -831,6 +831,45 @@ def create_router(
             state.set_active_crate_number(None)
         return JSONResponse({"status": "ok", "crate_number": crate_number})
 
+    @router.post("/api/crates/advance")
+    async def advance_crate() -> JSONResponse:
+        """Advance past the current active crate to the next open one.
+
+        Calls ``check_and_advance()`` which completes the active crate
+        and activates the next milestone with open issues.  If the
+        current crate still has open issues, it is force-cleared first
+        so the pipeline moves forward regardless.
+        """
+        orch = get_orchestrator()
+        cm = orch.crate_manager if orch is not None else None
+        if cm is None:
+            state.set_active_crate_number(None)
+            return JSONResponse({"status": "ok", "previous": None, "next": None})
+        previous = cm.active_crate_number
+        # Force-clear first so check_and_advance will see no active
+        # crate (if it still has open issues, check_and_advance would
+        # be a no-op otherwise).
+        state.set_active_crate_number(None)
+        # Now find the next open crate
+        try:
+            crates = await pr_manager.list_milestones(state="open")
+            candidates = sorted(
+                (c for c in crates if c.open_issues > 0 and c.number != previous),
+                key=lambda c: c.number,
+            )
+            if candidates:
+                await cm.activate_crate(candidates[0].number)
+                return JSONResponse(
+                    {
+                        "status": "ok",
+                        "previous": previous,
+                        "next": candidates[0].number,
+                    }
+                )
+        except Exception:
+            logger.warning("Failed to find next crate during advance", exc_info=True)
+        return JSONResponse({"status": "ok", "previous": previous, "next": None})
+
     @router.get("/api/hitl")
     async def get_hitl(
         repo: str | None = Query(

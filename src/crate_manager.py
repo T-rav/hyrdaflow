@@ -108,10 +108,32 @@ class CrateManager:
             self._state.set_active_crate_number(None)
             logger.info("No more open crates — pipeline will idle")
 
+    async def _next_crate_title(self) -> str:
+        """Generate the next ``YYYY-MM-DD.N`` crate title.
+
+        Inspects existing milestones to find the highest iteration for
+        today's date prefix, then returns the next one.
+        """
+        date_prefix = datetime.now(UTC).strftime("%Y-%m-%d")
+        max_iter = 0
+        try:
+            milestones = await self._prs.list_milestones(state="all")
+            for m in milestones:
+                t = (m.title or "").strip()
+                if t == date_prefix:
+                    max_iter = max(max_iter, 1)
+                elif t.startswith(f"{date_prefix}."):
+                    suffix = t[len(date_prefix) + 1 :]
+                    if suffix.isdigit():
+                        max_iter = max(max_iter, int(suffix))
+        except Exception:
+            logger.debug("Could not list milestones for title generation")
+        return f"{date_prefix}.{max_iter + 1}"
+
     async def auto_package_if_needed(self, uncrated: list[Task]) -> None:
         """When ``auto_crate`` is enabled and there is no active crate, create one.
 
-        Creates a milestone named ``Delivery YYYY-MM-DD``, assigns all
+        Creates a milestone named ``YYYY-MM-DD.N``, assigns all
         *uncrated* issues to it, and activates it.
         """
         if not self._config.auto_crate:
@@ -121,7 +143,7 @@ class CrateManager:
         if not uncrated:
             return
 
-        title = f"Delivery {datetime.now(UTC).strftime('%Y-%m-%d')}"
+        title = await self._next_crate_title()
         try:
             crate = await self._prs.create_milestone(title)
         except Exception:

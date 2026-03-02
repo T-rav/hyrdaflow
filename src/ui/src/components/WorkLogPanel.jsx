@@ -76,7 +76,7 @@ function CrateRow({ crate, isActive, onActivate }) {
       <div style={styles.crateCardBody}>
         <div style={styles.barTrack}>
           {progress > 0 && (
-            <div style={{ ...styles.barGreen, width: `${progress}%` }} />
+            <div style={{ ...styles.barGreen, width: `${Math.min(100, progress)}%` }} />
           )}
         </div>
         <div style={styles.progressRow}>
@@ -237,12 +237,9 @@ export function WorkLogPanel() {
 
   const handleAdvance = useCallback(async () => {
     try {
-      const res = await fetch('/api/crates/active', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ crate_number: null }),
-      })
+      const res = await fetch('/api/crates/advance', { method: 'POST' })
       if (res.ok) fetchData()
+      else setError('Failed to advance crate')
     } catch {
       setError('Failed to advance crate')
     }
@@ -320,7 +317,7 @@ export function WorkLogPanel() {
           </label>
           <input
             type="text"
-            placeholder="New crate name..."
+            placeholder="yyyy-mm-dd.N"
             value={newCrateName}
             onChange={e => setNewCrateName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleCreateCrate()}
