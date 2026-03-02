@@ -1386,7 +1386,7 @@ def _resolve_base_paths(config: HydraFlowConfig) -> None:
     else:
         object.__setattr__(config, "repo_root", config.repo_root.expanduser().resolve())
     if config.worktree_base == Path("."):
-        default_worktrees = config.repo_root.parent / "hydraflow-worktrees"
+        default_worktrees = Path("~/.hydraflow/worktrees").expanduser().resolve()
         object.__setattr__(config, "worktree_base", default_worktrees)
     else:
         object.__setattr__(

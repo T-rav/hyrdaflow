@@ -69,6 +69,20 @@ def add_repo(path: Path, repo_slug: str | None = None) -> dict[str, Any]:
     return resp
 
 
+def register_repo(path: Path, repo_slug: str | None = None) -> dict[str, Any]:
+    """Register a repo without starting it (port=0)."""
+    payload: dict[str, Any] = {
+        "action": "register_repo",
+        "path": str(path.resolve()),
+    }
+    if repo_slug:
+        payload["repo_slug"] = repo_slug
+    resp = _send(payload)
+    if resp.get("status") != "ok":
+        raise RuntimeError(resp.get("error", "unknown error"))
+    return resp
+
+
 def remove_repo(path: Path | None = None, slug: str | None = None) -> None:
     payload: dict[str, Any] = {"action": "remove_repo"}
     if path is not None:

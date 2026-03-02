@@ -1248,6 +1248,7 @@ class ControlStatusConfig(BaseModel):
     model: str = ""
     memory_auto_approve: bool = False
     pr_unstick_batch_size: int = 10
+    worktree_base: str = ""
 
 
 class ControlStatusResponse(BaseModel):

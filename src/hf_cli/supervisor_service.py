@@ -191,6 +191,27 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
                         "log_file": log_file,
                         "started": started,
                     }
+        elif action == "register_repo":
+            path = request.get("path")
+            requested_slug = request.get("repo_slug")
+            if not path:
+                response = {"status": "error", "error": "Missing path"}
+            else:
+                repo_path = Path(path)
+                if not repo_path.exists():
+                    response = {
+                        "status": "error",
+                        "error": f"Repo path not found: {path}",
+                    }
+                else:
+                    slug = requested_slug or _slug_for_repo(repo_path)
+                    normalized = str(repo_path.resolve())
+                    supervisor_state.upsert_repo(normalized, slug, port=0, log_file="")
+                    response = {
+                        "status": "ok",
+                        "slug": slug,
+                        "path": normalized,
+                    }
         elif action == "remove_repo":
             path = request.get("path")
             slug = request.get("slug")

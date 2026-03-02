@@ -217,6 +217,69 @@ def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
     return text.startswith("hf supervisor is not running.")
 
 
+def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find a repo entry matching *slug* using cascading strategies.
+
+    1. Exact slug match (case-sensitive, then case-insensitive)
+    2. Strip owner prefix (``owner/repo`` → try ``repo``)
+    3. Path-tail match (last component of repo path equals slug)
+    4. Path component match (slug matches a ``/``-delimited segment of the path)
+    """
+    if not slug:
+        return None
+
+    # Normalise: strip whitespace and slashes to prevent "/" matching every path
+    slug = slug.strip().strip("/")
+    if not slug:
+        return None
+
+    slug_lower = slug.lower()
+    short = slug.rsplit("/", maxsplit=1)[-1] if "/" in slug else None
+    short_lower = short.lower() if short else None
+
+    def _slug_match(target: str) -> dict[str, Any] | None:
+        """Match *target* against repo slugs (case-sensitive then insensitive)."""
+        lower = target.lower()
+        for r in repos:
+            if r.get("slug") == target:
+                return r
+        for r in repos:
+            repo_slug = r.get("slug")
+            if repo_slug and repo_slug.lower() == lower:
+                return r
+        return None
+
+    # 1. Exact slug match
+    result = _slug_match(slug)
+    # 2. Strip owner prefix — e.g. "8thlight/insightmesh" → "insightmesh"
+    if not result and short:
+        result = _slug_match(short)
+
+    # 3. Path-tail match — last path component matches slug or short slug
+    if not result:
+        candidates = [slug_lower]
+        if short_lower:
+            candidates.append(short_lower)
+        for candidate in candidates:
+            for r in repos:
+                path = r.get("path") or ""
+                if path and Path(path).name.lower() == candidate:
+                    result = r
+                    break
+            if result:
+                break
+
+    # 4. Path component match — slug matches a full /-delimited path segment
+    if not result:
+        for r in repos:
+            path = r.get("path") or ""
+            if path and slug_lower in path.lower().split("/"):
+                result = r
+                break
+
+    return result
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -243,6 +306,9 @@ def create_router(
 
     class RepoAddRequest(BaseModel):
         slug: str | None = None
+
+    class RepoAddByPathRequest(BaseModel):
+        path: str
 
     def _resolve_runtime(
         slug: str | None,
@@ -1169,6 +1235,7 @@ def create_router(
                 model=_cfg.model,
                 memory_auto_approve=_cfg.memory_auto_approve,
                 pr_unstick_batch_size=_cfg.pr_unstick_batch_size,
+                worktree_base=str(_cfg.worktree_base),
             ),
         )
         data = response.model_dump()
@@ -1201,6 +1268,7 @@ def create_router(
         "unstick_all_causes",
         "auto_process_epics",
         "auto_process_bug_reports",
+        "worktree_base",
     }
 
     @router.patch("/api/control/config")
@@ -2454,19 +2522,23 @@ def create_router(
                     logger.warning("Supervisor list_repos failed: %s", exc)
                     error_payload = ("Supervisor unavailable", 503)
                 else:
-                    match = next((r for r in repos if r.get("slug") == slug), None)
+                    match = _find_repo_match(slug, repos)
                     if not match:
-                        error_payload = (f"slug '{slug}' not registered", 404)
+                        error_payload = (
+                            f"repo '{slug}' not found",
+                            404,
+                        )
                     else:
+                        matched_slug = match.get("slug") or slug
                         path = match.get("path")
                         if not path:
-                            error_payload = (f"slug '{slug}' missing path", 500)
+                            error_payload = (f"repo '{matched_slug}' missing path", 500)
                         else:
                             try:
                                 info = await _call_supervisor(
                                     supervisor_client.add_repo,
                                     Path(path),
-                                    slug,
+                                    matched_slug,
                                 )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning("Supervisor add_repo failed: %s", exc)
@@ -2489,6 +2561,122 @@ def create_router(
             logger.warning("Supervisor remove_repo failed: %s", exc)
             return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
         return JSONResponse({"status": "ok"})
+
+    async def _detect_repo_slug_from_path(repo_path: Path) -> str | None:  # noqa: PLR0911
+        """Extract ``owner/repo`` from git remote origin URL at *repo_path*."""
+        from urllib.parse import urlparse  # noqa: PLC0415
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "-C",
+                str(repo_path),
+                "remote",
+                "get-url",
+                "origin",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        except (FileNotFoundError, OSError, TimeoutError):
+            return None
+        url = (stdout or b"").decode().strip()
+        if not url:
+            return None
+        if url.startswith(("http://", "https://")):
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower()
+            if host != "github.com":
+                return None
+            return parsed.path.lstrip("/").removesuffix(".git") or None
+        if url.startswith("git@"):
+            if "@" not in url or ":" not in url:
+                return None
+            user_host, _, remainder = url.partition(":")
+            _, _, host = user_host.partition("@")
+            if host.lower() != "github.com":
+                return None
+            slug = remainder.lstrip("/").removesuffix(".git")
+            return slug or None
+        return None
+
+    @router.post("/api/repos/add")
+    async def add_repo_by_path(req: RepoAddByPathRequest) -> JSONResponse:  # noqa: PLR0911
+        """Register a repo by local filesystem path (does NOT start it)."""
+        raw_path = (req.path or "").strip()
+        if not raw_path:
+            return JSONResponse({"error": "path required"}, status_code=400)
+        repo_path = Path(raw_path).expanduser().resolve()
+        if not repo_path.is_dir():
+            return JSONResponse(
+                {"error": f"path does not exist: {raw_path}"},
+                status_code=400,
+            )
+        # Validate it's a git repo
+        is_git = False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "-C",
+                str(repo_path),
+                "rev-parse",
+                "--git-dir",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=10)
+            is_git = proc.returncode == 0
+        except (FileNotFoundError, OSError, TimeoutError):
+            pass
+        if not is_git:
+            return JSONResponse(
+                {"error": f"not a git repository: {raw_path}"},
+                status_code=400,
+            )
+        # Detect slug
+        slug = await _detect_repo_slug_from_path(repo_path)
+        # Create labels (best-effort)
+        labels_created = False
+        if slug:
+            try:
+                from prep import ensure_labels  # noqa: PLC0415
+
+                target_cfg = config.model_copy(
+                    update={
+                        "repo_root": repo_path,
+                        "repo": slug,
+                    },
+                )
+                await ensure_labels(target_cfg)
+                labels_created = True
+            except Exception:  # noqa: BLE001
+                logger.warning("Label creation failed for %s", slug, exc_info=True)
+        # Register with supervisor
+        if supervisor_client is None:
+            return JSONResponse(
+                {"error": "supervisor unavailable"},
+                status_code=503,
+            )
+        try:
+            await _call_supervisor(
+                supervisor_client.register_repo,
+                repo_path,
+                slug,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supervisor register_repo failed: %s", exc)
+            return JSONResponse(
+                {"error": f"Failed to register repo: {exc}"},
+                status_code=500,
+            )
+        return JSONResponse(
+            {
+                "status": "ok",
+                "slug": slug or repo_path.name,
+                "path": str(repo_path),
+                "labels_created": labels_created,
+            }
+        )
 
     @router.post("/api/intent")
     async def submit_intent(request: IntentRequest) -> JSONResponse:
