@@ -535,7 +535,6 @@ describe('startRuntime compatibility flow', () => {
     expect(fetchSpy).toHaveBeenCalledWith('/api/repos')
     expect(fetchSpy).toHaveBeenCalledWith('/api/runtimes')
   })
-
   it('falls back to /api/repos/add by path when POST /api/repos is not supported', async () => {
     window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
