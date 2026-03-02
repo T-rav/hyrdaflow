@@ -201,8 +201,6 @@ def _normalize_allowed_dir(raw_path: str) -> tuple[Path | None, str | None]:
     with contextlib.suppress(ValueError):
         if os.path.commonpath([str(resolved), matched_root_real]) != matched_root_real:
             return None, "path must be inside your home directory or temp directory"
-    if not resolved.is_dir():
-        return None, f"path does not exist: {candidate}"
     return resolved, None
 
 

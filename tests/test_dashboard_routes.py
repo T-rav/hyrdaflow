@@ -6801,7 +6801,7 @@ class TestAddRepoByPath:
         resp = await endpoint(FakeReq(path=str(tmp_path / "missing-repo-dir")))
         data = json_mod.loads(resp.body)
         assert resp.status_code == 400
-        assert "does not exist" in data["error"]
+        assert "not a git repository" in data["error"]
 
     @pytest.mark.asyncio
     async def test_non_git_repo_returns_400(
