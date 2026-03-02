@@ -23,6 +23,7 @@ function defaultContext(overrides = {}) {
     runtimes: [],
     startRuntime: vi.fn(),
     stopRuntime: vi.fn(),
+    addRepoFromPicker: vi.fn(),
     addRepoShortcut: vi.fn(),
     removeRepoShortcut: vi.fn(),
     ...overrides,
@@ -433,399 +434,45 @@ describe('SessionSidebar add repo button', () => {
     expect(screen.getByLabelText('Add repo')).toBeDefined()
   })
 
-  it('shows input field when "+" is clicked', () => {
+  it('shows picker button when "+" is clicked', () => {
     render(<SessionSidebar />)
     fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
+    expect(screen.getByText('Pick Folder')).toBeDefined()
   })
 
-  it('calls addRepoShortcut when input is submitted via Enter', () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
+  it('calls addRepoFromPicker when "Pick Folder" is clicked', async () => {
+    const addRepoFromPicker = vi.fn().mockResolvedValue({ ok: true })
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoFromPicker }))
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByLabelText('Add repo'))
+    fireEvent.click(screen.getByText('Pick Folder'))
+    await vi.waitFor(() => {
+      expect(addRepoFromPicker).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText('Pick Folder')).toBeNull()
+    })
+  })
+
+  it('shows error and keeps picker open when picker action fails', async () => {
+    const addRepoFromPicker = vi.fn().mockResolvedValue({ ok: false, error: 'No folder selected' })
     mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoShortcut })
+      defaultContext({ addRepoFromPicker })
     )
     render(<SessionSidebar />)
     fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'my-org/my-repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(addRepoShortcut).toHaveBeenCalledWith('my-org/my-repo')
-  })
-
-  it('hides input and clears value after submitting', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoShortcut })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'my-org/my-repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.click(screen.getByText('Pick Folder'))
     await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
+      expect(screen.getByText('No folder selected')).toBeDefined()
+      expect(screen.getByText('Pick Folder')).toBeDefined()
     })
   })
 
-  it('hides input on Escape without calling addRepoShortcut', () => {
-    const addRepoShortcut = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoShortcut })
-    )
+  it('shows fallback error when picker callback is missing', async () => {
+    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoFromPicker: undefined }))
     render(<SessionSidebar />)
     fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.keyDown(input, { key: 'Escape' })
-    expect(addRepoShortcut).not.toHaveBeenCalled()
-    expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-  })
-
-  it('does not submit empty input', () => {
-    const addRepoShortcut = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoShortcut })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(addRepoShortcut).not.toHaveBeenCalled()
-  })
-
-  it('closes input when "+" is clicked again while input is visible (toggle off)', () => {
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-  })
-
-  it('keeps panel open on empty Enter', () => {
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    // Press Enter with empty input — panel should stay open
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-  })
-
-  it('shows error message when addRepoShortcut returns failure', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: "slug 'bad' not registered" })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    // Wait for async handler
+    fireEvent.click(screen.getByText('Pick Folder'))
     await vi.waitFor(() => {
-      expect(screen.getByText("slug 'bad' not registered")).toBeDefined()
-    })
-  })
-
-  it('keeps input open when addRepoShortcut returns failure', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'not found' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad-repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('not found')).toBeDefined()
-    })
-    // Input should still be visible
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-  })
-
-  it('clears error when user types in input', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'some error' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('some error')).toBeDefined()
-    })
-    // Start typing — error should disappear
-    fireEvent.change(input, { target: { value: 'fix' } })
-    expect(screen.queryByText('some error')).toBeNull()
-  })
-
-  it('clears error on Escape', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'err' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('err')).toBeDefined()
-    })
-    fireEvent.keyDown(input, { key: 'Escape' })
-    // Input should be hidden and error gone
-    expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    expect(screen.queryByText('err')).toBeNull()
-  })
-
-  it('closes input on successful addRepoShortcut', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    })
-  })
-
-  it('clears error and value when "+" toggle closes the input', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'stale error' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    // Open, trigger error
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('stale error')).toBeDefined()
-    })
-    // Close via "+" toggle
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.queryByText('stale error')).toBeNull()
-    // Reopen — error and value should be gone
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.queryByText('stale error')).toBeNull()
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo').value).toBe('')
-  })
-
-  it('handles rejected addRepoShortcut gracefully', async () => {
-    const addRepoShortcut = vi.fn().mockRejectedValue(new Error('Network error'))
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('Failed to add repo')).toBeDefined()
-    })
-    // Input should stay open
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-  })
-
-  it('succeeds when addRepoShortcut returns undefined', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue(undefined)
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    })
-  })
-
-  it('disables input while submitting', async () => {
-    let resolvePromise
-    const addRepoShortcut = vi.fn().mockImplementation(() =>
-      new Promise(resolve => { resolvePromise = resolve })
-    )
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    // Input should be disabled while request is in-flight
-    await vi.waitFor(() => {
-      expect(input.disabled).toBe(true)
-    })
-    // Resolve the promise
-    resolvePromise({ ok: true })
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    })
-  })
-
-  it('error message has role="alert" for accessibility', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'a11y test' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      const alert = screen.getByRole('alert')
-      expect(alert.textContent).toBe('a11y test')
-    })
-  })
-
-  it('shows error message when addRepoShortcut returns failure', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: "slug 'bad' not registered" })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    // Wait for async handler
-    await vi.waitFor(() => {
-      expect(screen.getByText("slug 'bad' not registered")).toBeDefined()
-    })
-  })
-
-  it('keeps input open when addRepoShortcut returns failure', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'not found' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad-repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('not found')).toBeDefined()
-    })
-    // Input should still be visible
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-  })
-
-  it('clears error when user types in input', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'some error' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('some error')).toBeDefined()
-    })
-    // Start typing — error should disappear
-    fireEvent.change(input, { target: { value: 'fix' } })
-    expect(screen.queryByText('some error')).toBeNull()
-  })
-
-  it('clears error on Escape', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'err' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('err')).toBeDefined()
-    })
-    fireEvent.keyDown(input, { key: 'Escape' })
-    // Input should be hidden and error gone
-    expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    expect(screen.queryByText('err')).toBeNull()
-  })
-
-  it('closes input on successful addRepoShortcut', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    })
-  })
-
-  it('clears error and value when "+" toggle closes the input', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'stale error' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    // Open, trigger error
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('stale error')).toBeDefined()
-    })
-    // Close via "+" toggle
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.queryByText('stale error')).toBeNull()
-    // Reopen — error and value should be gone
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.queryByText('stale error')).toBeNull()
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo').value).toBe('')
-  })
-
-  it('handles rejected addRepoShortcut gracefully', async () => {
-    const addRepoShortcut = vi.fn().mockRejectedValue(new Error('Network error'))
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('Failed to add repo')).toBeDefined()
-    })
-    // Input should stay open
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-  })
-
-  it('succeeds when addRepoShortcut returns undefined', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue(undefined)
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    })
-  })
-
-  it('disables input while submitting', async () => {
-    let resolvePromise
-    const addRepoShortcut = vi.fn().mockImplementation(() =>
-      new Promise(resolve => { resolvePromise = resolve })
-    )
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'org/repo' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    // Input should be disabled while request is in-flight
-    await vi.waitFor(() => {
-      expect(input.disabled).toBe(true)
-    })
-    // Resolve the promise
-    resolvePromise({ ok: true })
-    await vi.waitFor(() => {
-      expect(screen.queryByPlaceholderText('owner/repo or /path/to/repo')).toBeNull()
-    })
-  })
-
-  it('error message has role="alert" for accessibility', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'a11y test' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: 'bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      const alert = screen.getByRole('alert')
-      expect(alert.textContent).toBe('a11y test')
+      expect(screen.getByText('Folder picker is unavailable')).toBeDefined()
     })
   })
 })
@@ -1054,50 +701,3 @@ describe('SessionSidebar per-repo Start/Stop', () => {
 // ---------------------------------------------------------------------------
 // Path-based repo input
 // ---------------------------------------------------------------------------
-
-describe('SessionSidebar path-based repo input', () => {
-  it('calls addRepoShortcut with full path when input starts with /', () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoShortcut })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: '/home/user/repos/myproject' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(addRepoShortcut).toHaveBeenCalledWith('/home/user/repos/myproject')
-  })
-
-  it('calls addRepoShortcut with tilde path', () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoShortcut })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: '~/repos/insightmesh' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(addRepoShortcut).toHaveBeenCalledWith('~/repos/insightmesh')
-  })
-
-  it('shows error on invalid path from addRepoShortcut', async () => {
-    const addRepoShortcut = vi.fn().mockResolvedValue({ ok: false, error: 'path does not exist: /bad' })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoShortcut }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    const input = screen.getByPlaceholderText('owner/repo or /path/to/repo')
-    fireEvent.change(input, { target: { value: '/bad' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-    await vi.waitFor(() => {
-      expect(screen.getByText('path does not exist: /bad')).toBeDefined()
-    })
-  })
-
-  it('shows updated placeholder text', () => {
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    expect(screen.getByPlaceholderText('owner/repo or /path/to/repo')).toBeDefined()
-  })
-})

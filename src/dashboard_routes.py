@@ -7,6 +7,7 @@ import contextlib
 import importlib
 import logging
 import os
+import sys
 import tempfile
 import time
 from collections import Counter
@@ -102,6 +103,80 @@ _INFERENCE_COUNTER_KEYS: tuple[str, ...] = (
     "cache_hits",
     "cache_misses",
 )
+
+
+async def _run_dialog_command(*cmd: str, timeout_seconds: float = 30.0) -> str | None:
+    """Run a folder-picker shell command and return trimmed stdout on success."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
+    except (FileNotFoundError, OSError, TimeoutError):
+        return None
+    if proc.returncode != 0:
+        return None
+    selected = (stdout or b"").decode().strip()
+    return selected or None
+
+
+async def _pick_folder_with_dialog() -> str | None:
+    """Open a best-effort native folder picker and return the selected path."""
+    try:
+        import tkinter as tk  # noqa: PLC0415
+        from tkinter import filedialog  # noqa: PLC0415
+
+        def _choose_dir() -> str | None:
+            root = tk.Tk()
+            root.withdraw()
+            with contextlib.suppress(Exception):
+                root.wm_attributes("-topmost", 1)
+            try:
+                selected = filedialog.askdirectory(title="Select repository folder")
+                return selected or None
+            finally:
+                root.destroy()
+
+        selected = await asyncio.to_thread(_choose_dir)
+        if selected:
+            return selected
+    except Exception:
+        logger.debug("Tk folder picker unavailable", exc_info=True)
+
+    if sys.platform == "darwin":
+        selected = await _run_dialog_command(
+            "osascript",
+            "-e",
+            'POSIX path of (choose folder with prompt "Select repository folder")',
+        )
+        if selected:
+            return selected
+    elif sys.platform.startswith("linux"):
+        selected = await _run_dialog_command(
+            "zenity",
+            "--file-selection",
+            "--directory",
+            "--title=Select repository folder",
+        )
+        if selected:
+            return selected
+    elif sys.platform.startswith("win"):
+        selected = await _run_dialog_command(
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            (
+                "[System.Reflection.Assembly]::LoadWithPartialName"
+                "('System.Windows.Forms') | Out-Null; "
+                "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                "if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }"
+            ),
+        )
+        if selected:
+            return selected
+    return None
 
 
 def _parse_iso_or_none(raw: str | None) -> datetime | None:
@@ -2848,6 +2923,19 @@ def create_router(
                 "labels_created": labels_created,
             }
         )
+
+    @router.post("/api/repos/pick-folder")
+    async def pick_repo_folder() -> JSONResponse:
+        """Open a native folder picker and return the selected path."""
+        selected = await _pick_folder_with_dialog()
+        if not selected:
+            return JSONResponse({"error": "No folder selected"}, status_code=400)
+        path = Path(os.path.realpath(os.path.expanduser(selected)))
+        if not path.is_dir():
+            return JSONResponse(
+                {"error": "Selected path is not a directory"}, status_code=400
+            )
+        return JSONResponse({"path": str(path)})
 
     @router.post("/api/intent")
     async def submit_intent(request: IntentRequest) -> JSONResponse:

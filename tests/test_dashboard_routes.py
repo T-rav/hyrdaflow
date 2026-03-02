@@ -6982,3 +6982,85 @@ class TestAddRepoByPath:
         assert resp.status_code == 200
         assert data["status"] == "ok"
         assert data["labels_created"] is False
+
+
+class TestPickRepoFolder:
+    """Tests for POST /api/repos/pick-folder endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+
+    def _get_endpoint(self, router):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/repos/pick-folder"
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        msg = "pick_repo_folder endpoint not found"
+        raise AssertionError(msg)
+
+    @pytest.mark.asyncio
+    async def test_no_selection_returns_400(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        import json as json_mod
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._get_endpoint(router)
+
+        with patch(
+            "dashboard_routes._pick_folder_with_dialog",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            resp = await endpoint()
+
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 400
+        assert data["error"] == "No folder selected"
+
+    @pytest.mark.asyncio
+    async def test_selected_folder_returns_path(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        import json as json_mod
+
+        repo_dir = tmp_path / "picked-repo"
+        repo_dir.mkdir()
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._get_endpoint(router)
+
+        with patch(
+            "dashboard_routes._pick_folder_with_dialog",
+            new_callable=AsyncMock,
+            return_value=str(repo_dir),
+        ):
+            resp = await endpoint()
+
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["path"] == str(repo_dir.resolve())

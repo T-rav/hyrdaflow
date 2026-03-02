@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
 import { PULSE_ANIMATION } from '../constants'
@@ -22,17 +22,15 @@ export function SessionSidebar() {
     runtimes = [],
     startRuntime = () => {},
     stopRuntime = () => {},
-    addRepoShortcut,
+    addRepoFromPicker,
     removeRepoShortcut,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
   const [hoveredSession, setHoveredSession] = useState(null)
   const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
   const [showAddRepo, setShowAddRepo] = useState(false)
-  const [addRepoValue, setAddRepoValue] = useState('')
   const [addRepoError, setAddRepoError] = useState('')
   const [isAddRepoSubmitting, setIsAddRepoSubmitting] = useState(false)
-  const addRepoInputRef = useRef(null)
 
   const repoEntries = useMemo(() => {
     const entries = new Map()
@@ -97,41 +95,26 @@ export function SessionSidebar() {
     deleteSession(sessionId)
   }
 
-  useEffect(() => {
-    if (showAddRepo && addRepoInputRef.current) {
-      addRepoInputRef.current.focus()
+  const handlePickRepoFolder = async () => {
+    if (isAddRepoSubmitting) return
+    if (!addRepoFromPicker) {
+      setAddRepoError('Folder picker is unavailable')
+      return
     }
-  }, [showAddRepo])
-
-  const handleAddRepoSubmit = async () => {
-    const trimmed = addRepoValue.trim()
-    if (!trimmed || isAddRepoSubmitting) return
     setIsAddRepoSubmitting(true)
+    setAddRepoError('')
     try {
-      if (addRepoShortcut) {
-        const result = await addRepoShortcut(trimmed)
-        if (result && !result.ok) {
-          setAddRepoError(result.error || 'Failed to add repo')
-          return
-        }
+      const result = await addRepoFromPicker()
+      if (result && !result.ok) {
+        setAddRepoError(result.error || 'Failed to add repo')
+        return
       }
       setAddRepoError('')
-      setAddRepoValue('')
       setShowAddRepo(false)
     } catch {
       setAddRepoError('Failed to add repo')
     } finally {
       setIsAddRepoSubmitting(false)
-    }
-  }
-
-  const handleAddRepoKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      handleAddRepoSubmit()
-    } else if (e.key === 'Escape') {
-      setAddRepoError('')
-      setAddRepoValue('')
-      setShowAddRepo(false)
     }
   }
 
@@ -165,7 +148,7 @@ export function SessionSidebar() {
           onClick={(e) => {
             e.stopPropagation()
             setShowAddRepo(prev => {
-              if (prev) { setAddRepoError(''); setAddRepoValue('') }
+              if (prev) setAddRepoError('')
               return !prev
             })
           }}
@@ -178,17 +161,14 @@ export function SessionSidebar() {
       </div>
       {showAddRepo && (
         <div style={styles.addRepoRow}>
-          <input
-            ref={addRepoInputRef}
-            type="text"
-            value={addRepoValue}
-            onChange={(e) => { setAddRepoError(''); setAddRepoValue(e.target.value) }}
-            onKeyDown={handleAddRepoKeyDown}
-            placeholder="owner/repo or /path/to/repo"
+          <button
+            onClick={handlePickRepoFolder}
             disabled={isAddRepoSubmitting}
-            aria-invalid={addRepoError ? 'true' : undefined}
-            style={addRepoError ? addRepoInputError : styles.addRepoInput}
-          />
+            style={styles.pickFolderBtn}
+            title="Pick a local repo folder"
+          >
+            Pick Folder
+          </button>
           {addRepoError && (
             <div style={styles.addRepoErrorMsg} role="alert">{addRepoError}</div>
           )}
@@ -379,16 +359,16 @@ const styles = {
     padding: '4px 12px 8px',
     borderBottom: `1px solid ${theme.border}`,
   },
-  addRepoInput: {
-    width: '100%',
-    padding: '4px 8px',
-    fontSize: 11,
-    background: theme.bg,
+  pickFolderBtn: {
+    background: 'none',
     border: `1px solid ${theme.border}`,
     borderRadius: 4,
-    color: theme.text,
-    outline: 'none',
-    boxSizing: 'border-box',
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    padding: '4px 8px',
+    whiteSpace: 'nowrap',
   },
   addRepoErrorMsg: {
     fontSize: 10,
@@ -586,5 +566,4 @@ const repoHeaderSelected = { ...styles.repoHeader, background: theme.accentSubtl
 const sessionRowSelected = { ...styles.sessionRow, background: theme.accentSubtle }
 const sessionRowCurrent = { ...styles.sessionRow, borderLeft: `3px solid ${theme.accent}` }
 const sessionRowCurrentSelected = { ...sessionRowCurrent, background: theme.accentSubtle }
-const addRepoInputError = { ...styles.addRepoInput, border: `1px solid ${theme.red}` }
 const deleteButtonHovered = { ...styles.deleteButton, color: theme.red, background: theme.redSubtle }

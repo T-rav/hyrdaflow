@@ -921,6 +921,29 @@ export function HydraFlowProvider({ children }) {
     }
   }, [fetchRepos])
 
+  const pickRepoFolder = useCallback(async () => {
+    try {
+      const res = await fetch('/api/repos/pick-folder', { method: 'POST' })
+      if (!res.ok) {
+        let errorMsg = `status ${res.status}`
+        try { const body = await res.json(); if (body.error) errorMsg = body.error } catch { /* ignore */ }
+        return { ok: false, error: errorMsg }
+      }
+      const body = await res.json()
+      const path = (body?.path || '').trim()
+      if (!path) return { ok: false, error: 'No folder selected' }
+      return { ok: true, path }
+    } catch (err) {
+      return { ok: false, error: err.message || 'Network error' }
+    }
+  }, [])
+
+  const addRepoFromPicker = useCallback(async () => {
+    const picked = await pickRepoFolder()
+    if (!picked.ok) return picked
+    return addRepoByPath(picked.path)
+  }, [pickRepoFolder, addRepoByPath])
+
   const addRepoShortcut = useCallback(async (input) => {
     if (input.startsWith('/') || input.startsWith('~') || input.startsWith('.'))
       return addRepoByPath(input)
@@ -1279,6 +1302,7 @@ export function HydraFlowProvider({ children }) {
     selectRepo,
     deleteSession,
     addRepoByPath,
+    addRepoFromPicker,
     addRepoShortcut,
     removeRepoShortcut,
     startRuntime,
