@@ -2246,7 +2246,7 @@ class TestWebSocketErrorLogging:
                 pass
 
             mock_logger.warning.assert_any_call(
-                "WebSocket error during history replay", exc_info=True
+                "WebSocket error during history replay: %s", "RuntimeError"
             )
 
     def test_websocket_logs_warning_on_live_stream_error(
@@ -2281,7 +2281,7 @@ class TestWebSocketErrorLogging:
                 pass
 
             mock_logger.warning.assert_any_call(
-                "WebSocket error during live streaming", exc_info=True
+                "WebSocket error during live streaming: %s", "RuntimeError"
             )
 
     def test_websocket_disconnect_not_logged(
