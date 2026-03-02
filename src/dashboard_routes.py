@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 
@@ -173,7 +173,7 @@ def _allowed_repo_roots() -> tuple[str, ...]:
     return tuple(deduped)
 
 
-def _normalize_allowed_dir(raw_path: str) -> tuple[Path | None, str | None]:
+def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | None]:
     """Validate and normalize a directory path constrained to allowed roots."""
     candidate = (raw_path or "").strip()
     if not candidate:
@@ -181,27 +181,21 @@ def _normalize_allowed_dir(raw_path: str) -> tuple[Path | None, str | None]:
     expanded = os.path.expanduser(candidate)
     if "\x00" in expanded:
         return None, "invalid path"
-    abs_candidate = os.path.abspath(expanded)
-    resolved: Path | None = None
-    matched_root_real: str | None = None
+    candidate_abs = os.path.abspath(expanded)
     for root in _allowed_repo_roots():
-        root_abs = os.path.abspath(root)
+        root_real = os.path.realpath(root)
         with contextlib.suppress(ValueError):
-            if os.path.commonpath([abs_candidate, root_abs]) != root_abs:
+            relative = os.path.relpath(candidate_abs, root_real)
+            if relative == os.pardir or relative.startswith(f"{os.pardir}{os.sep}"):
                 continue
-            candidate_real = os.path.realpath(abs_candidate)
-            root_real = os.path.realpath(root_abs)
-            if os.path.commonpath([candidate_real, root_real]) != root_real:
+            parts = [part for part in Path(relative).parts if part not in ("", ".")]
+            if any(part == os.pardir for part in parts):
                 continue
-            resolved = Path(candidate_real)
-            matched_root_real = root_real
-            break
-    if resolved is None or matched_root_real is None:
-        return None, "path must be inside your home directory or temp directory"
-    with contextlib.suppress(ValueError):
-        if os.path.commonpath([str(resolved), matched_root_real]) != matched_root_real:
-            return None, "path must be inside your home directory or temp directory"
-    return resolved, None
+            resolved = Path(root_real).joinpath(*parts).resolve(strict=False)
+            if os.path.commonpath([str(resolved), root_real]) != root_real:
+                continue
+            return resolved, None
+    return None, "path must be inside your home directory or temp directory"
 
 
 def _parse_iso_or_none(raw: str | None) -> datetime | None:
@@ -410,7 +404,7 @@ def create_router(
         slug: str | None = None
 
     class RepoAddByPathRequest(BaseModel):
-        path: str
+        path: str | None = None
 
     def _resolve_runtime(
         slug: str | None,
@@ -2911,14 +2905,16 @@ def create_router(
         return None
 
     @router.post("/api/repos/add")
-    async def add_repo_by_path(req: RepoAddByPathRequest) -> JSONResponse:  # noqa: PLR0911
+    async def add_repo_by_path(  # noqa: PLR0911
+        req: RepoAddByPathRequest | None = Body(default=None),
+    ) -> JSONResponse:
         """Register a repo by local filesystem path (does NOT start it)."""
-        repo_path, path_error = _normalize_allowed_dir(req.path)
+        raw_path = (req.path if req else "").strip()
+        repo_path, path_error = _normalize_allowed_dir(raw_path)
         if path_error or repo_path is None:
             return JSONResponse(
                 {"error": path_error or "invalid path"}, status_code=400
             )
-        raw_path = (req.path or "").strip()
         # Validate it's a git repo
         is_git = False
         try:

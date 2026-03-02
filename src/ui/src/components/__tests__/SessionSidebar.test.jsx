@@ -476,6 +476,7 @@ describe('SessionSidebar add repo button', () => {
     render(<SessionSidebar />)
     fireEvent.click(screen.getByLabelText('Add repo'))
     await vi.waitFor(() => {
+      expect(screen.getByRole('dialog', { name: 'Choose repository folder' })).toBeDefined()
       expect(screen.getByText('Use This Folder')).toBeDefined()
       expect(screen.getByText('repos')).toBeDefined()
       expect(screen.getByText('/home/user')).toBeDefined()

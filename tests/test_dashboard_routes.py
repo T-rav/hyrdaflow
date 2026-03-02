@@ -6781,6 +6781,24 @@ class TestAddRepoByPath:
         assert "path required" in data["error"]
 
     @pytest.mark.asyncio
+    async def test_missing_body_returns_400(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        import json as json_mod
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._get_endpoint(router)
+
+        resp = await endpoint(None)
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 400
+        assert "path required" in data["error"]
+
+    @pytest.mark.asyncio
     async def test_nonexistent_path_returns_400(
         self,
         config,

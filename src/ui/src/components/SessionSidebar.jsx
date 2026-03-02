@@ -37,6 +37,24 @@ export function SessionSidebar() {
   const [browseDirs, setBrowseDirs] = useState([])
   const [isBrowseLoading, setIsBrowseLoading] = useState(false)
 
+  const resetBrowseState = () => {
+    setBrowseRoots([])
+    setBrowsePath('')
+    setBrowseParentPath(null)
+    setBrowseDirs([])
+  }
+
+  const closeAddRepoModal = () => {
+    setShowAddRepo(false)
+    setAddRepoError('')
+  }
+
+  const openAddRepoModal = () => {
+    resetBrowseState()
+    setAddRepoError('')
+    setShowAddRepo(true)
+  }
+
   const repoEntries = useMemo(() => {
     const entries = new Map()
     const slugIndex = new Map()
@@ -155,6 +173,17 @@ export function SessionSidebar() {
     return () => { cancelled = true }
   }, [showAddRepo])
 
+  useEffect(() => {
+    if (!showAddRepo) return undefined
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeAddRepoModal()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [showAddRepo])
+
   const handleUseCurrentFolder = async () => {
     if (!browsePath || isAddRepoSubmitting || !addRepoByPath) return
     setIsAddRepoSubmitting(true)
@@ -165,8 +194,7 @@ export function SessionSidebar() {
         setAddRepoError(result.error || 'Failed to add repo')
         return
       }
-      setShowAddRepo(false)
-      setAddRepoError('')
+      closeAddRepoModal()
     } catch {
       setAddRepoError('Failed to add repo')
     } finally {
@@ -203,16 +231,11 @@ export function SessionSidebar() {
         <button
           onClick={(e) => {
             e.stopPropagation()
-            setShowAddRepo(prev => {
-              if (prev) setAddRepoError('')
-              if (!prev) {
-                setBrowseRoots([])
-                setBrowsePath('')
-                setBrowseParentPath(null)
-                setBrowseDirs([])
-              }
-              return !prev
-            })
+            if (showAddRepo) {
+              closeAddRepoModal()
+            } else {
+              openAddRepoModal()
+            }
           }}
           style={styles.addRepoBtn}
           aria-label="Add repo"
@@ -221,66 +244,6 @@ export function SessionSidebar() {
           +
         </button>
       </div>
-      {showAddRepo && (
-        <div style={styles.addRepoRow}>
-          {browseRoots.length > 1 && (
-            <div style={styles.browseRoots}>
-              {browseRoots.map(root => (
-                <button
-                  key={root.path}
-                  onClick={() => loadBrowseDirectory(root.path)}
-                  style={browsePath === root.path ? browseRootBtnActive : styles.browseRootBtn}
-                  disabled={isBrowseLoading}
-                  title={root.path}
-                >
-                  {root.name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div style={styles.browsePath} title={browsePath}>
-            {browsePath || 'Loading...'}
-          </div>
-          <div style={styles.browseControls}>
-            <button
-              onClick={() => { if (browseParentPath) loadBrowseDirectory(browseParentPath) }}
-              style={styles.pickFolderBtn}
-              disabled={!browseParentPath || isBrowseLoading || isAddRepoSubmitting}
-              title="Go up one directory"
-            >
-              Up
-            </button>
-            <button
-              onClick={handleUseCurrentFolder}
-              style={styles.pickFolderBtn}
-              disabled={!browsePath || isBrowseLoading || isAddRepoSubmitting}
-              title="Use this folder as repo path"
-            >
-              Use This Folder
-            </button>
-          </div>
-          <div style={styles.browseList}>
-            {browseDirs.length === 0 ? (
-              <div style={styles.browseEmpty}>{isBrowseLoading ? 'Loading…' : 'No subfolders'}</div>
-            ) : (
-              browseDirs.map(dir => (
-                <button
-                  key={dir.path}
-                  onClick={() => loadBrowseDirectory(dir.path)}
-                  style={styles.browseDirBtn}
-                  disabled={isBrowseLoading || isAddRepoSubmitting}
-                  title={dir.path}
-                >
-                  {dir.name}
-                </button>
-              ))
-            )}
-          </div>
-          {addRepoError && (
-            <div style={styles.addRepoErrorMsg} role="alert">{addRepoError}</div>
-          )}
-        </div>
-      )}
 
       <div style={styles.list}>
         {repoEntries.map(entry => {
@@ -402,6 +365,84 @@ export function SessionSidebar() {
           <div style={styles.empty}>No sessions yet</div>
         )}
       </div>
+      {showAddRepo && (
+        <div style={styles.modalBackdrop} onClick={closeAddRepoModal}>
+          <div
+            style={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose repository folder"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <span style={styles.modalTitle}>Choose Repository Folder</span>
+              <button
+                onClick={closeAddRepoModal}
+                style={styles.modalCloseBtn}
+                aria-label="Close add repo modal"
+              >
+                ×
+              </button>
+            </div>
+            {browseRoots.length > 1 && (
+              <div style={styles.browseRoots}>
+                {browseRoots.map(root => (
+                  <button
+                    key={root.path}
+                    onClick={() => loadBrowseDirectory(root.path)}
+                    style={browsePath === root.path ? browseRootBtnActive : styles.browseRootBtn}
+                    disabled={isBrowseLoading}
+                    title={root.path}
+                  >
+                    {root.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={styles.browsePath} title={browsePath}>
+              {browsePath || 'Loading...'}
+            </div>
+            <div style={styles.browseControls}>
+              <button
+                onClick={() => { if (browseParentPath) loadBrowseDirectory(browseParentPath) }}
+                style={styles.pickFolderBtn}
+                disabled={!browseParentPath || isBrowseLoading || isAddRepoSubmitting}
+                title="Go up one directory"
+              >
+                Up
+              </button>
+              <button
+                onClick={handleUseCurrentFolder}
+                style={styles.pickFolderBtn}
+                disabled={!browsePath || isBrowseLoading || isAddRepoSubmitting}
+                title="Use this folder as repo path"
+              >
+                Use This Folder
+              </button>
+            </div>
+            <div style={styles.browseList}>
+              {browseDirs.length === 0 ? (
+                <div style={styles.browseEmpty}>{isBrowseLoading ? 'Loading…' : 'No subfolders'}</div>
+              ) : (
+                browseDirs.map(dir => (
+                  <button
+                    key={dir.path}
+                    onClick={() => loadBrowseDirectory(dir.path)}
+                    style={styles.browseDirBtn}
+                    disabled={isBrowseLoading || isAddRepoSubmitting}
+                    title={dir.path}
+                  >
+                    {dir.name}
+                  </button>
+                ))
+              )}
+            </div>
+            {addRepoError && (
+              <div style={styles.addRepoErrorMsg} role="alert">{addRepoError}</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -462,12 +503,52 @@ const styles = {
     lineHeight: '18px',
     transition: 'color 0.15s, border-color 0.15s',
   },
-  addRepoRow: {
-    padding: '4px 12px 8px',
-    borderBottom: `1px solid ${theme.border}`,
+  modalBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(8, 12, 20, 0.55)',
+    zIndex: 80,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modal: {
+    width: 'min(640px, 100%)',
+    maxHeight: '80vh',
+    overflowY: 'auto',
+    background: theme.surface,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 8,
+    boxShadow: '0 16px 40px rgba(0, 0, 0, 0.3)',
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
+    gap: 8,
+    padding: 12,
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  modalTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: theme.textBright,
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+  },
+  modalCloseBtn: {
+    background: 'none',
+    border: `1px solid ${theme.border}`,
+    borderRadius: 4,
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+    lineHeight: 1,
+    padding: '2px 8px',
   },
   browseRoots: {
     display: 'flex',
