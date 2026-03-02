@@ -1090,6 +1090,22 @@ class TestCrateGate:
         result = store.get_plannable(10)
         assert len(result) == 1
 
+    def test_triage_not_gated_by_crate(self) -> None:
+        """Triage (FIND) queue ignores the crate gate — issues always triage."""
+        from unittest.mock import MagicMock
+
+        store = _make_store()
+        cm = MagicMock()
+        cm.is_in_active_crate.return_value = False
+        store.set_crate_manager(cm)
+
+        task = TaskFactory.create(id=10, tags=["hydraflow-find"])
+        store._route_issues([task])
+
+        result = store.get_triageable(10)
+        assert len(result) == 1
+        assert result[0].id == 10
+
     def test_get_uncrated_issues_returns_tasks_without_milestone(self) -> None:
         store = _make_store()
         task_crated = TaskFactory.create(id=1, tags=["hydraflow-plan"])

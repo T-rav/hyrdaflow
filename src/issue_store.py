@@ -425,7 +425,8 @@ class IssueStore:
             task = q.popleft()
             self._queue_members[stage].discard(task.id)
             if task.id in self._active or (
-                self._crate_manager is not None
+                stage != STAGE_FIND
+                and self._crate_manager is not None
                 and not self._crate_manager.is_in_active_crate(task)
             ):
                 skipped.append(task)
