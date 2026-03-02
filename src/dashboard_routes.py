@@ -217,6 +217,69 @@ def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
     return text.startswith("hf supervisor is not running.")
 
 
+def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find a repo entry matching *slug* using cascading strategies.
+
+    1. Exact slug match (case-sensitive, then case-insensitive)
+    2. Strip owner prefix (``owner/repo`` → try ``repo``)
+    3. Path-tail match (last component of repo path equals slug)
+    4. Path component match (slug matches a ``/``-delimited segment of the path)
+    """
+    if not slug:
+        return None
+
+    # Normalise: strip whitespace and slashes to prevent "/" matching every path
+    slug = slug.strip().strip("/")
+    if not slug:
+        return None
+
+    slug_lower = slug.lower()
+    short = slug.rsplit("/", maxsplit=1)[-1] if "/" in slug else None
+    short_lower = short.lower() if short else None
+
+    def _slug_match(target: str) -> dict[str, Any] | None:
+        """Match *target* against repo slugs (case-sensitive then insensitive)."""
+        lower = target.lower()
+        for r in repos:
+            if r.get("slug") == target:
+                return r
+        for r in repos:
+            repo_slug = r.get("slug")
+            if repo_slug and repo_slug.lower() == lower:
+                return r
+        return None
+
+    # 1. Exact slug match
+    result = _slug_match(slug)
+    # 2. Strip owner prefix — e.g. "8thlight/insightmesh" → "insightmesh"
+    if not result and short:
+        result = _slug_match(short)
+
+    # 3. Path-tail match — last path component matches slug or short slug
+    if not result:
+        candidates = [slug_lower]
+        if short_lower:
+            candidates.append(short_lower)
+        for candidate in candidates:
+            for r in repos:
+                path = r.get("path") or ""
+                if path and Path(path).name.lower() == candidate:
+                    result = r
+                    break
+            if result:
+                break
+
+    # 4. Path component match — slug matches a full /-delimited path segment
+    if not result:
+        for r in repos:
+            path = r.get("path") or ""
+            if path and slug_lower in path.lower().split("/"):
+                result = r
+                break
+
+    return result
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -2595,19 +2658,23 @@ def create_router(
                     logger.warning("Supervisor list_repos failed: %s", exc)
                     error_payload = ("Supervisor unavailable", 503)
                 else:
-                    match = next((r for r in repos if r.get("slug") == slug), None)
+                    match = _find_repo_match(slug, repos)
                     if not match:
-                        error_payload = (f"slug '{slug}' not registered", 404)
+                        error_payload = (
+                            f"repo '{slug}' not found",
+                            404,
+                        )
                     else:
+                        matched_slug = match.get("slug") or slug
                         path = match.get("path")
                         if not path:
-                            error_payload = (f"slug '{slug}' missing path", 500)
+                            error_payload = (f"repo '{matched_slug}' missing path", 500)
                         else:
                             try:
                                 info = await _call_supervisor(
                                     supervisor_client.add_repo,
                                     Path(path),
-                                    slug,
+                                    matched_slug,
                                 )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning("Supervisor add_repo failed: %s", exc)

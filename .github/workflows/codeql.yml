@@ -29,9 +29,17 @@ jobs:
           - language: actions
             build-mode: none
 
+    env:
+      # Disable overlay mode — cached base database references the old repo
+      # name (hyrda) which breaks the pre-finalize working directory.
+      CODEQL_ACTION_DISABLE_OVERLAY: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Delete old CodeQL databases
+        run: rm -rf /home/runner/work/_temp/codeql_databases
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3

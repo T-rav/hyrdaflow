@@ -862,26 +862,35 @@ export function HydraFlowProvider({ children }) {
   }, [fetchRuntimes])
 
   const ensureRepoRunning = useCallback(async (repoSlug) => {
-    const short = (repoSlug || '').split('/').pop()
-    if (!short) return
+    const slug = (repoSlug || '').trim()
+    if (!slug) return { ok: false, error: 'slug required' }
     try {
       const res = await fetch('/api/repos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: short }),
+        body: JSON.stringify({ slug }),
       })
-      if (!res.ok) throw new Error(`status ${res.status}`)
+      if (!res.ok) {
+        let errorMsg = `status ${res.status}`
+        try {
+          const body = await res.json()
+          if (body.error) errorMsg = body.error
+        } catch { /* ignore parse errors */ }
+        return { ok: false, error: errorMsg }
+      }
       await fetchRepos()
+      return { ok: true }
     } catch (err) {
       console.warn('Failed to start repo', err)
+      return { ok: false, error: err.message || 'Network error' }
     }
   }, [fetchRepos])
 
   const removeRepo = useCallback(async (repoSlug) => {
-    const short = (repoSlug || '').split('/').pop()
-    if (!short) return
+    const slug = (repoSlug || '').trim()
+    if (!slug) return
     try {
-      const res = await fetch(`/api/repos/${encodeURIComponent(short)}`, {
+      const res = await fetch(`/api/repos/${encodeURIComponent(slug)}`, {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error(`status ${res.status}`)
@@ -891,8 +900,8 @@ export function HydraFlowProvider({ children }) {
     }
   }, [fetchRepos])
 
-  const addRepoShortcut = useCallback((repoSlug) => {
-    ensureRepoRunning(repoSlug)
+  const addRepoShortcut = useCallback(async (repoSlug) => {
+    return ensureRepoRunning(repoSlug)
   }, [ensureRepoRunning])
 
   const removeRepoShortcut = useCallback((repoSlug) => {
