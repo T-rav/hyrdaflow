@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
@@ -401,9 +401,6 @@ def create_router(
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
 
-    class RepoAddRequest(BaseModel):
-        slug: str | None = None
-
     def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
         """Best-effort parse of legacy query/body JSON object payloads."""
         if not isinstance(raw, str):
@@ -418,7 +415,7 @@ def create_router(
         return parsed if isinstance(parsed, dict) else None
 
     def _extract_repo_slug(
-        req: RepoAddRequest | dict[str, Any] | None,
+        req: dict[str, Any] | None,
         req_query: str | None,
         slug_query: str | None,
         repo_query: str | None,
@@ -435,9 +432,7 @@ def create_router(
         _push(slug_query)
         _push(repo_query)
 
-        if isinstance(req, RepoAddRequest):
-            _push(req.slug)
-        elif isinstance(req, dict):
+        if isinstance(req, dict):
             _push(req.get("slug"))
             _push(req.get("repo"))
             nested = req.get("req")
@@ -2907,7 +2902,7 @@ def create_router(
 
     @router.post("/api/repos")
     async def ensure_repo(
-        req: RepoAddRequest | dict[str, Any] | None = Body(default=None),
+        req: dict[str, Any] | None = Body(default=None),
         req_query: str | None = Query(default=None, alias="req"),
         slug: str | None = Query(default=None),
         repo: str | None = Query(default=None),
