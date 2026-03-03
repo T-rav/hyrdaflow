@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib
+import json
 import logging
 import os
 import sys
@@ -402,6 +403,99 @@ def create_router(
 
     class RepoAddRequest(BaseModel):
         slug: str | None = None
+
+    def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
+        """Best-effort parse of legacy query/body JSON object payloads."""
+        if not isinstance(raw, str):
+            return None
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _extract_repo_slug(
+        req: RepoAddRequest | dict[str, Any] | None,
+        req_query: str | None,
+        slug_query: str | None,
+        repo_query: str | None,
+    ) -> str:
+        """Extract repo slug from supported request shapes."""
+        candidates: list[str] = []
+
+        def _push(value: Any) -> None:
+            if isinstance(value, str):
+                trimmed = value.strip()
+                if trimmed:
+                    candidates.append(trimmed)
+
+        _push(slug_query)
+        _push(repo_query)
+
+        if isinstance(req, RepoAddRequest):
+            _push(req.slug)
+        elif isinstance(req, dict):
+            _push(req.get("slug"))
+            _push(req.get("repo"))
+            nested = req.get("req")
+            if isinstance(nested, dict):
+                _push(nested.get("slug"))
+                _push(nested.get("repo"))
+
+        parsed_query = _parse_compat_json_object(req_query)
+        if parsed_query:
+            _push(parsed_query.get("slug"))
+            _push(parsed_query.get("repo"))
+            nested = parsed_query.get("req")
+            if isinstance(nested, dict):
+                _push(nested.get("slug"))
+                _push(nested.get("repo"))
+        else:
+            _push(req_query)
+
+        return candidates[0] if candidates else ""
+
+    def _extract_repo_path(
+        req: dict[str, Any] | None,
+        req_query: str | None,
+        path_query: str | None,
+        repo_path_query: str | None,
+    ) -> str:
+        """Extract repo path from supported body/query payload shapes."""
+        candidates: list[str] = []
+
+        def _push(value: Any) -> None:
+            if isinstance(value, str):
+                trimmed = value.strip()
+                if trimmed:
+                    candidates.append(trimmed)
+
+        if isinstance(req, dict):
+            _push(req.get("path"))
+            _push(req.get("repo_path"))
+            nested = req.get("req")
+            if isinstance(nested, dict):
+                _push(nested.get("path"))
+                _push(nested.get("repo_path"))
+
+        parsed_query = _parse_compat_json_object(req_query)
+        if parsed_query:
+            _push(parsed_query.get("path"))
+            _push(parsed_query.get("repo_path"))
+            nested = parsed_query.get("req")
+            if isinstance(nested, dict):
+                _push(nested.get("path"))
+                _push(nested.get("repo_path"))
+        else:
+            _push(req_query)
+
+        _push(path_query)
+        _push(repo_path_query)
+
+        return candidates[0] if candidates else ""
 
     def _resolve_runtime(
         slug: str | None,
@@ -2812,13 +2906,18 @@ def create_router(
         )
 
     @router.post("/api/repos")
-    async def ensure_repo(req: RepoAddRequest) -> JSONResponse:
+    async def ensure_repo(
+        req: RepoAddRequest | dict[str, Any] | None = Body(default=None),
+        req_query: str | None = Query(default=None, alias="req"),
+        slug: str | None = Query(default=None),
+        repo: str | None = Query(default=None),
+    ) -> JSONResponse:
         error_payload: tuple[str, int] | None = None
         if supervisor_client is None:
             error_payload = ("supervisor unavailable", 503)
         else:
-            slug = (req.slug or "").strip()
-            if not slug:
+            target_slug = _extract_repo_slug(req, req_query, slug, repo)
+            if not target_slug:
                 error_payload = ("slug required", 400)
             else:
                 try:
@@ -2827,14 +2926,14 @@ def create_router(
                     logger.warning("Supervisor list_repos failed: %s", exc)
                     error_payload = ("Supervisor unavailable", 503)
                 else:
-                    match = _find_repo_match(slug, repos)
+                    match = _find_repo_match(target_slug, repos)
                     if not match:
                         error_payload = (
-                            f"repo '{slug}' not found",
+                            f"repo '{target_slug}' not found",
                             404,
                         )
                     else:
-                        matched_slug = match.get("slug") or slug
+                        matched_slug = match.get("slug") or target_slug
                         path = match.get("path")
                         if not path:
                             error_payload = (f"repo '{matched_slug}' missing path", 500)
@@ -2908,15 +3007,29 @@ def create_router(
     @router.post("/api/repos/add")
     async def add_repo_by_path(  # noqa: PLR0911
         req: dict[str, Any] | None = Body(default=None),
+        req_query: str | None = Query(default=None, alias="req"),
+        path: str | None = Query(default=None),
+        repo_path_query: str | None = Query(default=None, alias="repo_path"),
     ) -> JSONResponse:
         """Register a repo by local filesystem path (does NOT start it)."""
-        raw_value = None if req is None else req.get("path")
-        if raw_value is None:
-            raw_path = ""
-        elif isinstance(raw_value, str):
-            raw_path = raw_value.strip()
-        else:
-            return JSONResponse({"error": "path must be a string"}, status_code=400)
+        if isinstance(req, dict):
+            for key in ("path", "repo_path"):
+                value = req.get(key)
+                if value is not None and not isinstance(value, str):
+                    return JSONResponse(
+                        {"error": "path must be a string"}, status_code=400
+                    )
+            nested = req.get("req")
+            if isinstance(nested, dict):
+                for key in ("path", "repo_path"):
+                    value = nested.get(key)
+                    if value is not None and not isinstance(value, str):
+                        return JSONResponse(
+                            {"error": "path must be a string"}, status_code=400
+                        )
+        raw_path = _extract_repo_path(req, req_query, path, repo_path_query)
+        if not raw_path:
+            return JSONResponse({"error": "path required"}, status_code=400)
         repo_path, path_error = _normalize_allowed_dir(raw_path)
         if path_error or repo_path is None:
             return JSONResponse(

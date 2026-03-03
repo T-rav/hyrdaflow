@@ -4189,6 +4189,106 @@ class TestListSupervisedReposEndpoint:
         mock_logger.warning.assert_called_once()
 
 
+class TestEnsureRepoCompatibilityEndpoint:
+    """Compatibility tests for POST /api/repos request shapes."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, supervisor_module):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch.dict(
+            "sys.modules",
+            {
+                "hf_cli.supervisor_client": supervisor_module,
+                "hf_cli.supervisor_manager": MagicMock(),
+            },
+        ):
+            return create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+            )
+
+    def _find_post_endpoint(self, router, path):
+        for route in router.routes:
+            methods = getattr(route, "methods", set())
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and "POST" in methods
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_accepts_req_query_plain_slug(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        supervisor = SimpleNamespace(
+            list_repos=lambda: [
+                {
+                    "slug": "8thlight/insightmesh",
+                    "path": str(tmp_path / "insightmesh"),
+                }
+            ],
+            add_repo=lambda _path, _slug: {"status": "ok", "slug": _slug},
+        )
+        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
+        endpoint = self._find_post_endpoint(router, "/api/repos")
+        assert endpoint is not None
+
+        resp = await endpoint(
+            req=None,
+            req_query="8thlight/insightmesh",
+            slug=None,
+            repo=None,
+        )
+        data = json.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_accepts_req_query_json_slug(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        supervisor = SimpleNamespace(
+            list_repos=lambda: [
+                {
+                    "slug": "8thlight/insightmesh",
+                    "path": str(tmp_path / "insightmesh"),
+                }
+            ],
+            add_repo=lambda _path, _slug: {"status": "ok", "slug": _slug},
+        )
+        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
+        endpoint = self._find_post_endpoint(router, "/api/repos")
+        assert endpoint is not None
+
+        resp = await endpoint(
+            req=None,
+            req_query='{"slug":"8thlight/insightmesh"}',
+            slug=None,
+            repo=None,
+        )
+        data = json.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["status"] == "ok"
+
+
 # ---------------------------------------------------------------------------
 # GET /api/sessions and /api/sessions/{session_id}
 # ---------------------------------------------------------------------------
@@ -7127,6 +7227,56 @@ class TestAddRepoByPath:
         assert data["status"] == "ok"
         assert mock_supervisor.register_repo.call_count == 2
         mock_supervisor_manager.ensure_running.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_req_query_plain_path_is_accepted(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        import json as json_mod
+
+        fake_dir = tmp_path / "query-path-repo"
+        fake_dir.mkdir()
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._get_endpoint(router)
+
+        resp = await endpoint(
+            req=None,
+            req_query=str(fake_dir),
+            path=None,
+            repo_path_query=None,
+        )
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 400
+        assert "not a git repository" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_req_query_json_path_is_accepted(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        import json as json_mod
+
+        fake_dir = tmp_path / "query-json-path-repo"
+        fake_dir.mkdir()
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._get_endpoint(router)
+
+        resp = await endpoint(
+            req=None,
+            req_query=json_mod.dumps({"path": str(fake_dir)}),
+            path=None,
+            repo_path_query=None,
+        )
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 400
+        assert "not a git repository" in data["error"]
 
 
 class TestPickRepoFolder:
