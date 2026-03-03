@@ -847,6 +847,87 @@ describe('startRuntime compatibility flow', () => {
     })
   })
 
+  it('falls back to /api/repos/add when /api/repos variants fail with 422/500', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url === '/api/runtimes/demo/start') {
+        return Promise.resolve({
+          ok: false,
+          status: 405,
+          json: async () => ({ error: 'Method Not Allowed' }),
+        })
+      }
+      if (url === '/api/repos' && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: false,
+          status: 422,
+          json: async () => ({ detail: [{ msg: 'Field required' }] }),
+        })
+      }
+      if (url.startsWith('/api/repos?')) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'Internal Server Error' }),
+        })
+      }
+      if (url === '/api/repos/add') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ok', slug: 'demo' }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      if (url === '/api/runtimes') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ runtimes: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let capturedState = null
+    function StateCapture() {
+      capturedState = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <StateCapture />
+        </HydraFlowProvider>
+      )
+    })
+
+    await act(async () => {
+      await capturedState.startRuntime('demo', '/tmp/from-sidebar')
+    })
+
+    expect(fetchSpy).toHaveBeenCalledWith('/api/repos/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '/tmp/from-sidebar' }),
+    })
+  })
+
   it('retries POST /api/repos/add with wrapped req payload on 422', async () => {
     window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()

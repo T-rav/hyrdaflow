@@ -924,8 +924,9 @@ export function HydraFlowProvider({ children }) {
           ],
           queryPayloads: [{ slug }, { repo: slug }],
         })
-        // Older backends may not support POST /api/repos; fallback to /api/repos/add by path.
-        if (repoRes.status === 404 || repoRes.status === 405) {
+        // Older/mixed backends may reject /api/repos payload contracts; fallback to
+        // direct path-based /api/repos/add when /api/repos is non-OK.
+        if (!repoRes.ok) {
           let path = String(repoPath || '').trim()
           if (!path) {
             const listRes = await fetch('/api/repos')
@@ -967,13 +968,6 @@ export function HydraFlowProvider({ children }) {
           }
           await Promise.all([fetchRepos(), fetchRuntimes()])
           return { ok: true }
-        }
-        if (!repoRes.ok) {
-          const message = await parseApiError(
-            repoRes,
-            `Failed to start repo (${repoRes.status})`,
-          )
-          return { ok: false, error: message }
         }
         await Promise.all([fetchRepos(), fetchRuntimes()])
         return { ok: true }
