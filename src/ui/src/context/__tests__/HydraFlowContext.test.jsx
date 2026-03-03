@@ -535,6 +535,74 @@ describe('startRuntime compatibility flow', () => {
     expect(fetchSpy).toHaveBeenCalledWith('/api/repos')
     expect(fetchSpy).toHaveBeenCalledWith('/api/runtimes')
   })
+
+  it('falls back to /api/repos when runtime start returns 422 validation error', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url === '/api/runtimes/demo/start') {
+        return Promise.resolve({
+          ok: false,
+          status: 422,
+          json: async () => ({ detail: [{ msg: 'Field required' }] }),
+        })
+      }
+      if (url === '/api/repos' && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ok' }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      if (url === '/api/runtimes') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ runtimes: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let capturedState = null
+    function StateCapture() {
+      capturedState = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <StateCapture />
+        </HydraFlowProvider>
+      )
+    })
+
+    await act(async () => {
+      await capturedState.startRuntime('demo')
+    })
+
+    expect(fetchSpy).toHaveBeenCalledWith('/api/runtimes/demo/start', { method: 'POST' })
+    expect(fetchSpy).toHaveBeenCalledWith('/api/repos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: 'demo' }),
+    })
+  })
   it('falls back to /api/repos/add by path when POST /api/repos is not supported', async () => {
     window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()

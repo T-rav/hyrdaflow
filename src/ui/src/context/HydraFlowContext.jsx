@@ -912,8 +912,9 @@ export function HydraFlowProvider({ children }) {
         return { ok: true }
       }
 
-      // Compatibility mode: when runtime registry route is unavailable, start via supervisor.
-      if (runtimeRes.status === 404 || runtimeRes.status === 405 || runtimeRes.status === 501) {
+      // Compatibility mode: when runtime route is unavailable or validation shape differs,
+      // start via supervisor-compatible endpoints.
+      if (runtimeRes.status === 404 || runtimeRes.status === 405 || runtimeRes.status === 422 || runtimeRes.status === 501) {
         const repoRes = await postCompat('/api/repos', {
           payloads: [
             { slug },
