@@ -460,7 +460,7 @@ screenshot-update:
 
 docker-build:
 	@echo "$(BLUE)Building Hydra agent Docker image...$(RESET)"
-	docker build --platform linux/amd64 -f Dockerfile.agent -t $(DOCKER_IMAGE) .
+	docker build --no-cache --platform linux/amd64 -f Dockerfile.agent -t $(DOCKER_IMAGE) .
 	@echo "$(GREEN)Image built: $(DOCKER_IMAGE)$(RESET)"
 
 docker-test: docker-build
