@@ -20,6 +20,23 @@ def test_find_free_port_returns_positive_int() -> None:
     assert supervisor_service._find_free_port() > 0
 
 
+def test_slug_for_log_filename_sanitizes_owner_repo() -> None:
+    assert (
+        supervisor_service._slug_for_log_filename("8thlight/insightmesh")
+        == "8thlight-insightmesh"
+    )
+
+
+def test_repo_log_file_flattens_slug_and_creates_logs_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(supervisor_service, "STATE_DIR", tmp_path)
+    log_file = supervisor_service._repo_log_file("8thlight/insightmesh", 57475)
+
+    assert log_file == (tmp_path / "logs" / "8thlight-insightmesh-57475.log").resolve()
+    assert log_file.parent.exists()
+
+
 def test_build_repo_status_payload_marks_running(monkeypatch) -> None:
     monkeypatch.setattr(
         supervisor_service.supervisor_state,

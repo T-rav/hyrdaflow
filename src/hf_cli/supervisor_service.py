@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -31,6 +32,20 @@ class RepoProcess:
 RUNNERS: dict[str, RepoProcess] = {}
 
 
+def _slug_for_log_filename(slug: str) -> str:
+    cleaned = slug.strip().replace("/", "-").replace("\\", "-")
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", cleaned)
+    cleaned = cleaned.strip("-").lstrip(".")
+    return cleaned or "repo"
+
+
+def _repo_log_file(slug: str, port: int) -> Path:
+    log_dir = STATE_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    safe_slug = _slug_for_log_filename(slug)
+    return (log_dir / f"{safe_slug}-{port}.log").resolve()
+
+
 def _is_repo_running(slug: str) -> bool:
     proc = RUNNERS.get(slug)
     return proc is not None and proc.proc.poll() is None
@@ -54,9 +69,7 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str, s
     slug = slug or _slug_for_repo(repo_path)
     existing = RUNNERS.get(slug)
     if existing and existing.proc.poll() is None:
-        log_dir = STATE_DIR / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = (log_dir / f"{existing.slug}-{existing.port}.log").resolve()
+        log_file = _repo_log_file(existing.slug, existing.port)
         return (
             existing.port,
             existing.slug,
@@ -66,9 +79,7 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str, s
     state_root = STATE_DIR / slug
     state_root.mkdir(parents=True, exist_ok=True)
     port = _find_free_port()
-    log_dir = STATE_DIR / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = (log_dir / f"{slug}-{port}.log").resolve()
+    log_file = _repo_log_file(slug, port)
     env = os.environ.copy()
     env.setdefault("HYDRAFLOW_HOME", str(state_root))
     src_path = str((repo_path / "src").resolve())
