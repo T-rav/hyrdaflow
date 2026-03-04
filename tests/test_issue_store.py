@@ -1054,6 +1054,7 @@ class TestCrateGate:
 
         store = _make_store()
         cm = MagicMock()
+        cm.active_crate_number = 42
         cm.is_in_active_crate.return_value = False
         store.set_crate_manager(cm)
 
@@ -1070,6 +1071,7 @@ class TestCrateGate:
 
         store = _make_store()
         cm = MagicMock()
+        cm.active_crate_number = 42
         cm.is_in_active_crate.return_value = True
         store.set_crate_manager(cm)
 
@@ -1096,6 +1098,7 @@ class TestCrateGate:
 
         store = _make_store()
         cm = MagicMock()
+        cm.active_crate_number = 42
         cm.is_in_active_crate.return_value = False
         store.set_crate_manager(cm)
 
@@ -1105,6 +1108,22 @@ class TestCrateGate:
         result = store.get_triageable(10)
         assert len(result) == 1
         assert result[0].id == 10
+
+    def test_take_ignores_crate_gate_without_active_crate(self) -> None:
+        from unittest.mock import MagicMock
+
+        store = _make_store()
+        cm = MagicMock()
+        cm.active_crate_number = None
+        cm.is_in_active_crate.return_value = False
+        store.set_crate_manager(cm)
+
+        task = TaskFactory.create(id=11, tags=["hydraflow-plan"])
+        store._route_issues([task])
+
+        result = store.get_plannable(10)
+        assert len(result) == 1
+        assert result[0].id == 11
 
     def test_get_uncrated_issues_returns_tasks_without_milestone(self) -> None:
         store = _make_store()

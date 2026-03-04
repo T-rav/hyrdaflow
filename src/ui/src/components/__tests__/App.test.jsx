@@ -190,10 +190,10 @@ describe('System and Metrics tabs', () => {
 })
 
 describe('Main tab bar', () => {
-  it('has exactly 5 main tabs', async () => {
+  it('has exactly 4 main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Delivery Queue', 'Work Stream', 'HITL', 'Outcomes', 'System']
+    const tabLabels = ['Work Stream', 'HITL', 'Outcomes', 'System']
     const tabContainer = screen.getByTestId('main-tabs')
     expect(tabContainer.childElementCount).toBe(tabLabels.length)
     for (const label of tabLabels) {
@@ -214,18 +214,18 @@ describe('Main tab bar', () => {
     expect(screen.queryByText('Livestream')).not.toBeInTheDocument()
   })
 
-  it('Delivery Queue tab is rendered first (tab order)', async () => {
+  it('Work Stream tab is rendered first (tab order)', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
     const tabContainer = screen.getByTestId('main-tabs')
-    expect(tabContainer.firstElementChild.textContent).toBe('Delivery Queue')
+    expect(tabContainer.firstElementChild.textContent).toBe('Work Stream')
   })
 
-  it('Delivery Queue is the default tab', async () => {
+  it('Work Stream is the default tab', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const deliveryQueueTab = screen.getByText('Delivery Queue')
-    expect(deliveryQueueTab.style.color).toBe('var(--accent)')
+    const workStreamTab = screen.getByText('Work Stream')
+    expect(workStreamTab.style.color).toBe('var(--accent)')
   })
 })
 

@@ -734,6 +734,15 @@ class HydraFlowOrchestrator:
         self._stop_event.clear()
         self._running = True
         self._restore_state()
+        if (
+            not self._config.auto_crate
+            and self._crate_manager.active_crate_number is not None
+        ):
+            logger.info(
+                "Auto-crate disabled; clearing active crate %s",
+                self._crate_manager.active_crate_number,
+            )
+            self._state.set_active_crate_number(None)
 
         await self._publish_status()
         logger.info(

@@ -427,6 +427,7 @@ class IssueStore:
             if task.id in self._active or (
                 stage != STAGE_FIND
                 and self._crate_manager is not None
+                and self._crate_manager.active_crate_number is not None
                 and not self._crate_manager.is_in_active_crate(task)
             ):
                 skipped.append(task)

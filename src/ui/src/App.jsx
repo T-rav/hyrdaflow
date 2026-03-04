@@ -6,17 +6,15 @@ import { HITLTable } from './components/HITLTable'
 import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
-import { WorkLogPanel } from './components/WorkLogPanel'
 import { SessionSidebar } from './components/SessionSidebar'
 import { theme } from './theme'
 
-const TABS = ['worklog', 'issues', 'hitl', 'outcomes', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
-  worklog: 'Delivery Queue',
   system: 'System',
 }
 
@@ -64,7 +62,7 @@ function AppContent() {
     stageStatus,
     requestChanges,
   } = useHydraFlow()
-  const [activeTab, setActiveTab] = useState('worklog')
+  const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
 
 
@@ -136,7 +134,6 @@ function AppContent() {
           )}
           {activeTab === 'outcomes' && <OutcomesPanel />}
           {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
-          {activeTab === 'worklog' && <WorkLogPanel />}
           {activeTab === 'system' && (
             <SystemPanel
               backgroundWorkers={backgroundWorkers}

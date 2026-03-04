@@ -22,7 +22,7 @@ const DISABLE_ANIMATIONS_CSS = `
   }
 `
 
-const TAB_KEYS = ['issues', 'outcomes', 'hitl', 'worklog', 'system']
+const TAB_KEYS = ['issues', 'outcomes', 'hitl', 'system']
 const SYSTEM_SUBTABS = ['workers', 'pipeline', 'metrics', 'insights', 'livestream']
 
 /**
@@ -119,7 +119,6 @@ function getTabLabel(key) {
     issues: 'Work Stream',
     outcomes: 'Outcomes',
     hitl: 'HITL',
-    worklog: 'Delivery Queue',
     system: 'System',
   }
   return labels[key] || key
