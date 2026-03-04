@@ -1374,13 +1374,26 @@ def create_router(
 
     @router.post("/api/hitl/{issue_number}/approve-process")
     async def hitl_approve_process(issue_number: int) -> JSONResponse:
-        """Approve a HITL item held for issue type review — send to planning."""
+        """Approve a HITL item held for issue type review.
+
+        Bug reports → find/triage label (they need triage, not direct planning).
+        Epics and other types → planner label.
+        """
         orch = get_orchestrator()
         if not orch:
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
 
-        # Issue was already triaged as ready — send directly to planning
-        await pr_manager.swap_pipeline_labels(issue_number, config.planner_label[0])
+        # Route based on issue type: bugs go to triage, everything else to planning
+        cause = state.get_hitl_cause(issue_number) or ""
+        is_bug = "bug report detected" in cause.lower()
+        if is_bug and config.find_label:
+            target_label = config.find_label[0]
+            target_stage = "triage"
+        else:
+            target_label = config.planner_label[0]
+            target_stage = "planning"
+
+        await pr_manager.swap_pipeline_labels(issue_number, target_label)
 
         # Clear HITL state after label swap succeeds
         orch.skip_hitl_issue(issue_number)
@@ -1390,14 +1403,15 @@ def create_router(
         state.record_outcome(
             issue_number,
             IssueOutcomeType.HITL_APPROVED,
-            reason="Operator approved issue type for processing",
+            reason=f"Operator approved issue type for processing ({target_stage})",
             phase="hitl",
         )
 
         try:
             await pr_manager.post_comment(
                 issue_number,
-                "**Approved for processing** — Operator approved this issue.\n\n"
+                f"**Approved for processing** — Operator approved this issue.\n\n"
+                f"Routing to **{target_stage}** (`{target_label}`).\n\n"
                 "---\n*HydraFlow Dashboard*",
             )
         except Exception:  # noqa: BLE001

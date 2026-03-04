@@ -2191,6 +2191,86 @@ class TestHITLApproveMemoryEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/hitl/{issue}/approve-process
+# ---------------------------------------------------------------------------
+
+
+class TestHITLApproveProcessEndpoint:
+    """Tests for the POST /api/hitl/{issue}/approve-process route."""
+
+    def test_bug_report_routes_to_find_label(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Bug reports approved from HITL must go to find/triage, not planning."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        state.set_hitl_cause(42, "Bug report detected — awaiting human review")
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        swapped: list[tuple[int, str]] = []
+
+        async def _fake_swap(issue_number: int, label: str, **_kw: object) -> None:
+            swapped.append((issue_number, label))
+
+        with (
+            patch("pr_manager.PRManager.swap_pipeline_labels", side_effect=_fake_swap),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            response = client.post("/api/hitl/42/approve-process")
+
+        assert response.status_code == 200
+        assert swapped == [(42, config.find_label[0])]
+
+    def test_epic_routes_to_planner_label(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Epic issues approved from HITL go to planning."""
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock()
+        orch.skip_hitl_issue = MagicMock()
+        state.set_hitl_cause(42, "Epic detected — awaiting human review")
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        swapped: list[tuple[int, str]] = []
+
+        async def _fake_swap(issue_number: int, label: str, **_kw: object) -> None:
+            swapped.append((issue_number, label))
+
+        with (
+            patch("pr_manager.PRManager.swap_pipeline_labels", side_effect=_fake_swap),
+            patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
+        ):
+            response = client.post("/api/hitl/42/approve-process")
+
+        assert response.status_code == 200
+        assert swapped == [(42, config.planner_label[0])]
+
+    def test_returns_400_without_orchestrator(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.post("/api/hitl/42/approve-process")
+        assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # GET /api/hitl enriched with status
 # ---------------------------------------------------------------------------
 
