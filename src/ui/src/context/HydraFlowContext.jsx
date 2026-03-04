@@ -877,29 +877,6 @@ export function HydraFlowProvider({ children }) {
     return String(value || '').trim().replace(/[\\/]+/g, '-').toLowerCase()
   }, [])
 
-  const slugTail = useCallback((value) => {
-    const normalized = canonicalSlug(value)
-    if (!normalized) return ''
-    const parts = normalized.split('-').filter(Boolean)
-    return parts.length > 0 ? parts[parts.length - 1] : normalized
-  }, [canonicalSlug])
-
-  const isAdjacentSwap = useCallback((a, b) => {
-    if (a === b || a.length !== b.length || a.length < 2) return false
-    let first = -1
-    let second = -1
-    for (let i = 0; i < a.length; i += 1) {
-      if (a[i] !== b[i]) {
-        if (first === -1) first = i
-        else if (second === -1) second = i
-        else return false
-      }
-    }
-    if (first === -1 || second === -1) return false
-    if (second !== first + 1) return false
-    return a[first] === b[second] && a[second] === b[first]
-  }, [])
-
   const postCompat = useCallback(async (url, options) => {
     const payloads = Array.isArray(options?.payloads) ? options.payloads : []
     const queryPayloads = Array.isArray(options?.queryPayloads) ? options.queryPayloads : []
@@ -971,20 +948,10 @@ export function HydraFlowProvider({ children }) {
             const payload = await listRes.json()
             const repos = Array.isArray(payload?.repos) ? payload.repos : []
             const targetSlug = canonicalSlug(slug)
-            const targetTail = slugTail(slug)
             const match = repos.find((repo) => {
               const repoSlug = canonicalSlug(repo?.slug)
               const repoPathSlug = canonicalSlug(repo?.path)
-              const repoPathTail = slugTail(repo?.path)
-              const repoSlugTail = slugTail(repo?.slug)
-              return (
-                repoSlug === targetSlug
-                || repoPathSlug.endsWith(`-${targetSlug}`)
-                || (targetTail && repoPathTail === targetTail)
-                || (targetTail && repoSlugTail === targetTail)
-                || (targetTail && repoPathTail && isAdjacentSwap(repoPathTail, targetTail))
-                || (targetTail && repoSlugTail && isAdjacentSwap(repoSlugTail, targetTail))
-              )
+              return repoSlug === targetSlug || repoPathSlug.endsWith(`-${targetSlug}`)
             })
             path = String(match?.path || '').trim()
           }
@@ -1023,7 +990,7 @@ export function HydraFlowProvider({ children }) {
       console.warn('Failed to start runtime', slug, err)
       return { ok: false, error: err?.message || 'Failed to start runtime' }
     }
-  }, [fetchRuntimes, fetchRepos, parseApiError, canonicalSlug, slugTail, isAdjacentSwap, postCompat])
+  }, [fetchRuntimes, fetchRepos, parseApiError, canonicalSlug, postCompat])
 
   const stopRuntime = useCallback(async (slug) => {
     try {

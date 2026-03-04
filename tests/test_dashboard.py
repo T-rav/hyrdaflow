@@ -827,69 +827,16 @@ class TestStartStop:
         mock_server.serve = AsyncMock(return_value=None)
         mock_manager = MagicMock()
         mock_manager.ensure_running = MagicMock(return_value=None)
-        mock_client = MagicMock()
-        mock_client.register_repo = MagicMock(return_value={"status": "ok"})
-        import importlib as _stdlib_importlib  # noqa: PLC0415
-
-        real_import_module = _stdlib_importlib.import_module
-
-        def _import_module(name: str):
-            if name == "hf_cli.supervisor_manager":
-                return mock_manager
-            if name == "hf_cli.supervisor_client":
-                return mock_client
-            return real_import_module(name)
 
         with (
             patch("dashboard._auto_start_supervisor_enabled", return_value=True),
-            patch("dashboard.importlib.import_module", side_effect=_import_module),
+            patch("dashboard.importlib.import_module", return_value=mock_manager),
             patch("uvicorn.Config"),
             patch("uvicorn.Server", return_value=mock_server),
         ):
             await dashboard.start()
 
         mock_manager.ensure_running.assert_called_once()
-        mock_client.register_repo.assert_called_once_with(config.repo_root, config.repo)
-
-        if dashboard._server_task and not dashboard._server_task.done():
-            dashboard._server_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await dashboard._server_task
-
-    @pytest.mark.asyncio
-    async def test_start_tolerates_supervisor_register_repo_failure(
-        self, config: HydraFlowConfig, event_bus: EventBus, state
-    ) -> None:
-        from dashboard import HydraFlowDashboard
-
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-        mock_server = AsyncMock()
-        mock_server.serve = AsyncMock(return_value=None)
-        mock_manager = MagicMock()
-        mock_manager.ensure_running = MagicMock(return_value=None)
-        mock_client = MagicMock()
-        mock_client.register_repo = MagicMock(side_effect=RuntimeError("boom"))
-        import importlib as _stdlib_importlib  # noqa: PLC0415
-
-        real_import_module = _stdlib_importlib.import_module
-
-        def _import_module(name: str):
-            if name == "hf_cli.supervisor_manager":
-                return mock_manager
-            if name == "hf_cli.supervisor_client":
-                return mock_client
-            return real_import_module(name)
-
-        with (
-            patch("dashboard._auto_start_supervisor_enabled", return_value=True),
-            patch("dashboard.importlib.import_module", side_effect=_import_module),
-            patch("uvicorn.Config"),
-            patch("uvicorn.Server", return_value=mock_server),
-        ):
-            await dashboard.start()
-
-        mock_manager.ensure_running.assert_called_once()
-        mock_client.register_repo.assert_called_once_with(config.repo_root, config.repo)
 
         if dashboard._server_task and not dashboard._server_task.done():
             dashboard._server_task.cancel()

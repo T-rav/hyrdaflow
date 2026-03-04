@@ -142,39 +142,17 @@ class HydraFlowDashboard:
             return
 
         if _auto_start_supervisor_enabled():
-            supervisor_manager = None
             try:
                 supervisor_manager = importlib.import_module(
                     "hf_cli.supervisor_manager"
                 )
+                await asyncio.to_thread(supervisor_manager.ensure_running)
             except ImportError:
                 logger.debug(
                     "hf_cli.supervisor_manager not importable; skipping supervisor auto-start"
                 )
-            if supervisor_manager is not None:
-                try:
-                    await asyncio.to_thread(supervisor_manager.ensure_running)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Supervisor auto-start failed: %s", exc)
-
-            # Keep the current dashboard repo discoverable in /api/repos so Start works
-            # even for session-only sidebar entries after restart.
-            try:
-                supervisor_client = importlib.import_module("hf_cli.supervisor_client")
-            except ImportError:
-                supervisor_client = None
-            if supervisor_client is not None:
-                try:
-                    slug = self._config.repo or None
-                    await asyncio.to_thread(
-                        supervisor_client.register_repo,
-                        self._config.repo_root,
-                        slug,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug(
-                        "Supervisor auto-register current repo failed: %s", exc
-                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Supervisor auto-start failed: %s", exc)
 
         app = self.create_app()
         config = uvicorn.Config(
