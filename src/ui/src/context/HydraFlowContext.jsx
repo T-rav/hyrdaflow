@@ -946,18 +946,14 @@ export function HydraFlowProvider({ children }) {
       // Compatibility mode: when runtime route is unavailable or validation shape differs,
       // start via supervisor-compatible endpoints.
       if (runtimeRes.status === 404 || runtimeRes.status === 405 || runtimeRes.status === 422 || runtimeRes.status === 501) {
-        const preferredPath = String(repoPath || '').trim()
         const repoRes = await postCompat('/api/repos', {
           payloads: [
-            { slug, ...(preferredPath ? { path: preferredPath } : {}) },
-            { req: { slug, ...(preferredPath ? { path: preferredPath } : {}) } },
-            { repo: slug, ...(preferredPath ? { repo_path: preferredPath } : {}) },
-            { req: { repo: slug, ...(preferredPath ? { repo_path: preferredPath } : {}) } },
+            { slug },
+            { req: { slug } },
+            { repo: slug },
+            { req: { repo: slug } },
           ],
-          queryPayloads: [
-            { slug, ...(preferredPath ? { path: preferredPath } : {}) },
-            { repo: slug, ...(preferredPath ? { repo_path: preferredPath } : {}) },
-          ],
+          queryPayloads: [{ slug }, { repo: slug }],
         })
         // Older/mixed backends may reject /api/repos payload contracts; fallback to
         // direct path-based /api/repos/add when /api/repos is non-OK.
@@ -1013,7 +1009,7 @@ export function HydraFlowProvider({ children }) {
           }
           let ensuredSlug = slug
           try {
-            const addBody = await addRes.json()
+            const addBody = await addRes.clone().json()
             if (typeof addBody?.slug === 'string' && addBody.slug.trim()) {
               ensuredSlug = addBody.slug.trim()
             }
@@ -1022,15 +1018,12 @@ export function HydraFlowProvider({ children }) {
           }
           const repoResAfterAdd = await postCompat('/api/repos', {
             payloads: [
-              { slug: ensuredSlug, ...(path ? { path } : {}) },
-              { req: { slug: ensuredSlug, ...(path ? { path } : {}) } },
-              { repo: ensuredSlug, ...(path ? { repo_path: path } : {}) },
-              { req: { repo: ensuredSlug, ...(path ? { repo_path: path } : {}) } },
+              { slug: ensuredSlug },
+              { req: { slug: ensuredSlug } },
+              { repo: ensuredSlug },
+              { req: { repo: ensuredSlug } },
             ],
-            queryPayloads: [
-              { slug: ensuredSlug, ...(path ? { path } : {}) },
-              { repo: ensuredSlug, ...(path ? { repo_path: path } : {}) },
-            ],
+            queryPayloads: [{ slug: ensuredSlug }, { repo: ensuredSlug }],
           })
           if (!repoResAfterAdd.ok) {
             const message = await parseApiError(

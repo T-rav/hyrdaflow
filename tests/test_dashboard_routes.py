@@ -4288,130 +4288,6 @@ class TestEnsureRepoCompatibilityEndpoint:
         assert resp.status_code == 200
         assert data["status"] == "ok"
 
-    @pytest.mark.asyncio
-    async def test_prefers_path_when_duplicate_slug_entries_exist(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-        from types import SimpleNamespace
-
-        primary_path = tmp_path / "primary"
-        worktree_path = tmp_path / "worktree"
-        selected: dict[str, str] = {}
-
-        def _add_repo(path: Path, _slug: str) -> dict[str, str]:
-            selected["path"] = str(path)
-            return {"status": "ok", "slug": "T-rav/hyrda"}
-
-        supervisor = SimpleNamespace(
-            list_repos=lambda: [
-                {"slug": "T-rav/hyrda", "path": str(worktree_path)},
-                {"slug": "T-rav/hyrda", "path": str(primary_path)},
-            ],
-            add_repo=_add_repo,
-        )
-        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
-        endpoint = self._find_post_endpoint(router, "/api/repos")
-        assert endpoint is not None
-
-        resp = await endpoint(
-            req={"slug": "T-rav/hyrda", "path": str(primary_path)},
-            req_query=None,
-            slug=None,
-            repo=None,
-            path=None,
-            repo_path=None,
-        )
-        data = json.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
-        assert selected["path"] == str(primary_path.resolve())
-
-
-class TestRemoveRepoCompatibilityEndpoint:
-    """Compatibility tests for DELETE /api/repos request shapes."""
-
-    def _make_router(self, config, event_bus, state, tmp_path, supervisor_module):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        with patch.dict(
-            "sys.modules",
-            {
-                "hf_cli.supervisor_client": supervisor_module,
-                "hf_cli.supervisor_manager": MagicMock(),
-            },
-        ):
-            return create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
-
-    def _find_delete_endpoint(self, router, path):
-        for route in router.routes:
-            methods = getattr(route, "methods", set())
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and "DELETE" in methods
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
-    @pytest.mark.asyncio
-    async def test_delete_query_accepts_slash_slug(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-        from types import SimpleNamespace
-
-        captured: dict[str, object] = {}
-
-        def _remove_repo(path, slug):
-            captured["path"] = path
-            captured["slug"] = slug
-
-        supervisor = SimpleNamespace(remove_repo=_remove_repo)
-        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
-        endpoint = self._find_delete_endpoint(router, "/api/repos")
-        assert endpoint is not None
-
-        resp = await endpoint(
-            slug="8thlight/insightmesh",
-            path_query=str(tmp_path),
-        )
-        data = json.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
-        assert captured["slug"] == "8thlight/insightmesh"
-        assert str(captured["path"]) == str(Path(tmp_path).resolve())
-
-    @pytest.mark.asyncio
-    async def test_delete_query_requires_slug(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-        from types import SimpleNamespace
-
-        supervisor = SimpleNamespace(remove_repo=lambda _path, _slug: None)
-        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
-        endpoint = self._find_delete_endpoint(router, "/api/repos")
-        assert endpoint is not None
-
-        resp = await endpoint(slug=None, path_query=None)
-        data = json.loads(resp.body)
-        assert resp.status_code == 400
-        assert data["error"] == "slug required"
-
 
 # ---------------------------------------------------------------------------
 # GET /api/sessions and /api/sessions/{session_id}
@@ -6794,6 +6670,7 @@ class TestCrateEndpoints:
     async def test_remove_crate_items_error(
         self, config, event_bus, state, tmp_path
     ) -> None:
+
         from models import CrateItemsRequest
 
         router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)

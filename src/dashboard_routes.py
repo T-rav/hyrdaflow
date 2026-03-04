@@ -314,11 +314,7 @@ def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
     return text.startswith("hf supervisor is not running.")
 
 
-def _find_repo_match(
-    slug: str,
-    repos: list[dict[str, Any]],
-    preferred_path: str | None = None,
-) -> dict[str, Any] | None:
+def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Find a repo entry matching *slug* using cascading strategies.
 
     1. Exact slug match (case-sensitive, then case-insensitive)
@@ -349,17 +345,6 @@ def _find_repo_match(
             if repo_slug and repo_slug.lower() == lower:
                 return r
         return None
-
-    if preferred_path:
-        with contextlib.suppress(OSError, RuntimeError):
-            preferred = str(Path(preferred_path).resolve(strict=False))
-            for r in repos:
-                repo_path = r.get("path")
-                if not isinstance(repo_path, str) or not repo_path.strip():
-                    continue
-                with contextlib.suppress(OSError, RuntimeError):
-                    if str(Path(repo_path).resolve(strict=False)) == preferred:
-                        return r
 
     # 1. Exact slug match
     result = _slug_match(slug)
@@ -2929,18 +2914,12 @@ def create_router(
         req_query: str | None = Query(default=None, alias="req"),
         slug: str | None = Query(default=None),
         repo: str | None = Query(default=None),
-        path: str | None = Query(default=None),
-        repo_path: str | None = Query(default=None, alias="repo_path"),
     ) -> JSONResponse:
         error_payload: tuple[str, int] | None = None
         if supervisor_client is None:
             error_payload = ("supervisor unavailable", 503)
         else:
             target_slug = _extract_repo_slug(req, req_query, slug, repo)
-            target_path = _extract_repo_path(req, None, path, repo_path)
-            parsed_req_query = _parse_compat_json_object(req_query)
-            if parsed_req_query and not target_path:
-                target_path = _extract_repo_path(parsed_req_query, None, None, None)
             if not target_slug:
                 error_payload = ("slug required", 400)
             else:
@@ -2950,7 +2929,7 @@ def create_router(
                     logger.warning("Supervisor list_repos failed: %s", exc)
                     error_payload = ("Supervisor unavailable", 503)
                 else:
-                    match = _find_repo_match(target_slug, repos, target_path)
+                    match = _find_repo_match(target_slug, repos)
                     if not match:
                         error_payload = (
                             f"repo '{target_slug}' not found",
