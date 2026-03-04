@@ -52,6 +52,10 @@ export const initialState = {
   runtimes: [],
 }
 
+function normalizeRepoSlug(value) {
+  return String(value || '').trim().replace(/[\\/]+/g, '-')
+}
+
 function isDuplicate(state, action) {
   const eventId = action.id ?? -1
   return eventId !== -1 && eventId <= state.lastSeenId
@@ -701,7 +705,11 @@ export function reducer(state, action) {
       return { ...state, selectedSessionId: action.data.sessionId }
 
     case 'SELECT_REPO':
-      return { ...state, selectedRepoSlug: action.data.slug, selectedSessionId: null }
+      return {
+        ...state,
+        selectedRepoSlug: normalizeRepoSlug(action.data.slug),
+        selectedSessionId: null,
+      }
 
     case 'SET_RUNTIMES':
       return {
@@ -1356,8 +1364,7 @@ export function HydraFlowProvider({ children }) {
   const repoFilteredSessions = useMemo(() => {
     if (!state.selectedRepoSlug) return state.sessions
     return state.sessions.filter(s => {
-      const slug = String(s.repo || '').replace(/[\\/]+/g, '-')
-      return slug === state.selectedRepoSlug
+      return normalizeRepoSlug(s.repo) === state.selectedRepoSlug
     })
   }, [state.sessions, state.selectedRepoSlug])
 

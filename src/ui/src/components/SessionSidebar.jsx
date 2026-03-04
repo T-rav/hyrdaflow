@@ -40,16 +40,17 @@ export function SessionSidebar() {
     const entries = new Map()
     const slugIndex = new Map()
 
-    const ensureEntry = (key, slug, displayName) => {
+    const ensureEntry = (key, slug, filterSlug, displayName) => {
       if (!entries.has(key)) {
         entries.set(key, {
           key,
           slug,
+          filterSlug,
           displayName,
           sessions: [],
           info: null,
         })
-        if (slug) slugIndex.set(slug, key)
+        if (filterSlug) slugIndex.set(filterSlug, key)
       }
       return entries.get(key)
     }
@@ -57,22 +58,34 @@ export function SessionSidebar() {
     for (const session of sessions) {
       const slug = canonicalRepoSlug(session.repo) || shortRepo(session.repo)
       const key = slug || session.repo
-      const entry = ensureEntry(key, slug, session.repo)
+      const entry = ensureEntry(key, slug, slug, session.repo)
       entry.sessions.push(session)
     }
 
     for (const repo of supervisedRepos || []) {
       if (!repo) continue
-      const slug = repo.slug || canonicalRepoSlug(repo.path || '') || shortRepo(repo.path || '')
-      let entryKey = (slug && slugIndex.get(slug)) || slug
+      const rawSlug = repo.slug || canonicalRepoSlug(repo.path || '') || shortRepo(repo.path || '')
+      const filterSlug = canonicalRepoSlug(rawSlug)
+      let entryKey = (filterSlug && slugIndex.get(filterSlug)) || filterSlug
       let entry = entryKey ? entries.get(entryKey) : undefined
       if (!entry) {
-        entryKey = slug || repo.path || repo.slug || `repo-${entries.size + 1}`
-        entry = ensureEntry(entryKey, slug, repo.slug || slug || repo.path || entryKey)
+        entryKey = filterSlug || repo.path || repo.slug || `repo-${entries.size + 1}`
+        entry = ensureEntry(
+          entryKey,
+          rawSlug,
+          filterSlug,
+          repo.slug || rawSlug || repo.path || entryKey,
+        )
+      }
+      if (repo.slug) {
+        entry.slug = repo.slug
+      }
+      if (!entry.filterSlug) {
+        entry.filterSlug = filterSlug
       }
       entry.info = repo
-      if (slug && !slugIndex.has(slug)) {
-        slugIndex.set(slug, entry.key)
+      if (filterSlug && !slugIndex.has(filterSlug)) {
+        slugIndex.set(filterSlug, entry.key)
       }
       if (!entry.displayName && (repo.slug || repo.path)) {
         entry.displayName = repo.slug || repo.path
@@ -80,9 +93,11 @@ export function SessionSidebar() {
     }
 
     // Merge runtime status into entries
-    const runtimeMap = new Map((runtimes || []).map(rt => [rt.slug, rt]))
+    const runtimeMap = new Map(
+      (runtimes || []).map((rt) => [canonicalRepoSlug(rt.slug), rt]),
+    )
     for (const entry of entries.values()) {
-      entry.runtime = runtimeMap.get(entry.slug) || null
+      entry.runtime = runtimeMap.get(entry.filterSlug) || null
     }
 
     return Array.from(entries.values()).sort((a, b) =>
@@ -186,7 +201,7 @@ export function SessionSidebar() {
         {repoEntries.map(entry => {
           const repoSessions = entry.sessions
           const isExpanded = expandedRepos[entry.key] !== false
-          const isRepoSelected = selectedRepoSlug === entry.slug
+          const isRepoSelected = selectedRepoSlug === entry.filterSlug
           const rt = entry.runtime
           const isRunning = rt?.running ?? entry.info?.running ?? false
 

@@ -177,6 +177,29 @@ describe('SessionSidebar with multiple repos', () => {
     expect(screen.getByLabelText('Add repo')).toBeDefined()
     expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
   })
+
+  it('merges session and supervised repo groups for owner/repo slugs', () => {
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        sessions: [
+          {
+            ...SESSION_A,
+            repo: '8thlight/insightmesh',
+            id: '8thlight-insightmesh-20260303T120000',
+          },
+        ],
+        supervisedRepos: [
+          {
+            slug: '8thlight/insightmesh',
+            path: '/Users/travisf/Documents/projects/insightmesh',
+            running: true,
+          },
+        ],
+      }),
+    )
+    render(<SessionSidebar />)
+    expect(screen.getAllByText('8thlight/insightmesh')).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

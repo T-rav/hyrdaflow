@@ -1409,6 +1409,17 @@ describe('SELECT_SESSION reducer', () => {
   })
 })
 
+describe('SELECT_REPO reducer', () => {
+  it('normalizes owner/repo slugs for filtering', () => {
+    const result = reducer(initialState, {
+      type: 'SELECT_REPO',
+      data: { slug: '8thlight/insightmesh' },
+    })
+    expect(result.selectedRepoSlug).toBe('8thlight-insightmesh')
+    expect(result.selectedSessionId).toBeNull()
+  })
+})
+
 describe('hitl_escalation reducer', () => {
   it('marks review worker as escalated when pr is present (automated escalation)', () => {
     const state = {
