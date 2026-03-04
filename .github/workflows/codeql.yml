@@ -38,6 +38,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Create legacy workspace compatibility symlink
+        run: |
+          # Older cached CodeQL metadata may reference this historical path.
+          mkdir -p /home/runner/work/hyrdaflow
+          ln -sfn "$GITHUB_WORKSPACE" /home/runner/work/hyrdaflow/hyrdaflow
+
       - name: Delete old CodeQL databases
         run: rm -rf /home/runner/work/_temp/codeql_databases
 
