@@ -1007,6 +1007,31 @@ export function HydraFlowProvider({ children }) {
             )
             return { ok: false, error: message }
           }
+          let ensuredSlug = slug
+          try {
+            const addBody = await addRes.clone().json()
+            if (typeof addBody?.slug === 'string' && addBody.slug.trim()) {
+              ensuredSlug = addBody.slug.trim()
+            }
+          } catch {
+            // Ignore non-JSON responses; keep original slug.
+          }
+          const repoResAfterAdd = await postCompat('/api/repos', {
+            payloads: [
+              { slug: ensuredSlug },
+              { req: { slug: ensuredSlug } },
+              { repo: ensuredSlug },
+              { req: { repo: ensuredSlug } },
+            ],
+            queryPayloads: [{ slug: ensuredSlug }, { repo: ensuredSlug }],
+          })
+          if (!repoResAfterAdd.ok) {
+            const message = await parseApiError(
+              repoResAfterAdd,
+              `Failed to start repo (${repoResAfterAdd.status})`,
+            )
+            return { ok: false, error: message }
+          }
           await Promise.all([fetchRepos(), fetchRuntimes()])
           return { ok: true }
         }
@@ -1025,11 +1050,36 @@ export function HydraFlowProvider({ children }) {
     }
   }, [fetchRuntimes, fetchRepos, parseApiError, canonicalSlug, slugTail, isAdjacentSwap, postCompat])
 
-  const stopRuntime = useCallback(async (slug) => {
+  const stopRuntime = useCallback(async (slug, repoPath = null) => {
     try {
       const res = await fetch(`/api/runtimes/${encodeURIComponent(slug)}/stop`, {
         method: 'POST',
       })
+      if (res.ok) {
+        await Promise.all([fetchRuntimes(), fetchRepos()])
+        return { ok: true }
+      }
+      // Compatibility mode: runtime registry route unavailable.
+      if (res.status === 404 || res.status === 405 || res.status === 422 || res.status === 501) {
+        const params = new URLSearchParams()
+        params.set('slug', slug)
+        if (String(repoPath || '').trim()) {
+          params.set('path', String(repoPath).trim())
+        }
+        const suffix = `?${params.toString()}`
+        const compatRes = await fetch(`/api/repos${suffix}`, {
+          method: 'DELETE',
+        })
+        if (!compatRes.ok) {
+          const message = await parseApiError(
+            compatRes,
+            `Failed to stop runtime (${compatRes.status})`,
+          )
+          return { ok: false, error: message }
+        }
+        await Promise.all([fetchRuntimes(), fetchRepos()])
+        return { ok: true }
+      }
       if (!res.ok) {
         const message = await parseApiError(
           res,
@@ -1037,13 +1087,13 @@ export function HydraFlowProvider({ children }) {
         )
         return { ok: false, error: message }
       }
-      await fetchRuntimes()
+      await Promise.all([fetchRuntimes(), fetchRepos()])
       return { ok: true }
     } catch (err) {
       console.warn('Failed to stop runtime', slug, err)
       return { ok: false, error: err?.message || 'Failed to stop runtime' }
     }
-  }, [fetchRuntimes, parseApiError])
+  }, [fetchRuntimes, fetchRepos, parseApiError])
 
   const removeRepo = useCallback(async (repoSlug) => {
     const slug = (repoSlug || '').trim()

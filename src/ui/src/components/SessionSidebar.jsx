@@ -157,7 +157,7 @@ export function SessionSidebar() {
     e.stopPropagation()
     setRuntimeError('')
     const result = isRunning
-      ? await stopRuntime(slug)
+      ? await stopRuntime(slug, repoPath)
       : await startRuntime(slug, repoPath)
     if (result && result.ok === false) {
       setRuntimeError(result.error || `Failed to ${isRunning ? 'stop' : 'start'} repo runtime`)

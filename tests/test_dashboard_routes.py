@@ -109,9 +109,9 @@ class TestCreateRouter:
             "/api/runs/{issue_number}",
             "/api/runs/{issue_number}/{timestamp}/{filename}",
             "/api/runtimes",
-            "/api/runtimes/{slug}",
-            "/api/runtimes/{slug}/start",
-            "/api/runtimes/{slug}/stop",
+            "/api/runtimes/{slug:path}",
+            "/api/runtimes/{slug:path}/start",
+            "/api/runtimes/{slug:path}/stop",
             "/api/crates",
             "/api/crates/active",
             "/api/crates/{crate_number}",
@@ -5855,7 +5855,7 @@ class TestRuntimeLifecycleEndpoints:
         ep = next(
             r
             for r in router.routes
-            if getattr(r, "path", "") == "/api/runtimes/{slug}"
+            if getattr(r, "path", "") == "/api/runtimes/{slug:path}"
             and "GET" in getattr(r, "methods", set())
         )
         resp = await ep.endpoint(slug="nonexistent")
@@ -5877,7 +5877,7 @@ class TestRuntimeLifecycleEndpoints:
         ep = next(
             r
             for r in router.routes
-            if getattr(r, "path", "") == "/api/runtimes/{slug}/start"
+            if getattr(r, "path", "") == "/api/runtimes/{slug:path}/start"
         )
         resp = await ep.endpoint(slug="org-repo")
         assert resp.status_code == 409
@@ -5899,7 +5899,7 @@ class TestRuntimeLifecycleEndpoints:
         ep = next(
             r
             for r in router.routes
-            if getattr(r, "path", "") == "/api/runtimes/{slug}/stop"
+            if getattr(r, "path", "") == "/api/runtimes/{slug:path}/stop"
         )
         resp = await ep.endpoint(slug="org-repo")
         assert resp.status_code == 200
@@ -5922,7 +5922,7 @@ class TestRuntimeLifecycleEndpoints:
         ep = next(
             r
             for r in router.routes
-            if getattr(r, "path", "") == "/api/runtimes/{slug}"
+            if getattr(r, "path", "") == "/api/runtimes/{slug:path}"
             and "DELETE" in getattr(r, "methods", set())
         )
         resp = await ep.endpoint(slug="org-repo")

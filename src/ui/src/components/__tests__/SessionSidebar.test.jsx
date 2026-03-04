@@ -686,7 +686,7 @@ describe('SessionSidebar per-repo Start/Stop', () => {
     )
     render(<SessionSidebar />)
     fireEvent.click(screen.getByText('Stop'))
-    expect(stopRuntime).toHaveBeenCalledWith('demo')
+    expect(stopRuntime).toHaveBeenCalledWith('demo', '/repos/demo')
   })
 
   it('Start click does not trigger selectRepo', () => {

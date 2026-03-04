@@ -1102,6 +1102,71 @@ describe('startRuntime compatibility flow', () => {
       body: JSON.stringify({ req: { path: '/tmp/from-sidebar' } }),
     })
   })
+
+  it('falls back to DELETE /api/repos?slug=... when runtime stop route is unavailable', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url === '/api/runtimes/demo/stop') {
+        return Promise.resolve({
+          ok: false,
+          status: 405,
+          json: async () => ({ error: 'Method Not Allowed' }),
+        })
+      }
+      if (url === '/api/repos?slug=demo&path=%2Frepos%2Fdemo' && init?.method === 'DELETE') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'ok' }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      if (url === '/api/runtimes') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ runtimes: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let capturedState = null
+    function StateCapture() {
+      capturedState = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <StateCapture />
+        </HydraFlowProvider>
+      )
+    })
+
+    await act(async () => {
+      await capturedState.stopRuntime('demo', '/repos/demo')
+    })
+
+    expect(fetchSpy).toHaveBeenCalledWith('/api/repos?slug=demo&path=%2Frepos%2Fdemo', {
+      method: 'DELETE',
+    })
+  })
 })
 
 describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {

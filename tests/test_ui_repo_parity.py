@@ -245,8 +245,8 @@ class TestRuntimeEndpointAvailability:
 
         expected = {
             "/api/runtimes",
-            "/api/runtimes/{slug}",
-            "/api/runtimes/{slug}/start",
-            "/api/runtimes/{slug}/stop",
+            "/api/runtimes/{slug:path}",
+            "/api/runtimes/{slug:path}/start",
+            "/api/runtimes/{slug:path}/stop",
         }
         assert expected.issubset(paths)
