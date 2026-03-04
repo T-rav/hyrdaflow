@@ -314,11 +314,7 @@ def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
     return text.startswith("hf supervisor is not running.")
 
 
-def _find_repo_match(
-    slug: str,
-    repos: list[dict[str, Any]],
-    preferred_path: str | None = None,
-) -> dict[str, Any] | None:
+def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Find a repo entry matching *slug* using cascading strategies.
 
     1. Exact slug match (case-sensitive, then case-insensitive)
@@ -349,20 +345,6 @@ def _find_repo_match(
             if repo_slug and repo_slug.lower() == lower:
                 return r
         return None
-
-    if preferred_path:
-        preferred = os.path.normcase(
-            os.path.normpath(os.path.abspath(os.path.expanduser(preferred_path)))
-        )
-        for r in repos:
-            repo_path = r.get("path")
-            if not isinstance(repo_path, str) or not repo_path.strip():
-                continue
-            candidate = os.path.normcase(
-                os.path.normpath(os.path.abspath(os.path.expanduser(repo_path)))
-            )
-            if candidate == preferred:
-                return r
 
     # 1. Exact slug match
     result = _slug_match(slug)
@@ -2767,7 +2749,7 @@ def create_router(
             )
         return JSONResponse({"runtimes": infos})
 
-    @router.get("/api/runtimes/{slug:path}")
+    @router.get("/api/runtimes/{slug}")
     async def get_runtime_status(slug: str) -> JSONResponse:
         """Get status of a specific repo runtime."""
         from models import RepoRuntimeInfo
@@ -2787,7 +2769,7 @@ def create_router(
         )
         return JSONResponse(info.model_dump())
 
-    @router.post("/api/runtimes/{slug:path}/start")
+    @router.post("/api/runtimes/{slug}/start")
     async def start_runtime(slug: str) -> JSONResponse:
         """Start a specific repo runtime."""
         if registry is None:
@@ -2802,7 +2784,7 @@ def create_router(
         await rt.start()
         return JSONResponse({"status": "started", "slug": slug})
 
-    @router.post("/api/runtimes/{slug:path}/stop")
+    @router.post("/api/runtimes/{slug}/stop")
     async def stop_runtime(slug: str) -> JSONResponse:
         """Stop a specific repo runtime."""
         if registry is None:
@@ -2817,7 +2799,7 @@ def create_router(
         await rt.stop()
         return JSONResponse({"status": "stopped", "slug": slug})
 
-    @router.delete("/api/runtimes/{slug:path}")
+    @router.delete("/api/runtimes/{slug}")
     async def remove_runtime(slug: str) -> JSONResponse:
         """Stop and unregister a repo runtime."""
         if registry is None:
@@ -2837,15 +2819,7 @@ def create_router(
     async def _call_supervisor(func: Callable, *args, **kwargs) -> Any:
         if supervisor_client is None:
             raise RuntimeError("hf supervisor client unavailable in this environment")
-        attempts = 3
-        for attempt in range(attempts):
-            try:
-                return await asyncio.to_thread(func, *args, **kwargs)
-            except Exception as exc:  # noqa: BLE001
-                if "timed out" in str(exc).lower() and attempt < attempts - 1:
-                    await asyncio.sleep(0.2 * (attempt + 1))
-                    continue
-                raise
+        return await asyncio.to_thread(func, *args, **kwargs)
 
     @router.get("/api/repos")
     async def list_supervised_repos() -> JSONResponse:
@@ -2932,18 +2906,12 @@ def create_router(
         req_query: str | None = Query(default=None, alias="req"),
         slug: str | None = Query(default=None),
         repo: str | None = Query(default=None),
-        path: str | None = Query(default=None),
-        repo_path: str | None = Query(default=None, alias="repo_path"),
     ) -> JSONResponse:
         error_payload: tuple[str, int] | None = None
         if supervisor_client is None:
             error_payload = ("supervisor unavailable", 503)
         else:
             target_slug = _extract_repo_slug(req, req_query, slug, repo)
-            target_path = _extract_repo_path(req, None, path, repo_path)
-            parsed_req_query = _parse_compat_json_object(req_query)
-            if parsed_req_query and not target_path:
-                target_path = _extract_repo_path(parsed_req_query, None, None, None)
             if not target_slug:
                 error_payload = ("slug required", 400)
             else:
@@ -2953,7 +2921,7 @@ def create_router(
                     logger.warning("Supervisor list_repos failed: %s", exc)
                     error_payload = ("Supervisor unavailable", 503)
                 else:
-                    match = _find_repo_match(target_slug, repos, target_path)
+                    match = _find_repo_match(target_slug, repos)
                     if not match:
                         error_payload = (
                             f"repo '{target_slug}' not found",
@@ -2982,44 +2950,16 @@ def create_router(
             return JSONResponse({"error": message}, status_code=status_code)
         return JSONResponse({"status": "ok"})
 
-    async def _remove_repo_registration(
-        slug: str,
-        path_query: str | None,
-    ) -> JSONResponse:
+    @router.delete("/api/repos/{slug}")
+    async def remove_repo(slug: str) -> JSONResponse:
         if supervisor_client is None:
             return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
-        repo_path: Path | None = None
-        if path_query is not None and path_query.strip():
-            normalized_path, path_error = _normalize_allowed_dir(path_query)
-            if path_error or normalized_path is None:
-                return JSONResponse(
-                    {"error": path_error or "invalid path"},
-                    status_code=400,
-                )
-            repo_path = normalized_path
         try:
-            await _call_supervisor(supervisor_client.remove_repo, repo_path, slug)
+            await _call_supervisor(supervisor_client.remove_repo, None, slug)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Supervisor remove_repo failed: %s", exc)
             return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
         return JSONResponse({"status": "ok"})
-
-    @router.delete("/api/repos")
-    async def remove_repo_query(
-        slug: str | None = Query(default=None),
-        path_query: str | None = Query(default=None, alias="path"),
-    ) -> JSONResponse:
-        target_slug = (slug or "").strip()
-        if not target_slug:
-            return JSONResponse({"error": "slug required"}, status_code=400)
-        return await _remove_repo_registration(target_slug, path_query)
-
-    @router.delete("/api/repos/{slug:path}")
-    async def remove_repo(
-        slug: str,
-        path_query: str | None = Query(default=None, alias="path"),
-    ) -> JSONResponse:
-        return await _remove_repo_registration(slug, path_query)
 
     async def _detect_repo_slug_from_path(repo_path: Path) -> str | None:  # noqa: PLR0911
         """Extract ``owner/repo`` from git remote origin URL at *repo_path*."""

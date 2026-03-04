@@ -12,7 +12,6 @@ import socket
 import subprocess
 import sys
 import time
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -50,24 +49,6 @@ def _repo_log_file(slug: str, port: int) -> Path:
 def _is_repo_running(slug: str) -> bool:
     proc = RUNNERS.get(slug)
     return proc is not None and proc.proc.poll() is None
-
-
-def _is_repo_running_for_repo(repo: dict[str, Any]) -> bool:
-    """Return runtime status for a persisted repo entry.
-
-    Prefer path matching so duplicate slugs across worktrees don't all appear
-    as running when only one path-backed process is active.
-    """
-    path = str(repo.get("path") or "").strip()
-    if path:
-        with suppress(OSError, RuntimeError):
-            normalized = str(Path(path).resolve())
-            for proc in RUNNERS.values():
-                if proc.proc.poll() is not None:
-                    continue
-                if str(proc.repo_path.resolve()) == normalized:
-                    return True
-    return _is_repo_running(str(repo.get("slug", "")))
 
 
 def _find_free_port() -> int:
@@ -264,7 +245,8 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
 def _build_repo_status_payload() -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for repo in supervisor_state.list_repos():
-        running = _is_repo_running_for_repo(repo)
+        slug = repo.get("slug", "")
+        running = _is_repo_running(slug)
         payload.append({**repo, "running": running})
     return payload
 
