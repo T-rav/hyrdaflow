@@ -165,7 +165,9 @@ class PRPort(Protocol):
 
     # --- HITL ---
 
-    async def list_hitl_items(self, hitl_labels: list[str]) -> list[HITLItem]:
+    async def list_hitl_items(
+        self, hitl_labels: list[str], *, concurrency: int = 10
+    ) -> list[HITLItem]:
         """Return open issues carrying any of *hitl_labels*."""
         ...
 
