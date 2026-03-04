@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ACTIVE_STATUSES, PIPELINE_STAGES, PIPELINE_LOOPS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS } from '../../constants'
+import { ACTIVE_STATUSES, PIPELINE_STAGES, PIPELINE_LOOPS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, REPORT_ISSUE_PRESETS, WORKER_PRESETS, PIPELINE_POLLER_PRESETS, ADR_REVIEWER_PRESETS } from '../../constants'
 import { theme } from '../../theme'
 
 describe('ACTIVE_STATUSES', () => {
@@ -161,8 +161,59 @@ describe('EDITABLE_INTERVAL_WORKERS', () => {
     expect(EDITABLE_INTERVAL_WORKERS.has('metrics')).toBe(true)
   })
 
+  it('includes report_issue', () => {
+    expect(EDITABLE_INTERVAL_WORKERS.has('report_issue')).toBe(true)
+  })
+
   it('does not include non-editable workers', () => {
     expect(EDITABLE_INTERVAL_WORKERS.has('retrospective')).toBe(false)
     expect(EDITABLE_INTERVAL_WORKERS.has('triage')).toBe(false)
+  })
+})
+
+describe('REPORT_ISSUE_PRESETS', () => {
+  it('has 4 presets', () => {
+    expect(REPORT_ISSUE_PRESETS).toHaveLength(4)
+  })
+
+  it('each preset has label and seconds', () => {
+    for (const preset of REPORT_ISSUE_PRESETS) {
+      expect(preset).toHaveProperty('label')
+      expect(preset).toHaveProperty('seconds')
+      expect(typeof preset.seconds).toBe('number')
+    }
+  })
+
+  it('presets are in ascending order', () => {
+    for (let i = 1; i < REPORT_ISSUE_PRESETS.length; i++) {
+      expect(REPORT_ISSUE_PRESETS[i].seconds).toBeGreaterThan(REPORT_ISSUE_PRESETS[i - 1].seconds)
+    }
+  })
+
+  it('contains the expected values', () => {
+    expect(REPORT_ISSUE_PRESETS).toEqual([
+      { label: '30s', seconds: 30 },
+      { label: '1m', seconds: 60 },
+      { label: '5m', seconds: 300 },
+      { label: '10m', seconds: 600 },
+    ])
+  })
+})
+
+describe('WORKER_PRESETS', () => {
+  it('has exactly the expected worker keys', () => {
+    expect(Object.keys(WORKER_PRESETS).sort()).toEqual(['adr_reviewer', 'pipeline_poller', 'report_issue'])
+  })
+
+  it('maps pipeline_poller to PIPELINE_POLLER_PRESETS', () => {
+    expect(WORKER_PRESETS.pipeline_poller).toBe(PIPELINE_POLLER_PRESETS)
+  })
+
+  it('maps adr_reviewer to ADR_REVIEWER_PRESETS', () => {
+    expect(WORKER_PRESETS.adr_reviewer).toBe(ADR_REVIEWER_PRESETS)
+  })
+
+  it('maps report_issue to REPORT_ISSUE_PRESETS', () => {
+    expect(WORKER_PRESETS.report_issue).toBe(REPORT_ISSUE_PRESETS)
   })
 })

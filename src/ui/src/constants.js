@@ -129,11 +129,23 @@ export const ADR_REVIEWER_PRESETS = [
 ]
 
 /**
+ * Preset interval options for the report_issue worker.
+ * Short durations — issue reporting runs on a fast cadence.
+ */
+export const REPORT_ISSUE_PRESETS = [
+  { label: '30s', seconds: 30 },
+  { label: '1m', seconds: 60 },
+  { label: '5m', seconds: 300 },
+  { label: '10m', seconds: 600 },
+]
+
+/**
  * Per-worker preset overrides. Workers not listed here use INTERVAL_PRESETS.
  */
 export const WORKER_PRESETS = {
   pipeline_poller: PIPELINE_POLLER_PRESETS,
   adr_reviewer: ADR_REVIEWER_PRESETS,
+  report_issue: REPORT_ISSUE_PRESETS,
 }
 
 /**
