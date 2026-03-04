@@ -82,11 +82,6 @@ describe('SessionSidebar with no sessions', () => {
     expect(screen.getByText('Sessions')).toBeDefined()
   })
 
-  it('renders "All Repos" button', () => {
-    render(<SessionSidebar />)
-    expect(screen.getByText('All Repos')).toBeDefined()
-  })
-
   it('shows empty state message when no sessions', () => {
     render(<SessionSidebar />)
     expect(screen.getByText('No sessions yet')).toBeDefined()
@@ -165,7 +160,6 @@ describe('SessionSidebar with multiple repos', () => {
       })
     )
     render(<SessionSidebar />)
-    expect(screen.getByLabelText('Add repo')).toBeDefined()
     expect(screen.getByLabelText('Disconnect repo')).toBeDefined()
   })
 
@@ -174,7 +168,6 @@ describe('SessionSidebar with multiple repos', () => {
       defaultContext({ sessions: [SESSION_A] })
     )
     render(<SessionSidebar />)
-    expect(screen.getByLabelText('Add repo')).toBeDefined()
     expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
   })
 
@@ -233,15 +226,17 @@ describe('SessionSidebar supervised repo state', () => {
 // ---------------------------------------------------------------------------
 
 describe('SessionSidebar selection', () => {
-  it('calls selectSession(null) and selectRepo(null) when clicking All Repos button', () => {
-    const selectSession = vi.fn()
+  it('clears repo filter when clicking selected repo header again', () => {
     const selectRepo = vi.fn()
     mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], selectSession, selectRepo })
+      defaultContext({
+        sessions: [SESSION_A],
+        selectRepo,
+        selectedRepoSlug: 'org-repo',
+      })
     )
     render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('All Repos'))
-    expect(selectSession).toHaveBeenCalledWith(null)
+    fireEvent.click(screen.getByText('org/repo'))
     expect(selectRepo).toHaveBeenCalledWith(null)
   })
 
@@ -452,70 +447,6 @@ describe('SessionSidebar delete button', () => {
     fireEvent.click(deleteBtn)
     // selectSession should not have been called by the click on the delete button
     expect(selectSession).not.toHaveBeenCalled()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Add repo button ("+" next to All Repos)
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar add repo button', () => {
-  beforeEach(() => {
-    global.fetch = vi.fn(async (url) => {
-      const rawUrl = String(url || '')
-      if (rawUrl.includes('/api/repos/pick-folder')) {
-        return {
-          ok: true,
-          json: async () => ({
-            path: '/home/user/repos',
-          }),
-        }
-      }
-      return { ok: false, json: async () => ({ error: `unexpected url: ${rawUrl}` }) }
-    })
-  })
-
-  it('renders "+" button with aria-label next to All Repos', () => {
-    render(<SessionSidebar />)
-    expect(screen.getByLabelText('Add repo')).toBeDefined()
-  })
-
-  it('opens native picker and adds selected folder', async () => {
-    const addRepoByPath = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(defaultContext({ addRepoByPath }))
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    await vi.waitFor(() => {
-      expect(addRepoByPath).toHaveBeenCalledWith('/home/user/repos')
-      expect(global.fetch).toHaveBeenCalledWith('/api/repos/pick-folder', { method: 'POST' })
-    })
-  })
-
-  it('shows error when addRepoByPath fails after picking a folder', async () => {
-    const addRepoByPath = vi.fn().mockResolvedValue({ ok: false, error: 'not a git repository: /home/user' })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ addRepoByPath })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    await vi.waitFor(() => {
-      expect(screen.getByText('not a git repository: /home/user')).toBeDefined()
-    })
-  })
-
-  it('shows picker error when native picker API fails', async () => {
-    global.fetch = vi.fn(async (url) => {
-      const rawUrl = String(url || '')
-      if (rawUrl.includes('/api/repos/pick-folder')) {
-        return { ok: false, json: async () => ({ error: 'No folder selected' }) }
-      }
-      return { ok: false, json: async () => ({ error: `unexpected url: ${rawUrl}` }) }
-    })
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Add repo'))
-    await vi.waitFor(() => {
-      expect(screen.getByText('No folder selected')).toBeDefined()
-    })
   })
 })
 

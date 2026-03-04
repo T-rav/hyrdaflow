@@ -24,14 +24,11 @@ export function SessionSidebar() {
     deleteSession,
     supervisedRepos = [],
     runtimes = [],
-    addRepoByPath,
     removeRepoShortcut,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
   const [hoveredSession, setHoveredSession] = useState(null)
   const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
-  const [addRepoError, setAddRepoError] = useState('')
-  const [isAddRepoSubmitting, setIsAddRepoSubmitting] = useState(false)
 
   const repoEntries = useMemo(() => {
     const entries = new Map()
@@ -111,33 +108,6 @@ export function SessionSidebar() {
     deleteSession(sessionId)
   }
 
-  const handleAddRepo = async () => {
-    if (isAddRepoSubmitting || !addRepoByPath) return
-    setIsAddRepoSubmitting(true)
-    setAddRepoError('')
-    try {
-      const pickRes = await fetch('/api/repos/pick-folder', { method: 'POST' })
-      const pickData = await pickRes.json()
-      if (!pickRes.ok) {
-        setAddRepoError(pickData.error || 'No folder selected')
-        return
-      }
-      const selectedPath = String(pickData.path || '').trim()
-      if (!selectedPath) {
-        setAddRepoError('No folder selected')
-        return
-      }
-      const result = await addRepoByPath(selectedPath)
-      if (result && !result.ok) {
-        setAddRepoError(result.error || 'Failed to add repo')
-      }
-    } catch {
-      setAddRepoError('Failed to open folder picker')
-    } finally {
-      setIsAddRepoSubmitting(false)
-    }
-  }
-
   const handleDisconnect = (e, slug, isRunning) => {
     e.stopPropagation()
     if (isRunning) {
@@ -159,27 +129,6 @@ export function SessionSidebar() {
         )}
       </div>
 
-      <div
-        onClick={() => { selectRepo(null); selectSession(null) }}
-        style={selectedRepoSlug === null && selectedSessionId === null ? allButtonActive : styles.allButton}
-      >
-        <span>All Repos</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            handleAddRepo()
-          }}
-          style={styles.addRepoBtn}
-          aria-label="Add repo"
-          title="Connect a new repo"
-        >
-          +
-        </button>
-      </div>
-      {addRepoError && (
-        <div style={styles.addRepoErrorMsg} role="alert">{addRepoError}</div>
-      )}
-
       <div style={styles.list}>
         {repoEntries.map(entry => {
           const repoSessions = entry.sessions
@@ -191,7 +140,7 @@ export function SessionSidebar() {
           return (
             <div key={entry.key}>
               <div
-                onClick={() => selectRepo(entry.slug)}
+                onClick={() => selectRepo(isRepoSelected ? null : entry.slug)}
                 style={isRepoSelected ? repoHeaderSelected : styles.repoHeader}
               >
                 <div style={styles.repoTitle}>
@@ -544,7 +493,6 @@ const styles = {
 }
 
 // Pre-computed row style variants (avoids object spread in .map())
-const allButtonActive = { ...styles.allButton, color: theme.accent, background: theme.accentSubtle }
 const repoHeaderSelected = { ...styles.repoHeader, background: theme.accentSubtle }
 const sessionRowSelected = { ...styles.sessionRow, background: theme.accentSubtle }
 const sessionRowCurrent = { ...styles.sessionRow, borderLeft: `3px solid ${theme.accent}` }
