@@ -1,6 +1,6 @@
 # ADR-0017: Auto-Decompose Triage Path Excluded from Session Counter
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context
