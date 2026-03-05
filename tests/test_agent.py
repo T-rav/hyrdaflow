@@ -598,6 +598,79 @@ class TestGetEscalationData:
         assert result == []
 
 
+class TestTddRedPhase:
+    """Tests for TDD red-phase helpers and gate behavior."""
+
+    def test_is_test_file_path_matches_common_patterns(
+        self, config, event_bus: EventBus
+    ) -> None:
+        runner = AgentRunner(config, event_bus)
+        assert runner._is_test_file_path("tests/test_agent.py")
+        assert runner._is_test_file_path("src/ui/src/__tests__/a.spec.ts")
+        assert runner._is_test_file_path("pkg/foo/bar.test.tsx")
+        assert not runner._is_test_file_path("src/agent.py")
+
+    @pytest.mark.asyncio
+    async def test_run_tdd_red_phase_fails_when_non_test_file_changed(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        runner = AgentRunner(config, event_bus)
+
+        with (
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="TDD_RED_RESULT: OK",
+            ),
+            patch.object(
+                runner,
+                "_collect_changed_files_for_tdd_red",
+                new_callable=AsyncMock,
+                return_value={"src/agent.py"},
+            ),
+        ):
+            ok, msg, _tx = await runner._run_tdd_red_phase(
+                issue, tmp_path, "agent/issue-42", worker_id=1
+            )
+
+        assert ok is False
+        assert "non-test files" in msg
+
+    @pytest.mark.asyncio
+    async def test_run_tdd_red_phase_passes_with_test_only_changes_and_failing_tests(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        runner = AgentRunner(config, event_bus)
+
+        with (
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="TDD_RED_RESULT: OK\nSUMMARY: added failing test",
+            ),
+            patch.object(
+                runner,
+                "_collect_changed_files_for_tdd_red",
+                new_callable=AsyncMock,
+                return_value={"tests/test_new_behavior.py"},
+            ),
+            patch.object(
+                runner,
+                "_verify_tdd_red_fails",
+                new_callable=AsyncMock,
+                return_value=(True, "Expected failing test observed"),
+            ),
+        ):
+            ok, msg, _tx = await runner._run_tdd_red_phase(
+                issue, tmp_path, "agent/issue-42", worker_id=1
+            )
+
+        assert ok is True
+        assert msg == "OK"
+
+
 # ---------------------------------------------------------------------------
 # AgentRunner.run — success path
 # ---------------------------------------------------------------------------
@@ -637,7 +710,8 @@ class TestRunSuccess:
         assert result.issue_number == issue.id
         assert result.branch == "agent/issue-42"
         assert result.commits == 2
-        assert result.transcript == "transcript"
+        assert "## Implementation Phase" in (result.transcript or "")
+        assert "transcript" in (result.transcript or "")
 
     @pytest.mark.asyncio
     async def test_run_success_sets_duration(
