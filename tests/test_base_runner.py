@@ -33,11 +33,11 @@ class _TestRunner(BaseRunner):
 class TestBaseRunnerInit:
     """Tests for BaseRunner.__init__."""
 
-    def test_stores_config(self, config, event_bus: EventBus) -> None:
+    def test_init_stores_config_reference(self, config, event_bus: EventBus) -> None:
         runner = _TestRunner(config, event_bus)
         assert runner._config is config
 
-    def test_stores_event_bus(self, config, event_bus: EventBus) -> None:
+    def test_init_stores_event_bus_reference(self, config, event_bus: EventBus) -> None:
         runner = _TestRunner(config, event_bus)
         assert runner._bus is event_bus
 
@@ -73,7 +73,9 @@ class TestTerminate:
             runner.terminate()
         mock_tp.assert_called_once_with(runner._active_procs)
 
-    def test_empty_procs_no_error(self, config, event_bus: EventBus) -> None:
+    def test_terminate_with_empty_procs_does_not_raise(
+        self, config, event_bus: EventBus
+    ) -> None:
         runner = _TestRunner(config, event_bus)
         runner.terminate()  # Should not raise
 
@@ -196,7 +198,9 @@ class TestExecute:
 class TestInjectManifestAndMemory:
     """Tests for BaseRunner._inject_manifest_and_memory."""
 
-    def test_both_present(self, config, event_bus: EventBus) -> None:
+    def test_inject_returns_manifest_and_memory_when_both_present(
+        self, config, event_bus: EventBus
+    ) -> None:
         runner = _TestRunner(config, event_bus)
 
         with (
@@ -210,7 +214,9 @@ class TestInjectManifestAndMemory:
         assert "## Accumulated Learnings" in memory_sec
         assert "digest text" in memory_sec
 
-    def test_manifest_only(self, config, event_bus: EventBus) -> None:
+    def test_inject_returns_manifest_section_when_only_manifest_exists(
+        self, config, event_bus: EventBus
+    ) -> None:
         runner = _TestRunner(config, event_bus)
 
         with (
@@ -222,7 +228,9 @@ class TestInjectManifestAndMemory:
         assert "## Project Context" in manifest_sec
         assert memory_sec == ""
 
-    def test_memory_only(self, config, event_bus: EventBus) -> None:
+    def test_inject_returns_memory_section_when_only_digest_exists(
+        self, config, event_bus: EventBus
+    ) -> None:
         runner = _TestRunner(config, event_bus)
 
         with (
@@ -234,7 +242,9 @@ class TestInjectManifestAndMemory:
         assert manifest_sec == ""
         assert "## Accumulated Learnings" in memory_sec
 
-    def test_neither_present(self, config, event_bus: EventBus) -> None:
+    def test_inject_returns_empty_strings_when_no_manifest_or_digest(
+        self, config, event_bus: EventBus
+    ) -> None:
         runner = _TestRunner(config, event_bus)
 
         with (
@@ -311,7 +321,7 @@ class TestVerifyQuality:
         assert "timed out" in msg
 
     @pytest.mark.asyncio
-    async def test_truncates_output(
+    async def test_verify_quality_truncates_long_failure_output(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
         mock_runner = MagicMock()
