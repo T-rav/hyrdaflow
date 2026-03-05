@@ -258,6 +258,7 @@ class PostMergeHandler:
             await self._prs.swap_pipeline_labels(
                 pr.issue_number, self._config.fixed_label[0]
             )
+            await self._prs.close_issue(pr.issue_number)
             await self._post_inference_totals_comment(pr, issue)
             await self._run_post_merge_hooks(pr, issue, result, diff, visual_decision)
         else:

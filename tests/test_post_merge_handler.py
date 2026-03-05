@@ -83,6 +83,57 @@ class TestPostMergeHandler:
 
         assert result.merged is True
         handler._prs.swap_pipeline_labels.assert_awaited_once()
+        handler._prs.close_issue.assert_awaited_once_with(pr.issue_number)
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_closes_issue_after_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After successful merge, close_issue should be called with the correct issue number."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create(number=99, issue_number=55)
+        issue = TaskFactory.create(id=55)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        handler._prs.close_issue.assert_awaited_once_with(55)
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_does_not_close_issue_on_merge_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When merge fails, close_issue should NOT be called."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=False)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        handler._prs.close_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_handle_approved_posts_inference_totals_comment(
