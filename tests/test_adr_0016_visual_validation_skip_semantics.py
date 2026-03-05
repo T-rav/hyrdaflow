@@ -86,5 +86,5 @@ class TestAdr0009ContentAccuracy:
         # Partial suppression is the key concept
         assert "partial" in content.lower() or "still honours" in content.lower()
 
-    def test_status_is_proposed(self, content: str) -> None:
-        assert "Proposed" in content
+    def test_status_is_accepted(self, content: str) -> None:
+        assert "Accepted" in content
