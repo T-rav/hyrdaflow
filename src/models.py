@@ -1133,6 +1133,7 @@ class PipelineIssueStatus(StrEnum):
 
     QUEUED = "queued"
     ACTIVE = "active"
+    PROCESSING = "processing"
     HITL = "hitl"
 
 

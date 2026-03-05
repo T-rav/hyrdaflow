@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import PipelineSnapshotEntry, QueueStats, Task
+from models import PipelineIssueStatus, PipelineSnapshotEntry, QueueStats, Task
 from subprocess_util import AuthenticationError
 from task_source import TaskFetcher
 
@@ -610,7 +610,7 @@ class IssueStore:
                 issue_number=task_id,
                 title=cached.title if cached else f"Issue #{task_id}",
                 url=cached.source_url if cached else "",
-                status="processing",
+                status=PipelineIssueStatus.PROCESSING,
             )
             if cached:
                 epic_meta = self._epic_metadata(cached)
