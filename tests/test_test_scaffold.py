@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from test_scaffold import (
     TestScaffoldResult,
+    _has_pytest_config,
     _scaffold_js_tests,
     _scaffold_python_tests,
     has_test_infrastructure,
@@ -55,6 +58,38 @@ class TestTestScaffoldResult:
         a.created_dirs.append("foo/")
 
         assert b.created_dirs == []
+
+
+# ---------------------------------------------------------------------------
+# _has_pytest_config
+# ---------------------------------------------------------------------------
+
+
+class TestHasPytestConfig:
+    """Tests for the private _has_pytest_config helper."""
+
+    def test_logs_warning_when_pyproject_unreadable(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[tool.pytest.ini_options]")
+        original_read_text = Path.read_text
+
+        def fake_read_text(self: Path, *args, **kwargs):
+            if self == pyproject:
+                raise OSError("boom")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+        with caplog.at_level("WARNING"):
+            result = _has_pytest_config(tmp_path)
+
+        assert result is False
+        assert str(pyproject) in caplog.text
 
 
 # ---------------------------------------------------------------------------

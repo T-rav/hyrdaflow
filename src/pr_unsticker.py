@@ -620,7 +620,13 @@ diff — you may catch things `make quality` won't.
             from polyglot_prep import detect_prep_stack
 
             return detect_prep_stack(wt_path)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Falling back to 'general' language classification for %s: %s",
+                wt_path,
+                exc,
+                exc_info=True,
+            )
             return "general"
 
     async def _persist_troubleshooting_pattern(
@@ -660,10 +666,11 @@ diff — you may catch things `make quality` won't.
                     pattern.pattern_name,
                     issue_number,
                 )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Failed to persist troubleshooting pattern for issue #%d",
+                "Failed to persist troubleshooting pattern for issue #%d: %s",
                 issue_number,
+                exc,
                 exc_info=True,
             )
 

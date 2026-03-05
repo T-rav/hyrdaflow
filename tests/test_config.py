@@ -3906,6 +3906,23 @@ class TestDockerConfigEnvVarOverrides:
                 state_file=tmp_path / "s.json",
             )
 
+    def test_pids_limit_env_override_invalid_value_logs_warning(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_DOCKER_PIDS_LIMIT", "not-an-int")
+        with caplog.at_level(logging.WARNING):
+            cfg = HydraFlowConfig(
+                repo_root=tmp_path,
+                worktree_base=tmp_path / "wt",
+                state_file=tmp_path / "s.json",
+            )
+
+        assert cfg.docker_pids_limit == 256
+        assert "HYDRAFLOW_DOCKER_PIDS_LIMIT value" in caplog.text
+
     def test_tmp_size_env_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

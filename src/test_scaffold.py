@@ -8,11 +8,14 @@ Scaffolds baseline test harness plus a small smoke-test suite per stack.
 from __future__ import annotations
 
 import json
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from manifest import detect_language
+
+logger = logging.getLogger("hydraflow.test_scaffold")
 
 # --- Test file patterns ---
 _PYTHON_TEST_PATTERNS = ("test_*.py", "*_test.py")
@@ -269,7 +272,13 @@ def _has_pytest_config(repo_root: Path) -> bool:
     try:
         data = tomllib.loads(pyproject.read_text())
         return "pytest" in data.get("tool", {})
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to parse pytest configuration from %s: %s",
+            pyproject,
+            exc,
+            exc_info=True,
+        )
         return False
 
 

@@ -1822,8 +1822,14 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
         if env_pids is not None:
             try:
                 pids_val = int(env_pids)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning(
+                    "HYDRAFLOW_DOCKER_PIDS_LIMIT value '%s' is not an integer; keeping default %d (%s)",
+                    env_pids,
+                    config.docker_pids_limit,
+                    exc,
+                    exc_info=True,
+                )
             else:
                 if not (16 <= pids_val <= 4096):
                     msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"
