@@ -595,7 +595,7 @@ class TestAutoMergeDisabled:
         assert stats["merged"] == 0
 
         # Should swap back to origin label
-        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review")
+        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review", pr_number=100)
         # merge_pr should NOT have been called
         prs.merge_pr.assert_not_called()
 

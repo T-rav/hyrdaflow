@@ -264,15 +264,26 @@ class PostMergeHandler:
         else:
             logger.warning("PR #%d merge failed — escalating to HITL", pr.number)
             await publish_fn(pr, worker_id, "escalating")
+            mergeable = await self._prs.get_pr_mergeable(pr.number)
+            cause = "PR merge failed on GitHub"
+            comment = (
+                "**Merge failed** — PR could not be merged. Escalating to human review."
+            )
+            if mergeable is False:
+                cause = "PR merge failed on GitHub: merge conflict"
+                comment = (
+                    "**Merge failed** — PR has merge conflicts on GitHub. "
+                    "Escalating to human review."
+                )
+            elif mergeable is True:
+                cause = "PR merge failed on GitHub: merge blocked (non-conflict)"
+
             await escalate_fn(
                 pr.issue_number,
                 pr.number,
-                cause="PR merge failed on GitHub",
+                cause=cause,
                 origin_label=self._config.review_label[0],
-                comment=(
-                    "**Merge failed** — PR could not be merged. "
-                    "Escalating to human review."
-                ),
+                comment=comment,
                 event_cause="merge_failed",
                 task=issue,
             )
