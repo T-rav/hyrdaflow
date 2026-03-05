@@ -15,7 +15,6 @@ const SUB_TABS = [
   { key: 'metrics', label: 'Metrics' },
   { key: 'insights', label: 'Insights' },
   { key: 'livestream', label: 'Livestream' },
-  { key: 'settings', label: 'Settings' },
 ]
 
 function relativeTime(isoString) {
@@ -397,53 +396,6 @@ function UnstickWorkersDropdown() {
   )
 }
 
-function SettingsPanel() {
-  const { config } = useHydraFlow()
-  const [localWorktreeBase, setLocalWorktreeBase] = useState(null)
-
-  const currentValue = localWorktreeBase !== null ? localWorktreeBase : (config?.worktree_base ?? '')
-
-  const handleSave = useCallback(async (value) => {
-    const trimmed = (value || '').trim()
-    setLocalWorktreeBase(trimmed)
-    try {
-      const resp = await fetch('/api/control/config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worktree_base: trimmed, persist: true }),
-      })
-      if (!resp.ok) {
-        setLocalWorktreeBase(config?.worktree_base ?? '')
-      }
-    } catch {
-      setLocalWorktreeBase(config?.worktree_base ?? '')
-    }
-  }, [config?.worktree_base])
-
-  return (
-    <div style={styles.workersContent}>
-      <h3 style={styles.heading}>Settings</h3>
-      <div style={styles.autoApproveRow}>
-        <div style={styles.autoApproveLabel}>
-          <span style={styles.autoApproveText}>Worktree Base</span>
-          <span style={styles.autoApproveHint}>
-            Directory for git worktrees across all repos
-          </span>
-        </div>
-        <input
-          type="text"
-          value={currentValue}
-          onChange={(e) => setLocalWorktreeBase(e.target.value)}
-          onBlur={(e) => handleSave(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(e.target.value) }}
-          style={styles.settingsInput}
-          data-testid="worktree-base-input"
-        />
-      </div>
-    </div>
-  )
-}
-
 export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInterval }) {
   const { pipelinePollerLastRun, orchestratorStatus, events, pipelineIssues } = useHydraFlow()
   const [activeSubTab, setActiveSubTab] = useState('workers')
@@ -524,7 +476,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
         )}
         {activeSubTab === 'insights' && <InsightsPanel />}
         {activeSubTab === 'livestream' && <Livestream events={events} />}
-        {activeSubTab === 'settings' && <SettingsPanel />}
       </div>
     </div>
   )
@@ -805,16 +756,6 @@ const styles = {
     color: theme.text,
     cursor: 'pointer',
     outline: 'none',
-  },
-  settingsInput: {
-    padding: '4px 8px',
-    fontSize: 12,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 4,
-    background: theme.bg,
-    color: theme.text,
-    outline: 'none',
-    minWidth: 200,
   },
 }
 
