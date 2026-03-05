@@ -133,8 +133,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_ENABLE_FRESH_BRANCH_REBUILD",
         True,
     ),
-    ("auto_process_epics", "HYDRAFLOW_AUTO_PROCESS_EPICS", False),
-    ("auto_process_bug_reports", "HYDRAFLOW_AUTO_PROCESS_BUG_REPORTS", False),
     ("auto_crate", "HYDRAFLOW_AUTO_CRATE", False),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
     ("code_scanning_enabled", "HYDRAFLOW_CODE_SCANNING_ENABLED", False),
@@ -453,14 +451,6 @@ class HydraFlowConfig(BaseModel):
     ] = Field(
         default="independent",
         description="How to coordinate merging of epic sub-issue PRs",
-    )
-    auto_process_epics: bool = Field(
-        default=False,
-        description="When True, detected epics auto-proceed. When False, route to HITL for review.",
-    )
-    auto_process_bug_reports: bool = Field(
-        default=False,
-        description="When True, detected bug reports auto-proceed. When False, route to HITL for review.",
     )
     auto_crate: bool = Field(
         default=False,
