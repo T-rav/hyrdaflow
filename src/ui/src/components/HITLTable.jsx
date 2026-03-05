@@ -128,8 +128,13 @@ export function HITLTable({ items, onRefresh }) {
     const text = (corrections[issueNum] || '').trim()
     if (!text) return
     setActionLoading({ issue: issueNum, action: 'retry' })
-    await submitCorrection(issueNum, text)
-    setCorrections(prev => ({ ...prev, [issueNum]: '' }))
+    setActionError(prev => ({ ...prev, [issueNum]: null }))
+    const ok = await submitCorrection(issueNum, text)
+    if (!ok) {
+      setActionError(prev => ({ ...prev, [issueNum]: 'Retry failed. Try again.' }))
+    } else {
+      setCorrections(prev => ({ ...prev, [issueNum]: '' }))
+    }
     setActionLoading(null)
     onRefresh()
   }
@@ -168,9 +173,13 @@ export function HITLTable({ items, onRefresh }) {
 
   const handleApproveMemory = async (issueNum) => {
     setActionLoading({ issue: issueNum, action: 'approve' })
-    await approveAsMemory(issueNum)
+    setActionError(prev => ({ ...prev, [issueNum]: null }))
+    const ok = await approveAsMemory(issueNum)
+    if (!ok) {
+      setActionError(prev => ({ ...prev, [issueNum]: 'Approve failed. Try again.' }))
+    }
     setActionLoading(null)
-    setExpandedIssue(null)
+    if (ok) setExpandedIssue(null)
     onRefresh()
   }
 
@@ -345,7 +354,7 @@ export function HITLTable({ items, onRefresh }) {
                         )}
                         <textarea
                           style={styles.textarea}
-                          placeholder="Provide correction guidance..."
+                          placeholder={item.issueTypeReview ? 'Optional reason for skip/reject...' : 'Provide correction guidance...'}
                           value={corrections[item.issue] || ''}
                           onChange={e => handleCorrectionChange(item.issue, e.target.value)}
                           onClick={e => e.stopPropagation()}
