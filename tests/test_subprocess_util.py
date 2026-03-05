@@ -14,6 +14,7 @@ from subprocess_util import (
     SubprocessTimeoutError,
     _is_auth_error,
     _is_retryable_error,
+    configure_gh_concurrency,
     make_clean_env,
     make_docker_env,
     run_subprocess,
@@ -698,3 +699,99 @@ class TestMakeDockerEnv:
             "GIT_COMMITTER_EMAIL",
         }
         assert set(env.keys()) == expected_keys
+
+
+# --- GitHub API concurrency semaphore ---
+
+
+class TestGhApiSemaphore:
+    """Tests for the global GitHub API concurrency limiter."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_semaphore(self) -> None:
+        """Reset the global semaphore before each test."""
+        import subprocess_util
+
+        subprocess_util._gh_semaphore = None
+
+    @staticmethod
+    def _make_tracking_runner(
+        delay: float = 0.05,
+    ) -> tuple[MagicMock, dict[str, int]]:
+        """Create a mock runner that tracks concurrency."""
+        from execution import SimpleResult
+
+        stats: dict[str, int] = {"calls": 0, "max_concurrent": 0, "current": 0}
+
+        async def fake_run_simple(cmd: list[str], **_kwargs: object) -> SimpleResult:
+            stats["current"] += 1
+            stats["calls"] += 1
+            stats["max_concurrent"] = max(stats["max_concurrent"], stats["current"])
+            await asyncio.sleep(delay)
+            stats["current"] -= 1
+            return SimpleResult(stdout="ok", stderr="", returncode=0)
+
+        runner = MagicMock()
+        runner.run_simple = fake_run_simple
+        return runner, stats
+
+    @pytest.mark.asyncio
+    async def test_gh_commands_use_semaphore(self) -> None:
+        """gh and git commands should be gated by the semaphore."""
+        configure_gh_concurrency(2)
+        runner, stats = self._make_tracking_runner()
+
+        tasks = [run_subprocess("gh", "api", "test", runner=runner) for _ in range(5)]
+        await asyncio.gather(*tasks)
+
+        assert stats["calls"] == 5
+        assert stats["max_concurrent"] <= 2
+
+    @pytest.mark.asyncio
+    async def test_non_gh_commands_bypass_semaphore(self) -> None:
+        """Non-gh/git commands should not use the semaphore."""
+        configure_gh_concurrency(1)
+        runner, stats = self._make_tracking_runner()
+
+        tasks = [run_subprocess("echo", "hello", runner=runner) for _ in range(3)]
+        await asyncio.gather(*tasks)
+
+        # With semaphore(1), if it were used, max_concurrent would be 1
+        # Non-gh commands bypass it, so all 3 run concurrently
+        assert stats["max_concurrent"] == 3
+
+    @pytest.mark.asyncio
+    async def test_configure_gh_concurrency_sets_limit(self) -> None:
+        """configure_gh_concurrency should set the semaphore limit."""
+        import subprocess_util
+
+        configure_gh_concurrency(7)
+        sem = subprocess_util._gh_semaphore
+        assert sem is not None
+        assert sem._value == 7
+
+    @pytest.mark.asyncio
+    async def test_default_semaphore_created_lazily(self) -> None:
+        """If not configured, a default semaphore is created on first use."""
+        import subprocess_util
+
+        assert subprocess_util._gh_semaphore is None
+        runner, _ = self._make_tracking_runner(delay=0)
+        await run_subprocess("gh", "pr", "list", runner=runner)
+        assert subprocess_util._gh_semaphore is not None
+        assert subprocess_util._gh_semaphore._value == 5
+
+    @pytest.mark.asyncio
+    async def test_semaphore_does_not_block_errors(self) -> None:
+        """Errors should propagate normally through the semaphore."""
+        from execution import SimpleResult
+
+        configure_gh_concurrency(5)
+
+        async def fail_run_simple(cmd: list[str], **_kwargs: object) -> SimpleResult:
+            return SimpleResult(stdout="", stderr="rate limit exceeded", returncode=1)
+
+        runner = MagicMock()
+        runner.run_simple = fail_run_simple
+        with pytest.raises(RuntimeError, match="rate limit"):
+            await run_subprocess("gh", "api", "test", runner=runner)

@@ -17,6 +17,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.subprocess")
 
+# Global semaphore to limit concurrent gh/git subprocess calls and prevent
+# GitHub API rate limiting when multiple async loops poll simultaneously.
+_gh_semaphore: asyncio.Semaphore | None = None
+_GH_DEFAULT_CONCURRENCY = 5
+
+
+def configure_gh_concurrency(limit: int) -> None:
+    """Set the global GitHub API concurrency limit.
+
+    Must be called once during startup before any subprocess calls.
+    """
+    global _gh_semaphore  # noqa: PLW0603
+    _gh_semaphore = asyncio.Semaphore(limit)
+    logger.info("GitHub API concurrency limit set to %d", limit)
+
+
+def _get_gh_semaphore() -> asyncio.Semaphore:
+    """Return the global semaphore, creating with defaults if not configured."""
+    global _gh_semaphore  # noqa: PLW0603
+    if _gh_semaphore is None:
+        _gh_semaphore = asyncio.Semaphore(_GH_DEFAULT_CONCURRENCY)
+    return _gh_semaphore
+
 
 class AuthenticationError(RuntimeError):
     """Raised when a subprocess fails due to GitHub authentication issues."""
@@ -192,6 +215,9 @@ def make_docker_env(
     return env
 
 
+_GH_COMMANDS = frozenset({"gh", "git"})
+
+
 async def run_subprocess(
     *cmd: str,
     cwd: Path | None = None,
@@ -205,6 +231,9 @@ async def run_subprocess(
     nesting detection.  When *gh_token* is non-empty it is injected
     as ``GH_TOKEN``.
 
+    For ``gh`` and ``git`` commands, execution is gated through a global
+    semaphore to prevent GitHub API rate limiting from concurrent calls.
+
     Raises :class:`SubprocessTimeoutError` if the command exceeds *timeout* seconds.
     Raises :class:`RuntimeError` on non-zero exit.
     """
@@ -212,25 +241,33 @@ async def run_subprocess(
 
     env = make_clean_env(gh_token)
 
-    if runner is None:
-        runner = get_default_runner()
-    try:
-        result = await runner.run_simple(
-            list(cmd),
-            cwd=str(cwd) if cwd is not None else None,
-            env=env,
-            timeout=timeout,
-        )
-    except TimeoutError:
-        raise SubprocessTimeoutError(
-            f"Command {cmd!r} timed out after {timeout}s"
-        ) from None
-    if result.returncode != 0:
-        msg = f"Command {cmd!r} failed (rc={result.returncode}): {result.stderr}"
-        if _is_auth_error(result.stderr):
-            raise AuthenticationError(msg)
-        raise RuntimeError(msg)
-    return result.stdout
+    resolved_runner = runner if runner is not None else get_default_runner()
+
+    use_semaphore = bool(cmd) and cmd[0] in _GH_COMMANDS
+
+    async def _exec() -> str:
+        try:
+            result = await resolved_runner.run_simple(
+                list(cmd),
+                cwd=str(cwd) if cwd is not None else None,
+                env=env,
+                timeout=timeout,
+            )
+        except TimeoutError:
+            raise SubprocessTimeoutError(
+                f"Command {cmd!r} timed out after {timeout}s"
+            ) from None
+        if result.returncode != 0:
+            msg = f"Command {cmd!r} failed (rc={result.returncode}): {result.stderr}"
+            if _is_auth_error(result.stderr):
+                raise AuthenticationError(msg)
+            raise RuntimeError(msg)
+        return result.stdout
+
+    if use_semaphore:
+        async with _get_gh_semaphore():
+            return await _exec()
+    return await _exec()
 
 
 _RETRYABLE_PATTERNS = (

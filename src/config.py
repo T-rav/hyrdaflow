@@ -29,6 +29,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
     ("max_review_diff_chars", "HYDRAFLOW_MAX_REVIEW_DIFF_CHARS", 15_000),
     ("gh_max_retries", "HYDRAFLOW_GH_MAX_RETRIES", 3),
+    ("gh_api_concurrency", "HYDRAFLOW_GH_API_CONCURRENCY", 5),
     ("max_issue_attempts", "HYDRAFLOW_MAX_ISSUE_ATTEMPTS", 3),
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
     ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
@@ -323,6 +324,12 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=10,
         description="Max retry attempts for gh CLI calls",
+    )
+    gh_api_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Max concurrent gh/git subprocess calls (prevents API rate limiting)",
     )
 
     # Task source

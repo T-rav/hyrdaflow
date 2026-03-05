@@ -29,7 +29,11 @@ from phase_utils import (
 )
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
-from subprocess_util import AuthenticationError, CreditExhaustedError
+from subprocess_util import (
+    AuthenticationError,
+    CreditExhaustedError,
+    configure_gh_concurrency,
+)
 
 if TYPE_CHECKING:
     from crate_manager import CrateManager
@@ -90,6 +94,9 @@ class HydraFlowOrchestrator:
         self._session_issue_results: dict[int, bool] = {}
         # Loop tasks (set by _supervise_loops for stop() to cancel)
         self._loop_tasks: dict[str, asyncio.Task[None]] = {}
+
+        # Configure global GitHub API concurrency limiter
+        configure_gh_concurrency(config.gh_api_concurrency)
 
         # Build all services via the factory
         svc = build_services(
