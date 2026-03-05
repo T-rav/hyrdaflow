@@ -1550,8 +1550,6 @@ def create_router(
         "memory_auto_approve",
         "unstick_auto_merge",
         "unstick_all_causes",
-        "auto_process_epics",
-        "auto_process_bug_reports",
         "worktree_base",
         "auto_crate",
     }

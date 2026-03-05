@@ -1,6 +1,6 @@
 # ADR-0020: autoApproveRow borderTop Context Awareness When Extracting Embedded Components
 
-**Status:** Proposed
+**Status:** Superseded by #1883
 **Date:** 2026-03-01
 
 ## Context
