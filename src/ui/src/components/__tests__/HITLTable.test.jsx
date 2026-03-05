@@ -551,6 +551,124 @@ describe('HITLTable component', () => {
     expect(screen.queryByTestId('hitl-visual-42')).not.toBeInTheDocument()
   })
 
+  it('shows Verify, Reject, Skip buttons for issueTypeReview items', () => {
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.getByTestId('hitl-verify-42')).toBeInTheDocument()
+    expect(screen.getByText('Verify')).toBeInTheDocument()
+    expect(screen.getByTestId('hitl-reject-42')).toBeInTheDocument()
+    expect(screen.getByText('Reject')).toBeInTheDocument()
+    expect(screen.getByTestId('hitl-skip-42')).toBeInTheDocument()
+    expect(screen.getByText('Skip')).toBeInTheDocument()
+  })
+
+  it('does NOT show Retry with guidance or Close issue for issueTypeReview items', () => {
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.queryByText('Retry with guidance')).not.toBeInTheDocument()
+    expect(screen.queryByText('Close issue')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show standalone Approve button for issueTypeReview items', () => {
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.queryByTestId('hitl-approve-process-42')).not.toBeInTheDocument()
+  })
+
+  it('shows original buttons for non-issueTypeReview items', () => {
+    const items = [{ ...mockItems[0], issueTypeReview: false }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    expect(screen.getByText('Retry with guidance')).toBeInTheDocument()
+    expect(screen.getByText('Skip')).toBeInTheDocument()
+    expect(screen.getByText('Close issue')).toBeInTheDocument()
+    expect(screen.queryByText('Verify')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reject')).not.toBeInTheDocument()
+  })
+
+  it('calls approveProcess API on Verify click', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    global.fetch = fetchMock
+    const onRefresh = vi.fn()
+
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={onRefresh} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-verify-42'))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/hitl/42/approve-process', {
+        method: 'POST',
+      })
+    })
+    await waitFor(() => {
+      expect(onRefresh).toHaveBeenCalled()
+    })
+  })
+
+  it('calls close API on Reject click', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    global.fetch = fetchMock
+    const onRefresh = vi.fn()
+
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={onRefresh} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-reject-42'))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/hitl/42/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Closed by operator' }),
+      })
+    })
+    await waitFor(() => {
+      expect(onRefresh).toHaveBeenCalled()
+    })
+  })
+
+  it('shows Verifying... text during verify loading', async () => {
+    let resolveVerify
+    const fetchMock = vi.fn().mockImplementation(() =>
+      new Promise(resolve => { resolveVerify = resolve })
+    )
+    global.fetch = fetchMock
+
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-verify-42'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Verifying...')).toBeInTheDocument()
+    })
+
+    resolveVerify({ ok: true })
+  })
+
+  it('shows Rejecting... text during reject loading', async () => {
+    let resolveReject
+    const fetchMock = vi.fn().mockImplementation(() =>
+      new Promise(resolve => { resolveReject = resolve })
+    )
+    global.fetch = fetchMock
+
+    const items = [{ ...mockItems[0], issueTypeReview: true }]
+    render(<HITLTable items={items} onRefresh={() => {}} />)
+    fireEvent.click(screen.getByTestId('hitl-row-42'))
+    fireEvent.click(screen.getByTestId('hitl-reject-42'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Rejecting...')).toBeInTheDocument()
+    })
+
+    resolveReject({ ok: true })
+  })
+
   it('renders visual evidence run link when run_url is set', () => {
     const items = [
       {

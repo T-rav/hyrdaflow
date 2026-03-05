@@ -348,49 +348,70 @@ export function HITLTable({ items, onRefresh }) {
                           data-testid={`hitl-textarea-${item.issue}`}
                         />
                         <div style={styles.actions}>
-                          <button
-                            style={styles.retryBtn}
-                            disabled={!(corrections[item.issue] || '').trim() || isAnyActionLoading(item.issue)}
-                            onClick={e => { e.stopPropagation(); handleRetry(item.issue) }}
-                            data-testid={`hitl-retry-${item.issue}`}
-                          >
-                            {isActionLoading(item.issue, 'retry') ? 'Processing...' : 'Retry with guidance'}
-                          </button>
-                          <button
-                            style={styles.skipBtn}
-                            disabled={isAnyActionLoading(item.issue)}
-                            onClick={e => { e.stopPropagation(); handleSkip(item.issue) }}
-                            data-testid={`hitl-skip-${item.issue}`}
-                          >
-                            {isActionLoading(item.issue, 'skip') ? 'Skipping...' : 'Skip'}
-                          </button>
-                          <button
-                            style={styles.closeBtn}
-                            disabled={isAnyActionLoading(item.issue)}
-                            onClick={e => { e.stopPropagation(); handleClose(item.issue) }}
-                            data-testid={`hitl-close-${item.issue}`}
-                          >
-                            {isActionLoading(item.issue, 'close') ? 'Closing...' : 'Close issue'}
-                          </button>
-                          {item.isMemorySuggestion && (
-                            <button
-                              style={styles.approveMemoryBtn}
-                              disabled={isAnyActionLoading(item.issue)}
-                              onClick={e => { e.stopPropagation(); handleApproveMemory(item.issue) }}
-                              data-testid={`hitl-approve-memory-${item.issue}`}
-                            >
-                              {isActionLoading(item.issue, 'approve') ? 'Approving...' : 'Approve as Memory'}
-                            </button>
-                          )}
-                          {item.issueTypeReview && (
-                            <button
-                              style={styles.approveProcessBtn}
-                              disabled={isAnyActionLoading(item.issue)}
-                              onClick={e => { e.stopPropagation(); handleApproveProcess(item.issue) }}
-                              data-testid={`hitl-approve-process-${item.issue}`}
-                            >
-                              {isActionLoading(item.issue, 'approve-process') ? 'Approving...' : 'Approve'}
-                            </button>
+                          {item.issueTypeReview ? (
+                            <>
+                              <button
+                                style={styles.approveProcessBtn}
+                                disabled={isAnyActionLoading(item.issue)}
+                                onClick={e => { e.stopPropagation(); handleApproveProcess(item.issue) }}
+                                data-testid={`hitl-verify-${item.issue}`}
+                              >
+                                {isActionLoading(item.issue, 'approve-process') ? 'Verifying...' : 'Verify'}
+                              </button>
+                              <button
+                                style={styles.skipBtn}
+                                disabled={isAnyActionLoading(item.issue)}
+                                onClick={e => { e.stopPropagation(); handleSkip(item.issue) }}
+                                data-testid={`hitl-skip-${item.issue}`}
+                              >
+                                {isActionLoading(item.issue, 'skip') ? 'Skipping...' : 'Skip'}
+                              </button>
+                              <button
+                                style={styles.closeBtn}
+                                disabled={isAnyActionLoading(item.issue)}
+                                onClick={e => { e.stopPropagation(); handleClose(item.issue) }}
+                                data-testid={`hitl-reject-${item.issue}`}
+                              >
+                                {isActionLoading(item.issue, 'close') ? 'Rejecting...' : 'Reject'}
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                style={styles.retryBtn}
+                                disabled={!(corrections[item.issue] || '').trim() || isAnyActionLoading(item.issue)}
+                                onClick={e => { e.stopPropagation(); handleRetry(item.issue) }}
+                                data-testid={`hitl-retry-${item.issue}`}
+                              >
+                                {isActionLoading(item.issue, 'retry') ? 'Processing...' : 'Retry with guidance'}
+                              </button>
+                              <button
+                                style={styles.skipBtn}
+                                disabled={isAnyActionLoading(item.issue)}
+                                onClick={e => { e.stopPropagation(); handleSkip(item.issue) }}
+                                data-testid={`hitl-skip-${item.issue}`}
+                              >
+                                {isActionLoading(item.issue, 'skip') ? 'Skipping...' : 'Skip'}
+                              </button>
+                              <button
+                                style={styles.closeBtn}
+                                disabled={isAnyActionLoading(item.issue)}
+                                onClick={e => { e.stopPropagation(); handleClose(item.issue) }}
+                                data-testid={`hitl-close-${item.issue}`}
+                              >
+                                {isActionLoading(item.issue, 'close') ? 'Closing...' : 'Close issue'}
+                              </button>
+                              {item.isMemorySuggestion && (
+                                <button
+                                  style={styles.approveMemoryBtn}
+                                  disabled={isAnyActionLoading(item.issue)}
+                                  onClick={e => { e.stopPropagation(); handleApproveMemory(item.issue) }}
+                                  data-testid={`hitl-approve-memory-${item.issue}`}
+                                >
+                                  {isActionLoading(item.issue, 'approve') ? 'Approving...' : 'Approve as Memory'}
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                         {actionError[item.issue] && (
