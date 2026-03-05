@@ -51,6 +51,7 @@ class TestIsNewer:
     def test_compares_numeric_keys(self) -> None:
         assert update_check._is_newer("2.0.0", "1.9.9") is True
         assert update_check._is_newer("1.0.1", "1.2.0") is False
+        assert update_check._is_newer("1.0.0", "1.0.0") is False
 
     def test_falls_back_to_inequality_when_no_numeric_keys(self) -> None:
         # Fallback uses `latest != current`, not lexicographic ordering
@@ -229,6 +230,41 @@ class TestCheckForUpdatesCached:
         stored = json.loads(cache_path.read_text())
         assert stored["latest_version"] == "2.0.0"
         assert stored["checked_at"] == now
+
+    def test_version_change_invalidates_cache(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        cache_path = tmp_path / "cache.json"
+        now = 1_700_000_000
+        # Cache was written when version was "1.0.0", but now we're on "1.1.0"
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "checked_at": now - 60,
+                    "current_version": "1.0.0",
+                    "latest_version": "2.0.0",
+                }
+            )
+        )
+        monkeypatch.setattr(update_check, "get_app_version", lambda: "1.1.0")
+        monkeypatch.setattr(update_check.time, "time", lambda: now)
+
+        expected = update_check.UpdateCheckResult(
+            current_version="1.1.0",
+            latest_version="2.0.0",
+            update_available=True,
+        )
+
+        def fake_check(timeout_seconds: float) -> update_check.UpdateCheckResult:  # noqa: ARG001
+            return expected
+
+        monkeypatch.setattr(update_check, "check_for_updates", fake_check)
+
+        result = update_check.check_for_updates_cached(
+            timeout_seconds=0.5, max_age_seconds=3600, path=cache_path
+        )
+
+        assert result is expected
 
     def test_skips_cache_write_when_no_latest(
         self, tmp_path: Path, monkeypatch

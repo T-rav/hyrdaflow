@@ -724,6 +724,12 @@ class TestHITLVisualEvidence:
 
 
 class TestHITLSummaryFailure:
+    def test_get_returns_empty_when_nothing_set(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        last_failed_at, error = tracker.get_hitl_summary_failure(42)
+        assert last_failed_at is None
+        assert error == ""
+
     def test_set_and_get_failure_metadata(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.set_hitl_summary_failure(7, "LLM timeout")
