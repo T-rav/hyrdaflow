@@ -449,6 +449,16 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 await self._escalate_to_hitl(result, reason="rejected")
             stats["rejected"] += 1
         elif result.final_decision == "REQUEST_CHANGES":
+            # Attempt a single clerk-assisted amendment + re-review pass before
+            # routing back into the main pipeline.
+            auto_accepted = await self._attempt_clerk_amend_and_revote(
+                result,
+                adr_path,
+                adr_dir,
+            )
+            if auto_accepted:
+                stats["accepted"] += 1
+                return
             routed = await self._route_to_triage(result, reason="changes_requested")
             if not routed:
                 await self._escalate_to_hitl(result, reason="changes_requested")
@@ -517,6 +527,96 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             reason,
         )
         return True
+
+    async def _attempt_clerk_amend_and_revote(
+        self,
+        result: ADRCouncilResult,
+        adr_path: Path,
+        adr_dir: Path,
+    ) -> bool:
+        """Try one deterministic clerk edit pass, then re-run council once.
+
+        Returns True when the amended ADR is accepted after re-vote.
+        """
+        try:
+            original = adr_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            logger.warning(
+                "ADR-%04d clerk amend skipped (unable to read file: %s)",
+                result.adr_number,
+                adr_path,
+            )
+            return False
+
+        amended = self._build_clerk_amendment(original, result)
+        if amended == original:
+            return False
+
+        all_adrs = self._load_all_adrs(adr_dir)
+        index_context = self._build_index_context(all_adrs)
+        duplicates = self._detect_duplicates(result.adr_number, amended, all_adrs)
+        duplicate_context = self._build_duplicate_context(duplicates)
+        rerun = await self._run_council_session(
+            result.adr_number,
+            result.adr_title,
+            amended,
+            index_context,
+            duplicate_context,
+        )
+
+        if rerun.final_decision != "ACCEPT" or rerun.duplicate_detected:
+            logger.info(
+                "ADR-%04d clerk amend did not produce acceptance (decision=%s)",
+                result.adr_number,
+                rerun.final_decision,
+            )
+            return False
+
+        try:
+            adr_path.write_text(amended, encoding="utf-8")
+        except OSError:
+            logger.exception(
+                "ADR-%04d clerk amend accepted but file write failed", result.adr_number
+            )
+            return False
+
+        logger.info(
+            "ADR-%04d accepted after clerk amendment re-vote",
+            result.adr_number,
+        )
+        await self._accept_adr(rerun, adr_path, adr_dir)
+        return True
+
+    def _build_clerk_amendment(self, content: str, result: ADRCouncilResult) -> str:
+        """Append a focused amendment section based on non-approve votes."""
+        suggestions: list[str] = []
+        for vote in result.votes:
+            if vote.verdict == CouncilVerdict.APPROVE:
+                continue
+            reasoning = vote.reasoning.strip()
+            if reasoning:
+                suggestions.append(f"- {vote.role.capitalize()}: {reasoning}")
+        if not suggestions and result.summary.strip():
+            suggestions.append(f"- Council summary: {result.summary.strip()}")
+        if not suggestions:
+            return content
+
+        section = (
+            "## Council Amendment Notes\n\n"
+            "The following amendments were generated from council feedback:\n\n"
+            + "\n".join(suggestions)
+            + "\n\n"
+            "These notes are intended to be incorporated before final acceptance."
+        )
+
+        pattern = re.compile(
+            r"(?ims)^##\s+Council Amendment Notes\s*\n.*?(?=^##\s+|\Z)"
+        )
+        if pattern.search(content):
+            return pattern.sub(section + "\n\n", content, count=1)
+
+        suffix = "\n\n" if not content.endswith("\n") else "\n"
+        return content.rstrip() + suffix + section + "\n"
 
     async def _accept_adr(
         self,

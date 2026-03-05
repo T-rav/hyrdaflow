@@ -488,6 +488,12 @@ class TestVerdictRouting:
 
         with (
             patch.object(
+                reviewer,
+                "_attempt_clerk_amend_and_revote",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_clerk,
+            patch.object(
                 reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=True
             ) as mock_triage,
             patch.object(
@@ -495,6 +501,7 @@ class TestVerdictRouting:
             ) as mock_hitl,
         ):
             await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
+            mock_clerk.assert_awaited_once()
             mock_triage.assert_awaited_once_with(result, reason="changes_requested")
             mock_hitl.assert_not_awaited()
         assert stats["escalated"] == 1
@@ -563,6 +570,12 @@ class TestVerdictRouting:
 
         with (
             patch.object(
+                reviewer,
+                "_attempt_clerk_amend_and_revote",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_clerk,
+            patch.object(
                 reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=False
             ) as mock_triage,
             patch.object(
@@ -570,9 +583,42 @@ class TestVerdictRouting:
             ) as mock_hitl,
         ):
             await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
+            mock_clerk.assert_awaited_once()
             mock_triage.assert_awaited_once_with(result, reason="changes_requested")
             mock_hitl.assert_awaited_once_with(result, reason="changes_requested")
         assert stats["escalated"] == 1
+
+    @pytest.mark.asyncio
+    async def test_request_changes_auto_accepts_when_clerk_revote_passes(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="REQUEST_CHANGES",
+        )
+        stats = {"accepted": 0, "rejected": 0, "escalated": 0, "duplicates": 0}
+
+        with (
+            patch.object(
+                reviewer,
+                "_attempt_clerk_amend_and_revote",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_clerk,
+            patch.object(
+                reviewer, "_route_to_triage", new_callable=AsyncMock
+            ) as mock_triage,
+            patch.object(
+                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
+            ) as mock_hitl,
+        ):
+            await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
+            mock_clerk.assert_awaited_once()
+            mock_triage.assert_not_awaited()
+            mock_hitl.assert_not_awaited()
+        assert stats["accepted"] == 1
 
 
 class TestDeliberationRounds:
@@ -944,6 +990,103 @@ class TestADRTriageIntegration:
             654, reviewer._config.hitl_label[0]
         )
         assert state.get_hitl_origin(654) == reviewer._config.find_label[0]
+
+
+class TestClerkAmendment:
+    """Tests for clerk amendment + re-vote behavior."""
+
+    @pytest.mark.asyncio
+    async def test_clerk_revote_accepts_and_commits(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
+        adr_path = _write_adr(adr_dir, 9, "Council Edits", "Proposed")
+        original_result = ADRCouncilResult(
+            adr_number=9,
+            adr_title="Council Edits",
+            final_decision="REQUEST_CHANGES",
+            summary="Needs refinements",
+            votes=[
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Clarify tradeoffs",
+                )
+            ],
+        )
+        rerun_result = ADRCouncilResult(
+            adr_number=9,
+            adr_title="Council Edits",
+            final_decision="ACCEPT",
+            summary="Looks good now",
+            votes=[
+                CouncilVote(
+                    role="architect",
+                    verdict=CouncilVerdict.APPROVE,
+                    reasoning="Accept",
+                ),
+                CouncilVote(
+                    role="pragmatist",
+                    verdict=CouncilVerdict.APPROVE,
+                    reasoning="Accept",
+                ),
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.APPROVE,
+                    reasoning="Accept",
+                ),
+            ],
+        )
+        reviewer._run_council_session = AsyncMock(return_value=rerun_result)
+
+        with patch.object(
+            reviewer, "_accept_adr", new_callable=AsyncMock
+        ) as mock_accept:
+            accepted = await reviewer._attempt_clerk_amend_and_revote(
+                original_result, adr_path, adr_dir
+            )
+            assert accepted is True
+            mock_accept.assert_awaited_once_with(rerun_result, adr_path, adr_dir)
+
+        updated = adr_path.read_text(encoding="utf-8")
+        assert "## Council Amendment Notes" in updated
+        assert "Clarify tradeoffs" in updated
+
+    @pytest.mark.asyncio
+    async def test_clerk_revote_non_accept_falls_back(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
+        adr_path = _write_adr(adr_dir, 10, "Council Edits", "Proposed")
+        original = adr_path.read_text(encoding="utf-8")
+        original_result = ADRCouncilResult(
+            adr_number=10,
+            adr_title="Council Edits",
+            final_decision="REQUEST_CHANGES",
+            votes=[
+                CouncilVote(
+                    role="architect",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Need narrower scope",
+                )
+            ],
+        )
+        reviewer._run_council_session = AsyncMock(
+            return_value=ADRCouncilResult(
+                adr_number=10,
+                adr_title="Council Edits",
+                final_decision="REQUEST_CHANGES",
+            )
+        )
+
+        with patch.object(
+            reviewer, "_accept_adr", new_callable=AsyncMock
+        ) as mock_accept:
+            accepted = await reviewer._attempt_clerk_amend_and_revote(
+                original_result, adr_path, adr_dir
+            )
+            assert accepted is False
+            mock_accept.assert_not_awaited()
+
+        assert adr_path.read_text(encoding="utf-8") == original
 
 
 class TestHandleDuplicate:
