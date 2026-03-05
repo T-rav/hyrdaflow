@@ -551,6 +551,18 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         amended = self._build_clerk_amendment(original, result)
         if amended == original:
             return False
+        ok, review_note = self._clerk_self_review(
+            original=original,
+            amended=amended,
+            result=result,
+        )
+        if not ok:
+            logger.info(
+                "ADR-%04d clerk self-review failed: %s",
+                result.adr_number,
+                review_note,
+            )
+            return False
 
         all_adrs = self._load_all_adrs(adr_dir)
         index_context = self._build_index_context(all_adrs)
@@ -617,6 +629,40 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
 
         suffix = "\n\n" if not content.endswith("\n") else "\n"
         return content.rstrip() + suffix + section + "\n"
+
+    def _clerk_self_review(
+        self,
+        *,
+        original: str,
+        amended: str,
+        result: ADRCouncilResult,
+    ) -> tuple[bool, str]:
+        """Validate clerk amendments before re-vote.
+
+        Ensures the amendment section exists and that non-approve feedback was
+        actually carried into the proposed update.
+        """
+        if amended == original:
+            return False, "no-op amendment"
+        if "## Council Amendment Notes" not in amended:
+            return False, "missing amendment notes section"
+
+        missing_feedback: list[str] = []
+        for vote in result.votes:
+            if vote.verdict == CouncilVerdict.APPROVE:
+                continue
+            reasoning = vote.reasoning.strip()
+            if reasoning and reasoning not in amended:
+                missing_feedback.append(f"{vote.role}:{reasoning[:80]}")
+        if missing_feedback:
+            return False, "missing feedback items: " + "; ".join(missing_feedback)
+
+        lowered = amended.lower()
+        required = ("## context", "## decision", "## consequences")
+        missing_sections = [heading for heading in required if heading not in lowered]
+        if missing_sections:
+            return False, "missing ADR sections: " + ", ".join(missing_sections)
+        return True, "ok"
 
     async def _accept_adr(
         self,

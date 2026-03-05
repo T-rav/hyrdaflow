@@ -1088,6 +1088,80 @@ class TestClerkAmendment:
 
         assert adr_path.read_text(encoding="utf-8") == original
 
+    @pytest.mark.asyncio
+    async def test_clerk_self_review_blocks_revote(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
+        adr_path = _write_adr(adr_dir, 11, "Council Edits", "Proposed")
+        result = ADRCouncilResult(
+            adr_number=11,
+            adr_title="Council Edits",
+            final_decision="REQUEST_CHANGES",
+            votes=[
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Clarify migration safety",
+                )
+            ],
+        )
+
+        reviewer._run_council_session = AsyncMock()
+        with patch.object(
+            reviewer,
+            "_clerk_self_review",
+            return_value=(False, "missing feedback items"),
+        ) as mock_self_review:
+            accepted = await reviewer._attempt_clerk_amend_and_revote(
+                result,
+                adr_path,
+                adr_dir,
+            )
+
+        assert accepted is False
+        mock_self_review.assert_called_once()
+        reviewer._run_council_session.assert_not_awaited()
+
+    def test_clerk_self_review_detects_missing_feedback(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        original = (
+            "# ADR-0012: Test\n\n"
+            "**Status:** Proposed\n\n"
+            "## Context\n\nA\n\n"
+            "## Decision\n\nB\n\n"
+            "## Consequences\n\nC\n"
+        )
+        amended = (
+            "# ADR-0012: Test\n\n"
+            "**Status:** Proposed\n\n"
+            "## Context\n\nA\n\n"
+            "## Decision\n\nB\n\n"
+            "## Consequences\n\nC\n\n"
+            "## Council Amendment Notes\n\n"
+            "- Editor: generic note"
+        )
+        result = ADRCouncilResult(
+            adr_number=12,
+            adr_title="Test",
+            final_decision="REQUEST_CHANGES",
+            votes=[
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Need explicit rollback strategy",
+                )
+            ],
+        )
+
+        ok, note = reviewer._clerk_self_review(
+            original=original,
+            amended=amended,
+            result=result,
+        )
+
+        assert ok is False
+        assert "missing feedback items" in note
+
 
 class TestHandleDuplicate:
     """Tests for _handle_duplicate."""
