@@ -24,6 +24,7 @@ function defaultMockContext(overrides = {}) {
     hitlItems: [],
     config,
     stageStatus: deriveStageStatus(pipelineIssues, workers, backgroundWorkers, {}, config),
+    refreshControlStatus: overrides.refreshControlStatus || vi.fn().mockResolvedValue(true),
     ...overrides,
   }
 }
@@ -362,6 +363,72 @@ describe('PipelineControlPanel', () => {
       rerender(<PipelineControlPanel />)
 
       // Should show server-confirmed value of 4
+      expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
+    })
+
+    it('calls refreshControlStatus after successful PATCH', async () => {
+      const refreshControlStatus = vi.fn().mockResolvedValue(true)
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ refreshControlStatus }))
+      render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      expect(refreshControlStatus).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not call refreshControlStatus on PATCH failure', async () => {
+      const refreshControlStatus = vi.fn().mockResolvedValue(true)
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 })
+      vi.stubGlobal('fetch', fetchMock)
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ refreshControlStatus }))
+      render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      expect(refreshControlStatus).not.toHaveBeenCalled()
+    })
+
+    it('does not call refreshControlStatus on network error', async () => {
+      const refreshControlStatus = vi.fn().mockResolvedValue(true)
+      const fetchMock = vi.fn().mockRejectedValue(new Error('Network error'))
+      vi.stubGlobal('fetch', fetchMock)
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ refreshControlStatus }))
+      render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      expect(refreshControlStatus).not.toHaveBeenCalled()
+    })
+
+    it('config update persists across component remount', async () => {
+      const refreshControlStatus = vi.fn().mockResolvedValue(true)
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      // Initial config: max_workers=3
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ refreshControlStatus }))
+      const { unmount } = render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      // Simulate refreshControlStatus updating the context config to max_workers=4
+      const updatedConfig = { max_triagers: 1, max_planners: 2, max_workers: 4, max_reviewers: 2 }
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({ config: updatedConfig, refreshControlStatus }))
+
+      // Unmount and remount
+      unmount()
+      render(<PipelineControlPanel />)
+
+      // After remount, the value should reflect the server-confirmed config (4)
       expect(screen.getByTestId('loop-count-implement')).toHaveTextContent('4')
     })
 

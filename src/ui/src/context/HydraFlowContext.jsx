@@ -1445,6 +1445,7 @@ export function HydraFlowProvider({ children }) {
     startOrchestrator,
     stopOrchestrator,
     releaseEpic,
+    refreshControlStatus,
   }
 
   return (
