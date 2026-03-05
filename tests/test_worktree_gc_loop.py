@@ -60,6 +60,7 @@ def _make_loop(
         interval_cb=None,
         is_in_pipeline_cb=lambda n: n in in_pipeline,
     )
+    loop._issue_has_pipeline_label = AsyncMock(return_value=False)  # type: ignore[method-assign]
     loop._git_worktree_prune = AsyncMock()  # type: ignore[method-assign]
     loop._collect_orphaned_branches = AsyncMock(return_value=0)  # type: ignore[method-assign]
     return loop, state, deps.stop_event
@@ -314,6 +315,19 @@ class TestWorktreeGCOrphanedBranches:
         assert count == 0
 
     @pytest.mark.asyncio
+    async def test_skips_branch_when_labels_show_pipeline(self, tmp_path: Path) -> None:
+        loop, _s, _e = _make_loop(tmp_path, pipeline_issues=set())
+        loop._collect_orphaned_branches = (
+            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+        )  # type: ignore[attr-defined]
+        loop._issue_has_pipeline_label = AsyncMock(return_value=True)  # type: ignore[method-assign]
+        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.return_value = "  agent/issue-99\n"
+            count = await loop._collect_orphaned_branches()
+        assert count == 0
+        assert m.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_branch_budget_cap(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._collect_orphaned_branches = (
@@ -362,6 +376,37 @@ class TestWorktreeGCSubprocessArgs:
         with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.side_effect = RuntimeError("gh failed")
             result = await loop._has_open_pr(42)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_issue_has_pipeline_label_parses_api_output(
+        self, tmp_path: Path
+    ) -> None:
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._issue_has_pipeline_label = (
+            WorktreeGCLoop._issue_has_pipeline_label.__get__(loop)
+        )  # type: ignore[attr-defined]
+        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.return_value = f"{loop._config.ready_label[0]}\nother-label\n"
+            result = await loop._issue_has_pipeline_label(42)
+        assert result is True
+        args = m.call_args[0]
+        assert args[0] == "gh"
+        assert args[1] == "api"
+        assert "issues/42" in args[2]
+        assert ".labels[].name" in args
+
+    @pytest.mark.asyncio
+    async def test_issue_has_pipeline_label_fails_safe_on_api_error(
+        self, tmp_path: Path
+    ) -> None:
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._issue_has_pipeline_label = (
+            WorktreeGCLoop._issue_has_pipeline_label.__get__(loop)
+        )  # type: ignore[attr-defined]
+        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.side_effect = RuntimeError("gh failed")
+            result = await loop._issue_has_pipeline_label(42)
         assert result is True
 
 
@@ -551,6 +596,17 @@ class TestIsSafeToGCDirect:
         assert await loop._is_safe_to_gc(42) is True
 
     @pytest.mark.asyncio
+    async def test_unsafe_for_open_issue_with_pipeline_label(
+        self, tmp_path: Path
+    ) -> None:
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._get_issue_state = AsyncMock(return_value="open")
+        loop._issue_has_pipeline_label = AsyncMock(return_value=True)  # type: ignore[method-assign]
+        loop._has_open_pr = AsyncMock(return_value=False)
+        assert await loop._is_safe_to_gc(42) is False
+        loop._has_open_pr.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_unsafe_on_api_error(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._get_issue_state = AsyncMock(side_effect=RuntimeError("API error"))
@@ -607,6 +663,25 @@ class TestWorktreeGCPipelineProtection:
         result = await loop._do_work()
         loop._worktrees.destroy.assert_awaited_once_with(42)
         assert result["collected"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_skips_when_store_pipeline_stale_but_labels_show_queued(
+        self, tmp_path: Path
+    ) -> None:
+        """GitHub labels protect queued issues even if IssueStore callback misses them."""
+        loop, state, _e = _make_loop(
+            tmp_path,
+            active_worktrees={42: "/p/42"},
+            pipeline_issues=set(),
+        )
+        loop._get_issue_state = AsyncMock(return_value="open")
+        loop._issue_has_pipeline_label = AsyncMock(return_value=True)  # type: ignore[method-assign]
+        loop._has_open_pr = AsyncMock(return_value=False)
+
+        result = await loop._do_work()
+        loop._worktrees.destroy.assert_not_awaited()
+        assert result["skipped"] == 1
+        assert 42 in state.get_active_worktrees()
 
     @pytest.mark.asyncio
     async def test_skips_orphaned_dir_for_pipeline_issue(self, tmp_path: Path) -> None:

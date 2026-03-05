@@ -116,6 +116,8 @@ class WorktreeGCLoop(BaseBackgroundLoop):
 
         Returns False (skip) on any uncertainty.
         """
+        safe_to_gc = False
+
         # Skip if active, HITL, or anywhere in the IssueStore pipeline
         # (queued, in-flight, or being processed).
         in_pipeline = self._is_in_pipeline and self._is_in_pipeline(issue_number)
@@ -125,7 +127,7 @@ class WorktreeGCLoop(BaseBackgroundLoop):
             or in_pipeline
         ):
             logger.debug("GC: #%d is active/HITL/pipeline — skipping", issue_number)
-            return False
+            return safe_to_gc
 
         # Check issue state via GitHub API
         try:
@@ -136,25 +138,62 @@ class WorktreeGCLoop(BaseBackgroundLoop):
                 issue_number,
                 exc_info=True,
             )
-            return False
+            return safe_to_gc
 
         if issue_state == "closed":
-            return True
-
-        # Issue is open — only GC if no open PR exists
-        if issue_state == "open":
-            try:
-                return not await self._has_open_pr(issue_number)
-            except Exception:
+            safe_to_gc = True
+        elif issue_state == "open":
+            # Guard against startup/refresh races where IssueStore has not yet
+            # observed pipeline membership. If GitHub labels indicate pipeline
+            # ownership, do not GC.
+            if await self._issue_has_pipeline_label(issue_number):
                 logger.debug(
-                    "GC: could not check PR for issue #%d — skipping",
+                    "GC: #%d still has pipeline labels on GitHub — skipping",
                     issue_number,
-                    exc_info=True,
                 )
-                return False
+            else:
+                try:
+                    safe_to_gc = not await self._has_open_pr(issue_number)
+                except Exception:
+                    logger.debug(
+                        "GC: could not check PR for issue #%d — skipping",
+                        issue_number,
+                        exc_info=True,
+                    )
 
-        # Unknown state — don't GC
-        return False
+        return safe_to_gc
+
+    async def _issue_has_pipeline_label(self, issue_number: int) -> bool:
+        """Return True when the issue currently carries any pipeline label."""
+        pipeline_labels = {
+            *(lbl.lower() for lbl in self._config.find_label),
+            *(lbl.lower() for lbl in self._config.planner_label),
+            *(lbl.lower() for lbl in self._config.ready_label),
+            *(lbl.lower() for lbl in self._config.review_label),
+            *(lbl.lower() for lbl in self._config.hitl_label),
+            *(lbl.lower() for lbl in self._config.hitl_active_label),
+        }
+        if not pipeline_labels:
+            return False
+        try:
+            output = await run_subprocess(
+                "gh",
+                "api",
+                f"repos/{self._config.repo}/issues/{issue_number}",
+                "--jq",
+                ".labels[].name",
+                cwd=self._config.repo_root,
+                gh_token=self._config.gh_token,
+            )
+        except Exception:
+            logger.debug(
+                "GC: could not fetch labels for issue #%d — skipping GC",
+                issue_number,
+                exc_info=True,
+            )
+            return True
+        labels = {line.strip().lower() for line in output.splitlines() if line.strip()}
+        return bool(labels & pipeline_labels)
 
     async def _get_issue_state(self, issue_number: int) -> str:
         """Query GitHub for the issue state ('open' or 'closed')."""
@@ -277,6 +316,8 @@ class WorktreeGCLoop(BaseBackgroundLoop):
             if issue_num in active_worktrees or issue_num in active_issues:
                 continue
             if self._is_in_pipeline and self._is_in_pipeline(issue_num):
+                continue
+            if await self._issue_has_pipeline_label(issue_num):
                 continue
             try:
                 await run_subprocess(
