@@ -33,8 +33,8 @@ class TestAdr0009Format:
     def test_has_title(self, content: str) -> None:
         assert content.startswith("# ADR-0019:")
 
-    def test_has_status_proposed(self, content: str) -> None:
-        assert "**Status:** Proposed" in content
+    def test_has_status_accepted(self, content: str) -> None:
+        assert "**Status:** Accepted" in content
 
     def test_has_date(self, content: str) -> None:
         assert "**Date:** 2026-03-01" in content
