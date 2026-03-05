@@ -44,7 +44,7 @@ class TestInitialization:
     def test_fresh_tracker_has_no_processed_issues(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should have no processed issues."""
         tracker = make_tracker(tmp_path)
-        assert tracker.to_dict()["processed_issues"].get(str(1)) is None
+        assert tracker.to_dict()["processed_issues"].get("1") is None
 
     def test_fresh_tracker_has_no_branches(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should have no branches."""
@@ -54,9 +54,10 @@ class TestInitialization:
     def test_fresh_tracker_has_no_reviewed_prs(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should have no reviewed PRs."""
         tracker = make_tracker(tmp_path)
-        assert tracker.to_dict()["reviewed_prs"].get(str(1)) is None
+        assert tracker.to_dict()["reviewed_prs"].get("1") is None
 
     def test_defaults_structure_matches_expected_keys(self, tmp_path: Path) -> None:
+        """A fresh tracker should expose exactly the known set of state keys."""
         tracker = make_tracker(tmp_path)
         d = tracker.to_dict()
         expected_keys = {
