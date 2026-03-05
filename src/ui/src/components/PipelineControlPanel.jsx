@@ -96,7 +96,7 @@ function PipelineWorkerCard({ workerKey, worker }) {
 }
 
 export function PipelineControlPanel({ onToggleBgWorker }) {
-  const { workers, stageStatus, hitlItems } = useHydraFlow()
+  const { workers, stageStatus, hitlItems, refreshControlStatus } = useHydraFlow()
   const workerCaps = stageStatus?.workerCaps || {}
 
   const [localCaps, setLocalCaps] = useState({})
@@ -124,7 +124,9 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [configKey]: newValue, persist: true }),
       })
-      if (!res.ok) {
+      if (res.ok) {
+        await refreshControlStatus()
+      } else {
         setLocalCaps(caps => {
           const next = { ...caps }
           delete next[loopKey]
@@ -138,7 +140,7 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
         return next
       })
     }
-  }, [])
+  }, [refreshControlStatus])
 
   const pipelineWorkers = Object.entries(workers || {}).filter(
     ([, w]) => w.role && ACTIVE_STATUSES.includes(w.status)
