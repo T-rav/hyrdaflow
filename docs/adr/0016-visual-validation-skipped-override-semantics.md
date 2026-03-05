@@ -1,6 +1,6 @@
 # ADR-0016: VisualValidation SKIPPED Override Semantics — Partial Suppression by Design
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context
