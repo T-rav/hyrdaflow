@@ -1,6 +1,6 @@
 # ADR-0014: Session Counter Forward-Progression Semantics
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context
