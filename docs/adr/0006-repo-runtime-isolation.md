@@ -1,6 +1,6 @@
 # ADR-0006: RepoRuntime Isolation Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-28
 
 ## Context
