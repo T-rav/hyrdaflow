@@ -372,7 +372,7 @@ def get_escalation_data(
     results: list[dict[str, str | int | list[str]]] = []
     for cat, count in cat_counts.most_common(top_n):
         if count < threshold:
-            continue
+            break
         if cat not in CATEGORY_ESCALATIONS:
             continue
         esc = CATEGORY_ESCALATIONS[cat]

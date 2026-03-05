@@ -527,6 +527,78 @@ class TestBuildPrompt:
 
 
 # ---------------------------------------------------------------------------
+# AgentRunner._get_escalation_data
+# ---------------------------------------------------------------------------
+
+
+class TestGetEscalationData:
+    """Tests for the _get_escalation_data method (JSON round-trip and error handling)."""
+
+    def test_returns_empty_list_when_no_reviews(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """Returns [] when context cache returns empty string."""
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner._context_cache,
+            "get_or_load",
+            return_value=("", False),
+        ):
+            result = runner._get_escalation_data()
+        assert result == []
+
+    def test_returns_deserialized_escalations(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """Deserializes JSON returned from cache back to list of dicts."""
+        import json
+
+        escalation = {
+            "category": "missing_tests",
+            "count": 4,
+            "mandatory_block": "## Mandatory Requirements\nTests are required.",
+            "checklist_items": ["- [ ] Every function has a test"],
+            "pre_quality_guidance": "Check tests.",
+        }
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner._context_cache,
+            "get_or_load",
+            return_value=(json.dumps([escalation]), False),
+        ):
+            result = runner._get_escalation_data()
+        assert len(result) == 1
+        assert result[0]["category"] == "missing_tests"
+        assert result[0]["count"] == 4
+
+    def test_returns_empty_list_on_json_error(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """Returns [] when cache contains malformed JSON."""
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner._context_cache,
+            "get_or_load",
+            return_value=("not-valid-json", False),
+        ):
+            result = runner._get_escalation_data()
+        assert result == []
+
+    def test_returns_empty_list_on_cache_exception(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """Returns [] when the cache raises an unexpected exception."""
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner._context_cache,
+            "get_or_load",
+            side_effect=OSError("disk error"),
+        ):
+            result = runner._get_escalation_data()
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
 # AgentRunner.run — success path
 # ---------------------------------------------------------------------------
 
