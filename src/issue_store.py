@@ -470,6 +470,12 @@ class IssueStore:
         """Return True if the task is currently being processed."""
         return task_id in self._active
 
+    def is_in_pipeline(self, issue_number: int) -> bool:
+        """Return True if the issue is queued, in-flight, or active."""
+        if issue_number in self._active or issue_number in self._in_flight:
+            return True
+        return any(any(t.id == issue_number for t in q) for q in self._queues.values())
+
     def get_active_issues(self) -> dict[int, str]:
         """Return a copy of the active issue tracking dict."""
         return dict(self._active)

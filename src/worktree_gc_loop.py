@@ -42,6 +42,7 @@ class WorktreeGCLoop(BaseBackgroundLoop):
         enabled_cb: Callable[[str], bool],
         sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
         interval_cb: Callable[[str], int] | None = None,
+        is_in_pipeline_cb: Callable[[int], bool] | None = None,
     ) -> None:
         super().__init__(
             worker_name="worktree_gc",
@@ -56,6 +57,7 @@ class WorktreeGCLoop(BaseBackgroundLoop):
         self._worktrees = worktrees
         self._prs = prs
         self._state = state
+        self._is_in_pipeline = is_in_pipeline_cb
 
     def _get_default_interval(self) -> int:
         return self._config.worktree_gc_interval
@@ -114,11 +116,15 @@ class WorktreeGCLoop(BaseBackgroundLoop):
 
         Returns False (skip) on any uncertainty.
         """
-        # Skip if currently being processed or HITL in progress
+        # Skip if active, HITL, or anywhere in the IssueStore pipeline
+        # (queued, in-flight, or being processed).
+        in_pipeline = self._is_in_pipeline and self._is_in_pipeline(issue_number)
         if (
             issue_number in self._state.get_active_issue_numbers()
             or self._state.get_hitl_cause(issue_number) is not None
+            or in_pipeline
         ):
+            logger.debug("GC: #%d is active/HITL/pipeline — skipping", issue_number)
             return False
 
         # Check issue state via GitHub API
@@ -267,8 +273,10 @@ class WorktreeGCLoop(BaseBackgroundLoop):
             if not match:
                 continue
             issue_num = int(match.group(1))
-            # Skip if worktree exists or issue is active
+            # Skip if worktree exists, issue is active, or in pipeline
             if issue_num in active_worktrees or issue_num in active_issues:
+                continue
+            if self._is_in_pipeline and self._is_in_pipeline(issue_num):
                 continue
             try:
                 await run_subprocess(

@@ -953,6 +953,43 @@ class TestInFlightProtection:
         assert store._eagerly_transitioned == {}
 
 
+# ── Pipeline Membership Check ──────────────────────────────────────
+
+
+class TestIsInPipeline:
+    """Tests for is_in_pipeline() used by worktree GC safety checks."""
+
+    def test_queued_issue_is_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        assert store.is_in_pipeline(1) is True
+
+    def test_in_flight_issue_is_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)  # dequeues → in-flight
+        assert store.is_in_pipeline(1) is True
+
+    def test_active_issue_is_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        store.mark_active(1, STAGE_PLAN)
+        assert store.is_in_pipeline(1) is True
+
+    def test_completed_issue_not_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        store.mark_active(1, STAGE_PLAN)
+        store.mark_complete(1)
+        assert store.is_in_pipeline(1) is False
+
+    def test_unknown_issue_not_in_pipeline(self) -> None:
+        store = _make_store()
+        assert store.is_in_pipeline(999) is False
+
+
 # ── Eager Transition Protection ─────────────────────────────────────
 
 
