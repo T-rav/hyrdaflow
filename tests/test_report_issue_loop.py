@@ -310,3 +310,201 @@ class TestReportIssueLoopInterval:
         """The default interval comes from config.report_issue_interval."""
         loop, _stop, _state, _pr = _make_loop(tmp_path)
         assert loop._get_default_interval() == 30
+
+
+# ---------------------------------------------------------------------------
+# Enrichment prompt structure tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichmentPromptStructure:
+    """Tests verifying the enriched prompt instructs the agent to research
+    the codebase and produce a well-structured issue."""
+
+    @pytest.mark.asyncio
+    async def test_prompt_instructs_codebase_research(self, tmp_path: Path) -> None:
+        """The prompt tells the agent to search the codebase."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="rename the processes subtab toggles please")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        # The prompt should instruct the agent to research the codebase
+        assert "codebase" in prompt.lower()
+        assert "Grep" in prompt or "Search" in prompt or "research" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_prompt_requires_structured_issue_body(self, tmp_path: Path) -> None:
+        """The prompt specifies the required issue body sections."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="unicode chars instead of status or labels is not helpful"
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        # The prompt should require key sections
+        assert "Problem" in prompt
+        assert "Acceptance Criteria" in prompt
+        assert "Scope" in prompt or "Proposed Solution" in prompt
+
+    @pytest.mark.asyncio
+    async def test_prompt_includes_screenshot_url_when_available(
+        self, tmp_path: Path
+    ) -> None:
+        """When a screenshot was uploaded, its URL appears in the prompt."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="UI looks wrong",
+            screenshot_base64="iVBORw0KGgo=",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert "https://gist.example.com/screenshot.png" in prompt
+
+    @pytest.mark.asyncio
+    async def test_prompt_uses_raw_report_delimiter(self, tmp_path: Path) -> None:
+        """The raw user report is delimited for the agent to interpret."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="fix the thing")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert "RAW REPORT" in prompt
+        assert "fix the thing" in prompt
+
+    @pytest.mark.asyncio
+    async def test_prompt_instructs_title_not_raw_copy(self, tmp_path: Path) -> None:
+        """The prompt tells the agent not to just copy the user's raw text as the title."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="stuff is bad")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        # The prompt should tell the agent to NOT just copy user text
+        assert "NOT" in prompt or "not" in prompt.lower()
+        assert "title" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_max_turns_increased_for_research(self, tmp_path: Path) -> None:
+        """max_turns is increased to allow the agent to research the codebase."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="something broken")
+        state.enqueue_report(report)
+
+        with (
+            patch(
+                "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+            ) as mock_stream,
+            patch(
+                "report_issue_loop.build_agent_command",
+                wraps=__import__("agent_cli").build_agent_command,
+            ) as mock_build,
+        ):
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        # build_agent_command should have been called with max_turns > 3
+        call_kwargs = mock_build.call_args
+        assert (
+            call_kwargs.kwargs.get("max_turns", call_kwargs[1].get("max_turns", 0))
+            >= 10
+        )
+
+    @pytest.mark.asyncio
+    async def test_fallback_uses_basic_description(self, tmp_path: Path) -> None:
+        """When the agent fails, the fallback issue body is based on the raw description."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = PendingReport(description="Login is broken after update")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.side_effect = RuntimeError("agent died")
+            await loop._do_work()
+
+        # Fallback should call create_issue with the raw description
+        call_args = pr_mgr.create_issue.call_args
+        fallback_title = call_args[0][0]
+        fallback_body = call_args[0][1]
+        assert "[Bug Report]" in fallback_title
+        assert "Login is broken after update" in fallback_body
+
+    @pytest.mark.asyncio
+    async def test_fallback_includes_screenshot_in_body(self, tmp_path: Path) -> None:
+        """When the agent fails and a screenshot was uploaded, fallback body includes it."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="UI bug",
+            screenshot_base64="iVBORw0KGgo=",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.side_effect = RuntimeError("agent died")
+            await loop._do_work()
+
+        call_args = pr_mgr.create_issue.call_args
+        fallback_body = call_args[0][1]
+        assert "Screenshot" in fallback_body or "screenshot" in fallback_body.lower()
+        assert "https://gist.example.com/screenshot.png" in fallback_body
+
+    @pytest.mark.asyncio
+    async def test_environment_in_enriched_prompt(self, tmp_path: Path) -> None:
+        """Environment context from the dashboard is included in the enriched prompt."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="Something broke",
+            environment={
+                "source": "dashboard",
+                "app_version": "3.1.0",
+                "orchestrator_status": "running",
+                "queue_depths": {"triage": 5, "plan": 0, "implement": 2, "review": 1},
+            },
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "done"
+            await loop._do_work()
+
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert "3.1.0" in prompt
+        assert "running" in prompt
+        assert "dashboard" in prompt
