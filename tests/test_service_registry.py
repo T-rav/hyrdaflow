@@ -139,12 +139,7 @@ class TestServiceRegistryWiring:
         ("review phase", attrgetter("reviewer._stop_event")),
         ("hitl phase", attrgetter("hitl_phase._stop_event")),
     ]
-    _PHASE_BUS_PUBLISHERS = [
-        ("triage phase", attrgetter("triager._bus")),
-        ("plan phase", attrgetter("planner_phase._bus")),
-        ("review phase", attrgetter("reviewer._bus")),
-        ("hitl phase", attrgetter("hitl_phase._bus")),
-    ]
+    _PHASE_BUS_PUBLISHERS = _BUS_TARGETS[:4]
 
     @staticmethod
     def _build_registry(
