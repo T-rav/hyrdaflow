@@ -1,6 +1,6 @@
 # ADR-0006: RepoRuntime Isolation Architecture
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-02-28
 
 ## Context
@@ -61,6 +61,7 @@ Key elements:
 
 ## Related
 
+- Superseded by: ADR-0009
 - Source memory: #1615
 - Implementation: #1467
 - `src/orchestrator.py`, `src/state.py`, `src/issue_store.py`, `src/events.py`

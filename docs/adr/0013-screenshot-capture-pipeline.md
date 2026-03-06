@@ -1,6 +1,6 @@
 # ADR-0013: Screenshot Capture Pipeline Architecture
 
-**Status:** Proposed
+**Status:** Superseded
 **Date:** 2026-03-01
 
 ## Context
@@ -131,6 +131,7 @@ images are filtered out, and the DOM sanitizer strips external resources).
 
 ## Related
 
+- Superseded by: ADR-0018
 - Source memory: #1700
 - ADR issue: #1704
 - `src/ui/src/components/Header.jsx` (capture + three-tier fallback)

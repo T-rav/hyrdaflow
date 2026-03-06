@@ -116,6 +116,19 @@ class TestFindProposedADRs:
         assert len(result) == 1
         assert result[0][0] == 1
 
+    def test_superseded_adr_not_in_proposed(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 1, "Old ADR", "Superseded")
+        _write_adr(adr_dir, 2, "New ADR", "Proposed")
+        reviewer = _make_reviewer(tmp_path)
+
+        proposed = reviewer._find_proposed_adrs(adr_dir)
+        assert len(proposed) == 1
+        assert proposed[0][0] == 2
+
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        assert {entry[0] for entry in all_adrs} == {1, 2}
+
 
 class TestLoadAllADRs:
     """Tests for _load_all_adrs."""
@@ -163,6 +176,14 @@ class TestBuildIndexContext:
         assert "ADR-0002" in result
         assert "Accepted" in result
         assert "Proposed" in result
+
+    def test_build_index_context_shows_superseded_status(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 5, "Superseded ADR", "Superseded")
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        result = reviewer._build_index_context(all_adrs)
+        assert "Status: Superseded" in result
 
 
 class TestDuplicateDetection:
