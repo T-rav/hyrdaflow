@@ -1167,6 +1167,21 @@ class TestBuildMounts:
         assert mounts["/tmp/worktree"]["bind"] == "/workspace"
         assert mounts["/tmp/worktree"]["mode"] == "rw"
 
+    def test_cwd_equals_repo_root_does_not_clobber_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        repo = tmp_path / "repo"
+        runner, _ = _make_runner(repo_root=repo, log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        # When cwd matches repo_root, /workspace must survive — /repo is skipped
+        mounts = runner._build_mounts(str(repo))
+
+        assert str(repo) in mounts
+        assert mounts[str(repo)]["bind"] == "/workspace"
+        assert mounts[str(repo)]["mode"] == "rw"
+        assert "/repo" not in [v["bind"] for v in mounts.values()]
+
     def test_no_workspace_when_cwd_is_none(self, tmp_path: Path) -> None:
         runner, _ = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)

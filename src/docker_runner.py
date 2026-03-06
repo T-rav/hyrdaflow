@@ -340,7 +340,11 @@ class DockerRunner:
         mounts: dict[str, dict[str, str]] = {}
         if cwd:
             mounts[cwd] = {"bind": "/workspace", "mode": "rw"}
-        mounts[str(self._repo_root)] = {"bind": "/repo", "mode": "ro"}
+        # Only mount /repo separately when it differs from cwd — otherwise
+        # the dict key collision overwrites the /workspace mount with /repo.
+        repo_str = str(self._repo_root)
+        if repo_str != cwd:
+            mounts[repo_str] = {"bind": "/repo", "mode": "ro"}
 
         # Mount the main .git directory (rw) so worktrees can commit.
         # Worktree .git files reference <repo>/.git/worktrees/<name> which
