@@ -255,12 +255,21 @@ class IssueStore:
             if stage == STAGE_HITL:
                 self._hitl_numbers.add(task_id)
                 self._remove_from_all_queues(task_id)
+                logger.info("QUEUE_ADD #%d → hitl", task_id)
                 continue
             current_stage = self._find_queue_stage(task_id)
             if current_stage == stage:
                 continue
             if current_stage is not None:
+                logger.info("QUEUE_MOVE #%d %s → %s", task_id, current_stage, stage)
                 self._remove_from_queue(current_stage, task_id)
+            else:
+                logger.info(
+                    "QUEUE_ADD #%d → %s (queue depth: %d)",
+                    task_id,
+                    stage,
+                    len(self._queues[stage]) + 1,
+                )
             self._hitl_numbers.discard(task_id)
             self._queues[stage].append(task)
             self._queue_members[stage].add(task_id)
@@ -277,6 +286,16 @@ class IssueStore:
         stage_map = self._compute_stage_map(tasks)
         incoming_ids = set(stage_map.keys())
         self._route_incoming_tasks(stage_map)
+        depths: dict[str, int] = {s: len(q) for s, q in self._queues.items()}
+        depths["hitl"] = len(self._hitl_numbers)
+        logger.info(
+            "QUEUE_REFRESH fetched=%d routed=%d depths=%s active=%d in_flight=%d",
+            len(tasks),
+            len(stage_map),
+            depths,
+            len(self._active),
+            len(self._in_flight),
+        )
 
         # Prune eagerly-transitioned entries for issues that vanished
         # entirely (e.g. closed issues no longer returned by the fetcher).
@@ -320,6 +339,12 @@ class IssueStore:
                 t for t in self._queues[stage] if t.id != issue_number
             )
             self._queue_members[stage].discard(issue_number)
+            logger.info(
+                "QUEUE_REMOVE #%d from %s (remaining: %d)",
+                issue_number,
+                stage,
+                len(self._queues[stage]),
+            )
 
     def _remove_from_all_queues(self, issue_number: int) -> None:
         """Remove an issue from all regular queues."""
@@ -353,17 +378,27 @@ class IssueStore:
         if stage == STAGE_HITL:
             self._hitl_numbers.add(task.id)
             self._eagerly_transitioned[task.id] = stage
+            logger.info("QUEUE_TRANSITION #%d → hitl (eager)", task.id)
             self._publish_queue_update_nowait()
             return
 
         if task.id in self._queue_members[stage]:
             self._dedup_stats["queued_entries"] += 1
             self._eagerly_transitioned[task.id] = stage
+            logger.info(
+                "QUEUE_TRANSITION #%d → %s (already queued, dedup)", task.id, stage
+            )
             self._publish_queue_update_nowait()
             return
         self._queues[stage].append(task)
         self._queue_members[stage].add(task.id)
         self._eagerly_transitioned[task.id] = stage
+        logger.info(
+            "QUEUE_TRANSITION #%d → %s (eager, depth: %d)",
+            task.id,
+            stage,
+            len(self._queues[stage]),
+        )
         self._publish_queue_update_nowait()
 
     # ------------------------------------------------------------------
@@ -425,6 +460,12 @@ class IssueStore:
         if result:
             for t in result:
                 self._in_flight[t.id] = stage
+                logger.info(
+                    "QUEUE_TAKE #%d from %s → in_flight (remaining: %d)",
+                    t.id,
+                    stage,
+                    len(q),
+                )
             self._publish_queue_update_nowait()
         return result
 
@@ -436,6 +477,7 @@ class IssueStore:
         """Mark a task as actively being processed in *stage*."""
         self._in_flight.pop(task_id, None)
         self._active[task_id] = stage
+        logger.info("QUEUE_ACTIVE #%d in %s", task_id, stage)
         self._publish_queue_update_nowait()
 
     def mark_complete(self, task_id: int) -> None:
@@ -444,6 +486,7 @@ class IssueStore:
         stage = self._active.pop(task_id, None)
         if stage and stage in self._processed_count:
             self._processed_count[stage] += 1
+        logger.info("QUEUE_COMPLETE #%d from %s", task_id, stage or "unknown")
         self._publish_queue_update_nowait()
 
     def is_active(self, task_id: int) -> bool:
