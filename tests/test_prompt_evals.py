@@ -300,8 +300,7 @@ def test_triage_prompt_eval_edge_json_contract_markers(tmp_path: Path) -> None:
 
     prompt = runner._build_prompt(task, max_body=1000)
 
-    assert '{"ready": true, "reasons": [], "issue_type": "feature"}' in prompt
-    assert (
-        '{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"], "issue_type": "bug"}'
-        in prompt
-    )
+    assert '"ready": true' in prompt
+    assert '"enrichment"' in prompt
+    assert '"ready": false' in prompt
+    assert '"reasons"' in prompt

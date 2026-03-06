@@ -187,7 +187,7 @@ class TriageRunner(BaseRunner):
         body, body_before, body_after = truncate_with_notice(
             issue.body or "", max_body, label="Issue body"
         )
-        prompt = f"""You are a triage agent evaluating whether a GitHub issue has enough detail for an implementation planning agent to succeed.
+        prompt = f"""You are a triage agent evaluating a GitHub issue and enriching it if needed so a planning agent can succeed.
 
 ## Issue #{issue.id}
 
@@ -214,21 +214,21 @@ Also classify the issue as one of:
 
 ## Instructions
 
-- If ALL criteria are met, return `"ready": true`
-- If ANY criterion fails, return `"ready": false` with specific, helpful feedback
-- Be specific in your reasons (e.g., "Missing expected vs actual behavior" not just "lacks detail")
-- Err on the side of passing well-written issues through — only reject clearly insufficient ones
+- **Default to passing issues through.** Most issues have enough intent to begin planning.
+- Only return `"ready": false` if the issue is truly incomprehensible or has zero actionable content.
+- If the issue is informal, vague, or missing detail but the *intent* is clear, return `"ready": true` and provide an `"enrichment"` string that fills in the gaps (expected behavior, affected areas, acceptance criteria, etc.). The enrichment will be posted as a comment to help the planning agent.
+- If no enrichment is needed, set `"enrichment"` to an empty string.
 
 Return ONLY a JSON object in this exact format, with no other text:
 
 ```json
-{{"ready": true, "reasons": [], "issue_type": "feature"}}
+{{"ready": true, "reasons": [], "issue_type": "feature", "enrichment": "## Triage Enrichment\\n\\n**Interpreted intent:** ...\\n**Affected area:** ...\\n**Acceptance criteria:**\\n- ..."}}
 ```
 
-or
+or for truly insufficient issues:
 
 ```json
-{{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"], "issue_type": "bug"}}
+{{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "enrichment": ""}}
 ```
 """
         stats = build_prompt_stats(
@@ -292,12 +292,15 @@ or
         issue_type = str(issue_type_raw).lower() if issue_type_raw else "feature"
         if issue_type not in ("feature", "bug", "epic"):
             issue_type = "feature"
+        enrichment_raw = data.get("enrichment", "")
+        enrichment = str(enrichment_raw).strip() if enrichment_raw else ""
         return TriageResult(
             issue_number=issue_number,
             ready=_coerce_ready(data["ready"]),
             reasons=_coerce_reasons(raw),
             complexity_score=max(0, min(score, 10)),
             issue_type=issue_type,
+            enrichment=enrichment,
         )
 
     @staticmethod

@@ -225,6 +225,7 @@ class TriageResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     complexity_score: int = 0
     issue_type: str = "feature"  # "feature" | "bug" | "epic"
+    enrichment: str = ""
 
 
 class EpicDecompResult(BaseModel):
