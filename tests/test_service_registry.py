@@ -17,8 +17,6 @@ if TYPE_CHECKING:
 
 from unittest.mock import patch
 
-import pytest
-
 from events import EventBus, EventType, HydraFlowEvent
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
 from state import StateTracker
@@ -124,6 +122,8 @@ class TestServiceRegistryWiring:
         ("triage runner", attrgetter("triage._bus")),
         ("pr manager", attrgetter("prs._bus")),
         ("issue store", attrgetter("store._bus")),
+        # Note: ImplementPhase is intentionally absent — it does not accept event_bus
+        # in its constructor; events flow through its sub-runners (agents._bus, etc.).
     ]
     _STATE_TARGETS = [
         ("triage phase", attrgetter("triager._state")),
@@ -139,7 +139,14 @@ class TestServiceRegistryWiring:
         ("review phase", attrgetter("reviewer._stop_event")),
         ("hitl phase", attrgetter("hitl_phase._stop_event")),
     ]
-    _PHASE_BUS_PUBLISHERS = _BUS_TARGETS[:4]
+    # Explicit list of phase objects (not runners) that can publish on the shared bus.
+    # Kept separate from _BUS_TARGETS to avoid a fragile index-based slice.
+    _PHASE_BUS_PUBLISHERS = [
+        ("triage phase", attrgetter("triager._bus")),
+        ("plan phase", attrgetter("planner_phase._bus")),
+        ("review phase", attrgetter("reviewer._bus")),
+        ("hitl phase", attrgetter("hitl_phase._bus")),
+    ]
 
     @staticmethod
     def _build_registry(
@@ -172,7 +179,6 @@ class TestServiceRegistryWiring:
         for label, getter in self._STOP_EVENT_TARGETS:
             assert getter(registry) is stop_event, f"{label} not wired to stop_event"
 
-    @pytest.mark.asyncio
     async def test_event_bus_propagation(self, config: HydraFlowConfig) -> None:
         registry, bus, _, _ = self._build_registry(config)
         queue = bus.subscribe()
