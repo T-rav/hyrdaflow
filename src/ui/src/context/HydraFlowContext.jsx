@@ -683,7 +683,15 @@ export function reducer(state, action) {
       }
 
     case 'SET_CENTRALIZED_DATA':
-      return { ...state, ...action.data }
+      return {
+        ...state,
+        issueHistory: action.data?.issueHistory ?? state.issueHistory,
+        harnessInsights: action.data?.harnessInsights ?? state.harnessInsights,
+        reviewInsights: action.data?.reviewInsights ?? state.reviewInsights,
+        retrospectives: action.data?.retrospectives ?? state.retrospectives,
+        troubleshooting: action.data?.troubleshooting ?? state.troubleshooting,
+        memories: action.data?.memories ?? state.memories,
+      }
 
     case 'DELETE_SESSION':
       return {

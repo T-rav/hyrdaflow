@@ -42,12 +42,35 @@ describe('deriveStageStatus', () => {
     })
   })
 
-  it('returns all zeros when pipelineStats is null (no backend yet)', () => {
+  it('returns all zeros and null workerCaps when pipelineStats is null', () => {
     const result = deriveStageStatus(null, null, null, null)
 
     expect(result.triage.issueCount).toBe(0)
     expect(result.triage.sessionCount).toBe(0)
+    expect(result.triage.activeCount).toBe(0)
+    expect(result.triage.queuedCount).toBe(0)
+    expect(result.triage.workerCount).toBe(0)
     expect(result.workload.total).toBe(0)
+    expect(result.workload.done).toBe(0)
+    expect(result.workerCaps).toEqual({
+      triage: null, plan: null, implement: null, review: null,
+    })
+  })
+
+  it('handles partial pipelineStats stages (some stages missing)', () => {
+    const stats = makePipelineStats({
+      triage: { queued: 2, active: 1, completed_session: 5, completed_lifetime: 10, worker_count: 1, worker_cap: 2 },
+    })
+    delete stats.stages.plan
+    delete stats.stages.implement
+
+    const result = deriveStageStatus(emptyPipeline, {}, [], stats)
+
+    expect(result.triage.sessionCount).toBe(5)
+    expect(result.triage.workerCount).toBe(1)
+    expect(result.plan.sessionCount).toBe(0)
+    expect(result.plan.workerCount).toBe(0)
+    expect(result.implement.sessionCount).toBe(0)
   })
 
   it('uses pipelineStats for sessionCount, activeCount, queuedCount, workerCount', () => {

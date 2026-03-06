@@ -82,7 +82,7 @@ export function HarnessInsightsPanel() {
     return <div style={styles.empty}>Loading harness insights...</div>
   }
 
-  if (!data || data.total_failures === 0) {
+  if (data.total_failures === 0) {
     return <div style={styles.empty}>No failure patterns detected yet.</div>
   }
 

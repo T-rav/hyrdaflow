@@ -135,6 +135,48 @@ describe('HydraFlowContext reducer', () => {
   })
 })
 
+describe('SET_CENTRALIZED_DATA reducer', () => {
+  it('merges whitelisted fields into state', () => {
+    const data = {
+      issueHistory: { items: [{ issue_number: 1 }], totals: {} },
+      harnessInsights: { total_failures: 5 },
+      reviewInsights: { total_reviews: 3 },
+    }
+    const next = reducer(initialState, { type: 'SET_CENTRALIZED_DATA', data })
+    expect(next.issueHistory).toEqual(data.issueHistory)
+    expect(next.harnessInsights).toEqual(data.harnessInsights)
+    expect(next.reviewInsights).toEqual(data.reviewInsights)
+    expect(next.retrospectives).toBeNull()
+    expect(next.troubleshooting).toBeNull()
+    expect(next.memories).toBeNull()
+  })
+
+  it('preserves previous values for fields not in update', () => {
+    const prev = {
+      ...initialState,
+      issueHistory: { items: [{ issue_number: 1 }], totals: {} },
+      memories: { total_items: 10, items: [] },
+    }
+    const next = reducer(prev, {
+      type: 'SET_CENTRALIZED_DATA',
+      data: { harnessInsights: { total_failures: 2 } },
+    })
+    expect(next.issueHistory).toEqual(prev.issueHistory)
+    expect(next.memories).toEqual(prev.memories)
+    expect(next.harnessInsights).toEqual({ total_failures: 2 })
+  })
+
+  it('ignores unknown fields in data payload', () => {
+    const next = reducer(initialState, {
+      type: 'SET_CENTRALIZED_DATA',
+      data: { connected: false, phase: 'done', issueHistory: { items: [] } },
+    })
+    expect(next.connected).toBe(false) // from initialState, not overwritten
+    expect(next.phase).toBe('idle') // from initialState, not overwritten
+    expect(next.issueHistory).toEqual({ items: [] })
+  })
+})
+
 describe('PIPELINE_SNAPSHOT reducer', () => {
   it('reconciles stage membership with server snapshot data', () => {
     const state = {
