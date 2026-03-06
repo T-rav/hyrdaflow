@@ -1154,6 +1154,22 @@ class TestDockerProcessKillSuppression:
 # ---------------------------------------------------------------------------
 
 
+class TestBuildContainerKwargs:
+    """Tests for build_container_kwargs."""
+
+    def test_tmpfs_includes_writable_home(self) -> None:
+        from docker_runner import build_container_kwargs
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(execution_mode="docker")
+        kwargs = build_container_kwargs(config)
+        tmpfs = kwargs["tmpfs"]
+        assert "/tmp" in tmpfs
+        assert "/home/hydraflow" in tmpfs
+        assert "uid=1000" in tmpfs["/home/hydraflow"]
+        assert "gid=1000" in tmpfs["/home/hydraflow"]
+
+
 class TestBuildMounts:
     """Tests for DockerRunner._build_mounts."""
 

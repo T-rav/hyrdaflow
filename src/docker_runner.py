@@ -87,9 +87,10 @@ def build_container_kwargs(config: HydraFlowConfig) -> dict[str, Any]:
     # /tmp: general temp files.
     # /home/hydraflow: agent tools (uv, npm, etc.) need a writable HOME for
     # caches and config even when the root filesystem is read-only.
+    # uid/gid=1000 matches the container's hydraflow user.
     kwargs["tmpfs"] = {
         "/tmp": f"size={config.docker_tmp_size}",  # nosec B108
-        _CONTAINER_HOME: f"size={config.docker_tmp_size}",
+        _CONTAINER_HOME: f"size={config.docker_tmp_size},uid=1000,gid=1000",
     }
 
     logger.info(
