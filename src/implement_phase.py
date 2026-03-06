@@ -17,7 +17,7 @@ from phase_utils import (
     is_adr_issue_title,
     record_harness_failure,
     release_batch_in_flight,
-    run_concurrent_batch,
+    run_refilling_pool,
     store_lifecycle,
 )
 from pr_manager import PRManager
@@ -74,18 +74,33 @@ class ImplementPhase:
         self,
         issues: list[Task] | None = None,
     ) -> tuple[list[WorkerResult], list[Task]]:
-        """Run implementation agents on *issues* concurrently.
+        """Run implementation agents concurrently using a slot-filling pool.
 
-        If *issues* is ``None``, pulls from the ``IssueStore`` ready queue.
-        Returns ``(worker_results, issues)`` so the caller has access
-        to the issue list for downstream phases.
+        If *issues* is ``None``, pulls from the ``IssueStore`` ready queue
+        continuously as slots free up.  If a fixed list is provided,
+        processes those items then returns.
         """
-        if issues is None:
-            issues = self._store.get_implementable(2 * self._config.max_workers)
-        if not issues:
-            return [], []
+        if issues is not None:
+            # Fixed list mode — process exactly these issues
+            items_iter = iter(issues)
+            exhausted = False
 
-        semaphore = asyncio.Semaphore(self._config.max_workers)
+            def _supply_fixed() -> list[Task]:
+                nonlocal exhausted
+                if exhausted:
+                    return []
+                item = next(items_iter, None)
+                if item is None:
+                    exhausted = True
+                    return []
+                return [item]
+        else:
+            issues = []
+
+            def _supply_fixed() -> list[Task]:
+                batch = self._store.get_implementable(1)
+                issues.extend(batch)
+                return batch
 
         async def _worker(idx: int, issue: Task) -> WorkerResult:
             if self._stop_event.is_set():
@@ -95,52 +110,45 @@ class ImplementPhase:
                     error="stopped",
                 )
 
-            async with semaphore:
-                if self._stop_event.is_set():
+            branch = f"agent/issue-{issue.id}"
+            async with self._active_issues_lock:
+                self._active_issues.add(issue.id)
+                self._state.set_active_issue_numbers(list(self._active_issues))
+            async with store_lifecycle(self._store, issue.id, "implement"):
+                self._state.mark_issue(issue.id, "in_progress")
+                self._state.set_branch(issue.id, branch)
+
+                try:
+                    return await self._worker_inner(idx, issue, branch)
+                except (AuthenticationError, CreditExhaustedError, MemoryError):
+                    raise
+                except Exception:
+                    logger.exception("Worker failed for issue #%d", issue.id)
+                    self._state.mark_issue(issue.id, "failed")
+                    record_harness_failure(
+                        self._harness_insights,
+                        issue.id,
+                        FailureCategory.IMPLEMENTATION_ERROR,
+                        f"Worker exception for issue #{issue.id}",
+                        stage=PipelineStage.IMPLEMENT,
+                    )
                     return WorkerResult(
                         issue_number=issue.id,
-                        branch=f"agent/issue-{issue.id}",
-                        error="stopped",
+                        branch=branch,
+                        error=f"Worker exception for issue #{issue.id}",
                     )
+                finally:
+                    async with self._active_issues_lock:
+                        self._active_issues.discard(issue.id)
+                        self._state.set_active_issue_numbers(list(self._active_issues))
+                    release_batch_in_flight(self._store, {issue.id})
 
-                branch = f"agent/issue-{issue.id}"
-                async with self._active_issues_lock:
-                    self._active_issues.add(issue.id)
-                    self._state.set_active_issue_numbers(list(self._active_issues))
-                async with store_lifecycle(self._store, issue.id, "implement"):
-                    self._state.mark_issue(issue.id, "in_progress")
-                    self._state.set_branch(issue.id, branch)
-
-                    try:
-                        return await self._worker_inner(idx, issue, branch)
-                    except (AuthenticationError, CreditExhaustedError, MemoryError):
-                        raise
-                    except Exception:
-                        logger.exception("Worker failed for issue #%d", issue.id)
-                        self._state.mark_issue(issue.id, "failed")
-                        record_harness_failure(
-                            self._harness_insights,
-                            issue.id,
-                            FailureCategory.IMPLEMENTATION_ERROR,
-                            f"Worker exception for issue #{issue.id}",
-                            stage=PipelineStage.IMPLEMENT,
-                        )
-                        return WorkerResult(
-                            issue_number=issue.id,
-                            branch=branch,
-                            error=f"Worker exception for issue #{issue.id}",
-                        )
-                    finally:
-                        async with self._active_issues_lock:
-                            self._active_issues.discard(issue.id)
-                            self._state.set_active_issue_numbers(
-                                list(self._active_issues)
-                            )
-
-        try:
-            all_results = await run_concurrent_batch(issues, _worker, self._stop_event)
-        finally:
-            release_batch_in_flight(self._store, {i.id for i in issues})
+        all_results = await run_refilling_pool(
+            supply_fn=_supply_fixed,
+            worker_fn=_worker,
+            max_concurrent=self._config.max_workers,
+            stop_event=self._stop_event,
+        )
         return all_results, issues
 
     async def _worker_inner(self, idx: int, issue: Task, branch: str) -> WorkerResult:
@@ -455,7 +463,10 @@ class ImplementPhase:
             "`Consequences`) using the issue draft as source material.\n"
             "3. Ensure the ADR content is actionable and concrete enough for "
             "review (explicit decision, tradeoffs, and impact).\n"
-            "4. Add/update references so the ADR links back to this issue.\n\n"
+            "4. Add/update references so the ADR links back to this issue.\n"
+            "5. **Do NOT create tests for ADR markdown content.** ADRs are "
+            "documentation — never add `test_adr_*.py` files that assert on "
+            "headings, status, or prose.\n\n"
             "## ADR Draft From Issue\n\n"
             f"{body}\n"
         )

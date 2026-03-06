@@ -754,7 +754,7 @@ class TestStateTrackerBaseline:
 class TestConfigFields:
     """Tests for baseline-related config fields."""
 
-    def test_defaults(self, tmp_path: Path):
+    def test_baseline_config_has_expected_defaults(self, tmp_path: Path):
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",

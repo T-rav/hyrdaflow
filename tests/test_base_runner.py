@@ -266,7 +266,9 @@ class TestVerifyQuality:
     """Tests for BaseRunner._verify_quality."""
 
     @pytest.mark.asyncio
-    async def test_success(self, config, event_bus: EventBus, tmp_path: Path) -> None:
+    async def test_verify_quality_returns_true_on_success(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
         mock_runner = MagicMock()
         mock_runner.run_simple = AsyncMock(
             return_value=MagicMock(returncode=0, stdout="OK", stderr="")
@@ -310,7 +312,9 @@ class TestVerifyQuality:
         assert "make not found" in msg
 
     @pytest.mark.asyncio
-    async def test_timeout(self, config, event_bus: EventBus, tmp_path: Path) -> None:
+    async def test_verify_quality_returns_false_on_timeout(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
         mock_runner = MagicMock()
         mock_runner.run_simple = AsyncMock(side_effect=TimeoutError)
         runner = _TestRunner(config, event_bus, runner=mock_runner)

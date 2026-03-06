@@ -178,9 +178,9 @@ class ReviewInsightStore:
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
         try:
-            self._memory_dir.mkdir(parents=True, exist_ok=True)
-            with self._reviews_path.open("a") as f:
-                f.write(record.model_dump_json() + "\n")
+            from file_util import append_jsonl  # noqa: PLC0415
+
+            append_jsonl(self._reviews_path, record.model_dump_json())
         except OSError:
             logger.warning(
                 "Could not append review to %s",

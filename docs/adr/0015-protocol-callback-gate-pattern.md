@@ -64,10 +64,19 @@ for all merge-phase gates in HydraFlow. Specifically:
 | Gate | Type | Protocol / Decision | Config Guard |
 |------|------|---------------------|--------------|
 | CI gate | Async callback | `CiGateFn` | `max_ci_fix_attempts > 0` |
-| Visual validation | Sync decision | `VisualValidationDecision` | `visual_validation_enabled` |
+| Visual validation decision | Sync decision object | `VisualValidationDecision` | `visual_validation_enabled` |
+| Visual gate | Async callback | `VisualGateFn` | `visual_gate_enabled` |
+| Merge conflict fix | Async callback | `MergeConflictFixFn` | Triggered on merge conflict |
 | Escalation | Async callback | `EscalateFn` | `debug_escalation_enabled` |
 | Status publishing | Async callback | `PublishFn` | Always active |
-| Adversarial threshold | Async method | Returns `ReviewResult` | `min_review_findings > 0` |
+| Adversarial threshold | Async method (not yet injected) | Returns `ReviewResult` | `min_review_findings > 0` |
+
+**Note:** The visual validation row represents the pre-gate decision object that
+determines *whether* validation is required. The visual gate row (`VisualGateFn`)
+is the actual async callback that enforces the gate at merge time. The adversarial
+threshold is currently an embedded async method on `ReviewPhase` rather than an
+injected Protocol callback — it follows the four-phase protocol pattern but does
+not yet conform to Rule 2 (injection as a parameter).
 
 ## Consequences
 
@@ -104,7 +113,7 @@ for all merge-phase gates in HydraFlow. Specifically:
 
 - Source memory: #1720
 - Issue: #1746
-- `src/models.py` — `CiGateFn`, `EscalateFn`, `PublishFn`, `VisualValidationDecision`
+- `src/models.py` — `CiGateFn`, `VisualGateFn`, `MergeConflictFixFn`, `EscalateFn`, `PublishFn`, `VisualValidationDecision`
 - `src/post_merge_handler.py` — `handle_approved()` callback injection
 - `src/review_phase.py` — `check_visual_gate()`, `_fetch_code_scanning_alerts()`
 - `src/visual_validation.py` — `compute_visual_validation()`

@@ -57,7 +57,7 @@ class TestTroubleshootingPatternStore:
         store.append_pattern(p)
         assert (tmp_path / "memory" / "troubleshooting_patterns.jsonl").exists()
 
-    def test_roundtrip(self, tmp_path: Path) -> None:
+    def test_store_roundtrip_preserves_data(self, tmp_path: Path) -> None:
         store = TroubleshootingPatternStore(tmp_path / "memory")
         p = TroubleshootingPattern(
             language="python",

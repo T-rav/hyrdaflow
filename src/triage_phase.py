@@ -15,7 +15,7 @@ from phase_utils import (
     escalate_to_hitl,
     is_adr_issue_title,
     release_batch_in_flight,
-    run_concurrent_batch,
+    run_refilling_pool,
     store_lifecycle,
 )
 from pr_manager import PRManager
@@ -64,96 +64,106 @@ class TriagePhase:
     async def triage_issues(self) -> int:
         """Evaluate ``find_label`` issues and route them.
 
-        Issues with enough context go to ``planner_label`` (planning).
-        Issues lacking detail are escalated to ``hitl_label`` with a
-        comment explaining what is missing so the dashboard surfaces
-        them as "needs attention".
+        Uses a slot-filling pool so new issues are picked up as soon
+        as a triage slot frees, rather than waiting for the full batch.
         """
-        issues = self._store.get_triageable(2 * self._config.max_triagers)
-        if not issues:
-            return 0
 
-        logger.info("Triaging %d found issues", len(issues))
-        semaphore = asyncio.Semaphore(self._config.max_triagers)
-
-        async def _triage_one(idx: int, issue: Task) -> int:
+        async def _triage_one(_idx: int, issue: Task) -> int:
             if self._stop_event.is_set():
                 return 0
 
-            async with semaphore:
-                if self._stop_event.is_set():
-                    return 0
+            self._enrich_parent_epic(issue)
 
-                # Enrich with parent epic reference if this is a child issue
-                self._enrich_parent_epic(issue)
+            async with store_lifecycle(self._store, issue.id, "find"):
+                try:
+                    return await self._triage_single(issue)
+                finally:
+                    release_batch_in_flight(self._store, {issue.id})
 
-                async with store_lifecycle(self._store, issue.id, "find"):
-                    # ADR draft issues are already scoped/planned; validate shape and
-                    # route directly to implementation (ready queue).
-                    if is_adr_issue_title(issue.title):
-                        if self._config.dry_run:
-                            return 1
-                        reasons = adr_validation_reasons(issue.body)
-                        if reasons:
-                            await self._escalate_triage_issue(issue.id, reasons)
-                            logger.info(
-                                "Issue #%d ADR triage → %s (invalid ADR shape: %s)",
-                                issue.id,
-                                self._config.hitl_label[0],
-                                "; ".join(reasons),
-                            )
-                        else:
-                            await self._transitioner.transition(issue.id, "ready")
-                            self._store.enqueue_transition(issue, "ready")
-                            self._state.increment_session_counter("triaged")
-                            logger.info(
-                                "Issue #%d ADR triage → %s (validated ADR shape)",
-                                issue.id,
-                                self._config.ready_label[0],
-                            )
-                        return 1
+        results = await run_refilling_pool(
+            supply_fn=lambda: self._store.get_triageable(1),
+            worker_fn=_triage_one,
+            max_concurrent=self._config.max_triagers,
+            stop_event=self._stop_event,
+        )
+        return sum(results)
 
-                    result = await self._triage.evaluate(issue)
-
-                    if self._config.dry_run:
-                        return 1
-
-                    if result.ready:
-                        # Check if auto-decomposition should trigger
-                        if not await self._maybe_decompose(issue, result):
-                            await self._transitioner.transition(issue.id, "plan")
-                            self._store.enqueue_transition(issue, "plan")
-                            self._state.increment_session_counter("triaged")
-                            logger.info(
-                                "Issue #%d triaged → %s (ready for planning)",
-                                issue.id,
-                                self._config.planner_label[0],
-                            )
-                    else:
-                        await self._escalate_triage_issue(issue.id, result.reasons)
-                        self._store.enqueue_transition(issue, "hitl")
-                        await self._bus.publish(
-                            HydraFlowEvent(
-                                type=EventType.HITL_UPDATE,
-                                data={
-                                    "issue": issue.id,
-                                    "action": "escalated",
-                                },
-                            )
-                        )
-                        logger.info(
-                            "Issue #%d triaged → %s (needs attention: %s)",
-                            issue.id,
-                            self._config.hitl_label[0],
-                            "; ".join(result.reasons),
-                        )
-                    return 1
+    async def _triage_single(self, issue: Task) -> int:
+        """Core triage logic for a single issue."""
+        if is_adr_issue_title(issue.title):
+            if self._config.dry_run:
+                return 1
+            reasons = adr_validation_reasons(issue.body)
+            if reasons:
+                await self._escalate_triage_issue(issue.id, reasons)
+                logger.info(
+                    "Issue #%d ADR triage → %s (invalid ADR shape: %s)",
+                    issue.id,
+                    self._config.hitl_label[0],
+                    "; ".join(reasons),
+                )
+            else:
+                await self._transitioner.transition(issue.id, "ready")
+                self._store.enqueue_transition(issue, "ready")
+                self._state.increment_session_counter("triaged")
+                logger.info(
+                    "Issue #%d ADR triage → %s (validated ADR shape)",
+                    issue.id,
+                    self._config.ready_label[0],
+                )
+            return 1
 
         try:
-            results = await run_concurrent_batch(issues, _triage_one, self._stop_event)
-        finally:
-            release_batch_in_flight(self._store, {i.id for i in issues})
-        return sum(results)
+            result = await self._triage.evaluate(issue)
+        except RuntimeError as exc:
+            # Infrastructure errors (empty LLM response, subprocess crash)
+            # should NOT escalate to HITL.  Leave the issue in the find queue
+            # so it gets retried on the next triage cycle.
+            logger.warning(
+                "Issue #%d triage skipped (infra error, will retry): %s",
+                issue.id,
+                exc,
+            )
+            return 0
+
+        if self._config.dry_run:
+            return 1
+
+        if result.ready:
+            if not await self._maybe_decompose(issue, result):
+                if result.enrichment:
+                    await self._transitioner.post_comment(issue.id, result.enrichment)
+                    logger.info(
+                        "Issue #%d enriched by triage before promotion",
+                        issue.id,
+                    )
+                await self._transitioner.transition(issue.id, "plan")
+                self._store.enqueue_transition(issue, "plan")
+                self._state.increment_session_counter("triaged")
+                logger.info(
+                    "Issue #%d triaged → %s (ready for planning)",
+                    issue.id,
+                    self._config.planner_label[0],
+                )
+        else:
+            await self._escalate_triage_issue(issue.id, result.reasons)
+            self._store.enqueue_transition(issue, "hitl")
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.HITL_UPDATE,
+                    data={
+                        "issue": issue.id,
+                        "action": "escalated",
+                    },
+                )
+            )
+            logger.info(
+                "Issue #%d triaged → %s (needs attention: %s)",
+                issue.id,
+                self._config.hitl_label[0],
+                "; ".join(result.reasons),
+            )
+        return 1
 
     async def _escalate_triage_issue(self, issue_id: int, reasons: list[str]) -> None:
         await escalate_to_hitl(

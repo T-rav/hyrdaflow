@@ -130,10 +130,10 @@ class MetricsManager:
         cache_dir = self._cache_dir
         snapshots_file = cache_dir / "snapshots.jsonl"
         try:
+            from file_util import append_jsonl  # noqa: PLC0415
+
             cache_dir.mkdir(parents=True, exist_ok=True)
-            with open(snapshots_file, "a") as f:
-                f.write(snapshot.model_dump_json() + "\n")
-                f.flush()
+            append_jsonl(snapshots_file, snapshot.model_dump_json())
             logger.debug("Metrics snapshot cached locally at %s", snapshots_file)
         except OSError:
             logger.warning(

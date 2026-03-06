@@ -19,6 +19,7 @@ from models import (
     SessionLog,
     SessionStatus,
     StageStats,
+    Task,
     ThroughputStats,
     WorkFn,
 )
@@ -955,8 +956,10 @@ class HydraFlowOrchestrator:
                         },
                     )
                 )
+                self.update_bg_worker_status(name, "error")
                 await self._sleep_or_stop(interval)
                 continue
+            self.update_bg_worker_status(name, "ok")
             if did_work:
                 continue
             await self._sleep_or_stop(interval)
@@ -1096,81 +1099,113 @@ class HydraFlowOrchestrator:
         return did_work
 
     async def _do_review_work(self) -> bool:
-        """Work function for the review loop."""
+        """Work function for the review loop — continuous slot-filling pool.
+
+        Instead of fetching a batch and waiting for all reviews to finish,
+        this maintains a pool of up to ``max_reviewers`` concurrent tasks.
+        As each review completes, the freed slot is immediately refilled
+        from the queue so no capacity sits idle.
+        """
         did_work = False
+        pending: set[asyncio.Task[bool]] = set()
+        max_slots = self._config.max_reviewers
+
         while not self._stop_event.is_set():
-            review_issues = self._store.get_reviewable(2 * self._config.max_reviewers)
-            if not review_issues:
+            # Fill empty slots from the queue
+            free_slots = max_slots - len(pending)
+            if free_slots > 0:
+                new_issues = self._store.get_reviewable(free_slots)
+                for issue in new_issues:
+                    task = asyncio.create_task(
+                        self._review_single_issue(issue),
+                        name=f"review-issue-{issue.id}",
+                    )
+                    pending.add(task)
+
+            if not pending:
                 break
-            try:
-                cycle_did_work = False
-                adr_issues = [
-                    issue for issue in review_issues if is_adr_issue_title(issue.title)
-                ]
-                normal_review_issues = [
-                    issue
-                    for issue in review_issues
-                    if issue.id not in {a.id for a in adr_issues}
-                ]
 
-                if adr_issues:
-                    cycle_did_work = True
-                    await self._reviewer.review_adrs(adr_issues)
+            # Wait for at least one review to complete, then refill
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                exc = task.exception()
+                if exc is not None:
+                    if isinstance(
+                        exc, (AuthenticationError, CreditExhaustedError, MemoryError)
+                    ):
+                        # Cancel remaining and propagate fatal errors
+                        for t in pending:
+                            t.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                        raise exc
+                    logger.exception(
+                        "Review worker failed unexpectedly",
+                        exc_info=exc,
+                    )
+                elif task.result():
+                    did_work = True
 
-                if not normal_review_issues:
-                    did_work = did_work or cycle_did_work
-                    continue
+        # Cancel stragglers on stop
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
-                active_in_store = set(self._store.get_active_issues().keys())
-                gh_review_issues = [
-                    GitHubIssue.from_task(t) for t in normal_review_issues
-                ]
-                prs, gh_issues = await self._fetcher.fetch_reviewable_prs(
-                    active_in_store, prefetched_issues=gh_review_issues
-                )
-                if not prs:
-                    # Keep review tasks in queue memory when PR visibility lags labels.
-                    for issue in normal_review_issues:
-                        self._store.enqueue_transition(issue, "review")
-                    # Treat as idle so the polling loop applies its normal backoff.
-                    did_work = did_work or cycle_did_work
-                    break
-                cycle_did_work = True
-                review_results = await self._reviewer.review_prs(
-                    prs, [i.to_task() for i in gh_issues]
-                )
-                reviewed_issue_numbers = {pr.issue_number for pr in prs}
-                for issue in normal_review_issues:
-                    if issue.id not in reviewed_issue_numbers:
-                        self._store.enqueue_transition(issue, "review")
-                for result in review_results:
-                    if result.transcript:
-                        if result.merged:
-                            review_status = "success"
-                        elif result.ci_passed is False:
-                            review_status = "failed"
-                        else:
-                            review_status = "completed"
-                        await self._post_run_hooks(
-                            transcript=result.transcript,
-                            source="reviewer",
-                            reference=f"PR #{result.pr_number}",
-                            issue_number=result.issue_number,
-                            phase="review",
-                            status=review_status,
-                            duration_seconds=result.duration_seconds,
-                            log_file=self._log_reference(
-                                f"review-pr-{result.pr_number}.txt"
-                            ),
-                        )
-                if any(r.merged for r in review_results):
-                    await asyncio.sleep(_POST_MERGE_DELAY)
-                    await self._prs.pull_main()
-                    await self._crate_manager.check_and_advance()
-                did_work = did_work or cycle_did_work
-            finally:
-                release_batch_in_flight(self._store, {i.id for i in review_issues})
         return did_work
+
+    async def _review_single_issue(self, issue: Task) -> bool:
+        """Fetch PR and run review for a single issue, handling results inline.
+
+        Returns ``True`` when a review actually ran, ``False`` when the
+        issue was only re-queued (e.g. PR not visible yet).
+        """
+        try:
+            if is_adr_issue_title(issue.title):
+                await self._reviewer.review_adrs([issue])
+                return True
+
+            active_in_store = set(self._store.get_active_issues().keys())
+            gh_issue = GitHubIssue.from_task(issue)
+            prs, gh_issues = await self._fetcher.fetch_reviewable_prs(
+                active_in_store, prefetched_issues=[gh_issue]
+            )
+            if not prs:
+                # PR not visible yet — re-queue for next cycle
+                self._store.enqueue_transition(issue, "review")
+                return False
+
+            review_results = await self._reviewer.review_prs(
+                prs, [i.to_task() for i in gh_issues]
+            )
+            for result in review_results:
+                if result.transcript:
+                    if result.merged:
+                        review_status = "success"
+                    elif result.ci_passed is False:
+                        review_status = "failed"
+                    else:
+                        review_status = "completed"
+                    await self._post_run_hooks(
+                        transcript=result.transcript,
+                        source="reviewer",
+                        reference=f"PR #{result.pr_number}",
+                        issue_number=result.issue_number,
+                        phase="review",
+                        status=review_status,
+                        duration_seconds=result.duration_seconds,
+                        log_file=self._log_reference(
+                            f"review-pr-{result.pr_number}.txt"
+                        ),
+                    )
+            if any(r.merged for r in review_results):
+                await asyncio.sleep(_POST_MERGE_DELAY)
+                await self._prs.pull_main()
+                await self._crate_manager.check_and_advance()
+            return True
+        finally:
+            release_batch_in_flight(self._store, {issue.id})
 
     async def _sleep_or_stop(self, seconds: int | float) -> None:
         """Sleep for *seconds*, waking early if stop is requested."""

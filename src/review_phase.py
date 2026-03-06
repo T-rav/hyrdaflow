@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -61,6 +62,23 @@ from task_source import TaskTransitioner
 from worktree import WorktreeManager
 
 logger = logging.getLogger("hydraflow.review_phase")
+
+
+@dataclass(slots=True)
+class ReviewGuardContext:
+    """Successful result from _run_initial_guards."""
+
+    task: Task
+    worktree_path: Path
+
+
+@dataclass(slots=True)
+class PreReviewContext:
+    """Artifacts captured before running the reviewer."""
+
+    diff: str
+    visual_decision: VisualValidationDecision | None
+    code_scanning_alerts: list[dict[str, Any]] | None
 
 
 class ReviewPhase:
@@ -349,6 +367,39 @@ class ReviewPhase:
         """Core review logic for a single PR — called inside the semaphore."""
         await self._publish_review_status(pr, idx, "start")
 
+        guards = await self._run_initial_guards(idx, pr, issue_map)
+        if isinstance(guards, ReviewResult):
+            return guards
+
+        pre_review = await self._run_pre_review_checks(pr, guards.task)
+        if isinstance(pre_review, ReviewResult):
+            return pre_review
+
+        result = await self._run_and_post_review(
+            pr,
+            guards.task,
+            guards.worktree_path,
+            pre_review.diff,
+            idx,
+            code_scanning_alerts=pre_review.code_scanning_alerts,
+        )
+
+        return await self._run_post_review_actions(
+            pr,
+            guards.task,
+            guards.worktree_path,
+            result,
+            pre_review,
+            idx,
+        )
+
+    async def _run_initial_guards(
+        self,
+        idx: int,
+        pr: PRInfo,
+        issue_map: dict[int, Task],
+    ) -> ReviewResult | ReviewGuardContext:
+        """Handle prerequisite guards before running a review."""
         task = issue_map.get(pr.issue_number)
         if task is None:
             return ReviewResult(
@@ -357,7 +408,6 @@ class ReviewPhase:
                 summary="Issue not found",
             )
 
-        # Skip guard: avoid re-reviewing when no new commits since last review
         last_sha = self._state.get_last_reviewed_sha(pr.issue_number)
         if await self._should_skip_review(pr, last_sha):
             return ReviewResult(
@@ -374,9 +424,16 @@ class ReviewPhase:
                 summary="Merge conflicts with main — escalated to HITL",
             )
 
+        return ReviewGuardContext(task=task, worktree_path=wt_path)
+
+    async def _run_pre_review_checks(
+        self,
+        pr: PRInfo,
+        task: Task,
+    ) -> ReviewResult | PreReviewContext:
+        """Run baseline, visual, and delta checks before invoking reviewer."""
         diff = await self._prs.get_pr_diff(pr.number)
 
-        # Baseline policy check: detect and enforce approval for baseline changes
         baseline_result = await self._check_baseline_policy(pr, task)
         if (
             baseline_result
@@ -405,11 +462,10 @@ class ReviewPhase:
                 summary="Baseline changes require approval — escalated to HITL",
             )
 
-        # Visual validation scope check
         visual_decision = self._compute_visual_validation(diff, task)
         if visual_decision is not None and pr.number > 0:
-            from visual_validation import (
-                format_visual_validation_comment,  # noqa: PLC0415
+            from visual_validation import (  # noqa: PLC0415
+                format_visual_validation_comment,
             )
 
             await self._prs.post_pr_comment(
@@ -417,22 +473,28 @@ class ReviewPhase:
                 format_visual_validation_comment(visual_decision),
             )
 
-        # Fetch code scanning alerts (opt-in)
         code_scanning_alerts = await self._fetch_code_scanning_alerts(pr)
-
-        # Delta verification: compare planned vs actual files
         await self._run_delta_verification(pr, diff)
 
-        result = await self._run_and_post_review(
-            pr,
-            task,
-            wt_path,
-            diff,
-            idx,
+        return PreReviewContext(
+            diff=diff,
+            visual_decision=visual_decision,
             code_scanning_alerts=code_scanning_alerts,
         )
 
-        # If reviewer fixed its own findings, re-review the updated code
+    async def _run_post_review_actions(
+        self,
+        pr: PRInfo,
+        task: Task,
+        wt_path: Path,
+        result: ReviewResult,
+        pre_review: PreReviewContext,
+        worker_id: int,
+    ) -> ReviewResult:
+        """Handle re-review, visual validation, verdict flow, and cleanup."""
+        diff = pre_review.diff
+        code_scanning_alerts = pre_review.code_scanning_alerts
+
         if result.fixes_made and result.verdict in (
             ReviewVerdict.REQUEST_CHANGES,
             ReviewVerdict.COMMENT,
@@ -443,20 +505,22 @@ class ReviewPhase:
                 wt_path,
                 result,
                 diff,
-                idx,
+                worker_id,
                 code_scanning_alerts=code_scanning_alerts,
             )
 
-        # Visual validation (opt-in) — runs after review, before merge decision
-        visual_report = await self._run_visual_validation(pr, wt_path, idx)
+        visual_report = await self._run_visual_validation(pr, wt_path, worker_id)
         if visual_report and visual_report.has_failures:
             result = await self._handle_visual_failure(
-                pr, task, result, visual_report, idx
+                pr,
+                task,
+                result,
+                visual_report,
+                worker_id,
             )
 
         await self._record_review_outcome(pr, result)
 
-        # Verdict-specific handling
         skip_worktree_cleanup = False
         if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
             await self._handle_approved_merge(
@@ -464,20 +528,22 @@ class ReviewPhase:
                 task,
                 result,
                 diff,
-                idx,
+                worker_id,
                 code_scanning_alerts=code_scanning_alerts,
-                visual_decision=visual_decision,
+                visual_decision=pre_review.visual_decision,
             )
         elif result.verdict in (
             ReviewVerdict.REQUEST_CHANGES,
             ReviewVerdict.COMMENT,
         ):
             skip_worktree_cleanup = await self._handle_rejected_review(
-                pr, task, result, idx
+                pr,
+                task,
+                result,
+                worker_id,
             )
 
         await self._cleanup_worktree(pr, result, skip_worktree_cleanup)
-
         return result
 
     def _compute_visual_validation(

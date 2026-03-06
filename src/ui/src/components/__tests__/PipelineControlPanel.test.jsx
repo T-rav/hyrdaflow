@@ -648,17 +648,6 @@ describe('PipelineControlPanel', () => {
   })
 
   describe('Status Badges', () => {
-    it('shows "N active" badge when workers present', () => {
-      mockUseHydraFlow.mockReturnValue(defaultMockContext({ workers: mockPipelineWorkers }))
-      render(<PipelineControlPanel />)
-      expect(screen.getByText('4 active')).toBeInTheDocument()
-    })
-
-    it('does not show active badge when no active workers', () => {
-      render(<PipelineControlPanel />)
-      expect(screen.queryByText(/\d+ active/)).not.toBeInTheDocument()
-    })
-
     it('shows "N HITL issues" badge when HITL items exist', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({
         hitlItems: [
@@ -684,13 +673,12 @@ describe('PipelineControlPanel', () => {
       expect(screen.queryByText(/HITL/)).not.toBeInTheDocument()
     })
 
-    it('shows both active and HITL badges together', () => {
+    it('shows HITL badge even when workers are present', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({
         workers: mockPipelineWorkers,
         hitlItems: [{ issue_number: 1, title: 'Issue 1' }, { issue_number: 2, title: 'Issue 2' }],
       }))
       render(<PipelineControlPanel />)
-      expect(screen.getByText('4 active')).toBeInTheDocument()
       expect(screen.getByText('2 HITL issues')).toBeInTheDocument()
     })
   })

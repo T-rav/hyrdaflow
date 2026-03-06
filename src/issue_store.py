@@ -93,7 +93,7 @@ class IssueStore:
         self._active: dict[int, str] = {}
 
         # In-flight protection: items between _take_from_queue and mark_active.
-        # Prevents refresh() from re-queuing or evicting items that a phase
+        # Prevents refresh() from re-queuing items that a phase
         # has dequeued but hasn't yet marked active (semaphore wait gap).
         # Maps task_id → stage so snapshots can include them.
         self._in_flight: dict[int, str] = {}
@@ -227,26 +227,6 @@ class IssueStore:
             )
         return unique
 
-    def _evict_stale_tasks(self, incoming_ids: set[int]) -> None:
-        """Remove tasks no longer present in the pipeline from all queues.
-
-        Items that are in-flight (taken from queue, not yet marked active)
-        or eagerly transitioned (label swap pending) are protected from
-        eviction.
-        """
-        protected = (
-            set(self._active.keys())
-            | set(self._in_flight)
-            | set(self._eagerly_transitioned)
-        )
-        for stage, q in self._queues.items():
-            members = self._queue_members[stage]
-            stale = members - incoming_ids - protected
-            if stale:
-                self._queues[stage] = deque(t for t in q if t.id not in stale)
-                members -= stale
-        self._hitl_numbers &= incoming_ids | protected
-
     def _route_incoming_tasks(
         self, stage_map: dict[int, tuple[IssueStoreStage, Task]]
     ) -> None:
@@ -286,16 +266,16 @@ class IssueStore:
             self._queue_members[stage].add(task_id)
 
     def _route_issues(self, tasks: list[Task]) -> None:
-        """Route fetched tasks into the correct queues.
+        """Route fetched tasks into the correct queues (additive-only).
 
         - Each task goes to the most advanced stage matching its tags.
         - Tasks already active are not re-queued.
         - Tasks that changed tags are moved between queues.
-        - Tasks no longer returned by the fetcher are removed from queues.
+        - Existing queued items are never evicted by polling.  The pipeline
+          itself (mark_complete / enqueue_transition) handles removal.
         """
         stage_map = self._compute_stage_map(tasks)
         incoming_ids = set(stage_map.keys())
-        self._evict_stale_tasks(incoming_ids)
         self._route_incoming_tasks(stage_map)
 
         # Prune eagerly-transitioned entries for issues that vanished
@@ -346,13 +326,17 @@ class IssueStore:
         for stage in self._queues:
             self._remove_from_queue(stage, issue_number)
 
+    def get_cached(self, issue_number: int) -> Task | None:
+        """Return the most recent cached Task metadata for *issue_number*."""
+        return self._issue_cache.get(issue_number)
+
     def enqueue_transition(self, task: Task, next_stage: str) -> None:
         """Immediately route *task* into *next_stage* in-memory.
 
         This provides an eager handoff between phases so downstream workers
         can pick up transitioned issues without waiting for the next GitHub
-        polling cycle.  The item is protected from ``refresh()`` eviction /
-        re-routing until GitHub labels catch up to the target stage.
+        polling cycle.  The item is protected from ``refresh()`` re-routing
+        until GitHub labels catch up to the target stage.
         """
         stage_alias: dict[str, IssueStoreStage] = {
             "find": STAGE_FIND,

@@ -593,10 +593,19 @@ def create_router(
         )
 
     def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
+        repo_slug = (config.repo or "").strip()
+        if repo_slug.startswith("https://github.com/"):
+            repo_slug = repo_slug[len("https://github.com/") :]
+        elif repo_slug.startswith("http://github.com/"):
+            repo_slug = repo_slug[len("http://github.com/") :]
+        repo_slug = repo_slug.strip("/")
+        issue_url = (
+            f"https://github.com/{repo_slug}/issues/{issue_number}" if repo_slug else ""
+        )
         return {
             "issue_number": issue_number,
             "title": f"Issue #{issue_number}",
-            "issue_url": "",
+            "issue_url": issue_url,
             "status": "unknown",
             "epic": "",
             "crate_number": None,

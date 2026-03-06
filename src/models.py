@@ -225,6 +225,7 @@ class TriageResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     complexity_score: int = 0
     issue_type: str = "feature"  # "feature" | "bug" | "epic"
+    enrichment: str = ""
 
 
 class EpicDecompResult(BaseModel):
@@ -1892,85 +1893,6 @@ class AuditResult(BaseModel):
             )
 
         return "\n".join(lines)
-
-
-# --- Visual Validation ---
-
-
-class ScreenVerdict(StrEnum):
-    """Per-screen diff verdict."""
-
-    PASS = "pass"
-    WARN = "warn"
-    FAIL = "fail"
-    ERROR = "error"
-
-
-class ScreenResult(BaseModel):
-    """Diff result for a single screen comparison."""
-
-    screen_name: str
-    verdict: ScreenVerdict
-    diff_ratio: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Fraction of file bytes that differ (byte-level proxy for visual change)",
-    )
-    changed_pixels: int = Field(default=0, ge=0)
-    total_pixels: int = Field(default=0, ge=0)
-    baseline_path: str = ""
-    candidate_path: str = ""
-    diff_path: str = ""
-    artifact_bytes: int = Field(default=0, ge=0)
-    runtime_seconds: float = Field(default=0.0, ge=0.0)
-    error_message: str = ""
-
-
-class FailureCategory(StrEnum):
-    """Classification of visual validation failures."""
-
-    NONE = "none"
-    THRESHOLD_EXCEEDED = "threshold_exceeded"
-    MISSING_BASELINE = "missing_baseline"
-    IMAGE_LOAD_ERROR = "image_load_error"
-    SIZE_MISMATCH = "size_mismatch"
-    BUDGET_EXCEEDED = "budget_exceeded"
-
-
-class VisualReport(BaseModel):
-    """Aggregate visual validation report emitted as visual_report.json."""
-
-    version: str = "1.0"
-    aggregate_verdict: ScreenVerdict = ScreenVerdict.PASS
-    screens: list[ScreenResult] = Field(default_factory=list)
-    total_screens: int = 0
-    passed: int = 0
-    warned: int = 0
-    failed: int = 0
-    errored: int = 0
-    diff_threshold: float = 0.01
-    warn_threshold: float = 0.005
-    total_runtime_seconds: float = Field(default=0.0, ge=0.0)
-    retry_count: int = Field(default=0, ge=0)
-    total_artifact_bytes: int = Field(default=0, ge=0)
-    failure_category: FailureCategory = FailureCategory.NONE
-    generated_at: str = ""
-
-    @property
-    def is_pass(self) -> bool:
-        """Return True if the aggregate verdict is PASS."""
-        return self.aggregate_verdict == ScreenVerdict.PASS
-
-    @property
-    def is_fail(self) -> bool:
-        """Return True if the aggregate verdict is FAIL or ERROR."""
-        return self.aggregate_verdict in (ScreenVerdict.FAIL, ScreenVerdict.ERROR)
-
-    @property
-    def is_error(self) -> bool:
-        """Return True if the aggregate verdict is ERROR (config/load failure)."""
-        return self.aggregate_verdict == ScreenVerdict.ERROR
 
 
 # --- Callback Protocols ---

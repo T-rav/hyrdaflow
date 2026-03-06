@@ -29,7 +29,6 @@ from subprocess_util import make_clean_env
 
 if TYPE_CHECKING:
     from ports import PRPort
-    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.memory")
 _ADR_ARCH_KEYWORDS: tuple[str, ...] = (
@@ -144,7 +143,7 @@ async def file_memory_suggestion(
     source: str,
     reference: str,
     config: HydraFlowConfig,
-    prs: PRManager,
+    prs: PRPort,
     state: StateTracker,
 ) -> None:
     """Parse and file a memory suggestion from an agent transcript.
@@ -754,8 +753,8 @@ class MemorySyncWorker:
             ]
             cmd_input = None
         else:
-            cmd = ["claude", "-p", "--model", model]
-            cmd_input = prompt.encode()
+            cmd = ["claude", "-p", prompt, "--model", model]
+            cmd_input = None
         env = make_clean_env(self._config.gh_token)
 
         try:

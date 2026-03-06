@@ -24,7 +24,7 @@ from tests.helpers import ConfigFactory
 
 
 class TestReleaseModel:
-    def test_defaults(self) -> None:
+    def test_release_has_expected_defaults(self) -> None:
         release = Release(version="1.0.0", epic_number=100)
         assert release.version == "1.0.0"
         assert release.epic_number == 100
@@ -193,13 +193,13 @@ class TestReleaseStateTracking:
 
 
 class TestReleaseConfig:
-    def test_defaults(self) -> None:
+    def test_release_config_has_expected_defaults(self) -> None:
         config = ConfigFactory.create()
         assert config.release_on_epic_close is False
         assert config.release_version_source == "epic_title"
         assert config.release_tag_prefix == "v"
 
-    def test_enabled(self) -> None:
+    def test_release_config_enabled_flag(self) -> None:
         config = ConfigFactory.create(release_on_epic_close=True)
         assert config.release_on_epic_close is True
 

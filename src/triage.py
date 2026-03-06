@@ -129,6 +129,11 @@ class TriageRunner(BaseRunner):
             result = await self._evaluate_with_llm(issue)
         except CreditExhaustedError:
             raise
+        except RuntimeError:
+            # Infrastructure errors (empty response, subprocess crash) should
+            # propagate so the issue stays in the triage queue for retry
+            # instead of being incorrectly escalated to HITL.
+            raise
         except Exception as exc:
             logger.warning(
                 "LLM evaluation failed for issue #%d: %s",
@@ -182,7 +187,7 @@ class TriageRunner(BaseRunner):
         body, body_before, body_after = truncate_with_notice(
             issue.body or "", max_body, label="Issue body"
         )
-        prompt = f"""You are a triage agent evaluating whether a GitHub issue has enough detail for an implementation planning agent to succeed.
+        prompt = f"""You are a triage agent evaluating a GitHub issue and enriching it if needed so a planning agent can succeed.
 
 ## Issue #{issue.id}
 
@@ -209,21 +214,21 @@ Also classify the issue as one of:
 
 ## Instructions
 
-- If ALL criteria are met, return `"ready": true`
-- If ANY criterion fails, return `"ready": false` with specific, helpful feedback
-- Be specific in your reasons (e.g., "Missing expected vs actual behavior" not just "lacks detail")
-- Err on the side of passing well-written issues through — only reject clearly insufficient ones
+- **Default to passing issues through.** Most issues have enough intent to begin planning.
+- Only return `"ready": false` if the issue is truly incomprehensible or has zero actionable content.
+- If the issue is informal, vague, or missing detail but the *intent* is clear, return `"ready": true` and provide an `"enrichment"` string that fills in the gaps (expected behavior, affected areas, acceptance criteria, etc.). The enrichment will be posted as a comment to help the planning agent.
+- If no enrichment is needed, set `"enrichment"` to an empty string.
 
 Return ONLY a JSON object in this exact format, with no other text:
 
 ```json
-{{"ready": true, "reasons": [], "issue_type": "feature"}}
+{{"ready": true, "reasons": [], "issue_type": "feature", "enrichment": "## Triage Enrichment\\n\\n**Interpreted intent:** ...\\n**Affected area:** ...\\n**Acceptance criteria:**\\n- ..."}}
 ```
 
-or
+or for truly insufficient issues:
 
 ```json
-{{"ready": false, "reasons": ["Specific reason 1", "Specific reason 2"], "issue_type": "bug"}}
+{{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "enrichment": ""}}
 ```
 """
         stats = build_prompt_stats(
@@ -259,15 +264,22 @@ or
         )
         self._save_transcript("triage-issue", issue.id, transcript)
 
+        if not transcript.strip():
+            raise RuntimeError(
+                "LLM returned empty response — subprocess produced no output"
+            )
+
         result = self._parse_verdict(transcript, issue.id)
         if result is not None:
             return result
 
-        # Fallback: could not parse LLM response
+        # Fallback: could not parse LLM response — include a transcript
+        # snippet so the failure reason is visible in HITL comments.
+        snippet = transcript.strip()[:200]
         return TriageResult(
             issue_number=issue.id,
             ready=False,
-            reasons=["Could not parse LLM evaluation response"],
+            reasons=[f"Could not parse LLM evaluation response: {snippet!r}"],
         )
 
     @staticmethod
@@ -280,12 +292,15 @@ or
         issue_type = str(issue_type_raw).lower() if issue_type_raw else "feature"
         if issue_type not in ("feature", "bug", "epic"):
             issue_type = "feature"
+        enrichment_raw = data.get("enrichment", "")
+        enrichment = str(enrichment_raw).strip() if enrichment_raw else ""
         return TriageResult(
             issue_number=issue_number,
             ready=_coerce_ready(data["ready"]),
             reasons=_coerce_reasons(raw),
             complexity_score=max(0, min(score, 10)),
             issue_type=issue_type,
+            enrichment=enrichment,
         )
 
     @staticmethod

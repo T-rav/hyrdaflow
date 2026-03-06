@@ -9,7 +9,7 @@ infrastructure (GitHub API, git CLI, agent subprocesses).
 
     Domain (phases)
         │
-        ├─► TaskSource / TaskTransitioner  (task_source.py — already formal)
+        ├─► TaskFetcher / TaskTransitioner (task_source.py — already formal)
         ├─► PRPort                          (GitHub PR / label / CI operations)
         └─► WorktreePort                   (git worktree lifecycle)
 

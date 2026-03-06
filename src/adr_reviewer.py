@@ -404,8 +404,8 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             ]
             cmd_input = None
         else:
-            cmd = [tool, "-p", "--model", model]
-            cmd_input = prompt.encode()
+            cmd = [tool, "-p", prompt, "--model", model]
+            cmd_input = None
 
         env = make_clean_env(self._config.gh_token)
         try:

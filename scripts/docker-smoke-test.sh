@@ -26,6 +26,8 @@ echo ""
 # Tool availability
 echo "--- Tool Versions ---"
 check "claude --version"    claude --version
+check "codex --version"     codex --version
+check "pi --version"        pi --version
 check "git --version"       git --version
 check "gh --version"        gh --version
 check "python3 --version"   python3 --version
@@ -39,6 +41,8 @@ check "pytest --version"    pytest --version
 echo ""
 echo "--- Version Details ---"
 echo "  claude:  $(claude --version 2>/dev/null || echo 'N/A')"
+echo "  codex:   $(codex --version 2>/dev/null || echo 'N/A')"
+echo "  pi:      $(pi --version 2>/dev/null || echo 'N/A')"
 echo "  git:     $(git --version 2>/dev/null || echo 'N/A')"
 echo "  gh:      $(gh --version 2>/dev/null | head -1 || echo 'N/A')"
 echo "  python:  $(python3 --version 2>/dev/null || echo 'N/A')"

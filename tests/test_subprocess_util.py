@@ -574,9 +574,9 @@ class TestRetryWithTimeout:
 class TestMakeDockerEnv:
     """Tests for the make_docker_env helper."""
 
-    def test_sets_home_to_root(self) -> None:
+    def test_sets_home_to_hydraflow_user(self) -> None:
         env = make_docker_env()
-        assert env["HOME"] == "/root"
+        assert env["HOME"] == "/home/hydraflow"
 
     def test_includes_only_allowed_vars_when_empty(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
