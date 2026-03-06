@@ -123,6 +123,10 @@ class IssueStore:
         self._lock = asyncio.Lock()
         self._crate_manager: CrateManager | None = None
 
+        # Two-strike eviction: items must be missing from two consecutive
+        # fetches before being removed from queues.
+        self._eviction_candidates: set[int] = set()
+
     def set_crate_manager(self, cm: CrateManager) -> None:
         """Inject the crate manager after construction (avoids circular init)."""
         self._crate_manager = cm
@@ -227,25 +231,40 @@ class IssueStore:
             )
         return unique
 
-    def _evict_stale_tasks(self, incoming_ids: set[int]) -> None:
-        """Remove tasks no longer present in the pipeline from all queues.
+    def _evict_confirmed_closed(self, incoming_ids: set[int]) -> None:
+        """Remove only issues confirmed absent from *two consecutive* fetches.
 
-        Items that are in-flight (taken from queue, not yet marked active)
-        or eagerly transitioned (label swap pending) are protected from
-        eviction.
+        Instead of evicting everything missing from a single poll,
+        we track candidates and only evict on the second miss.  This
+        prevents partial or degraded fetches from nuking the queue.
         """
         protected = (
             set(self._active.keys())
             | set(self._in_flight)
             | set(self._eagerly_transitioned)
         )
+        all_queued = set()
+        for members in self._queue_members.values():
+            all_queued |= members
+        all_queued |= self._hitl_numbers
+
+        missing = all_queued - incoming_ids - protected
+
+        # Items missing for the first time become candidates.
+        # Items that were already candidates (missed twice) get evicted.
+        confirmed = missing & self._eviction_candidates
+        self._eviction_candidates = missing - confirmed
+
+        if not confirmed:
+            return
+
         for stage, q in self._queues.items():
             members = self._queue_members[stage]
-            stale = members - incoming_ids - protected
+            stale = members & confirmed
             if stale:
                 self._queues[stage] = deque(t for t in q if t.id not in stale)
                 members -= stale
-        self._hitl_numbers &= incoming_ids | protected
+        self._hitl_numbers -= confirmed
 
     def _route_incoming_tasks(
         self, stage_map: dict[int, tuple[IssueStoreStage, Task]]
@@ -291,11 +310,11 @@ class IssueStore:
         - Each task goes to the most advanced stage matching its tags.
         - Tasks already active are not re-queued.
         - Tasks that changed tags are moved between queues.
-        - Tasks no longer returned by the fetcher are removed from queues.
+        - Tasks missing from two consecutive fetches are evicted.
         """
         stage_map = self._compute_stage_map(tasks)
         incoming_ids = set(stage_map.keys())
-        self._evict_stale_tasks(incoming_ids)
+        self._evict_confirmed_closed(incoming_ids)
         self._route_incoming_tasks(stage_map)
 
         # Prune eagerly-transitioned entries for issues that vanished

@@ -153,7 +153,11 @@ class TestRouting:
         store._route_issues([issue1, issue2])
         assert len(store._queues[STAGE_FIND]) == 2
 
-        # On next refresh, only issue 41 comes back (40 was closed)
+        # First miss: issue 40 becomes an eviction candidate but stays
+        store._route_issues([issue2])
+        assert store._queue_members[STAGE_FIND] == {40, 41}
+
+        # Second consecutive miss: issue 40 is confirmed gone
         store._route_issues([issue2])
         assert store._queue_members[STAGE_FIND] == {41}
         assert len(store._queues[STAGE_FIND]) == 1
@@ -437,10 +441,14 @@ class TestRefresh:
         await store.refresh()
         assert len(store._queues[STAGE_FIND]) == 2
 
-        # Second poll: only issue 2 remains (issue 1 was closed)
+        # Second poll: only issue 2 remains (issue 1 becomes candidate)
         fetcher.fetch_all = AsyncMock(
             return_value=[TaskFactory.create(id=2, tags=["hydraflow-find"])]
         )
+        await store.refresh()
+        assert store._queue_members[STAGE_FIND] == {1, 2}  # still present
+
+        # Third poll: issue 1 missing again — now confirmed gone
         await store.refresh()
         assert store._queue_members[STAGE_FIND] == {2}
         assert len(store._queues[STAGE_FIND]) == 1
@@ -1215,3 +1223,114 @@ class TestCrateGate:
         uncrated = store.get_uncrated_issues()
         assert len(uncrated) == 1
         assert uncrated[0].id == 2
+
+
+# ── Two-strike eviction ──────────────────────────────────────────────
+
+
+class TestTwoStrikeEviction:
+    """Issues are only evicted after missing from two consecutive fetches."""
+
+    def test_single_miss_does_not_evict(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        issue2 = TaskFactory.create(id=2, tags=["hydraflow-find"])
+        store._route_issues([issue1, issue2])
+
+        # Issue 1 missing from one fetch — should still be queued
+        store._route_issues([issue2])
+        assert 1 in store._queue_members[STAGE_FIND]
+        assert len(store._queues[STAGE_FIND]) == 2
+
+    def test_two_consecutive_misses_evicts(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        issue2 = TaskFactory.create(id=2, tags=["hydraflow-find"])
+        store._route_issues([issue1, issue2])
+
+        # First miss — candidate
+        store._route_issues([issue2])
+        # Second miss — evicted
+        store._route_issues([issue2])
+        assert 1 not in store._queue_members[STAGE_FIND]
+        assert len(store._queues[STAGE_FIND]) == 1
+
+    def test_candidate_cleared_if_item_reappears(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        issue2 = TaskFactory.create(id=2, tags=["hydraflow-find"])
+        store._route_issues([issue1, issue2])
+
+        # Miss once — becomes candidate
+        store._route_issues([issue2])
+        assert 1 in store._eviction_candidates
+
+        # Reappears — candidate cleared
+        store._route_issues([issue1, issue2])
+        assert 1 not in store._eviction_candidates
+
+        # Missing again — only a candidate, not evicted
+        store._route_issues([issue2])
+        assert 1 in store._queue_members[STAGE_FIND]
+
+    def test_active_issues_protected_from_eviction(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        store._route_issues([issue1])
+        store.get_triageable(1)
+        store.mark_active(1, STAGE_FIND)
+
+        # Two misses — still protected because active
+        store._route_issues([])
+        store._route_issues([])
+        assert store.is_active(1)
+
+    def test_in_flight_issues_protected_from_eviction(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        store._route_issues([issue1])
+        store._in_flight[1] = STAGE_FIND
+
+        # Two misses — protected
+        store._route_issues([])
+        store._route_issues([])
+        assert 1 in store._in_flight
+
+    def test_hitl_issues_evicted_after_two_misses(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-hitl"])
+        store._route_issues([issue1])
+        assert 1 in store._hitl_numbers
+
+        # First miss — candidate
+        store._route_issues([])
+        assert 1 in store._hitl_numbers
+
+        # Second miss — evicted
+        store._route_issues([])
+        assert 1 not in store._hitl_numbers
+
+    @pytest.mark.asyncio
+    async def test_incomplete_fetch_does_not_evict(self) -> None:
+        from issue_fetcher import IncompleteIssueFetchError
+
+        fetcher = AsyncMock()
+        store = _make_store(fetcher=fetcher)
+
+        # Initial fetch populates queue
+        fetcher.fetch_all = AsyncMock(
+            return_value=[
+                TaskFactory.create(id=1, tags=["hydraflow-find"]),
+                TaskFactory.create(id=2, tags=["hydraflow-find"]),
+            ]
+        )
+        await store.refresh()
+        assert len(store._queues[STAGE_FIND]) == 2
+
+        # Fetcher raises IncompleteIssueFetchError — queue untouched
+        fetcher.fetch_all = AsyncMock(
+            side_effect=IncompleteIssueFetchError("rate limited")
+        )
+        await store.refresh()
+        assert len(store._queues[STAGE_FIND]) == 2
+        assert store._queue_members[STAGE_FIND] == {1, 2}
