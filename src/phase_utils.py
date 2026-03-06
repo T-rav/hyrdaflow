@@ -77,47 +77,49 @@ async def run_refilling_pool(
     pending: dict[asyncio.Task[T_Result], int] = {}  # task -> issue id placeholder
     worker_id_counter = 0
 
-    while not stop_event.is_set():
-        # Fill empty slots
-        free = max_concurrent - len(pending)
-        if free > 0:
-            new_items = supply_fn()
-            for item in new_items[:free]:
-                task = asyncio.create_task(worker_fn(worker_id_counter, item))
-                pending[task] = worker_id_counter
-                worker_id_counter += 1
+    try:
+        while not stop_event.is_set():
+            # Fill empty slots
+            free = max_concurrent - len(pending)
+            if free > 0:
+                new_items = supply_fn()
+                for item in new_items[:free]:
+                    task = asyncio.create_task(worker_fn(worker_id_counter, item))
+                    pending[task] = worker_id_counter
+                    worker_id_counter += 1
 
-        if not pending:
-            break
+            if not pending:
+                break
 
-        done, _ = await asyncio.wait(
-            pending.keys(), return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in done:
-            del pending[task]
-            exc = task.exception()
-            if exc is not None:
-                from subprocess_util import (  # noqa: PLC0415
-                    AuthenticationError,
-                    CreditExhaustedError,
-                )
+            done, _ = await asyncio.wait(
+                pending.keys(), return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                del pending[task]
+                exc = task.exception()
+                if exc is not None:
+                    from subprocess_util import (  # noqa: PLC0415
+                        AuthenticationError,
+                        CreditExhaustedError,
+                    )
 
-                if isinstance(
-                    exc, (AuthenticationError, CreditExhaustedError, MemoryError)
-                ):
-                    for t in pending:
-                        t.cancel()
-                    await asyncio.gather(*pending, return_exceptions=True)
-                    raise exc
-                logger.warning("Pool worker failed: %s", exc, exc_info=exc)
-            else:
-                results.append(task.result())
-
-    # Cancel stragglers on stop
-    for task in pending:
-        task.cancel()
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
+                    if isinstance(
+                        exc,
+                        (AuthenticationError, CreditExhaustedError, MemoryError),
+                    ):
+                        for t in pending:
+                            t.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                        raise exc
+                    logger.warning("Pool worker failed: %s", exc, exc_info=exc)
+                else:
+                    results.append(task.result())
+    finally:
+        # Cancel stragglers on stop or external cancellation
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     return results
 

@@ -257,6 +257,27 @@ class TestRunRefillingPool:
         with pytest.raises(AuthenticationError):
             await run_refilling_pool(supply, worker, 2, stop)
 
+    @pytest.mark.asyncio
+    async def test_external_cancel_cleans_up_pending(self) -> None:
+        """Cancelling the pool coroutine should cancel all pending workers."""
+        stop = asyncio.Event()
+        started = asyncio.Event()
+
+        def supply() -> list[int]:
+            return [1]
+
+        async def worker(_idx: int, _item: int) -> int:
+            started.set()
+            await asyncio.sleep(100)
+            return 1
+
+        task = asyncio.create_task(run_refilling_pool(supply, worker, 2, stop))
+        await started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
 
 # ---------------------------------------------------------------------------
 # escalate_to_hitl
