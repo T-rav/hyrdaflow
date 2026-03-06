@@ -32,6 +32,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0019](0019-background-task-delegation-abstraction-layer.md) | Background Task Delegation Abstraction Layer | Proposed |
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Proposed |
 | [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Proposed |
+| [0022](0022-crate-manager-gating-and-issue-store-snapshot-alignment.md) | CrateManager Gating and IssueStore Snapshot Alignment | Proposed |
 
 ## Adding a new ADR
 
