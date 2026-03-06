@@ -28,6 +28,10 @@ class PipelineRunResult:
     events: list[HydraFlowEvent]
 
     def snapshot(self, label: str) -> QueueStats:
+        if label not in self.snapshots:
+            available = list(self.snapshots)
+            msg = f"no snapshot named {label!r}; available: {available}"
+            raise KeyError(msg)
         return self.snapshots[label]
 
 
