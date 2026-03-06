@@ -41,13 +41,6 @@ class AgentRunner(BaseRunner):
     _MAX_IMPL_PLAN_CHARS = 6_000
     _MAX_REVIEW_FEEDBACK_CHARS = 2_000
 
-    _TEST_FILE_PATTERNS = (
-        "/tests/",
-        "/__tests__/",
-        ".test.",
-        ".spec.",
-    )
-
     _SELF_CHECK_CHECKLIST = """
 ## Self-Check Before Committing
 
@@ -123,24 +116,6 @@ Run through this checklist before your final commit:
             return result
 
         try:
-            tdd_red_transcript = "TDD red phase skipped (non-git test context)"
-            if self._should_enforce_tdd_red(worktree_path):
-                (
-                    tdd_red_ok,
-                    tdd_red_msg,
-                    tdd_red_transcript,
-                ) = await self._run_tdd_red_phase(
-                    task, worktree_path, branch, worker_id
-                )
-                if not tdd_red_ok:
-                    result.success = False
-                    result.error = tdd_red_msg
-                    result.transcript = tdd_red_transcript
-                    result.commits = await self._count_commits(worktree_path, branch)
-                    await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
-                    result.duration_seconds = time.monotonic() - start
-                    return result
-
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
             prompt, prompt_stats = self._build_prompt_with_stats(
@@ -153,12 +128,7 @@ Run through this checklist before your final commit:
                 {"issue": task.id, "source": "implementer"},
                 telemetry_stats=prompt_stats,
             )
-            result.transcript = (
-                "## TDD Red Phase\n\n"
-                + tdd_red_transcript.strip()
-                + "\n\n## Implementation Phase\n\n"
-                + transcript.strip()
-            )
+            result.transcript = transcript
 
             # Mandatory pre-quality self-review/correction loop
             (
@@ -229,122 +199,6 @@ Run through this checklist before your final commit:
             )
 
         return result
-
-    @staticmethod
-    def _should_enforce_tdd_red(worktree_path: Path) -> bool:
-        """Return True when worktree appears to be a real git checkout."""
-        return (worktree_path / ".git").exists()
-
-    @classmethod
-    def _is_test_file_path(cls, path: str) -> bool:
-        """Return True when *path* points to a test file."""
-        norm = path.strip().lower().replace("\\", "/")
-        if not norm:
-            return False
-        if norm.startswith("tests/"):
-            return True
-        if norm.startswith("test_") or norm.endswith("_test.py"):
-            return True
-        return any(pattern in norm for pattern in cls._TEST_FILE_PATTERNS)
-
-    async def _run_tdd_red_phase(
-        self,
-        issue: Task,
-        worktree_path: Path,
-        branch: str,
-        worker_id: int,
-    ) -> tuple[bool, str, str]:
-        """Run mandatory TDD-red phase before implementation."""
-        cmd = self._build_command(worktree_path)
-        prompt = self._build_tdd_red_prompt(issue)
-        transcript = await self._execute(
-            cmd,
-            prompt,
-            worktree_path,
-            {"issue": issue.id, "source": "implementer"},
-        )
-        red_ok, red_summary = self._parse_skill_result(transcript, "TDD_RED_RESULT")
-        if not red_ok:
-            return (
-                False,
-                "TDD red phase failed" + (f": {red_summary}" if red_summary else ""),
-                transcript,
-            )
-
-        changed_files = await self._collect_changed_files_for_tdd_red(
-            worktree_path, branch
-        )
-        if not changed_files:
-            return (
-                False,
-                "TDD red phase produced no file changes",
-                transcript,
-            )
-        non_test_files = sorted(
-            path for path in changed_files if not self._is_test_file_path(path)
-        )
-        if non_test_files:
-            return (
-                False,
-                "TDD red phase modified non-test files: "
-                + ", ".join(non_test_files[:8]),
-                transcript,
-            )
-
-        failure_ok, failure_msg = await self._verify_tdd_red_fails(worktree_path)
-        if not failure_ok:
-            return False, failure_msg, transcript
-        return True, "OK", transcript
-
-    async def _collect_changed_files_for_tdd_red(
-        self, worktree_path: Path, branch: str
-    ) -> set[str]:
-        """Collect changed files from committed and working tree deltas."""
-        changed: set[str] = set()
-        commands = [
-            [
-                "git",
-                "diff",
-                "--name-only",
-                f"origin/{self._config.main_branch}..{branch}",
-            ],
-            ["git", "diff", "--name-only", "--cached"],
-            ["git", "diff", "--name-only"],
-        ]
-        for cmd in commands:
-            try:
-                result = await self._runner.run_simple(
-                    cmd,
-                    cwd=str(worktree_path),
-                    timeout=self._config.git_command_timeout,
-                )
-            except (TimeoutError, FileNotFoundError):
-                continue
-            if result.stdout:
-                changed.update(
-                    line.strip() for line in result.stdout.splitlines() if line.strip()
-                )
-        return changed
-
-    async def _verify_tdd_red_fails(self, worktree_path: Path) -> tuple[bool, str]:
-        """Run tests and require at least one failing test in red phase."""
-        try:
-            result = await self._runner.run_simple(
-                ["bash", "-lc", self._config.test_command],
-                cwd=str(worktree_path),
-                timeout=self._config.quality_timeout,
-            )
-        except TimeoutError:
-            return False, "TDD red phase test run timed out"
-        except FileNotFoundError:
-            return False, "TDD red phase could not run test command"
-
-        if result.returncode == 0:
-            return (
-                False,
-                "TDD red phase must produce a failing test before implementation",
-            )
-        return True, "Expected failing test observed"
 
     @staticmethod
     def _extract_plan_comment(comments: list[str]) -> tuple[str, list[str]]:
@@ -620,7 +474,7 @@ Run through this checklist before your final commit:
 ## Instructions
 
 1. Understand the issue and relevant code paths.
-2. Write/adjust tests first, then implement.
+2. Write tests to ensure functionality, prevent regressions, and catch bugs.
 3. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
 4. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality`; fix and rerun.
 5. Commit with: "Fixes #{issue.id}: <concise summary>"
@@ -661,29 +515,6 @@ Run through this checklist before your final commit:
             },
         }
         return prompt, stats
-
-    def _build_tdd_red_prompt(self, issue: Task) -> str:
-        """Build a strict test-first prompt for the red phase."""
-        test_cmd = self._config.test_command
-        return f"""You are running TDD Red Phase for GitHub issue #{issue.id}: {issue.title}.
-
-Goal:
-- add or adjust tests ONLY
-- do not modify non-test files in this phase
-- make the new/updated tests fail for the current implementation
-
-Required steps:
-1. Edit only test files (`tests/`, `__tests__/`, `*.test.*`, `*.spec.*`).
-2. Add assertions that capture the intended behavior change.
-3. Run `{test_cmd}` and confirm at least one failure tied to the new behavior.
-4. Do not implement production code yet.
-
-Required output:
-TDD_RED_RESULT: OK
-or
-TDD_RED_RESULT: RETRY
-SUMMARY: <one-line summary>
-"""
 
     async def _verify_result(
         self, worktree_path: Path, branch: str
