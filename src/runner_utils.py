@@ -78,7 +78,18 @@ async def stream_claude_process(
     use_pi_print = cmd and cmd[0] == "pi" and ("-p" in cmd or "--print" in cmd)
     use_claude_print = cmd and cmd[0] == "claude" and "-p" in cmd
     use_prompt_arg = use_codex_exec or use_pi_print or use_claude_print
-    cmd_to_run = [*cmd, prompt] if use_prompt_arg else cmd
+    if use_prompt_arg:
+        if use_claude_print or use_pi_print:
+            # Claude/Pi CLI require the prompt immediately after -p/--print;
+            # placing it at the end causes "Input must be provided" errors.
+            flag = "-p" if "-p" in cmd else "--print"
+            idx = cmd.index(flag)
+            cmd_to_run = [*cmd[: idx + 1], prompt, *cmd[idx + 1 :]]
+        else:
+            # Codex exec: prompt is a trailing positional argument.
+            cmd_to_run = [*cmd, prompt]
+    else:
+        cmd_to_run = cmd
     stdin_mode = (
         asyncio.subprocess.DEVNULL if use_prompt_arg else asyncio.subprocess.PIPE
     )

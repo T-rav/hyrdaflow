@@ -232,7 +232,7 @@ class TestStreamClaudeProcessConfig:
 
     @pytest.mark.asyncio
     async def test_pi_print_passes_prompt_as_argument(self, event_bus) -> None:
-        """Pi print mode should receive prompt as CLI arg, not stdin pipe."""
+        """Pi print mode should insert prompt right after -p, not at end."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
         cmd = ["pi", "-p", "--mode", "json", "--model", "openai/gpt-4o-mini"]
         prompt = "do the thing"
@@ -244,12 +244,14 @@ class TestStreamClaudeProcessConfig:
 
         args = list(mock_exec.call_args[0])
         kwargs = mock_exec.call_args[1]
-        assert args[-1] == prompt
+        # Prompt must be immediately after -p for the CLI to recognise it.
+        p_idx = args.index("-p")
+        assert args[p_idx + 1] == prompt
         assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
 
     @pytest.mark.asyncio
     async def test_claude_print_passes_prompt_as_argument(self, event_bus) -> None:
-        """Claude -p should receive prompt as CLI arg, not stdin pipe."""
+        """Claude -p should insert prompt right after -p, not at end."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
         cmd = ["claude", "-p", "--output-format", "stream-json", "--model", "sonnet"]
         prompt = "evaluate this issue"
@@ -261,7 +263,9 @@ class TestStreamClaudeProcessConfig:
 
         args = list(mock_exec.call_args[0])
         kwargs = mock_exec.call_args[1]
-        assert args[-1] == prompt
+        # Prompt must be immediately after -p for the CLI to recognise it.
+        p_idx = args.index("-p")
+        assert args[p_idx + 1] == prompt
         assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
 
 
