@@ -1252,6 +1252,9 @@ class TestExecuteOrchestrator:
         cmd = call_args.args[0]
         assert cmd[0] == "claude"
         assert "-p" in cmd
+        # Prompt must be immediately after -p for the CLI to recognise it.
+        p_idx = cmd.index("-p")
+        assert not cmd[p_idx + 1].startswith("--"), "prompt must follow -p, not a flag"
 
     @pytest.mark.asyncio
     async def test_codex_tool(self, tmp_path: Path) -> None:
