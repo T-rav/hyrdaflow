@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from config import HydraFlowConfig
-from file_util import atomic_write, file_lock
+from file_util import append_jsonl, atomic_write, file_lock
 from model_pricing import ModelPricingTable, load_pricing
 
 logger = logging.getLogger("hydraflow.prompt_telemetry")
@@ -201,9 +201,7 @@ class PromptTelemetry:
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
             with file_lock(self._lock_file):
-                with open(self._inferences_file, "a") as f:
-                    f.write(json.dumps(record, sort_keys=True) + "\n")
-                    f.flush()
+                append_jsonl(self._inferences_file, json.dumps(record, sort_keys=True))
                 self._update_pr_stats(record)
         except OSError:
             logger.warning(

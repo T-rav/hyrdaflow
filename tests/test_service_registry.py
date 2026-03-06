@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from operator import attrgetter
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 from unittest.mock import patch
 
-from events import EventBus
+from events import EventBus, EventType, HydraFlowEvent
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
 from state import StateTracker
 
@@ -104,3 +105,92 @@ class TestBuildServices:
             build_services(config, bus, state, stop_event, callbacks)
 
         mock_factory.assert_called_once_with(config)
+
+
+class TestServiceRegistryWiring:
+    """Integration checks for ServiceRegistry wiring and shared dependencies."""
+
+    _BUS_TARGETS = [
+        ("triage phase", attrgetter("triager._bus")),
+        ("plan phase", attrgetter("planner_phase._bus")),
+        ("review phase", attrgetter("reviewer._bus")),
+        ("hitl phase", attrgetter("hitl_phase._bus")),
+        ("agents runner", attrgetter("agents._bus")),
+        ("planners runner", attrgetter("planners._bus")),
+        ("reviewers runner", attrgetter("reviewers._bus")),
+        ("hitl runner", attrgetter("hitl_runner._bus")),
+        ("triage runner", attrgetter("triage._bus")),
+        ("pr manager", attrgetter("prs._bus")),
+        ("issue store", attrgetter("store._bus")),
+        # Note: ImplementPhase is intentionally absent — it does not accept event_bus
+        # in its constructor; events flow through its sub-runners (agents._bus, etc.).
+    ]
+    _STATE_TARGETS = [
+        ("triage phase", attrgetter("triager._state")),
+        ("plan phase", attrgetter("planner_phase._state")),
+        ("implement phase", attrgetter("implementer._state")),
+        ("review phase", attrgetter("reviewer._state")),
+        ("hitl phase", attrgetter("hitl_phase._state")),
+    ]
+    _STOP_EVENT_TARGETS = [
+        ("triage phase", attrgetter("triager._stop_event")),
+        ("plan phase", attrgetter("planner_phase._stop_event")),
+        ("implement phase", attrgetter("implementer._stop_event")),
+        ("review phase", attrgetter("reviewer._stop_event")),
+        ("hitl phase", attrgetter("hitl_phase._stop_event")),
+    ]
+    # Explicit list of phase objects (not runners) that can publish on the shared bus.
+    # Kept separate from _BUS_TARGETS to avoid a fragile index-based slice.
+    _PHASE_BUS_PUBLISHERS = [
+        ("triage phase", attrgetter("triager._bus")),
+        ("plan phase", attrgetter("planner_phase._bus")),
+        ("review phase", attrgetter("reviewer._bus")),
+        ("hitl phase", attrgetter("hitl_phase._bus")),
+    ]
+
+    @staticmethod
+    def _build_registry(
+        config: HydraFlowConfig,
+    ) -> tuple[ServiceRegistry, EventBus, StateTracker, asyncio.Event]:
+        bus = EventBus()
+        state = StateTracker(config.state_file)
+        stop_event = asyncio.Event()
+        callbacks = _make_callbacks()
+        registry = build_services(config, bus, state, stop_event, callbacks)
+        return registry, bus, state, stop_event
+
+    def test_phases_share_event_bus(self, config: HydraFlowConfig) -> None:
+        registry, bus, _, _ = self._build_registry(config)
+
+        for label, getter in self._BUS_TARGETS:
+            assert getter(registry) is bus, (
+                f"{label} is not using the shared EventBus instance"
+            )
+
+    def test_phases_share_state_tracker(self, config: HydraFlowConfig) -> None:
+        registry, _, state, _ = self._build_registry(config)
+
+        for label, getter in self._STATE_TARGETS:
+            assert getter(registry) is state, f"{label} is not sharing StateTracker"
+
+    def test_phases_share_stop_event(self, config: HydraFlowConfig) -> None:
+        registry, _, _, stop_event = self._build_registry(config)
+
+        for label, getter in self._STOP_EVENT_TARGETS:
+            assert getter(registry) is stop_event, f"{label} not wired to stop_event"
+
+    async def test_event_bus_propagation(self, config: HydraFlowConfig) -> None:
+        registry, bus, _, _ = self._build_registry(config)
+        queue = bus.subscribe()
+
+        try:
+            for label, getter in self._PHASE_BUS_PUBLISHERS:
+                event = HydraFlowEvent(
+                    type=EventType.SYSTEM_ALERT, data={"source": label}
+                )
+                await getter(registry).publish(event)
+
+                received = await asyncio.wait_for(queue.get(), timeout=1)
+                assert received is event, f"{label} did not publish via shared EventBus"
+        finally:
+            bus.unsubscribe(queue)

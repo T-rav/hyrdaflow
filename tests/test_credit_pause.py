@@ -119,6 +119,16 @@ class TestIsCreditExhaustion:
         assert is_credit_exhaustion("Credit Balance Is Too Low") is True
         assert is_credit_exhaustion("YOU'VE HIT YOUR LIMIT") is True
 
+    def test_detects_hit_your_usage_limit(self) -> None:
+        """Exact message from Claude CLI when quota is exhausted."""
+        assert (
+            is_credit_exhaustion(
+                "You've hit your usage limit. To get more access now, "
+                "send a request to your admin or try again at 3:29 PM."
+            )
+            is True
+        )
+
 
 # ===========================================================================
 # subprocess_util — parse_credit_resume_time

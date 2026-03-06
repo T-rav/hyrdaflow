@@ -4,12 +4,55 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock
 
 if TYPE_CHECKING:
+    from events import HydraFlowEvent
+    from models import QueueStats, Task
     from worktree import WorktreeManager
+
+
+@dataclass
+class PipelineRunResult:
+    """Structured result returned by ``PipelineHarness.run_full_lifecycle``."""
+
+    task: Task
+    triaged_count: int
+    plan_results: list
+    worker_results: list
+    review_results: list
+    snapshots: dict[str, QueueStats]
+    events: list[HydraFlowEvent]
+
+    def snapshot(self, label: str) -> QueueStats:
+        if label not in self.snapshots:
+            available = list(self.snapshots)
+            msg = f"no snapshot named {label!r}; available: {available}"
+            raise KeyError(msg)
+        return self.snapshots[label]
+
+
+def supply_once(*batches):
+    """Return batches in order, then ``[]`` forever.
+
+    Used to mock ``IssueStore.get_*`` methods for ``run_refilling_pool`` tests.
+    The pool calls ``supply_fn`` repeatedly; this ensures items are returned
+    once and the pool terminates cleanly.
+
+    Usage::
+
+        store.get_triageable = supply_once([issue])          # single item
+        store.get_triageable = supply_once(*[[i] for i in issues])  # one per call
+    """
+    items = list(batches)
+
+    def _fn(_max_count=None):
+        return items.pop(0) if items else []
+
+    return _fn
 
 
 class AsyncLineIter:
@@ -273,6 +316,7 @@ class ConfigFactory:
         unstick_all_causes: bool = True,
         enable_fresh_branch_rebuild: bool = True,
         max_troubleshooting_prompt_chars: int = 3000,
+        epic_group_planning: bool = False,
         epic_auto_decompose: bool = False,
         epic_decompose_complexity_threshold: int = 8,
         epic_monitor_interval: int = 1800,
@@ -467,6 +511,7 @@ class ConfigFactory:
             unstick_all_causes=unstick_all_causes,
             enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
             max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
+            epic_group_planning=epic_group_planning,
             epic_auto_decompose=epic_auto_decompose,
             epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
             epic_monitor_interval=epic_monitor_interval,
@@ -521,6 +566,313 @@ class ConfigFactory:
             adr_review_max_rounds=adr_review_max_rounds,
             adr_review_enabled=adr_review_enabled,
             adr_review_model=adr_review_model,
+        )
+
+
+class PipelineHarness:
+    """Utility for wiring all phases with shared real stores in tests."""
+
+    def __init__(self, tmp_path: Path, *, config=None):
+        from events import EventBus
+        from hitl_phase import HITLPhase
+        from implement_phase import ImplementPhase
+        from issue_store import IssueStore
+        from plan_phase import PlanPhase
+        from post_merge_handler import PostMergeHandler
+        from review_phase import ReviewPhase
+        from state import StateTracker
+        from triage_phase import TriagePhase
+
+        self.config = config or ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+            max_workers=1,
+            max_planners=1,
+            max_reviewers=1,
+            visual_validation_enabled=False,
+            code_scanning_enabled=False,
+            max_ci_fix_attempts=0,
+        )
+        self._ensure_test_dirs()
+
+        self.bus = EventBus()
+        self.state = StateTracker(self.config.state_file)
+        self.fetcher = AsyncMock()
+        self.store = IssueStore(self.config, self.fetcher, self.bus)
+        self.stop_event = asyncio.Event()
+
+        self.prs = AsyncMock()
+        self._setup_pr_manager_mocks()
+
+        self.triage_runner = AsyncMock()
+        self.triage_runner.evaluate = AsyncMock()
+        self.planners = AsyncMock()
+        self.planners.plan = AsyncMock()
+        self.agents = AsyncMock()
+        self.agents.run = AsyncMock()
+        self.reviewers = AsyncMock()
+        self.reviewers.review = AsyncMock()
+        self.reviewers.fix_ci = AsyncMock()
+        self.hitl_runner = AsyncMock()
+        self.hitl_runner.run = AsyncMock()
+        self._hitl_fetcher = AsyncMock()
+        self._hitl_fetcher.fetch_issue_by_number = AsyncMock()
+
+        self.worktrees = AsyncMock()
+        self.worktrees.create = AsyncMock(side_effect=self._default_worktree_create)
+        self.worktrees.destroy = AsyncMock()
+
+        self._conflict_resolver = MagicMock()
+        self._conflict_resolver.merge_with_main = AsyncMock(return_value=True)
+        self.post_merge = PostMergeHandler(
+            config=self.config,
+            state=self.state,
+            prs=self.prs,
+            event_bus=self.bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+
+        self.triage_phase = TriagePhase(
+            self.config,
+            self.state,
+            self.store,
+            self.triage_runner,
+            self.prs,
+            self.bus,
+            self.stop_event,
+        )
+        self.plan_phase = PlanPhase(
+            self.config,
+            self.state,
+            self.store,
+            self.planners,
+            self.prs,
+            self.bus,
+            self.stop_event,
+        )
+        self.implement_phase = ImplementPhase(
+            config=self.config,
+            state=self.state,
+            worktrees=self.worktrees,
+            agents=self.agents,
+            prs=self.prs,
+            store=self.store,
+            stop_event=self.stop_event,
+        )
+        self.review_phase = ReviewPhase(
+            config=self.config,
+            state=self.state,
+            worktrees=self.worktrees,
+            reviewers=self.reviewers,
+            prs=self.prs,
+            stop_event=self.stop_event,
+            store=self.store,
+            event_bus=self.bus,
+            conflict_resolver=self._conflict_resolver,
+            post_merge=self.post_merge,
+        )
+        self.hitl_phase = HITLPhase(
+            config=self.config,
+            state=self.state,
+            store=self.store,
+            fetcher=self._hitl_fetcher,
+            worktrees=self.worktrees,
+            hitl_runner=self.hitl_runner,
+            prs=self.prs,
+            event_bus=self.bus,
+            stop_event=self.stop_event,
+        )
+
+    def _ensure_test_dirs(self) -> None:
+        paths = {
+            self.config.repo_root,
+            self.config.worktree_base,
+            self.config.state_file.parent,
+            self.config.data_root,
+            self.config.plans_dir,
+            self.config.memory_dir,
+            self.config.log_dir,
+            self.config.visual_reports_dir,
+        }
+        for path in paths:
+            path.mkdir(parents=True, exist_ok=True)
+
+    def _setup_pr_manager_mocks(self) -> None:
+        from tests.conftest import PRInfoFactory
+
+        counter = iter(range(10_000, 20_000))
+
+        def _make_pr(issue, branch, *, draft=False, **_unused):
+            number = next(counter)
+            issue_number = getattr(issue, "number", getattr(issue, "id", 0))
+            return PRInfoFactory.create(
+                number=number,
+                issue_number=issue_number,
+                branch=branch,
+                draft=draft,
+            )
+
+        def _find_pr(branch, *, issue_number=None, **_unused):
+            number = next(counter)
+            return PRInfoFactory.create(
+                number=number,
+                issue_number=issue_number or 0,
+                branch=branch,
+            )
+
+        self.prs.transition = AsyncMock()
+        self.prs.swap_pipeline_labels = AsyncMock()
+        self.prs.add_labels = AsyncMock()
+        self.prs.remove_label = AsyncMock()
+        self.prs.post_comment = AsyncMock()
+        self.prs.post_pr_comment = AsyncMock()
+        self.prs.submit_review = AsyncMock()
+        self.prs.create_task = AsyncMock(return_value=12345)
+        self.prs.close_task = AsyncMock()
+        self.prs.close_issue = AsyncMock()
+        self.prs.push_branch = AsyncMock(return_value=True)
+        self.prs.create_pr = AsyncMock(side_effect=_make_pr)
+        self.prs.find_open_pr_for_branch = AsyncMock(side_effect=_find_pr)
+        self.prs.branch_has_diff_from_main = AsyncMock(return_value=True)
+        self.prs.add_pr_labels = AsyncMock()
+        self.prs.get_pr_diff = AsyncMock(return_value="diff --git a/x b/x")
+        self.prs.get_pr_head_sha = AsyncMock(return_value="abc123")
+        self.prs.get_pr_diff_names = AsyncMock(return_value=["src/app.py"])
+        self.prs.get_pr_approvers = AsyncMock(return_value=["octocat"])
+        self.prs.fetch_code_scanning_alerts = AsyncMock(return_value=[])
+        self.prs.wait_for_ci = AsyncMock(return_value=(True, "CI passed"))
+        self.prs.fetch_ci_failure_logs = AsyncMock(return_value="")
+        self.prs.merge_pr = AsyncMock(return_value=True)
+
+    def _default_worktree_create(self, issue_number: int, branch: str):
+        path = self.config.worktree_path_for_issue(issue_number)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def seed_issue(self, task, stage: str = "find") -> None:
+        """Place *task* in the requested queue stage."""
+        self.store.enqueue_transition(task, stage)
+
+    async def run_full_lifecycle(
+        self,
+        *,
+        task_id: int,
+        seed_stage: str = "find",
+        tags: list[str] | None = None,
+        triage_result=None,
+        plan_result=None,
+        worker_result=None,
+        review_verdict="approve",
+    ) -> PipelineRunResult:
+        """Drive an issue through triage → plan → implement → review."""
+        from models import ReviewVerdict
+        from tests.conftest import (
+            PlanResultFactory,
+            ReviewResultFactory,
+            TaskFactory,
+            TriageResultFactory,
+            WorkerResultFactory,
+        )
+
+        tag_list = tags or [self.config.find_label[0]]
+        task = TaskFactory.create(id=task_id, tags=tag_list)
+        self.seed_issue(task, seed_stage)
+
+        triage_return = (
+            triage_result
+            if triage_result is not None
+            else TriageResultFactory.create(issue_number=task.id, ready=True)
+        )
+        plan_return = (
+            plan_result
+            if plan_result is not None
+            else PlanResultFactory.create(issue_number=task.id)
+        )
+
+        branch = self.config.branch_for_issue(task.id)
+        worktree_path = self.config.worktree_path_for_issue(task.id)
+        worker_return = (
+            worker_result
+            if worker_result is not None
+            else WorkerResultFactory.create(
+                issue_number=task.id,
+                branch=branch,
+                worktree_path=str(worktree_path),
+                success=True,
+                commits=1,
+            )
+        )
+
+        self.triage_runner.evaluate.return_value = triage_return
+        self.planners.plan.return_value = plan_return
+        self.agents.run.return_value = worker_return
+
+        verdict_enum = (
+            review_verdict
+            if isinstance(review_verdict, ReviewVerdict)
+            else ReviewVerdict(review_verdict)
+        )
+        previous_side_effect = self.reviewers.review.side_effect
+
+        async def _review_side_effect(
+            pr, issue, wt_path, diff, *, worker_id, **_kwargs
+        ):
+            return ReviewResultFactory.create(
+                pr_number=pr.number,
+                issue_number=issue.id,
+                verdict=verdict_enum,
+                merged=True,
+                ci_passed=True,
+            )
+
+        self.reviewers.review.side_effect = _review_side_effect
+
+        snapshots: dict[str, QueueStats] = {}
+
+        def _capture(label: str) -> None:
+            snapshots[label] = self.store.get_queue_stats().model_copy(deep=True)
+
+        try:
+            triaged = await self.triage_phase.triage_issues()
+            _capture("after_triage")
+
+            plan_results = await self.plan_phase.plan_issues()
+            _capture("after_plan")
+
+            worker_results, _ = await self.implement_phase.run_batch()
+            _capture("after_implement")
+
+            assert worker_results, (
+                "implement_phase produced no results; check task seeding and ready-queue routing"
+            )
+            pr_info = worker_results[0].pr_info
+            assert pr_info is not None, (
+                "worker_results[0].pr_info is None; implement phase did not create a PR"
+            )
+            review_candidates = self.store.get_reviewable(self.config.batch_size)
+            review_results = await self.review_phase.review_prs(
+                [pr_info], review_candidates
+            )
+            _capture("after_review")
+
+            await asyncio.sleep(0)
+            events = self.bus.get_history()
+        finally:
+            self.reviewers.review.side_effect = previous_side_effect
+
+        return PipelineRunResult(
+            task=task,
+            triaged_count=triaged,
+            plan_results=plan_results,
+            worker_results=worker_results,
+            review_results=review_results,
+            snapshots=snapshots,
+            events=events,
         )
 
 
@@ -643,7 +995,7 @@ def make_implement_phase(
     """
     from implement_phase import ImplementPhase
     from issue_store import IssueStore
-    from models import Task, WorkerResult
+    from models import WorkerResult
     from state import StateTracker
     from tests.conftest import PRInfoFactory, WorkerResultFactory
 
@@ -670,9 +1022,9 @@ def make_implement_phase(
     mock_agents = AsyncMock()
     mock_agents.run = agent_run
 
-    # Mock IssueStore — get_implementable returns the supplied issues
+    # Mock IssueStore — get_implementable returns the supplied issues once
     mock_store = AsyncMock(spec=IssueStore)
-    mock_store.get_implementable = lambda limit: issues
+    mock_store.get_implementable = supply_once(*[[i] for i in issues])
     mock_store.mark_active = lambda num, stage: None
     mock_store.mark_complete = lambda num: None
     mock_store.is_active = lambda num: False

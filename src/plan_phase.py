@@ -18,6 +18,7 @@ from phase_utils import (
     record_harness_failure,
     release_batch_in_flight,
     run_concurrent_batch,
+    run_refilling_pool,
     safe_file_memory_suggestion,
     store_lifecycle,
 )
@@ -569,51 +570,58 @@ class PlanPhase:
     # ------------------------------------------------------------------
 
     async def plan_issues(self) -> list[PlanResult]:
-        """Run planning agents on issues from the plan queue."""
-        issues = self._store.get_plannable(self._config.batch_size)
-        if not issues:
-            return []
+        """Run planning agents on issues from the plan queue.
 
+        Uses a slot-filling pool so new issues are picked up as soon
+        as a planner slot frees, rather than waiting for the full batch.
+        Epic children are still grouped and planned together when
+        ``epic_group_planning`` is enabled.
+        """
         semaphore = asyncio.Semaphore(self._config.max_planners)
 
-        # Group epic children if feature is enabled
+        # If epic grouping is enabled, drain a batch first to identify
+        # epic children, then plan them as groups.
+        epic_results: list[PlanResult] = []
         if self._config.epic_group_planning:
-            epic_groups, standalone = self._group_by_epic(issues)
-        else:
-            epic_groups, standalone = {}, issues
+            batch = self._store.get_plannable(2 * self._config.max_planners)
+            if batch:
+                epic_groups, standalone = self._group_by_epic(batch)
+                # Re-queue standalone issues for the pool below
+                for issue in standalone:
+                    self._store.enqueue_transition(issue, "plan")
+                release_batch_in_flight(self._store, {i.id for i in standalone})
 
-        all_results: list[PlanResult] = []
-        all_issue_ids = {i.id for i in issues}
+                for epic_number, children in epic_groups.items():
+                    if self._stop_event.is_set():
+                        break
+                    try:
+                        results = await self._plan_epic_group(
+                            epic_number, children, semaphore
+                        )
+                        epic_results.extend(results)
+                        if self._epic_manager is not None:
+                            for r in results:
+                                if r.success and r.plan:
+                                    await self._epic_manager.on_child_planned(
+                                        epic_number, r.issue_number
+                                    )
+                    finally:
+                        release_batch_in_flight(self._store, {c.id for c in children})
 
-        try:
-            # Plan standalone issues concurrently
-            if standalone:
-                standalone_results = await run_concurrent_batch(
-                    standalone,
-                    lambda idx, issue: self._plan_one(idx, issue, semaphore),
-                    self._stop_event,
-                )
-                all_results.extend(standalone_results)
+        async def _plan_worker(idx: int, issue: Task) -> PlanResult:
+            try:
+                return await self._plan_one(idx, issue, semaphore)
+            finally:
+                release_batch_in_flight(self._store, {issue.id})
 
-            # Plan each epic group (sequentially per epic, concurrent within)
-            for epic_number, children in epic_groups.items():
-                if self._stop_event.is_set():
-                    break
-                epic_results = await self._plan_epic_group(
-                    epic_number, children, semaphore
-                )
-                all_results.extend(epic_results)
-                # Notify EpicManager of successful plans
-                if self._epic_manager is not None:
-                    for r in epic_results:
-                        if r.success and r.plan:
-                            await self._epic_manager.on_child_planned(
-                                epic_number, r.issue_number
-                            )
+        standalone_results = await run_refilling_pool(
+            supply_fn=lambda: self._store.get_plannable(1),
+            worker_fn=_plan_worker,
+            max_concurrent=self._config.max_planners,
+            stop_event=self._stop_event,
+        )
 
-            return all_results
-        finally:
-            release_batch_in_flight(self._store, all_issue_ids)
+        return epic_results + standalone_results
 
     def _record_harness_failure(
         self,

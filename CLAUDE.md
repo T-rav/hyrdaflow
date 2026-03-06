@@ -81,6 +81,7 @@ HydraFlow creates isolated git worktrees for each issue. **Always clean up workt
 - Refactoring: Ensure existing tests pass, add tests for new paths
 - Never commit untested code
 - Coverage threshold: 70%
+- **Never write tests for ADR markdown content.** ADRs are documentation, not code. Do not create `test_adr_NNNN_*.py` files that assert on markdown headings, status fields, or prose content — these break whenever the document is edited and provide no value. Only test ADR-related *code* (e.g., `test_adr_reviewer.py` tests the reviewer logic).
 
 ## Never Skip Commit Hooks
 

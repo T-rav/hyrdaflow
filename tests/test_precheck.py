@@ -29,7 +29,7 @@ from tests.helpers import ConfigFactory
 class TestPrecheckResult:
     """Tests for the PrecheckResult frozen dataclass."""
 
-    def test_defaults(self) -> None:
+    def test_precheck_result_has_expected_defaults(self) -> None:
         result = PrecheckResult()
         assert result.risk == "medium"
         assert result.confidence == 0.0
@@ -51,7 +51,7 @@ class TestPrecheckResult:
         assert result.summary == "Risky change."
         assert result.parse_failed is False
 
-    def test_frozen(self) -> None:
+    def test_precheck_result_is_immutable(self) -> None:
         result = PrecheckResult()
         with pytest.raises(FrozenInstanceError):
             result.risk = "high"  # type: ignore[misc]

@@ -202,6 +202,131 @@ class TestPostMergeHandler:
         escalate_fn.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_handle_approved_merge_failure_conflict_sets_conflict_cause(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When mergeability reports conflicts, escalation cause includes merge conflict."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=False)
+        handler._prs.get_pr_mergeable = AsyncMock(return_value=False)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        kwargs = escalate_fn.await_args.kwargs
+        assert kwargs["cause"] == "PR merge failed on GitHub: merge conflict"
+        assert "merge conflicts" in kwargs["comment"]
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_merge_failure_non_conflict_sets_blocked_cause(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When mergeability is true, escalation cause marks non-conflict merge block."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=False)
+        handler._prs.get_pr_mergeable = AsyncMock(return_value=True)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        kwargs = escalate_fn.await_args.kwargs
+        assert (
+            kwargs["cause"] == "PR merge failed on GitHub: merge blocked (non-conflict)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_merge_conflict_attempts_auto_fix_and_retries_merge(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """On merge conflict, standard review path should attempt auto-fix before HITL."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(side_effect=[False, True])
+        handler._prs.get_pr_mergeable = AsyncMock(return_value=False)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        merge_conflict_fix_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+            merge_conflict_fix_fn=merge_conflict_fix_fn,
+        )
+
+        merge_conflict_fix_fn.assert_awaited_once_with(pr, issue, 0)
+        assert handler._prs.merge_pr.await_count == 2
+        escalate_fn.assert_not_awaited()
+        assert result.merged is True
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_merge_conflict_fix_failure_escalates(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """If standard auto-fix fails, merge conflict should still escalate to HITL."""
+        handler = _make_handler(config)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=False)
+        handler._prs.get_pr_mergeable = AsyncMock(return_value=False)
+        escalate_fn = AsyncMock()
+        merge_conflict_fix_fn = AsyncMock(return_value=False)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=escalate_fn,
+            publish_fn=AsyncMock(),
+            merge_conflict_fix_fn=merge_conflict_fix_fn,
+        )
+
+        merge_conflict_fix_fn.assert_awaited_once_with(pr, issue, 0)
+        kwargs = escalate_fn.await_args.kwargs
+        assert kwargs["cause"] == "PR merge failed on GitHub: merge conflict"
+
+    @pytest.mark.asyncio
     async def test_get_judge_result_none(self, config: HydraFlowConfig) -> None:
         """When verdict is None, should return None."""
         handler = _make_handler(config)

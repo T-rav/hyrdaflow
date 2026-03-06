@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -87,6 +89,28 @@ def _make_hitl_item(issue: int = 42, **kwargs) -> HITLItem:
         branch=kwargs.get("branch", f"agent/issue-{issue}"),
         **{k: v for k, v in kwargs.items() if k not in ("title", "branch")},
     )
+
+
+class TestPRUnstickerInternals:
+    """Targeted unit tests for small PRUnsticker helpers."""
+
+    def test_detect_language_logs_warning_on_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        unsticker, *_ = _make_unsticker(tmp_path)
+        failing_module = SimpleNamespace(
+            detect_prep_stack=MagicMock(side_effect=RuntimeError("boom"))
+        )
+        monkeypatch.setitem(sys.modules, "polyglot_prep", failing_module)
+
+        with caplog.at_level(logging.WARNING):
+            result = unsticker._detect_language(tmp_path)
+
+        assert result == "general"
+        assert "Falling back to 'general' language classification" in caplog.text
 
 
 class TestCauseClassification:
@@ -571,7 +595,7 @@ class TestAutoMergeDisabled:
         assert stats["merged"] == 0
 
         # Should swap back to origin label
-        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review")
+        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review", pr_number=100)
         # merge_pr should NOT have been called
         prs.merge_pr.assert_not_called()
 

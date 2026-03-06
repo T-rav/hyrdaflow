@@ -20,6 +20,7 @@ from phase_utils import (
     publish_review_status,
     record_harness_failure,
     run_concurrent_batch,
+    run_refilling_pool,
     safe_file_memory_suggestion,
     store_lifecycle,
 )
@@ -109,6 +110,173 @@ class TestRunConcurrentBatch:
 
         with pytest.raises(ValueError, match="bad item"):
             await run_concurrent_batch([1], worker, stop)
+
+
+# ---------------------------------------------------------------------------
+# run_refilling_pool
+# ---------------------------------------------------------------------------
+
+
+class TestRunRefillingPool:
+    """Tests for run_refilling_pool — slot-filling worker pool."""
+
+    @pytest.mark.asyncio
+    async def test_processes_all_items(self) -> None:
+        """All supplied items should be processed."""
+        items = list(range(5))
+        stop = asyncio.Event()
+
+        def supply() -> list[int]:
+            if items:
+                return [items.pop(0)]
+            return []
+
+        async def worker(_idx: int, item: int) -> int:
+            return item * 2
+
+        results = await run_refilling_pool(supply, worker, 3, stop)
+        assert sorted(results) == [0, 2, 4, 6, 8]
+
+    @pytest.mark.asyncio
+    async def test_empty_supply_returns_empty(self) -> None:
+        """Empty supply should return no results."""
+        stop = asyncio.Event()
+
+        results = await run_refilling_pool(lambda: [], lambda i, x: x, 3, stop)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_refills_slots_immediately(self) -> None:
+        """Slots should be refilled as soon as a worker completes."""
+        items = list(range(6))
+        max_concurrent = 2
+        stop = asyncio.Event()
+        concurrent_count = 0
+        max_observed_concurrent = 0
+
+        def supply() -> list[int]:
+            if items:
+                return [items.pop(0)]
+            return []
+
+        async def worker(_idx: int, item: int) -> int:
+            nonlocal concurrent_count, max_observed_concurrent
+            concurrent_count += 1
+            max_observed_concurrent = max(max_observed_concurrent, concurrent_count)
+            await asyncio.sleep(0.01)
+            concurrent_count -= 1
+            return item
+
+        await run_refilling_pool(supply, worker, max_concurrent, stop)
+        assert max_observed_concurrent <= max_concurrent
+
+    @pytest.mark.asyncio
+    async def test_new_items_picked_up_while_workers_busy(self) -> None:
+        """Items added to supply mid-flight should be picked up as slots free."""
+        available: list[int] = [1, 2]
+        stop = asyncio.Event()
+        processed: list[int] = []
+        calls = 0
+
+        def supply() -> list[int]:
+            nonlocal calls
+            calls += 1
+            # After first two are dispatched, add more on refill
+            if calls == 3:
+                available.extend([3, 4])
+            if available:
+                return [available.pop(0)]
+            return []
+
+        async def worker(_idx: int, item: int) -> int:
+            await asyncio.sleep(0.01)
+            processed.append(item)
+            return item
+
+        results = await run_refilling_pool(supply, worker, 2, stop)
+        assert sorted(results) == [1, 2, 3, 4]
+
+    @pytest.mark.asyncio
+    async def test_stop_event_cancels_pool(self) -> None:
+        """Setting stop_event should end the pool."""
+        items = list(range(10))
+        stop = asyncio.Event()
+
+        def supply() -> list[int]:
+            if items:
+                return [items.pop(0)]
+            return []
+
+        async def worker(_idx: int, item: int) -> int:
+            if item == 2:
+                stop.set()
+            await asyncio.sleep(0.01)
+            return item
+
+        results = await run_refilling_pool(supply, worker, 2, stop)
+        # Should have processed some but not all 10
+        assert len(results) < 10
+
+    @pytest.mark.asyncio
+    async def test_worker_exception_logged_not_fatal(self) -> None:
+        """Non-fatal worker exceptions are logged; other workers continue."""
+        items = [1, 2, 3]
+        stop = asyncio.Event()
+
+        def supply() -> list[int]:
+            if items:
+                return [items.pop(0)]
+            return []
+
+        async def worker(_idx: int, item: int) -> int:
+            if item == 2:
+                raise ValueError("bad")
+            return item
+
+        results = await run_refilling_pool(supply, worker, 1, stop)
+        assert sorted(results) == [1, 3]
+
+    @pytest.mark.asyncio
+    async def test_fatal_errors_propagate(self) -> None:
+        """AuthenticationError and similar should propagate immediately."""
+        from subprocess_util import AuthenticationError
+
+        items = [1, 2]
+        stop = asyncio.Event()
+
+        def supply() -> list[int]:
+            if items:
+                return [items.pop(0)]
+            return []
+
+        async def worker(_idx: int, item: int) -> int:
+            if item == 1:
+                raise AuthenticationError("auth failed")
+            return item
+
+        with pytest.raises(AuthenticationError):
+            await run_refilling_pool(supply, worker, 2, stop)
+
+    @pytest.mark.asyncio
+    async def test_external_cancel_cleans_up_pending(self) -> None:
+        """Cancelling the pool coroutine should cancel all pending workers."""
+        stop = asyncio.Event()
+        started = asyncio.Event()
+
+        def supply() -> list[int]:
+            return [1]
+
+        async def worker(_idx: int, _item: int) -> int:
+            started.set()
+            await asyncio.sleep(100)
+            return 1
+
+        task = asyncio.create_task(run_refilling_pool(supply, worker, 2, stop))
+        await started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 # ---------------------------------------------------------------------------

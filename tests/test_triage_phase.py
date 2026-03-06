@@ -14,10 +14,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import TYPE_CHECKING
 
 from tests.conftest import TaskFactory
-from tests.helpers import make_triage_phase
+from tests.helpers import make_triage_phase, supply_once
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+
 
 # ---------------------------------------------------------------------------
 # Triage phase
@@ -39,7 +40,7 @@ class TestTriagePhase:
         triage.evaluate = AsyncMock(
             return_value=TriageResult(issue_number=1, ready=True)
         )
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -63,7 +64,7 @@ class TestTriagePhase:
                 reasons=["Body is too short or empty (minimum 50 characters)"],
             )
         )
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -90,7 +91,7 @@ class TestTriagePhase:
                 reasons=["Body is too short or empty (minimum 50 characters)"],
             )
         )
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -113,7 +114,7 @@ class TestTriagePhase:
                 reasons=["Body is too short or empty (minimum 50 characters)"],
             )
         )
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -140,7 +141,7 @@ class TestTriagePhase:
             return TriageResult(issue_number=1, ready=True)
 
         triage.evaluate = AsyncMock(side_effect=evaluate_then_stop)
-        store.get_triageable = lambda _max_count: issues  # type: ignore[method-assign]
+        store.get_triageable = supply_once(issues)
 
         await phase.triage_issues()
 
@@ -177,7 +178,7 @@ class TestTriagePhase:
             return TriageResult(issue_number=1, ready=True)
 
         triage.evaluate = AsyncMock(side_effect=check_active)
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -213,7 +214,7 @@ class TestTriagePhase:
             return TriageResult(issue_number=getattr(issue, "id", 0), ready=True)
 
         triage.evaluate = AsyncMock(side_effect=track_concurrency)
-        store.get_triageable = lambda _max_count: issues  # type: ignore[method-assign]
+        store.get_triageable = supply_once(*[[i] for i in issues])
 
         processed = await phase.triage_issues()
 
@@ -240,7 +241,7 @@ class TestTriagePhase:
                 "Adds compaction complexity but improves startup and dashboard freshness."
             ),
         )
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -258,7 +259,7 @@ class TestTriagePhase:
             title="[ADR] Simplify build graph",
             body="Need to simplify this soon.",
         )
-        store.get_triageable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
@@ -268,3 +269,61 @@ class TestTriagePhase:
         comment = prs.post_comment.call_args.args[1]
         assert "Needs More Information" in comment
         assert "Missing required ADR sections" in comment
+
+    @pytest.mark.asyncio
+    async def test_triage_infra_error_does_not_escalate_to_hitl(
+        self,
+        config: HydraFlowConfig,
+    ) -> None:
+        """RuntimeError (empty LLM response) should NOT send the issue to HITL.
+
+        The issue should stay in the find queue for retry on the next cycle.
+        """
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(id=99, title="Well-formed issue", body="A" * 200)
+
+        triage.evaluate = AsyncMock(
+            side_effect=RuntimeError("LLM returned empty response")
+        )
+        store.get_triageable = supply_once([issue])
+
+        await phase.triage_issues()
+
+        # Issue should NOT be escalated to HITL
+        prs.swap_pipeline_labels.assert_not_called()
+        prs.post_comment.assert_not_called()
+
+
+class TestTriagePhaseBatchScaling:
+    """Pool respects max_triagers for concurrency control."""
+
+    @pytest.mark.asyncio
+    async def test_supply_called_with_one_for_pool(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """get_triageable should be called with 1 (pool fetches one at a time)."""
+        from unittest.mock import MagicMock
+
+        phase, _state, _triage, _prs, store, _stop = make_triage_phase(config)
+        store.get_triageable = MagicMock(return_value=[])  # type: ignore[method-assign]
+
+        config.max_triagers = 4  # type: ignore[assignment]
+        await phase.triage_issues()
+
+        store.get_triageable.assert_called_once_with(1)
+
+    @pytest.mark.asyncio
+    async def test_supply_always_called_with_one(self, config: HydraFlowConfig) -> None:
+        """Regardless of max_triagers, supply fetches 1 at a time."""
+        from unittest.mock import MagicMock
+
+        phase, _state, _triage, _prs, store, _stop = make_triage_phase(config)
+        store.get_triageable = MagicMock(return_value=[])  # type: ignore[method-assign]
+
+        config.max_triagers = 1  # type: ignore[assignment]
+        await phase.triage_issues()
+        store.get_triageable.assert_called_with(1)
+
+        config.max_triagers = 5  # type: ignore[assignment]
+        await phase.triage_issues()
+        store.get_triageable.assert_called_with(1)

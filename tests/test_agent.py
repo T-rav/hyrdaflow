@@ -599,6 +599,187 @@ class TestGetEscalationData:
 
 
 # ---------------------------------------------------------------------------
+# Diff sanity + test adequacy skill loops
+# ---------------------------------------------------------------------------
+
+
+class TestDiffSanityLoop:
+    """Tests for the diff sanity check skill integration."""
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_disabled(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 0
+        runner = AgentRunner(config, event_bus)
+        ok, msg = await runner._run_diff_sanity_loop(
+            issue, tmp_path, "branch", worker_id=0
+        )
+        assert ok is True
+        assert "disabled" in msg
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_no_commits(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner, "_count_commits", new_callable=AsyncMock, return_value=0
+        ):
+            ok, msg = await runner._run_diff_sanity_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+        assert "No commits" in msg
+
+    @pytest.mark.asyncio
+    async def test_passes_on_ok_result(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+import os\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="DIFF_SANITY_RESULT: OK\nSUMMARY: No issues found",
+            ),
+        ):
+            ok, msg = await runner._run_diff_sanity_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_retry(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+print('debug')\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="DIFF_SANITY_RESULT: RETRY\nSUMMARY: debug code",
+            ),
+        ):
+            ok, msg = await runner._run_diff_sanity_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is False
+        assert "debug code" in msg
+
+
+class TestTestAdequacyLoop:
+    """Tests for the test adequacy check skill integration."""
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_disabled(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 0
+        runner = AgentRunner(config, event_bus)
+        ok, msg = await runner._run_test_adequacy_loop(
+            issue, tmp_path, "branch", worker_id=0
+        )
+        assert ok is True
+        assert "disabled" in msg
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_no_commits(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner, "_count_commits", new_callable=AsyncMock, return_value=0
+        ):
+            ok, msg = await runner._run_test_adequacy_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+        assert "No commits" in msg
+
+    @pytest.mark.asyncio
+    async def test_passes_on_ok_result(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+def foo(): pass\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="TEST_ADEQUACY_RESULT: OK\nSUMMARY: adequate",
+            ),
+        ):
+            ok, msg = await runner._run_test_adequacy_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_retry(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+def foo(): pass\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="TEST_ADEQUACY_RESULT: RETRY\nSUMMARY: missing tests",
+            ),
+        ):
+            ok, msg = await runner._run_test_adequacy_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is False
+        assert "missing tests" in msg
+
+
+# ---------------------------------------------------------------------------
 # AgentRunner.run — success path
 # ---------------------------------------------------------------------------
 

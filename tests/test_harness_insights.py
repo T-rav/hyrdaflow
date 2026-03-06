@@ -830,14 +830,13 @@ class TestAppendFailureOSError:
     def test_append_failure_logs_warning_on_oserror(self, tmp_path, caplog) -> None:
         """When the failures file can't be written, log warning and don't raise."""
         import logging
-        from pathlib import Path
         from unittest.mock import patch
 
         store = HarnessInsightStore(tmp_path / "memory")
         record = _make_record()
 
         with (
-            patch.object(Path, "open", side_effect=OSError("disk full")),
+            patch("file_util.open", side_effect=OSError("disk full")),
             caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
         ):
             store.append_failure(record)  # should not raise

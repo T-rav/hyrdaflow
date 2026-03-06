@@ -375,7 +375,7 @@ class TestSummarizeAndComment:
 
     @pytest.mark.asyncio
     async def test_calls_run_simple_not_raw_subprocess(self, tmp_path: Path) -> None:
-        """Verify run_simple is used (not asyncio.create_subprocess_exec)."""
+        """Verify run_simple is used and prompt is passed as CLI arg (not stdin)."""
         config = ConfigFactory.create(repo_root=tmp_path)
         prs = MagicMock()
         prs.post_comment = AsyncMock()
@@ -390,9 +390,13 @@ class TestSummarizeAndComment:
         )
 
         runner.run_simple.assert_awaited_once()
-        call_kwargs = runner.run_simple.call_args[1]
-        assert call_kwargs["input"] is not None
-        assert isinstance(call_kwargs["input"], bytes)
+        call_args = runner.run_simple.call_args
+        cmd = call_args[0][0]
+        assert cmd[0] == "claude"
+        assert cmd[1] == "-p"
+        # Prompt must be immediately after -p for the CLI to recognise it.
+        assert cmd[2] not in ("--model",), "prompt must follow -p, not a flag"
+        assert call_args[1].get("input") is None
 
     @pytest.mark.asyncio
     async def test_codex_tool_passes_prompt_as_cli_arg(self, tmp_path: Path) -> None:
@@ -597,12 +601,12 @@ class TestSummarizeAndPublish:
             transcript="x" * 50_000, issue_number=42, phase="implement"
         )
 
-        # Verify the input passed to run_simple was truncated
-        call_kwargs = runner.run_simple.call_args[1]
-        stdin_data = call_kwargs["input"]
-        assert stdin_data is not None
-        # The prompt includes the transcript, check it's capped
-        assert len(stdin_data) < 50_000
+        # Verify the prompt passed as CLI arg was truncated
+        call_args = runner.run_simple.call_args
+        cmd = call_args[0][0]
+        # Prompt is right after -p (cmd[2])
+        prompt_arg = cmd[cmd.index("-p") + 1]
+        assert len(prompt_arg) < 50_000
 
     @pytest.mark.asyncio
     async def test_handles_model_failure(self, tmp_path: Path) -> None:

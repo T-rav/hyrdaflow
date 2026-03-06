@@ -152,8 +152,13 @@ def detect_test_frameworks(repo_root: Path) -> list[str]:
             content = (repo_root / "pyproject.toml").read_text()
             if "[tool.pytest" in content:
                 frameworks.append("pytest")
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning(
+                "Failed to read %s while checking pytest config; assuming pytest is absent (%s).",
+                repo_root / "pyproject.toml",
+                exc,
+                exc_info=True,
+            )
     if (
         "pytest" not in frameworks
         and (repo_root / "tests").is_dir()
@@ -182,8 +187,13 @@ def detect_test_frameworks(repo_root: Path) -> list[str]:
                     pkg = json.loads(pkg_json.read_text())
                     if "jest" in pkg:
                         frameworks.append("jest")
-                except (json.JSONDecodeError, OSError):
-                    pass
+                except (json.JSONDecodeError, OSError) as exc:
+                    logger.warning(
+                        "Failed to parse %s while detecting jest config: %s",
+                        pkg_json,
+                        exc,
+                        exc_info=True,
+                    )
 
     # --- cargo test ---
     if (repo_root / "Cargo.toml").exists():
@@ -231,8 +241,13 @@ def detect_sub_projects(repo_root: Path) -> list[dict[str, str]]:
                 for ws in workspaces:
                     if isinstance(ws, str):
                         sub_projects.append({"name": ws, "path": ws})
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Failed to parse %s while detecting npm workspaces: %s",
+                pkg_json,
+                exc,
+                exc_info=True,
+            )
 
     # --- Cargo workspaces ---
     cargo_toml = repo_root / "Cargo.toml"
@@ -254,8 +269,13 @@ def detect_sub_projects(repo_root: Path) -> list[dict[str, str]]:
                         member = stripped.strip('",').strip("',").strip()
                         if member and not member.startswith("["):
                             sub_projects.append({"name": member, "path": member})
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning(
+                "Failed to read %s while detecting Cargo workspaces: %s",
+                cargo_toml,
+                exc,
+                exc_info=True,
+            )
 
     # --- Python namespace packages ---
     # Look for directories containing their own pyproject.toml (one level deep)
@@ -273,8 +293,13 @@ def detect_sub_projects(repo_root: Path) -> list[dict[str, str]]:
                 continue
             if (child / "pyproject.toml").exists():
                 sub_projects.append({"name": child.name, "path": child.name})
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning(
+            "Failed to list directories in %s while detecting namespace packages: %s",
+            repo_root,
+            exc,
+            exc_info=True,
+        )
 
     return sub_projects
 

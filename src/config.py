@@ -24,11 +24,14 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS",
         1,
     ),
+    ("max_diff_sanity_attempts", "HYDRAFLOW_MAX_DIFF_SANITY_ATTEMPTS", 1),
+    ("max_test_adequacy_attempts", "HYDRAFLOW_MAX_TEST_ADEQUACY_ATTEMPTS", 1),
     ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
     ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
     ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
     ("max_review_diff_chars", "HYDRAFLOW_MAX_REVIEW_DIFF_CHARS", 15_000),
     ("gh_max_retries", "HYDRAFLOW_GH_MAX_RETRIES", 3),
+    ("gh_api_concurrency", "HYDRAFLOW_GH_API_CONCURRENCY", 5),
     ("max_issue_attempts", "HYDRAFLOW_MAX_ISSUE_ATTEMPTS", 3),
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
     ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
@@ -288,6 +291,18 @@ class HydraFlowConfig(BaseModel):
         le=5,
         description="Max pre-quality review/correction passes before quality verification",
     )
+    max_diff_sanity_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max diff sanity check passes (0 = disabled)",
+    )
+    max_test_adequacy_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max test adequacy check passes (0 = disabled)",
+    )
     max_review_fix_attempts: int = Field(
         default=2,
         ge=0,
@@ -323,6 +338,12 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=10,
         description="Max retry attempts for gh CLI calls",
+    )
+    gh_api_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Max concurrent gh/git subprocess calls (prevents API rate limiting)",
     )
 
     # Task source
@@ -1822,8 +1843,14 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
         if env_pids is not None:
             try:
                 pids_val = int(env_pids)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning(
+                    "HYDRAFLOW_DOCKER_PIDS_LIMIT value '%s' is not an integer; keeping default %d (%s)",
+                    env_pids,
+                    config.docker_pids_limit,
+                    exc,
+                    exc_info=True,
+                )
             else:
                 if not (16 <= pids_val <= 4096):
                     msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"

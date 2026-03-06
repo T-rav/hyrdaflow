@@ -769,7 +769,7 @@ class TestAppendEntryOSError:
         )
 
         with (
-            patch.object(Path, "open", side_effect=OSError("disk full")),
+            patch("file_util.open", side_effect=OSError("disk full")),
             caplog.at_level(logging.WARNING, logger="hydraflow.retrospective"),
         ):
             collector._append_entry(entry)  # should not raise

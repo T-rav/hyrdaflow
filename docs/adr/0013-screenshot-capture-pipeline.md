@@ -1,6 +1,6 @@
 # ADR-0013: Screenshot Capture Pipeline Architecture
 
-**Status:** Proposed
+**Status:** Superseded by ADR-0018
 **Date:** 2026-03-01
 
 ## Context

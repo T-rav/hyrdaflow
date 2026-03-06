@@ -146,17 +146,20 @@ class TestRouting:
         assert 30 not in store._queue_members[STAGE_PLAN]
         assert store._queue_members[STAGE_READY] == {30}
 
-    def test_closed_issues_removed_from_queues(self) -> None:
+    def test_missing_issues_retained_in_queues(self) -> None:
         store = _make_store()
         issue1 = TaskFactory.create(id=40, tags=["hydraflow-find"])
         issue2 = TaskFactory.create(id=41, tags=["hydraflow-find"])
         store._route_issues([issue1, issue2])
         assert len(store._queues[STAGE_FIND]) == 2
 
-        # On next refresh, only issue 41 comes back (40 was closed)
+        # Issue 40 missing from subsequent fetches — still retained
         store._route_issues([issue2])
-        assert store._queue_members[STAGE_FIND] == {41}
-        assert len(store._queues[STAGE_FIND]) == 1
+        assert store._queue_members[STAGE_FIND] == {40, 41}
+
+        store._route_issues([issue2])
+        assert store._queue_members[STAGE_FIND] == {40, 41}
+        assert len(store._queues[STAGE_FIND]) == 2
 
     def test_hitl_active_label_routes_to_hitl(self) -> None:
         store = _make_store()
@@ -423,7 +426,7 @@ class TestRefresh:
         assert len(store._queues[STAGE_FIND]) == 1
 
     @pytest.mark.asyncio
-    async def test_refresh_removes_closed_issues_from_queues(self) -> None:
+    async def test_refresh_retains_missing_issues_in_queues(self) -> None:
         fetcher = AsyncMock()
         store = _make_store(fetcher=fetcher)
 
@@ -437,13 +440,16 @@ class TestRefresh:
         await store.refresh()
         assert len(store._queues[STAGE_FIND]) == 2
 
-        # Second poll: only issue 2 remains (issue 1 was closed)
+        # Subsequent polls only return issue 2 — issue 1 stays (additive)
         fetcher.fetch_all = AsyncMock(
             return_value=[TaskFactory.create(id=2, tags=["hydraflow-find"])]
         )
         await store.refresh()
-        assert store._queue_members[STAGE_FIND] == {2}
-        assert len(store._queues[STAGE_FIND]) == 1
+        assert store._queue_members[STAGE_FIND] == {1, 2}
+
+        await store.refresh()
+        assert store._queue_members[STAGE_FIND] == {1, 2}
+        assert len(store._queues[STAGE_FIND]) == 2
 
     @pytest.mark.asyncio
     async def test_refresh_preserves_active_issues(self) -> None:
@@ -915,9 +921,8 @@ class TestInFlightProtection:
         assert len(store._queues[STAGE_PLAN]) == 0
         assert store._queue_members[STAGE_PLAN] == set()
 
-    def test_in_flight_items_not_evicted_when_absent_from_refresh(self) -> None:
-        """In-flight items must survive eviction even if the fetcher
-        temporarily doesn't return them (e.g. label swap in progress)."""
+    def test_in_flight_items_survive_absent_refresh(self) -> None:
+        """In-flight items remain when the fetcher doesn't return them."""
         store = _make_store()
 
         issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
@@ -953,6 +958,43 @@ class TestInFlightProtection:
         assert store._eagerly_transitioned == {}
 
 
+# ── Pipeline Membership Check ──────────────────────────────────────
+
+
+class TestIsInPipeline:
+    """Tests for is_in_pipeline() used by worktree GC safety checks."""
+
+    def test_queued_issue_is_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        assert store.is_in_pipeline(1) is True
+
+    def test_in_flight_issue_is_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)  # dequeues → in-flight
+        assert store.is_in_pipeline(1) is True
+
+    def test_active_issue_is_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        store.mark_active(1, STAGE_PLAN)
+        assert store.is_in_pipeline(1) is True
+
+    def test_completed_issue_not_in_pipeline(self) -> None:
+        store = _make_store()
+        store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
+        store.get_plannable(1)
+        store.mark_active(1, STAGE_PLAN)
+        store.mark_complete(1)
+        assert store.is_in_pipeline(1) is False
+
+    def test_unknown_issue_not_in_pipeline(self) -> None:
+        store = _make_store()
+        assert store.is_in_pipeline(999) is False
+
+
 # ── Eager Transition Protection ─────────────────────────────────────
 
 
@@ -970,9 +1012,8 @@ class TestEagerTransitionProtection:
         assert 1 not in store._in_flight
         assert 1 in store._eagerly_transitioned
 
-    def test_eager_transition_not_evicted_when_absent_from_refresh(self) -> None:
-        """Eagerly transitioned items must survive eviction even when
-        the fetcher doesn't return them (label swap in progress)."""
+    def test_eager_transition_survives_absent_refresh(self) -> None:
+        """Eagerly transitioned items remain when fetcher doesn't return them."""
         store = _make_store()
         issue = TaskFactory.create(id=1, tags=["hydraflow-plan"])
         store._route_issues([issue])
@@ -1069,7 +1110,7 @@ class TestEagerTransitionProtection:
         assert 1 in store._hitl_numbers
         assert 1 in store._eagerly_transitioned
 
-        # Refresh with stale find label — should NOT evict from HITL
+        # Refresh with stale find label — should NOT move from HITL
         stale = TaskFactory.create(id=1, tags=["hydraflow-find"])
         store._route_issues([stale])
 
@@ -1178,3 +1219,84 @@ class TestCrateGate:
         uncrated = store.get_uncrated_issues()
         assert len(uncrated) == 1
         assert uncrated[0].id == 2
+
+
+# ── Additive-only queue (no eviction) ────────────────────────────────
+
+
+class TestAdditiveOnlyQueue:
+    """Queued issues are never evicted by polling — only the pipeline removes them."""
+
+    def test_missing_issue_not_removed_from_queue(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        issue2 = TaskFactory.create(id=2, tags=["hydraflow-find"])
+        store._route_issues([issue1, issue2])
+
+        # Issue 1 missing from subsequent fetches — should still be queued
+        store._route_issues([issue2])
+        store._route_issues([issue2])
+        store._route_issues([issue2])
+        assert 1 in store._queue_members[STAGE_FIND]
+        assert len(store._queues[STAGE_FIND]) == 2
+
+    def test_missing_hitl_issue_not_removed(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-hitl"])
+        store._route_issues([issue1])
+        assert 1 in store._hitl_numbers
+
+        # Multiple misses — still present
+        store._route_issues([])
+        store._route_issues([])
+        store._route_issues([])
+        assert 1 in store._hitl_numbers
+
+    def test_new_issues_added_alongside_existing(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        store._route_issues([issue1])
+
+        # New issue appears, old one missing from fetch — both present
+        issue2 = TaskFactory.create(id=2, tags=["hydraflow-find"])
+        store._route_issues([issue2])
+        assert 1 in store._queue_members[STAGE_FIND]
+        assert 2 in store._queue_members[STAGE_FIND]
+        assert len(store._queues[STAGE_FIND]) == 2
+
+    def test_pipeline_completion_removes_issue(self) -> None:
+        store = _make_store()
+        issue1 = TaskFactory.create(id=1, tags=["hydraflow-find"])
+        store._route_issues([issue1])
+        store.get_triageable(1)
+        store.mark_active(1, STAGE_FIND)
+        store.mark_complete(1)
+
+        # Issue removed by pipeline, not by polling
+        assert 1 not in store._queue_members[STAGE_FIND]
+        assert not store.is_active(1)
+
+    @pytest.mark.asyncio
+    async def test_failed_fetch_does_not_affect_queues(self) -> None:
+        from issue_fetcher import IncompleteIssueFetchError
+
+        fetcher = AsyncMock()
+        store = _make_store(fetcher=fetcher)
+
+        # Initial fetch populates queue
+        fetcher.fetch_all = AsyncMock(
+            return_value=[
+                TaskFactory.create(id=1, tags=["hydraflow-find"]),
+                TaskFactory.create(id=2, tags=["hydraflow-find"]),
+            ]
+        )
+        await store.refresh()
+        assert len(store._queues[STAGE_FIND]) == 2
+
+        # Fetcher raises error — queue untouched
+        fetcher.fetch_all = AsyncMock(
+            side_effect=IncompleteIssueFetchError("rate limited")
+        )
+        await store.refresh()
+        assert len(store._queues[STAGE_FIND]) == 2
+        assert store._queue_members[STAGE_FIND] == {1, 2}

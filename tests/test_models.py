@@ -2083,7 +2083,7 @@ class TestMemoryType:
 # ---------------------------------------------------------------------------
 
 
-class TestPrecheckResult:
+class TestPrecheckResultModel:
     """Tests for the PrecheckResult dataclass."""
 
     def test_fields_accessible_by_name(self) -> None:
@@ -2100,7 +2100,7 @@ class TestPrecheckResult:
         assert result.summary == "All good"
         assert result.parse_failed is False
 
-    def test_equality(self) -> None:
+    def test_precheck_result_equality_by_value(self) -> None:
         a = PrecheckResult(
             risk="high",
             confidence=0.3,
@@ -2142,12 +2142,12 @@ class TestConflictResolutionResult:
         assert result.success is True
         assert result.used_rebuild is False
 
-    def test_equality(self) -> None:
+    def test_conflict_result_equality_by_value(self) -> None:
         a = ConflictResolutionResult(success=True, used_rebuild=False)
         b = ConflictResolutionResult(success=True, used_rebuild=False)
         assert a == b
 
-    def test_inequality(self) -> None:
+    def test_conflict_result_inequality_on_success_field(self) -> None:
         a = ConflictResolutionResult(success=True, used_rebuild=False)
         b = ConflictResolutionResult(success=False, used_rebuild=False)
         assert a != b
@@ -2938,7 +2938,7 @@ class TestVisualEvidenceItem:
 class TestVisualEvidence:
     """Tests for the VisualEvidence model."""
 
-    def test_defaults(self) -> None:
+    def test_visual_evidence_has_empty_defaults(self) -> None:
         ev = VisualEvidence()
         assert ev.items == []
         assert ev.summary == ""

@@ -14,6 +14,7 @@ from subprocess_util import (
     SubprocessTimeoutError,
     _is_auth_error,
     _is_retryable_error,
+    configure_gh_concurrency,
     make_clean_env,
     make_docker_env,
     run_subprocess,
@@ -192,8 +193,9 @@ def test_make_clean_env_does_not_mutate_os_environ() -> None:
 class TestIsRetryableError:
     """Tests for the _is_retryable_error helper."""
 
-    def test_retryable_on_rate_limit(self) -> None:
-        assert _is_retryable_error("API rate limit exceeded") is True
+    def test_not_retryable_on_rate_limit(self) -> None:
+        """Rate limits are handled by the global cooldown, not per-call retry."""
+        assert _is_retryable_error("API rate limit exceeded") is False
 
     def test_retryable_on_timeout(self) -> None:
         assert _is_retryable_error("connection timeout") is True
@@ -216,8 +218,9 @@ class TestIsRetryableError:
     def test_not_retryable_on_403_without_rate_limit(self) -> None:
         assert _is_retryable_error("403 Forbidden") is False
 
-    def test_retryable_on_403_with_rate_limit(self) -> None:
-        assert _is_retryable_error("403 rate limit exceeded") is True
+    def test_not_retryable_on_403_with_rate_limit(self) -> None:
+        """403 rate limits are handled by the global cooldown, not per-call retry."""
+        assert _is_retryable_error("403 rate limit exceeded") is False
 
     def test_not_retryable_on_404(self) -> None:
         assert _is_retryable_error("404 Not Found") is False
@@ -302,18 +305,17 @@ class TestRunSubprocessWithRetry:
         mock_run.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_retry_on_403_rate_limit(self) -> None:
-        with (
-            patch("subprocess_util.run_subprocess", new_callable=AsyncMock) as mock_run,
-            patch("asyncio.sleep", new_callable=AsyncMock),
-        ):
-            mock_run.side_effect = [
-                RuntimeError("Command failed (rc=1): 403 rate limit exceeded"),
-                "ok",
-            ]
-            result = await run_subprocess_with_retry("gh", "pr", "list", max_retries=3)
-        assert result == "ok"
-        assert mock_run.await_count == 2
+    async def test_no_retry_on_403_rate_limit(self) -> None:
+        """403 rate limits trigger global cooldown, not per-call retry."""
+        with patch(
+            "subprocess_util.run_subprocess", new_callable=AsyncMock
+        ) as mock_run:
+            mock_run.side_effect = RuntimeError(
+                "Command failed (rc=1): 403 rate limit exceeded"
+            )
+            with pytest.raises(RuntimeError, match="rate limit"):
+                await run_subprocess_with_retry("gh", "pr", "list", max_retries=3)
+        mock_run.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_backoff_increases_exponentially(self) -> None:
@@ -572,9 +574,9 @@ class TestRetryWithTimeout:
 class TestMakeDockerEnv:
     """Tests for the make_docker_env helper."""
 
-    def test_sets_home_to_root(self) -> None:
+    def test_sets_home_to_hydraflow_user(self) -> None:
         env = make_docker_env()
-        assert env["HOME"] == "/root"
+        assert env["HOME"] == "/home/hydraflow"
 
     def test_includes_only_allowed_vars_when_empty(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
@@ -698,3 +700,195 @@ class TestMakeDockerEnv:
             "GIT_COMMITTER_EMAIL",
         }
         assert set(env.keys()) == expected_keys
+
+
+# --- GitHub API concurrency semaphore ---
+
+
+class TestGhApiSemaphore:
+    """Tests for the global GitHub API concurrency limiter."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_semaphore(self) -> None:
+        """Reset the global semaphore before each test."""
+        import subprocess_util
+
+        subprocess_util._gh_semaphore = None
+
+    @staticmethod
+    def _make_tracking_runner(
+        delay: float = 0.05,
+    ) -> tuple[MagicMock, dict[str, int]]:
+        """Create a mock runner that tracks concurrency."""
+        from execution import SimpleResult
+
+        stats: dict[str, int] = {"calls": 0, "max_concurrent": 0, "current": 0}
+
+        async def fake_run_simple(cmd: list[str], **_kwargs: object) -> SimpleResult:
+            stats["current"] += 1
+            stats["calls"] += 1
+            stats["max_concurrent"] = max(stats["max_concurrent"], stats["current"])
+            await asyncio.sleep(delay)
+            stats["current"] -= 1
+            return SimpleResult(stdout="ok", stderr="", returncode=0)
+
+        runner = MagicMock()
+        runner.run_simple = fake_run_simple
+        return runner, stats
+
+    @pytest.mark.asyncio
+    async def test_gh_commands_use_semaphore(self) -> None:
+        """gh and git commands should be gated by the semaphore."""
+        configure_gh_concurrency(2)
+        runner, stats = self._make_tracking_runner()
+
+        tasks = [run_subprocess("gh", "api", "test", runner=runner) for _ in range(5)]
+        await asyncio.gather(*tasks)
+
+        assert stats["calls"] == 5
+        assert stats["max_concurrent"] <= 2
+
+    @pytest.mark.asyncio
+    async def test_non_gh_commands_bypass_semaphore(self) -> None:
+        """Non-gh/git commands should not use the semaphore."""
+        configure_gh_concurrency(1)
+        runner, stats = self._make_tracking_runner()
+
+        tasks = [run_subprocess("echo", "hello", runner=runner) for _ in range(3)]
+        await asyncio.gather(*tasks)
+
+        # With semaphore(1), if it were used, max_concurrent would be 1
+        # Non-gh commands bypass it, so all 3 run concurrently
+        assert stats["max_concurrent"] == 3
+
+    @pytest.mark.asyncio
+    async def test_configure_gh_concurrency_sets_limit(self) -> None:
+        """configure_gh_concurrency should set the semaphore limit."""
+        import subprocess_util
+
+        configure_gh_concurrency(7)
+        sem = subprocess_util._gh_semaphore
+        assert sem is not None
+        assert sem._value == 7
+
+    @pytest.mark.asyncio
+    async def test_default_semaphore_created_lazily(self) -> None:
+        """If not configured, a default semaphore is created on first use."""
+        import subprocess_util
+
+        assert subprocess_util._gh_semaphore is None
+        runner, _ = self._make_tracking_runner(delay=0)
+        await run_subprocess("gh", "pr", "list", runner=runner)
+        assert subprocess_util._gh_semaphore is not None
+        assert subprocess_util._gh_semaphore._value == 5
+
+    @pytest.mark.asyncio
+    async def test_semaphore_does_not_block_errors(self) -> None:
+        """Errors should propagate normally through the semaphore."""
+        from execution import SimpleResult
+
+        configure_gh_concurrency(5)
+
+        async def fail_run_simple(cmd: list[str], **_kwargs: object) -> SimpleResult:
+            return SimpleResult(stdout="", stderr="some error", returncode=1)
+
+        runner = MagicMock()
+        runner.run_simple = fail_run_simple
+        with pytest.raises(RuntimeError, match="some error"):
+            await run_subprocess("gh", "api", "test", runner=runner)
+
+
+class TestRateLimitCooldown:
+    """Tests for the global rate-limit cooldown."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_state(self) -> None:
+        """Reset global state before each test."""
+        import subprocess_util
+
+        subprocess_util._gh_semaphore = None
+        subprocess_util._rate_limit_until = None
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_triggers_global_cooldown(self) -> None:
+        """A 403 rate-limit response should set _rate_limit_until."""
+        import subprocess_util
+        from execution import SimpleResult
+
+        configure_gh_concurrency(5)
+
+        async def rate_limit_response(
+            cmd: list[str], **_kwargs: object
+        ) -> SimpleResult:
+            return SimpleResult(
+                stdout="",
+                stderr="gh: API rate limit exceeded (HTTP 403)",
+                returncode=1,
+            )
+
+        runner = MagicMock()
+        runner.run_simple = rate_limit_response
+
+        with pytest.raises(RuntimeError, match="rate limit"):
+            await run_subprocess("gh", "api", "test", runner=runner)
+
+        assert subprocess_util._rate_limit_until is not None
+
+    @pytest.mark.asyncio
+    async def test_cooldown_delays_subsequent_calls(self) -> None:
+        """When cooldown is active, gh calls should wait before executing."""
+        from datetime import UTC, datetime, timedelta
+
+        import subprocess_util
+
+        configure_gh_concurrency(5)
+        # Set cooldown to expire in 0.1s
+        subprocess_util._rate_limit_until = datetime.now(tz=UTC) + timedelta(
+            seconds=0.1
+        )
+
+        runner, stats = TestGhApiSemaphore._make_tracking_runner(delay=0)
+        start = asyncio.get_event_loop().time()
+        await run_subprocess("gh", "api", "test", runner=runner)
+        elapsed = asyncio.get_event_loop().time() - start
+
+        assert stats["calls"] == 1
+        assert elapsed >= 0.08  # Should have waited ~0.1s
+
+    @pytest.mark.asyncio
+    async def test_expired_cooldown_does_not_delay(self) -> None:
+        """An expired cooldown should not delay calls."""
+        from datetime import UTC, datetime, timedelta
+
+        import subprocess_util
+
+        configure_gh_concurrency(5)
+        # Set cooldown in the past
+        subprocess_util._rate_limit_until = datetime.now(tz=UTC) - timedelta(seconds=5)
+
+        runner, stats = TestGhApiSemaphore._make_tracking_runner(delay=0)
+        start = asyncio.get_event_loop().time()
+        await run_subprocess("gh", "api", "test", runner=runner)
+        elapsed = asyncio.get_event_loop().time() - start
+
+        assert stats["calls"] == 1
+        assert elapsed < 0.05  # Should not have waited
+
+    @pytest.mark.asyncio
+    async def test_non_rate_limit_error_does_not_trigger_cooldown(self) -> None:
+        """Non-rate-limit errors should not set the global cooldown."""
+        import subprocess_util
+        from execution import SimpleResult
+
+        configure_gh_concurrency(5)
+
+        async def normal_error(cmd: list[str], **_kwargs: object) -> SimpleResult:
+            return SimpleResult(stdout="", stderr="404 not found", returncode=1)
+
+        runner = MagicMock()
+        runner.run_simple = normal_error
+
+        with pytest.raises(RuntimeError):
+            await run_subprocess("gh", "api", "test", runner=runner)
+
+        assert subprocess_util._rate_limit_until is None

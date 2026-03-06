@@ -1404,6 +1404,18 @@ class TestSetupNodeModules:
 class TestConfigureGitIdentity:
     """Tests for WorktreeManager._configure_git_identity."""
 
+    @staticmethod
+    def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "HYDRAFLOW_GIT_USER_NAME",
+            "HYDRAFLOW_GIT_USER_EMAIL",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
     @pytest.mark.asyncio
     async def test_sets_user_name_and_email(self, tmp_path: Path) -> None:
         """Should run git config for both user.name and user.email."""
@@ -1434,8 +1446,7 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should not run any git config commands when identity is empty."""
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
 
         from tests.helpers import ConfigFactory
 
@@ -1456,8 +1467,7 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should only set user.name when email is empty."""
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
 
         from tests.helpers import ConfigFactory
 
@@ -1485,8 +1495,7 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should only set user.email when name is empty."""
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
 
         from tests.helpers import ConfigFactory
 

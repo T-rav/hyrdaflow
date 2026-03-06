@@ -16,7 +16,7 @@ from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
 from models import PipelineStage, PRInfo
-from pr_manager import PRManager
+from ports import PRPort
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.phase_utils")
@@ -57,6 +57,75 @@ async def run_concurrent_batch(
     return results
 
 
+async def run_refilling_pool(
+    supply_fn: Callable[[], list[T]],
+    worker_fn: Callable[[int, T], Coroutine[Any, Any, T_Result]],
+    max_concurrent: int,
+    stop_event: asyncio.Event,
+) -> list[T_Result]:
+    """Run *worker_fn* in a slot-filling pool, pulling new items as slots free.
+
+    Unlike :func:`run_concurrent_batch` which processes a fixed list,
+    this continuously pulls from *supply_fn* whenever a slot opens.
+    This ensures no worker capacity sits idle while work is available
+    in the queue.
+
+    *supply_fn* should return up to N available items (non-blocking).
+    It is called each time a slot frees up to refill the pool.
+    """
+    results: list[T_Result] = []
+    pending: dict[asyncio.Task[T_Result], int] = {}  # task -> issue id placeholder
+    worker_id_counter = 0
+
+    try:
+        while not stop_event.is_set():
+            # Fill all empty slots — call supply repeatedly until full or dry
+            while len(pending) < max_concurrent:
+                new_items = supply_fn()
+                if not new_items:
+                    break
+                free = max_concurrent - len(pending)
+                for item in new_items[:free]:
+                    task = asyncio.create_task(worker_fn(worker_id_counter, item))
+                    pending[task] = worker_id_counter
+                    worker_id_counter += 1
+
+            if not pending:
+                break
+
+            done, _ = await asyncio.wait(
+                pending.keys(), return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                del pending[task]
+                exc = task.exception()
+                if exc is not None:
+                    from subprocess_util import (  # noqa: PLC0415
+                        AuthenticationError,
+                        CreditExhaustedError,
+                    )
+
+                    if isinstance(
+                        exc,
+                        (AuthenticationError, CreditExhaustedError, MemoryError),
+                    ):
+                        for t in pending:
+                            t.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                        raise exc
+                    logger.warning("Pool worker failed: %s", exc, exc_info=exc)
+                else:
+                    results.append(task.result())
+    finally:
+        # Cancel stragglers on stop or external cancellation
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    return results
+
+
 def release_batch_in_flight(store: IssueStore, task_ids: set[int]) -> None:
     """Release in-flight protection for a batch of issues.
 
@@ -69,7 +138,7 @@ def release_batch_in_flight(store: IssueStore, task_ids: set[int]) -> None:
 
 async def escalate_to_hitl(
     state: StateTracker,
-    prs: PRManager,
+    prs: PRPort,
     issue_number: int,
     *,
     cause: str,
@@ -93,7 +162,7 @@ async def safe_file_memory_suggestion(
     source: str,
     reference: str,
     config: HydraFlowConfig,
-    prs: PRManager,
+    prs: PRPort,
     state: StateTracker,
 ) -> None:
     """File a memory suggestion, swallowing and logging exceptions."""

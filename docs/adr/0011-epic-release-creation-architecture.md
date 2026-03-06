@@ -1,6 +1,6 @@
 # ADR-0011: Epic Release Creation Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context

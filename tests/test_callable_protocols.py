@@ -34,7 +34,7 @@ from models import (
 class TestEscalateFnProtocol:
     """Tests for the EscalateFn Protocol."""
 
-    def test_importable(self) -> None:
+    def test_escalate_fn_importable_from_models(self) -> None:
         """EscalateFn should be importable from models."""
         assert EscalateFn is not None
 
@@ -93,7 +93,7 @@ class TestEscalateFnProtocol:
 class TestPublishFnProtocol:
     """Tests for the PublishFn Protocol."""
 
-    def test_importable(self) -> None:
+    def test_publish_fn_importable_from_models(self) -> None:
         """PublishFn should be importable from models."""
         assert PublishFn is not None
 
@@ -128,7 +128,7 @@ class TestPublishFnProtocol:
 class TestCiGateFnProtocol:
     """Tests for the CiGateFn Protocol."""
 
-    def test_importable(self) -> None:
+    def test_ci_gate_fn_importable_from_models(self) -> None:
         """CiGateFn should be importable from models."""
         assert CiGateFn is not None
 
@@ -165,7 +165,7 @@ class TestCiGateFnProtocol:
 class TestStatusCallbackProtocol:
     """Tests for the StatusCallback Protocol."""
 
-    def test_importable(self) -> None:
+    def test_status_callback_importable_from_models(self) -> None:
         """StatusCallback should be importable from models."""
         assert StatusCallback is not None
 
@@ -215,7 +215,7 @@ class TestStatusCallbackProtocol:
 class TestWorkFnProtocol:
     """Tests for the WorkFn Protocol."""
 
-    def test_importable(self) -> None:
+    def test_work_fn_importable_from_models(self) -> None:
         """WorkFn should be importable from models."""
         assert WorkFn is not None
 

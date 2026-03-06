@@ -246,8 +246,11 @@ class PRUnsticker:
         cause = _classify_cause(cause_str)
 
         # Claim: swap labels
+        claim_kwargs: dict[str, int] = {}
+        if item.pr is not None and item.pr > 0:
+            claim_kwargs["pr_number"] = item.pr
         await self._prs.swap_pipeline_labels(
-            issue_number, self._config.hitl_active_label[0]
+            issue_number, self._config.hitl_active_label[0], **claim_kwargs
         )
 
         cause_desc = cause.value.replace("_", " ")
@@ -262,7 +265,11 @@ class PRUnsticker:
             issue = await self._fetcher.fetch_issue_by_number(issue_number)
             if not issue:
                 logger.warning("Could not fetch issue #%d for unsticker", issue_number)
-                await self._release_back_to_hitl(issue_number, "Could not fetch issue")
+                await self._release_back_to_hitl(
+                    issue_number,
+                    "Could not fetch issue",
+                    pr_number=item.pr,
+                )
                 return False
 
             # Get or create worktree
@@ -294,7 +301,12 @@ class PRUnsticker:
                     # Restore origin label when not auto-merging
                     origin = self._state.get_hitl_origin(issue_number)
                     if origin:
-                        await self._prs.swap_pipeline_labels(issue_number, origin)
+                        origin_kwargs: dict[str, int] = {}
+                        if item.pr is not None and item.pr > 0:
+                            origin_kwargs["pr_number"] = item.pr
+                        await self._prs.swap_pipeline_labels(
+                            issue_number, origin, **origin_kwargs
+                        )
                     else:
                         for lbl in self._config.hitl_active_label:
                             await self._prs.remove_label(issue_number, lbl)
@@ -319,14 +331,18 @@ class PRUnsticker:
                 return True
             else:
                 await self._release_back_to_hitl(
-                    issue_number, f"All {cause_desc} resolution attempts exhausted"
+                    issue_number,
+                    f"All {cause_desc} resolution attempts exhausted",
+                    pr_number=item.pr,
                 )
                 return False
 
         except Exception:
             logger.exception("PR Unsticker failed for issue #%d", issue_number)
             await self._release_back_to_hitl(
-                issue_number, "Unexpected error during resolution"
+                issue_number,
+                "Unexpected error during resolution",
+                pr_number=item.pr,
             )
             return False
 
@@ -620,7 +636,13 @@ diff — you may catch things `make quality` won't.
             from polyglot_prep import detect_prep_stack
 
             return detect_prep_stack(wt_path)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Falling back to 'general' language classification for %s: %s",
+                wt_path,
+                exc,
+                exc_info=True,
+            )
             return "general"
 
     async def _persist_troubleshooting_pattern(
@@ -660,10 +682,11 @@ diff — you may catch things `make quality` won't.
                     pattern.pattern_name,
                     issue_number,
                 )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Failed to persist troubleshooting pattern for issue #%d",
+                "Failed to persist troubleshooting pattern for issue #%d: %s",
                 issue_number,
+                exc,
                 exc_info=True,
             )
 
@@ -745,8 +768,8 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
             ]
             cmd_input = None
         else:
-            cmd = [tool, "-p", "--model", model]
-            cmd_input = prompt.encode()
+            cmd = [tool, "-p", prompt, "--model", model]
+            cmd_input = None
 
         env = make_clean_env(self._config.gh_token)
 
@@ -946,7 +969,9 @@ TROUBLESHOOTING_PATTERN_END
                 summary,
             )
             await self._release_back_to_hitl(
-                issue_number, f"CI failed after fix: {summary}"
+                issue_number,
+                f"CI failed after fix: {summary}",
+                pr_number=pr_number,
             )
             return False
 
@@ -967,7 +992,9 @@ TROUBLESHOOTING_PATTERN_END
             return True
         else:
             await self._release_back_to_hitl(
-                issue_number, f"Merge failed for PR #{pr_number}"
+                issue_number,
+                f"Merge failed for PR #{pr_number}",
+                pr_number=pr_number,
             )
             return False
 
@@ -1014,9 +1041,18 @@ TROUBLESHOOTING_PATTERN_END
                     exc_info=True,
                 )
 
-    async def _release_back_to_hitl(self, issue_number: int, reason: str) -> None:
+    async def _release_back_to_hitl(
+        self, issue_number: int, reason: str, *, pr_number: int | None = None
+    ) -> None:
         """Remove active label and re-add HITL label."""
-        await self._prs.swap_pipeline_labels(issue_number, self._config.hitl_label[0])
+        release_kwargs: dict[str, int] = {}
+        if pr_number is not None and pr_number > 0:
+            release_kwargs["pr_number"] = pr_number
+        await self._prs.swap_pipeline_labels(
+            issue_number,
+            self._config.hitl_label[0],
+            **release_kwargs,
+        )
         await self._prs.post_comment(
             issue_number,
             f"**PR Unsticker** could not resolve: {reason}\n\n"

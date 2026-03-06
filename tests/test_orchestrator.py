@@ -2048,7 +2048,16 @@ class TestMemorySuggestionFiling:
         orch = HydraFlowOrchestrator(config)
         review_task = TaskFactory.create(id=42)
 
-        orch._store.get_reviewable = lambda _max_count: [review_task]  # type: ignore[method-assign]
+        call_count = 0
+
+        def get_reviewable_once(_max_count: int) -> list[Task]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [review_task]
+            return []
+
+        orch._store.get_reviewable = get_reviewable_once  # type: ignore[method-assign]
         orch._store.get_active_issues = lambda: {}  # type: ignore[method-assign]
         orch._store.enqueue_transition = MagicMock()  # type: ignore[method-assign]
         orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
@@ -2149,10 +2158,30 @@ class TestMemorySuggestionFiling:
         r2 = make_review_result(pr_number=202, issue_number=20, transcript="")
 
         orch._store.get_active_issues = lambda: {10: "review", 20: "review"}  # type: ignore[method-assign]
-        orch._fetcher.fetch_reviewable_prs = AsyncMock(  # type: ignore[method-assign]
-            return_value=([pr_a, pr_b], [issue_a, issue_b])
-        )
-        orch._reviewer.review_prs = AsyncMock(return_value=[r1, r2])  # type: ignore[method-assign]
+
+        # Per-issue PR fetch: each _review_single_issue calls with one issue
+        async def _fetch_per_issue(
+            active: set[int],
+            prefetched_issues: list[GitHubIssue] | None = None,
+        ) -> tuple[list[PRInfo], list[GitHubIssue]]:
+            if prefetched_issues and prefetched_issues[0].number == 10:
+                return [pr_a], [issue_a]
+            if prefetched_issues and prefetched_issues[0].number == 20:
+                return [pr_b], [issue_b]
+            return [], []
+
+        orch._fetcher.fetch_reviewable_prs = AsyncMock(side_effect=_fetch_per_issue)  # type: ignore[method-assign]
+
+        # Per-issue review: each call gets one PR
+        async def _review_per_pr(
+            prs: list[PRInfo],
+            issues: list[Task],
+        ) -> list[ReviewResult]:
+            if prs[0].number == 201:
+                return [r1]
+            return [r2]
+
+        orch._reviewer.review_prs = AsyncMock(side_effect=_review_per_pr)  # type: ignore[method-assign]
         orch._prs.pull_main = AsyncMock()  # type: ignore[method-assign]
 
         call_count = 0
@@ -2160,8 +2189,8 @@ class TestMemorySuggestionFiling:
         def get_reviewable_once(_max_count: int) -> list[Task]:
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
-                return [task_a, task_b]
+            if call_count <= 2:
+                return [task_a, task_b][call_count - 1 : call_count]
             orch._stop_event.set()
             return []
 
@@ -2973,6 +3002,51 @@ class TestMemoryErrorPropagation:
         # Should not raise — RuntimeError is caught
         await orch._polling_loop("test", failing_then_stop, 10)
         assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_polling_loop_emits_ok_heartbeat(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_polling_loop should call update_bg_worker_status('ok') after work."""
+        orch = HydraFlowOrchestrator(config)
+
+        async def work_then_stop() -> bool:
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("implement", work_then_stop, 10)
+        states = orch.get_bg_worker_states()
+        assert "implement" in states
+        assert states["implement"]["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_polling_loop_emits_error_heartbeat(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_polling_loop should call update_bg_worker_status('error') on exception."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+
+        async def fail_then_stop() -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("boom")
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("triage", fail_then_stop, 10)
+        states = orch.get_bg_worker_states()
+        # Final heartbeat should be "ok" from the second (successful) call
+        assert states["triage"]["status"] == "ok"
 
 
 # --- Background Worker Enabled ---

@@ -36,7 +36,7 @@ class TestEpicEventTypes:
 class TestEpicReadinessModel:
     """Tests for the EpicReadiness model."""
 
-    def test_defaults(self) -> None:
+    def test_epic_readiness_has_expected_defaults(self) -> None:
         readiness = EpicReadiness()
         assert readiness.all_implemented is False
         assert readiness.all_approved is False
@@ -57,7 +57,7 @@ class TestEpicReadinessModel:
         assert readiness.all_implemented is True
         assert readiness.version == "1.2.0"
 
-    def test_serialization(self) -> None:
+    def test_epic_readiness_roundtrip_via_model_dump(self) -> None:
         readiness = EpicReadiness(all_implemented=True, version="2.0")
         data = readiness.model_dump()
         assert data["all_implemented"] is True

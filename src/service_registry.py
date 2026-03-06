@@ -363,6 +363,7 @@ def build_services(
         enabled_cb=callbacks.is_bg_worker_enabled,
         sleep_fn=callbacks.sleep_or_stop,
         interval_cb=callbacks.get_bg_worker_interval,
+        is_in_pipeline_cb=store.is_in_pipeline,
     )
 
     runs_gc_loop = RunsGCLoop(

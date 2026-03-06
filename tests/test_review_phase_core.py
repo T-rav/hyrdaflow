@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from events import EventType
 from models import (
+    ConflictResolutionResult,
     CriterionResult,
     CriterionVerdict,
     JudgeVerdict,
@@ -111,6 +112,50 @@ class TestReviewPRs:
         await phase.review_prs(prs, issues)
 
         assert concurrency_counter["peak"] <= config.max_reviewers
+
+
+class TestPostMergeConflictFix:
+    """Tests for post-merge conflict recovery helper."""
+
+    @pytest.mark.asyncio
+    async def test_attempt_post_merge_conflict_fix_pushes_branch_on_success(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(number=101, issue_number=42, branch="agent/issue-42")
+        issue = TaskFactory.create(id=42)
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        phase._conflict_resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        ok = await phase._attempt_post_merge_conflict_fix(pr, issue, worker_id=7)
+
+        assert ok is True
+        phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch)
+        phase._prs.force_push_branch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_attempt_post_merge_conflict_fix_force_pushes_on_rebuild(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        pr = PRInfoFactory.create(number=101, issue_number=42, branch="agent/issue-42")
+        issue = TaskFactory.create(id=42)
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        phase._conflict_resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=True)
+        )
+
+        ok = await phase._attempt_post_merge_conflict_fix(pr, issue, worker_id=7)
+
+        assert ok is True
+        phase._prs.force_push_branch.assert_awaited_once_with(wt, pr.branch)
+        phase._prs.push_branch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_returns_comment_verdict_when_issue_missing(

@@ -99,7 +99,6 @@ function EpicContainer({ epicNumber, issues, children }) {
 }
 
 function StageSection({ stage, issues, workerCount, workerCap, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
-  const activeCount = issues.filter(i => i.overallStatus === 'active').length
   const failedCount = issues.filter(i => i.overallStatus === 'failed').length
   const hitlCount = issues.filter(i => i.overallStatus === 'hitl').length
   const queuedCount = issues.filter(i => i.overallStatus === 'queued').length
@@ -123,8 +122,7 @@ function StageSection({ stage, issues, workerCount, workerCap, intentMap, onRequ
         <span style={sectionCountStyles[stage.key]}>
           {hasRole ? (
             <>
-              <span style={activeCount > 0 ? styles.activeBadge : undefined}>{activeCount} active</span>
-              <span> · {queuedCount} queued</span>
+              <span>{queuedCount} queued</span>
               {failedCount > 0 && <span style={styles.failedBadge}> · {failedCount} failed</span>}
               {hitlCount > 0 && <span style={styles.hitlBadge}> · {hitlCount} hitl</span>}
               <span>
@@ -674,9 +672,6 @@ const styles = {
   },
   section: {
     marginBottom: 4,
-  },
-  activeBadge: {
-    fontWeight: 700,
   },
   failedBadge: {
     fontWeight: 700,

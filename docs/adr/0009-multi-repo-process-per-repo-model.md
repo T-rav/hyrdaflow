@@ -1,6 +1,6 @@
 # ADR-0009: Multi-Repo Process-Per-Repo Model
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-28
 
 ## Context
@@ -106,9 +106,13 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 
 ## Related
 
+- **Supersedes ADR-0006** — ADR-0006 proposed in-process `RepoRuntime` isolation
+  with the supervisor using `RepoRuntime` as the unit of start/stop. This ADR
+  adopts `subprocess.Popen` process-per-repo instead, making ADR-0006's
+  supervisor integration decision obsolete.
 - Source memory: #1627
 - ADR-0001 (Five concurrent async loops — per-process architecture)
-- ADR-0006 (RepoRuntime isolation — in-process alternative)
+- ADR-0006 (RepoRuntime isolation — superseded by this ADR)
 - ADR-0008 (Multi-repo dashboard — supervisor-proxied aggregation)
 - `src/hf_cli/supervisor_service.py` (`_start_repo`, `RUNNERS`, TCP protocol)
 - `src/config.py` (`_resolve_paths`, `_namespace_repo_paths`, `worktree_path_for_issue`)
