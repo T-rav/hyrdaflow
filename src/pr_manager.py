@@ -158,7 +158,7 @@ class PRManager:
 
         try:
             return transform(data)
-        except Exception as exc:  # pragma: no cover - defensive guard
+        except Exception as exc:
             logger.log(
                 error_log_level,
                 "%s: %s",

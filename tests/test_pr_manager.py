@@ -783,6 +783,7 @@ async def test_push_branch_calls_git_push(config, event_bus, tmp_path):
     assert "-u" in args
     assert "origin" in args
     assert "agent/issue-42" in args
+    assert "--force-with-lease" not in args
 
 
 @pytest.mark.asyncio
@@ -871,6 +872,75 @@ class TestGhJsonQuery:
 
         assert result == fallback
         mgr._run_gh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_runtime_error_returns_default(self, config, event_bus):
+        mgr = _make_manager(config, event_bus)
+        mgr._run_gh = AsyncMock(side_effect=RuntimeError("gh: not found"))
+
+        result = await mgr._gh_json_query(
+            "gh",
+            "api",
+            "/test",
+            default=-1,
+            dry_run_message="Would fetch",
+            error_message="Could not fetch",
+        )
+
+        assert result == -1
+
+    @pytest.mark.asyncio
+    async def test_json_decode_error_returns_default(self, config, event_bus):
+        mgr = _make_manager(config, event_bus)
+        mgr._run_gh = AsyncMock(return_value="not valid json{{")
+
+        result = await mgr._gh_json_query(
+            "gh",
+            "api",
+            "/test",
+            default="fallback",
+            dry_run_message="Would fetch",
+            error_message="Could not fetch",
+        )
+
+        assert result == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_transform_exception_returns_default(self, config, event_bus):
+        mgr = _make_manager(config, event_bus)
+        mgr._run_gh = AsyncMock(return_value=json.dumps({"x": 1}))
+
+        def bad_transform(_data: dict) -> str:
+            raise KeyError("missing")
+
+        result = await mgr._gh_json_query(
+            "gh",
+            "api",
+            "/test",
+            default="sentinel",
+            dry_run_message="Would fetch",
+            error_message="Could not fetch",
+            transform=bad_transform,
+        )
+
+        assert result == "sentinel"
+
+    @pytest.mark.asyncio
+    async def test_no_transform_returns_raw_data(self, config, event_bus):
+        mgr = _make_manager(config, event_bus)
+        payload = [{"name": "a"}, {"name": "b"}]
+        mgr._run_gh = AsyncMock(return_value=json.dumps(payload))
+
+        result = await mgr._gh_json_query(
+            "gh",
+            "api",
+            "/test",
+            default=[],
+            dry_run_message="Would fetch",
+            error_message="Could not fetch",
+        )
+
+        assert result == payload
 
 
 # ---------------------------------------------------------------------------
