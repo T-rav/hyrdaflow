@@ -251,6 +251,42 @@ class TestLLMEvaluation:
         assert any("error" in r.lower() for r in result.reasons)
 
     @pytest.mark.asyncio
+    async def test_auth_failure_raises_runtime_error(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        """Docker containers without API key produce auth_failed stream events."""
+        issue = TaskFactory.create(
+            id=4,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+            tags=[],
+            source_url="",
+        )
+        # Simulate the stream-json output when Claude CLI is not authenticated
+        auth_failed = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "Not logged in"}],
+                },
+                "error": "authentication_failed",
+            }
+        )
+        result_event = json.dumps(
+            {
+                "type": "result",
+                "result": "Not logged in",
+                "is_error": True,
+            }
+        )
+        stdout = f"{auth_failed}\n{result_event}"
+        mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
+
+        with pytest.raises(RuntimeError, match="authentication failed"):
+            await runner.evaluate(issue)
+
+    @pytest.mark.asyncio
     async def test_credit_exhausted_propagates(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:

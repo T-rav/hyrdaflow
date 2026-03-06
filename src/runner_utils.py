@@ -159,6 +159,17 @@ async def stream_claude_process(
                     stderr_text[:500],
                 )
 
+            # Detect authentication failures from stream-json output.
+            # Claude CLI emits '"error":"authentication_failed"' when it
+            # has no valid API key or OAuth session (common in Docker
+            # containers without ANTHROPIC_API_KEY).
+            raw_output = "\n".join(raw_lines)
+            if "authentication_failed" in raw_output:
+                raise RuntimeError(
+                    "Agent CLI authentication failed — set ANTHROPIC_API_KEY "
+                    "in .env for Docker execution mode"
+                )
+
             # Check for credit exhaustion in both stderr and transcript.
             # Skip when early_killed=True — the process was intentionally killed by us
             # because it produced its expected output; credit phrases in legitimate

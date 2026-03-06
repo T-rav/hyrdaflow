@@ -362,6 +362,16 @@ class DockerRunner:
         if claude_home.exists():
             mounts[str(claude_home)] = {"bind": _CONTAINER_CLAUDE_HOME, "mode": "rw"}
 
+        # Claude CLI stores auth tokens in ~/.claude.json (separate from
+        # the ~/.claude/ config directory).  Without this file the CLI
+        # reports "Not logged in" and produces no useful output.
+        claude_json = home / ".claude.json"
+        if claude_json.is_file():
+            mounts[str(claude_json)] = {
+                "bind": f"{_CONTAINER_HOME}/.claude.json",
+                "mode": "rw",
+            }
+
         return mounts
 
     def _build_env(self) -> dict[str, str]:

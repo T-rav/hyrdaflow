@@ -1271,3 +1271,30 @@ class TestBuildMounts:
             "mode": "rw",
         }
         assert str(home / ".claude") not in mounts
+
+    def test_mounts_claude_json_when_present(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        (home / ".claude").mkdir(parents=True, exist_ok=True)
+        (home / ".claude.json").write_text("{}")
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch("docker_runner.Path.home", return_value=home):
+            mounts = runner._build_mounts(None)
+
+        assert str(home / ".claude.json") in mounts
+        assert mounts[str(home / ".claude.json")] == {
+            "bind": "/home/hydraflow/.claude.json",
+            "mode": "rw",
+        }
+
+    def test_skips_claude_json_when_absent(self, tmp_path: Path) -> None:
+        home = tmp_path / "home"
+        home.mkdir(parents=True, exist_ok=True)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch("docker_runner.Path.home", return_value=home):
+            mounts = runner._build_mounts(None)
+
+        assert str(home / ".claude.json") not in mounts
