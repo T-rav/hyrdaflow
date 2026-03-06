@@ -76,7 +76,8 @@ async def stream_claude_process(
         runner = get_default_runner()
     use_codex_exec = len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec"
     use_pi_print = cmd and cmd[0] == "pi" and ("-p" in cmd or "--print" in cmd)
-    use_prompt_arg = use_codex_exec or use_pi_print
+    use_claude_print = cmd and cmd[0] == "claude" and "-p" in cmd
+    use_prompt_arg = use_codex_exec or use_pi_print or use_claude_print
     cmd_to_run = [*cmd, prompt] if use_prompt_arg else cmd
     stdin_mode = (
         asyncio.subprocess.DEVNULL if use_prompt_arg else asyncio.subprocess.PIPE
