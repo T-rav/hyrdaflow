@@ -83,8 +83,8 @@ class TestAdr0009Content:
     def test_references_worktree_isolation(self, content: str) -> None:
         assert "worktree" in content.lower()
 
-    def test_status_is_proposed(self, content: str) -> None:
-        assert "Proposed" in content
+    def test_status_is_accepted(self, content: str) -> None:
+        assert "Accepted" in content
 
     def test_references_related_adrs(self, content: str) -> None:
         assert "ADR-0001" in content
@@ -104,10 +104,10 @@ class TestAdr0009InReadmeIndex:
     def test_readme_links_to_adr_file(self, readme: str) -> None:
         assert "0009-multi-repo-process-per-repo-model.md" in readme
 
-    def test_readme_shows_proposed_status(self, readme: str) -> None:
+    def test_readme_shows_accepted_status(self, readme: str) -> None:
         for line in readme.splitlines():
-            if "0009" in line:
-                assert "Proposed" in line
+            if "0009-multi-repo" in line:
+                assert "Accepted" in line
                 break
         else:
             pytest.fail("ADR-0009 entry not found in README index")
