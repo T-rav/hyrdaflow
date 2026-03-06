@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 from config import HydraFlowConfig
 from events import EventBus, EventLog
 from orchestrator import HydraFlowOrchestrator
+from repo_registry_store import RepoEntry, RepoRegistryStore
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.repo_runtime")
@@ -114,15 +116,18 @@ class RepoRuntime:
 
 
 class RepoRuntimeRegistry:
-    """Manages multiple :class:`RepoRuntime` instances by slug.
+    """Manage :class:`RepoRuntime` instances and persist registrations."""
 
-    Provides lookup, lifecycle management, and graceful shutdown ordering.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, store: RepoRegistryStore | None = None) -> None:
         self._runtimes: dict[str, RepoRuntime] = {}
+        self._store = store
 
-    async def register(self, config: HydraFlowConfig) -> RepoRuntime:
+    async def register(
+        self,
+        config: HydraFlowConfig,
+        *,
+        auto_start: bool = True,
+    ) -> RepoRuntime:
         """Create and register a runtime for the given config.
 
         Raises ``ValueError`` if a runtime with the same slug already exists.
@@ -132,6 +137,7 @@ class RepoRuntimeRegistry:
             msg = f"Runtime already registered for slug {runtime.slug!r}"
             raise ValueError(msg)
         self._runtimes[runtime.slug] = runtime
+        self._persist_entry(runtime, auto_start=auto_start)
         logger.info("Registered runtime %r", runtime.slug)
         return runtime
 
@@ -141,7 +147,10 @@ class RepoRuntimeRegistry:
 
     def remove(self, slug: str) -> RepoRuntime | None:
         """Remove and return a runtime (does not stop it)."""
-        return self._runtimes.pop(slug, None)
+        removed = self._runtimes.pop(slug, None)
+        if removed and self._store is not None:
+            self._store.remove(slug)
+        return removed
 
     @property
     def slugs(self) -> list[str]:
@@ -163,6 +172,56 @@ class RepoRuntimeRegistry:
         tasks = [runtime.stop() for runtime in self._runtimes.values()]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def auto_start_persisted(
+        self,
+        config_factory: Callable[[RepoEntry], HydraFlowConfig | None],
+    ) -> list[str]:
+        """Load repos from the store, register them, and start auto-start ones."""
+
+        if self._store is None:
+            return []
+        started: list[str] = []
+        entries = self._store.load()
+        for entry in entries:
+            try:
+                config = config_factory(entry)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to build config for repo %s: %s", entry.slug, exc
+                )
+                continue
+            if config is None:
+                continue
+            try:
+                runtime = await self.register(config, auto_start=entry.auto_start)
+            except ValueError as exc:
+                logger.warning(
+                    "Skipping duplicate repo %s during auto-start: %s",
+                    entry.slug,
+                    exc,
+                )
+                continue
+            if not entry.auto_start:
+                continue
+            try:
+                await runtime.start()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to auto-start %s: %s", entry.slug, exc)
+                continue
+            started.append(entry.slug)
+        return started
+
+    def _persist_entry(self, runtime: RepoRuntime, *, auto_start: bool) -> None:
+        if self._store is None:
+            return
+        entry = RepoEntry(
+            slug=runtime.slug,
+            path=str(runtime.config.repo_root),
+            repo=runtime.config.repo or None,
+            auto_start=auto_start,
+        )
+        self._store.add(entry)
 
     def __len__(self) -> int:
         return len(self._runtimes)

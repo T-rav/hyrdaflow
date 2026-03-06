@@ -14,9 +14,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
+from repo_registry_store import RepoEntry, RepoRegistryStore
 
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
@@ -48,6 +51,8 @@ def _default_log_file() -> str:
 
 _DEFAULT_CONFIG_PATH = _default_config_file()
 _DEFAULT_LOG_FILE = _default_log_file()
+
+logger = logging.getLogger("hydraflow.cli")
 
 
 def _supports_color_output() -> bool:
@@ -1307,7 +1312,30 @@ def _run_replay(config: HydraFlowConfig, issue_number: int, latest_only: bool) -
             if len(lines) > 20:
                 print(f"  ... ({len(lines) - 20} more lines)")  # noqa: T201
 
-    print(f"\n{'=' * 60}")  # noqa: T201
+        print(f"\n{'=' * 60}")  # noqa: T201
+
+
+def _config_from_repo_entry(
+    base_config: HydraFlowConfig, entry: RepoEntry
+) -> HydraFlowConfig | None:
+    """Build a HydraFlowConfig for a persisted repo entry."""
+    if not entry.path:
+        logger.warning(
+            "Repo %s missing filesystem path; skipping auto-start", entry.slug
+        )
+        return None
+    template = base_config.model_dump(mode="python")
+    for derived in ("state_file", "event_log_path"):
+        template.pop(derived, None)
+    repo_root = Path(entry.path).expanduser().resolve()
+    template["repo_root"] = repo_root
+    template["repo"] = entry.repo or ""
+    template["config_file"] = base_config.data_root / entry.slug / "config.json"
+    try:
+        return HydraFlowConfig(**template)
+    except ValidationError as exc:
+        logger.warning("Failed to rebuild config for %s: %s", entry.slug, exc)
+        return None
 
 
 async def _run_main(config: HydraFlowConfig) -> None:
@@ -1316,7 +1344,11 @@ async def _run_main(config: HydraFlowConfig) -> None:
         from dashboard import HydraFlowDashboard
         from events import EventBus, EventLog, EventType, HydraFlowEvent
         from models import Phase
+        from repo_runtime import RepoRuntimeRegistry
         from state import StateTracker
+
+        store = RepoRegistryStore(config.data_root)
+        registry = RepoRuntimeRegistry(store=store)
 
         event_log = EventLog(config.event_log_path)
         bus = EventBus(event_log=event_log)
@@ -1331,8 +1363,13 @@ async def _run_main(config: HydraFlowConfig) -> None:
             config=config,
             event_bus=bus,
             state=state,
+            registry=registry,
         )
         await dashboard.start()
+
+        await registry.auto_start_persisted(
+            lambda entry: _config_from_repo_entry(config, entry)
+        )
 
         # Publish idle phase so the UI shows the Start button
         await bus.publish(

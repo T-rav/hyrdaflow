@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from models import RepoRuntimeInfo
+from repo_registry_store import RepoEntry
 from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from tests.helpers import ConfigFactory
 
@@ -150,6 +151,74 @@ class TestRepoRuntime:
 
 class TestRepoRuntimeRegistry:
     @pytest.mark.asyncio
+    async def test_register_persists_entry_when_store_provided(self, tmp_path):
+        config = ConfigFactory.create(repo="org/alpha", repo_root=tmp_path / "alpha")
+
+        class TrackingStore:
+            def __init__(self) -> None:
+                self.added: list[RepoEntry] = []
+
+            def add(self, entry: RepoEntry) -> RepoEntry:
+                self.added.append(entry)
+                return entry
+
+            def remove(self, slug: str) -> bool:
+                return True
+
+            def load(self) -> list[RepoEntry]:
+                return []
+
+        store = TrackingStore()
+        registry = RepoRuntimeRegistry(store=store)
+        mock_bus = MagicMock()
+        mock_bus.rotate_log = AsyncMock()
+        mock_bus.load_history_from_disk = AsyncMock()
+        with (
+            patch("repo_runtime.EventLog"),
+            patch("repo_runtime.EventBus", return_value=mock_bus),
+            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.HydraFlowOrchestrator"),
+        ):
+            await registry.register(config, auto_start=False)
+        assert store.added
+        entry = store.added[0]
+        assert entry.slug == "org-alpha"
+        assert entry.auto_start is False
+
+    @pytest.mark.asyncio
+    async def test_remove_updates_store(self, tmp_path):
+        config = ConfigFactory.create(repo="org/delta", repo_root=tmp_path / "delta")
+
+        class TrackingStore:
+            def __init__(self) -> None:
+                self.removed: list[str] = []
+
+            def add(self, entry: RepoEntry) -> RepoEntry:
+                return entry
+
+            def remove(self, slug: str) -> bool:
+                self.removed.append(slug)
+                return True
+
+            def load(self) -> list[RepoEntry]:
+                return []
+
+        store = TrackingStore()
+        registry = RepoRuntimeRegistry(store=store)
+        mock_bus = MagicMock()
+        mock_bus.rotate_log = AsyncMock()
+        mock_bus.load_history_from_disk = AsyncMock()
+        with (
+            patch("repo_runtime.EventLog"),
+            patch("repo_runtime.EventBus", return_value=mock_bus),
+            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.HydraFlowOrchestrator"),
+        ):
+            await registry.register(config)
+        registry.remove("org-delta")
+        assert store.removed == ["org-delta"]
+
+    @pytest.mark.asyncio
     async def test_register_and_get(self, tmp_path):
         config = ConfigFactory.create(repo="org/alpha", repo_root=tmp_path)
         registry = RepoRuntimeRegistry()
@@ -282,3 +351,45 @@ class TestRepoRuntimeRegistry:
         assert rt_a.orchestrator is not rt_b.orchestrator
         assert rt_a.event_bus is not rt_b.event_bus
         assert len(registry) == 2
+
+    @pytest.mark.asyncio
+    async def test_auto_start_persisted_registers_entries(self, tmp_path):
+        entries = [
+            RepoEntry(slug="org-alpha", path=str(tmp_path / "alpha"), auto_start=True),
+            RepoEntry(slug="org-beta", path=str(tmp_path / "beta"), auto_start=False),
+        ]
+
+        class FixedStore:
+            def load(self) -> list[RepoEntry]:
+                return entries
+
+            def add(self, entry: RepoEntry) -> RepoEntry:
+                return entry
+
+            def remove(self, slug: str) -> bool:
+                return True
+
+        store = FixedStore()
+        registry = RepoRuntimeRegistry(store=store)
+
+        runtime_auto = MagicMock()
+        runtime_auto.start = AsyncMock()
+        runtime_manual = MagicMock()
+        runtime_manual.start = AsyncMock()
+
+        register_mock = AsyncMock(side_effect=[runtime_auto, runtime_manual])
+        registry.register = register_mock  # type: ignore[assignment]
+
+        config_factory = MagicMock(
+            side_effect=lambda entry: ConfigFactory.create(
+                repo=f"org/{entry.slug}",
+                repo_root=tmp_path / entry.slug,
+            )
+        )
+
+        started = await registry.auto_start_persisted(config_factory)
+
+        assert register_mock.await_count == 2
+        runtime_auto.start.assert_awaited_once()
+        runtime_manual.start.assert_not_called()
+        assert started == ["org-alpha"]
