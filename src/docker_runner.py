@@ -471,6 +471,8 @@ class DockerRunner:
             env["CODEX_HOME"] = _CONTAINER_CODEX_HOME
         if env.get("CLAUDE_CONFIG_DIR"):
             env["CLAUDE_CONFIG_DIR"] = _CONTAINER_CLAUDE_HOME
+        # Ensure temp dirs use the writable tmpfs, not the readonly root fs.
+        env.setdefault("TMPDIR", "/tmp")  # nosec B108  # noqa: S108
         return env
 
     def _get_resource_kwargs(self) -> dict[str, Any]:
