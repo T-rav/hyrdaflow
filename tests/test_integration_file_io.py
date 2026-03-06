@@ -7,6 +7,7 @@ import stat
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,7 +36,7 @@ def _make_config(tmp_path: Path, **overrides):
     repo_root.mkdir()
     worktree_base = tmp_path / "worktrees"
     worktree_base.mkdir()
-    params = {"repo_root": repo_root, "worktree_base": worktree_base}
+    params: dict[str, Any] = {"repo_root": repo_root, "worktree_base": worktree_base}
     params.update(overrides)
     return ConfigFactory.create(**params)
 
@@ -95,7 +96,7 @@ def test_context_section_cache_persists_and_invalidates(tmp_path: Path) -> None:
     source.write_text("first")
     calls: list[str] = []
 
-    def loader(_config) -> str:
+    def loader(_) -> str:
         calls.append("called")
         return source.read_text()
 
@@ -209,7 +210,8 @@ def test_worktree_env_setup_docker_copies_and_updates_gitignore(tmp_path: Path) 
     assert (node_modules_dst / "artifact.txt").read_text() == "node-cache"
 
     gitignore = wt_path / ".gitignore"
-    assert ".env" in gitignore.read_text()
+    gitignore_lines = [ln.strip() for ln in gitignore.read_text().splitlines()]
+    assert ".env" in gitignore_lines
 
 
 @pytest.mark.asyncio
