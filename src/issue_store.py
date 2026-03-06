@@ -346,6 +346,10 @@ class IssueStore:
         for stage in self._queues:
             self._remove_from_queue(stage, issue_number)
 
+    def get_cached(self, issue_number: int) -> Task | None:
+        """Return the most recent cached Task metadata for *issue_number*."""
+        return self._issue_cache.get(issue_number)
+
     def enqueue_transition(self, task: Task, next_stage: str) -> None:
         """Immediately route *task* into *next_stage* in-memory.
 
