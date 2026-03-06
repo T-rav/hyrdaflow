@@ -3003,6 +3003,51 @@ class TestMemoryErrorPropagation:
         await orch._polling_loop("test", failing_then_stop, 10)
         assert call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_polling_loop_emits_ok_heartbeat(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_polling_loop should call update_bg_worker_status('ok') after work."""
+        orch = HydraFlowOrchestrator(config)
+
+        async def work_then_stop() -> bool:
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("implement", work_then_stop, 10)
+        states = orch.get_bg_worker_states()
+        assert "implement" in states
+        assert states["implement"]["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_polling_loop_emits_error_heartbeat(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_polling_loop should call update_bg_worker_status('error') on exception."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+
+        async def fail_then_stop() -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("boom")
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("triage", fail_then_stop, 10)
+        states = orch.get_bg_worker_states()
+        # Final heartbeat should be "ok" from the second (successful) call
+        assert states["triage"]["status"] == "ok"
+
 
 # --- Background Worker Enabled ---
 
