@@ -517,8 +517,11 @@ Run through this checklist before your final commit:
 - Write tests for all new code — tests are mandatory.
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
-- Ensure `make quality` passes before committing.
-- If you encounter issues, commit what works with a descriptive message.
+- Run `make quality` and fix any issues it finds in YOUR code.
+- ALWAYS commit your work with `git add` and `git commit`, even if `make quality`
+  fails due to environment issues (missing binaries, read-only paths, etc.).
+  The system runs its own quality gate after you finish — your job is to produce commits.
+- If quality checks fail on pre-existing issues (not your code), commit anyway.
 - NEVER conclude that the issue is "already satisfied" or that no work is needed.
   The planner already verified this issue requires implementation. Your job is to
   write the code, not to second-guess the plan. Always produce commits.
