@@ -375,13 +375,26 @@ class DockerRunner:
         wt_name = self._detect_worktree(cwd)
         if not wt_name:
             return cmd
-        # Shell preamble: rewrite .git file then exec the original command.
-        # Using printf avoids newline ambiguity across shells.
-        preamble = (
-            f'printf "gitdir: /dot-git/worktrees/{wt_name}\\n" > /workspace/.git && '
-        )
+        # Read the original .git content so we can restore it on exit.
+        # This prevents the container from permanently overwriting the host
+        # worktree's .git file with the container-internal path.
+        git_file = Path(cwd) / ".git"
+        try:
+            original = git_file.read_text().strip()
+        except OSError:
+            original = ""
+
         escaped = " ".join(shlex.quote(a) for a in cmd)
-        return ["sh", "-c", f"{preamble}exec {escaped}"]
+        # Shell wrapper: rewrite .git → container path, run the command,
+        # then restore the original .git content regardless of exit code.
+        script = (
+            f'printf "gitdir: /dot-git/worktrees/{wt_name}\\n" > /workspace/.git; '
+            f"{escaped}; "
+            f"RC=$?; "
+            f"printf {shlex.quote(original + chr(10))} > /workspace/.git; "
+            f"exit $RC"
+        )
+        return ["sh", "-c", script]
 
     def _get_user_tool_mounts(self) -> dict[str, dict[str, str]]:
         """Return cached user-tool mounts, refreshing when env/home selection changes."""
