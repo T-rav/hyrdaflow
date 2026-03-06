@@ -132,6 +132,8 @@ class PRManager:
         dry_run_message: str,
         error_message: str,
         transform: Callable[[Any], _T] | None = None,
+        error_log_level: int = logging.WARNING,
+        log_exc_info: bool = False,
     ) -> _T:
         """Run a gh command, parse JSON, and handle dry-run/error boilerplate."""
         if self._config.dry_run:
@@ -142,7 +144,13 @@ class PRManager:
             raw = await self._run_gh(*cmd)
             data = json.loads(raw)
         except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("%s: %s", error_message, exc)
+            logger.log(
+                error_log_level,
+                "%s: %s",
+                error_message,
+                exc,
+                exc_info=log_exc_info,
+            )
             return default
 
         if transform is None:
@@ -151,7 +159,13 @@ class PRManager:
         try:
             return transform(data)
         except Exception as exc:  # pragma: no cover - defensive guard
-            logger.warning("%s: %s", error_message, exc)
+            logger.log(
+                error_log_level,
+                "%s: %s",
+                error_message,
+                exc,
+                exc_info=log_exc_info,
+            )
             return default
 
     async def ensure_labels_exist(self) -> None:
@@ -323,26 +337,11 @@ class PRManager:
         self, branch: str, *, issue_number: int = 0
     ) -> PRInfo | None:
         """Return the open PR for *branch*, or ``None`` when absent/unreadable."""
-        if self._config.dry_run:
-            return None
         head_filter = f"{self._repo_owner}:{branch}" if self._repo_owner else branch
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "api",
-                f"repos/{self._repo}/pulls",
-                "--method",
-                "GET",
-                "--field",
-                "state=open",
-                "--field",
-                f"head={head_filter}",
-                "--field",
-                "per_page=1",
-                "--jq",
-                "[.[] | {number, url: .html_url, isDraft: .draft}]",
-            )
-            prs = json.loads(raw)
+        error_message = f"Could not resolve open PR for branch {branch}"
+
+        def _parse_pr_list(payload: Any) -> PRInfo | None:
+            prs = cast(list[dict[str, Any]], payload)
             if not prs:
                 return None
             pr_data = prs[0]
@@ -353,35 +352,54 @@ class PRManager:
                 url=str(pr_data.get("url", "")),
                 draft=bool(pr_data.get("isDraft", False)),
             )
-        except (RuntimeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
-            logger.debug(
-                "Could not resolve open PR for branch %s", branch, exc_info=True
-            )
-            return None
+
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/pulls",
+            "--method",
+            "GET",
+            "--field",
+            "state=open",
+            "--field",
+            f"head={head_filter}",
+            "--field",
+            "per_page=1",
+            "--jq",
+            "[.[] | {number, url: .html_url, isDraft: .draft}]",
+            default=None,
+            dry_run_message=f"Would find open PR for branch {branch}",
+            error_message=error_message,
+            transform=_parse_pr_list,
+            error_log_level=logging.DEBUG,
+            log_exc_info=True,
+        )
 
     async def branch_has_diff_from_main(self, branch: str) -> bool:
         """Return whether *branch* has commits ahead of configured main branch."""
-        if self._config.dry_run:
-            return True
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "api",
-                f"repos/{self._repo}/compare/{self._config.main_branch}...{branch}",
-                "--jq",
-                "{ahead_by}",
-            )
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                ahead_by = int(data.get("ahead_by", 0) or 0)
-                return ahead_by > 0
-        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError):
-            logger.warning(
-                "Could not determine branch diff for %s; assuming diff exists",
-                branch,
-                exc_info=True,
-            )
-        return True
+
+        def _has_diff(payload: Any) -> bool:
+            ahead_value = payload.get("ahead_by", 0) if isinstance(payload, dict) else 0
+            try:
+                ahead_by = int(ahead_value or 0)
+            except (TypeError, ValueError):
+                return True
+            return ahead_by > 0
+
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/compare/{self._config.main_branch}...{branch}",
+            "--jq",
+            "{ahead_by}",
+            default=True,
+            dry_run_message=f"Would compare {branch} against {self._config.main_branch}",
+            error_message=(
+                f"Could not determine branch diff for {branch}; assuming diff exists"
+            ),
+            transform=_has_diff,
+            log_exc_info=True,
+        )
 
     async def merge_pr(self, pr_number: int) -> bool:
         """Merge PR immediately via squash merge with branch deletion.

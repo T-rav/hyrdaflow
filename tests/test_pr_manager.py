@@ -1073,13 +1073,75 @@ async def test_create_pr_failure_recovers_existing_open_pr(config, event_bus, is
     )
 
 
+# ---------------------------------------------------------------------------
+# find_open_pr_for_branch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_find_open_pr_for_branch_returns_pr_info(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    manager._run_gh = AsyncMock(
+        return_value=json.dumps(
+            [{"number": 123, "url": "https://example/pr/123", "isDraft": True}]
+        )
+    )
+
+    result = await manager.find_open_pr_for_branch("agent/issue-42", issue_number=7)
+
+    assert result is not None
+    assert result.number == 123
+    assert result.branch == "agent/issue-42"
+    assert result.issue_number == 7
+    assert result.url == "https://example/pr/123"
+    assert result.draft is True
+    manager._run_gh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_find_open_pr_for_branch_returns_none_when_no_results(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    manager._run_gh = AsyncMock(return_value="[]")
+
+    result = await manager.find_open_pr_for_branch("agent/issue-42")
+
+    assert result is None
+    manager._run_gh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_find_open_pr_for_branch_returns_none_on_error(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    manager._run_gh = AsyncMock(side_effect=RuntimeError("boom"))
+
+    result = await manager.find_open_pr_for_branch("agent/issue-42")
+
+    assert result is None
+    manager._run_gh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_find_open_pr_for_branch_dry_run_skips_call(dry_config, event_bus):
+    manager = _make_manager(dry_config, event_bus)
+    manager._run_gh = AsyncMock()
+
+    result = await manager.find_open_pr_for_branch("agent/issue-42")
+
+    assert result is None
+    manager._run_gh.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# branch_has_diff_from_main
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_branch_has_diff_from_main_false_when_not_ahead(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":0}').build()
+    manager._run_gh = AsyncMock(return_value='{"ahead_by":0}')
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+    has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
 
     assert has_diff is False
 
@@ -1087,12 +1149,32 @@ async def test_branch_has_diff_from_main_false_when_not_ahead(config, event_bus)
 @pytest.mark.asyncio
 async def test_branch_has_diff_from_main_true_when_ahead(config, event_bus):
     manager = _make_manager(config, event_bus)
-    mock_create = SubprocessMockBuilder().with_stdout('{"ahead_by":3}').build()
+    manager._run_gh = AsyncMock(return_value='{"ahead_by":3}')
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+    has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
 
     assert has_diff is True
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_returns_true_on_error(config, event_bus):
+    manager = _make_manager(config, event_bus)
+    manager._run_gh = AsyncMock(side_effect=RuntimeError("boom"))
+
+    has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is True
+
+
+@pytest.mark.asyncio
+async def test_branch_has_diff_from_main_dry_run_skips_call(dry_config, event_bus):
+    manager = _make_manager(dry_config, event_bus)
+    manager._run_gh = AsyncMock()
+
+    has_diff = await manager.branch_has_diff_from_main("agent/issue-42")
+
+    assert has_diff is True
+    manager._run_gh.assert_not_awaited()
 
 
 @pytest.mark.asyncio
