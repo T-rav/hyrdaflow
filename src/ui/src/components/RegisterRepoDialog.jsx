@@ -35,7 +35,7 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
     }
     setSubmitting(true)
     setError('')
-    let result = { ok: true }
+    let result
     if (trimmedSlug) {
       result = await addRepoBySlug(trimmedSlug)
     } else {

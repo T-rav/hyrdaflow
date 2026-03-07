@@ -175,6 +175,7 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    minWidth: 0,
   },
   chevron: {
     fontSize: 10,
