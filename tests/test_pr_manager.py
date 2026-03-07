@@ -1661,6 +1661,81 @@ async def test_wait_for_ci_publishes_ci_check_events(event_bus, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _sum_label_counts
+# ---------------------------------------------------------------------------
+
+
+class TestSumLabelCounts:
+    """Unit tests for the _sum_label_counts helper."""
+
+    @pytest.mark.asyncio
+    async def test_sums_counts_for_each_label(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock(side_effect=[3, 7])
+
+        result = await mgr._sum_label_counts(
+            ["label-a", "label-b"],
+            query_builder=lambda label: f"repo:org/repo label:{label}",
+            log_context="count test labels",
+        )
+
+        assert result == 10
+        assert mgr._search_github_count.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_skips_failed_label_and_continues(
+        self, event_bus, tmp_path, caplog
+    ):
+        """Errors from _search_github_count should be swallowed and logged at debug."""
+        import logging
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock(
+            side_effect=[RuntimeError("API rate limit"), 5]
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
+            result = await mgr._sum_label_counts(
+                ["label-a", "label-b"],
+                query_builder=lambda label: f"repo:org/repo label:{label}",
+                log_context="count test labels",
+            )
+
+        assert result == 5
+        assert "count test labels" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_when_all_fail(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock(
+            side_effect=RuntimeError("network error")
+        )
+
+        result = await mgr._sum_label_counts(
+            ["label-a", "label-b"],
+            query_builder=lambda label: f"repo:org/repo label:{label}",
+            log_context="count test labels",
+        )
+
+        assert result == 0
+
+
+# ---------------------------------------------------------------------------
 # ensure_labels_exist
 # ---------------------------------------------------------------------------
 

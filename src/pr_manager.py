@@ -35,7 +35,7 @@ logger = logging.getLogger("hydraflow.pr_manager")
 # Cache TTL for label-count queries (seconds).
 _LABEL_CACHE_TTL: int = 30
 
-JSONValue = TypeVar("JSONValue")
+_JSONValue = TypeVar("_JSONValue")
 
 
 def _is_missing_label_404(exc: RuntimeError) -> bool:
@@ -127,20 +127,20 @@ class PRManager:
     async def _gh_json_query(
         self,
         *cmd: str,
-        dry_run_return: JSONValue,
+        dry_run_return: _JSONValue,
         dry_run_log: str | None = None,
         error_log: str | None = None,
         error_level: Literal["debug", "info", "warning", "error"] = "warning",
-        loader: Callable[[str], JSONValue] = json.loads,
+        loader: Callable[[str], _JSONValue] = json.loads,
         exceptions: tuple[type[BaseException], ...] | None = None,
         log_exc_info: bool = False,
-    ) -> JSONValue:
+    ) -> _JSONValue:
         """Run a ``gh`` command that returns JSON with shared dry-run/error handling."""
         if self._config.dry_run:
             if dry_run_log:
                 logger.info(dry_run_log)
             return dry_run_return
-        exc_types = exceptions or (RuntimeError, json.JSONDecodeError)
+        exc_types = exceptions if exceptions is not None else (RuntimeError, json.JSONDecodeError)
         try:
             raw = await self._run_gh(*cmd)
             return loader(raw)
