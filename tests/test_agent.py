@@ -885,17 +885,16 @@ class TestRunSuccess:
 
 
 class TestForceCommitUncommitted:
-    """Tests for the salvage-commit mechanism."""
+    """Tests for the salvage-commit mechanism (always runs on host)."""
 
     @pytest.mark.asyncio
     async def test_force_commit_creates_commit_when_dirty(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
-        """Uncommitted changes should be staged and committed."""
+        """Uncommitted changes should be staged and committed via host git."""
         runner = AgentRunner(config, event_bus)
         task = TaskFactory.create(id=99, title="Fix the widget")
 
-        # Simulate a runner that reports dirty status then succeeds on add/commit
         call_count = 0
 
         async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
@@ -907,13 +906,14 @@ class TestForceCommitUncommitted:
                 return SimpleResult(stdout=" M src/foo.py", stderr="", returncode=0)
             return SimpleResult(stdout="", stderr="", returncode=0)
 
-        runner._runner = MagicMock()
-        runner._runner.run_simple = AsyncMock(side_effect=fake_run_simple)
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
 
-        result = await runner._force_commit_uncommitted(task, tmp_path)
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
 
         assert result is True
-        assert call_count == 3  # status, add, commit
+        assert call_count == 4  # unset core.worktree, status, add, commit
 
     @pytest.mark.asyncio
     async def test_force_commit_noop_when_clean(
@@ -928,14 +928,14 @@ class TestForceCommitUncommitted:
 
             return SimpleResult(stdout="", stderr="", returncode=0)
 
-        runner._runner = MagicMock()
-        runner._runner.run_simple = AsyncMock(side_effect=fake_run_simple)
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
 
-        result = await runner._force_commit_uncommitted(task, tmp_path)
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
 
         assert result is False
-        # Only status check, no add/commit
-        runner._runner.run_simple.assert_awaited_once()
+        assert mock_host.run_simple.await_count == 2  # unset core.worktree, status
 
     @pytest.mark.asyncio
     async def test_force_commit_handles_error_gracefully(
@@ -945,10 +945,11 @@ class TestForceCommitUncommitted:
         runner = AgentRunner(config, event_bus)
         task = TaskFactory.create(id=99, title="Fix the widget")
 
-        runner._runner = MagicMock()
-        runner._runner.run_simple = AsyncMock(side_effect=OSError("git broke"))
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=OSError("git broke"))
 
-        result = await runner._force_commit_uncommitted(task, tmp_path)
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
 
         assert result is False
 

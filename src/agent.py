@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -923,12 +924,31 @@ SUMMARY: <one-line summary>
     async def _force_commit_uncommitted(self, task: Task, worktree_path: Path) -> bool:
         """Stage and commit any uncommitted changes the agent left behind.
 
+        Always runs on the **host** (not inside Docker) since the worktree
+        is bind-mounted — file edits from the container are already on disk.
+
+        Docker containers set ``core.worktree=/workspace`` in the worktree's
+        git config, which breaks host-side git (it looks for files at
+        ``/workspace`` instead of the actual worktree path).  We fix this
+        by unsetting ``core.worktree`` before checking status.
+
         Returns ``True`` if a salvage commit was created, ``False`` otherwise.
         """
+        from execution import get_default_runner
+
+        host = get_default_runner()
         timeout = self._config.git_command_timeout
         cwd = str(worktree_path)
+        # Fix Docker-corrupted core.worktree before any git operation
+        with contextlib.suppress(TimeoutError, FileNotFoundError, OSError):
+            await host.run_simple(
+                ["git", "config", "--unset", "core.worktree"],
+                cwd=cwd,
+                timeout=timeout,
+            )
+
         try:
-            status = await self._runner.run_simple(
+            status = await host.run_simple(
                 ["git", "status", "--porcelain"],
                 cwd=cwd,
                 timeout=timeout,
@@ -940,12 +960,12 @@ SUMMARY: <one-line summary>
                 "Issue #%d: agent left uncommitted changes — force-committing",
                 task.id,
             )
-            await self._runner.run_simple(
+            await host.run_simple(
                 ["git", "add", "-A"],
                 cwd=cwd,
                 timeout=timeout,
             )
-            await self._runner.run_simple(
+            await host.run_simple(
                 [
                     "git",
                     "commit",
