@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from execution import SimpleResult
 from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
@@ -69,6 +71,39 @@ async def test_error_message_includes_command_and_returncode() -> None:
     assert exc_info.value.args, "RuntimeError should include a message"
     message = exc_info.value.args[0]
     assert "('git', 'status')" in message
+
+
+class _StaticRunner:
+    def __init__(self, result: SimpleResult) -> None:
+        self._result = result
+
+    async def run_simple(self, *args, **kwargs) -> SimpleResult:  # noqa: ANN001, D401
+        return self._result
+
+
+@pytest.mark.asyncio
+async def test_runtime_error_chains_called_process_error() -> None:
+    runner = _StaticRunner(SimpleResult(stdout="", stderr="boom", returncode=9))
+    with pytest.raises(RuntimeError) as exc_info:
+        await run_subprocess("ls", runner=runner)
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, subprocess.CalledProcessError)
+    assert cause.returncode == 9
+    assert cause.cmd == ["ls"]
+
+
+@pytest.mark.asyncio
+async def test_authentication_error_chains_called_process_error() -> None:
+    runner = _StaticRunner(
+        SimpleResult(stdout="", stderr="Authentication required", returncode=1)
+    )
+    with pytest.raises(AuthenticationError) as exc_info:
+        await run_subprocess("gh", "api", runner=runner)
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, subprocess.CalledProcessError)
+    assert cause.cmd == ["gh", "api"]
 
 
 # --- environment ---

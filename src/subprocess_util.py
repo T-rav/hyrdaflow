@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import re
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -297,11 +298,17 @@ async def run_subprocess(
             ) from None
         if result.returncode != 0:
             msg = f"Command {cmd!r} failed (rc={result.returncode}): {result.stderr}"
+            cause = subprocess.CalledProcessError(
+                result.returncode,
+                list(cmd),
+                output=result.stdout,
+                stderr=result.stderr,
+            )
             if _is_auth_error(result.stderr):
-                raise AuthenticationError(msg)
+                raise AuthenticationError(msg) from cause
             if _is_rate_limited(result.stderr):
                 _trigger_rate_limit_cooldown()
-            raise RuntimeError(msg)
+            raise RuntimeError(msg) from cause
         return result.stdout
 
     if use_semaphore:

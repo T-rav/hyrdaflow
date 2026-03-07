@@ -78,6 +78,43 @@ def test_remove_repo_raises_when_server_returns_error(monkeypatch) -> None:
         supervisor_client.remove_repo(slug="missing")
 
 
+def test_supervisor_client_errors_chain_response(monkeypatch, tmp_path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def _add_repo_call() -> None:
+        supervisor_client.add_repo(repo)
+
+    def _register_repo_call() -> None:
+        supervisor_client.register_repo(repo)
+
+    def _remove_repo_call() -> None:
+        supervisor_client.remove_repo(slug="repo")
+
+    cases = [
+        ("list_repos", supervisor_client.list_repos),
+        ("add_repo", _add_repo_call),
+        ("register_repo", _register_repo_call),
+        ("remove_repo", _remove_repo_call),
+    ]
+
+    for action, call in cases:
+
+        def _send(payload, *, _action=action):
+            assert payload["action"] == _action
+            return {"status": "error", "error": f"{_action} failure"}
+
+        monkeypatch.setattr(supervisor_client, "_send", _send)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            call()
+
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, supervisor_client.SupervisorResponseError)
+        assert cause.action == action
+        assert cause.response["error"] == f"{action} failure"
+
+
 def test_send_parses_newline_delimited_json(monkeypatch) -> None:
     timeout_applied: list[float] = []
 

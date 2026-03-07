@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+import stat
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -123,7 +123,10 @@ class TestScaffoldPreCommitHook:
     def test_hook_is_executable(self, tmp_path: Path) -> None:
         scaffold_pre_commit_hook(tmp_path, language="python")
         hook = tmp_path / ".githooks" / "pre-commit"
-        assert os.access(hook, os.X_OK)
+        mode = hook.stat().st_mode
+        assert mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH), (
+            f"Pre-commit hook {hook} is missing an execute bit: {oct(mode)}"
+        )
 
     def test_hook_starts_with_shebang(self, tmp_path: Path) -> None:
         scaffold_pre_commit_hook(tmp_path, language="python")
