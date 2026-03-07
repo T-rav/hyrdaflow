@@ -6,7 +6,6 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("hydraflow.model_pricing")
 
@@ -123,49 +122,7 @@ class ModelPricingTable:
             input_tokens, output_tokens, cache_write_tokens, cache_read_tokens
         )
 
-    @property
-    def model_ids(self) -> list[str]:
-        """Return all loaded model IDs."""
-        self._load()
-        return list(self._rates)
-
-    def validate(self) -> list[str]:
-        """Return a list of validation errors (empty if valid)."""
-        self._load()
-        errors: list[str] = []
-        if not self._rates:
-            errors.append("No models loaded from pricing asset")
-        for model_id, rate in self._rates.items():
-            if rate.input_cost_per_million < 0:
-                errors.append(f"{model_id}: negative input cost")
-            if rate.output_cost_per_million < 0:
-                errors.append(f"{model_id}: negative output cost")
-        return errors
-
 
 def load_pricing(path: Path | None = None) -> ModelPricingTable:
     """Load the model pricing table from the default or given path."""
     return ModelPricingTable(path)
-
-
-def validate_pricing_asset(raw: dict[str, Any]) -> list[str]:
-    """Validate raw pricing JSON structure without loading from disk."""
-    errors: list[str] = []
-    if not isinstance(raw, dict):
-        return ["Root must be a JSON object"]
-    if "schema_version" not in raw:
-        errors.append("Missing schema_version")
-    models = raw.get("models")
-    if not isinstance(models, dict):
-        errors.append("Missing or invalid 'models' key")
-        return errors
-    for model_id, entry in models.items():
-        if not isinstance(entry, dict):
-            errors.append(f"{model_id}: entry must be an object")
-            continue
-        for field in _REQUIRED_COST_FIELDS:
-            if field not in entry:
-                errors.append(f"{model_id}: missing {field}")
-            elif not isinstance(entry[field], int | float):
-                errors.append(f"{model_id}: {field} must be numeric")
-    return errors

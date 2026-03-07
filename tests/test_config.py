@@ -1451,13 +1451,29 @@ class TestHydraFlowConfigGhToken:
 # ---------------------------------------------------------------------------
 
 
-class TestHydraFlowConfigGitIdentity:
+class GitIdentityEnvMixin:
+    """Utility mixin for clearing git identity env vars across tests."""
+
+    @staticmethod
+    def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "HYDRAFLOW_GIT_USER_NAME",
+            "HYDRAFLOW_GIT_USER_EMAIL",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+
+class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
     """Tests for git_user_name/git_user_email fields and env var resolution."""
 
     def test_git_user_name_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
+        self._clear_git_identity_env(monkeypatch)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1468,7 +1484,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_email_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1497,6 +1513,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_name_picks_up_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_NAME", "EnvBot")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1508,6 +1525,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_email_picks_up_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_EMAIL", "env@example.com")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1519,6 +1537,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_name_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_NAME", "EnvBot")
         cfg = HydraFlowConfig(
             git_user_name="ExplicitBot",
@@ -1531,6 +1550,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_email_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_EMAIL", "env@example.com")
         cfg = HydraFlowConfig(
             git_user_email="explicit@example.com",
@@ -1543,8 +1563,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_identity_picks_up_dotenv_fallback(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
         (tmp_path / ".env").write_text(
             "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot\n"
             "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com\n"
@@ -1560,8 +1579,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_identity_dotenv_ignores_inline_comment(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
         (tmp_path / ".env").write_text(
             "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot # preferred\n"
             "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com # notifications\n"
@@ -3353,7 +3371,7 @@ class TestDockerConfigCustomValues:
 # ---------------------------------------------------------------------------
 
 
-class TestDockerConfigValidation:
+class TestDockerConfigValidation(GitIdentityEnvMixin):
     """Tests for Docker config validation constraints."""
 
     def test_invalid_execution_mode_raises(self, tmp_path: Path) -> None:
@@ -3579,6 +3597,7 @@ class TestDockerConfigValidation:
         monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
         monkeypatch.delenv("GH_TOKEN", raising=False)
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        self._clear_git_identity_env(monkeypatch)
         caplog.clear()
         with caplog.at_level("WARNING", logger="hydraflow.config"):
             HydraFlowConfig(
@@ -3600,6 +3619,7 @@ class TestDockerConfigValidation:
         import shutil
 
         monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+        self._clear_git_identity_env(monkeypatch)
         caplog.clear()
         with caplog.at_level("WARNING", logger="hydraflow.config"):
             HydraFlowConfig(

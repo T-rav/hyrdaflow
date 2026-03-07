@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import json
 
-from model_pricing import (
-    ModelPricingTable,
-    ModelRate,
-    load_pricing,
-    validate_pricing_asset,
-)
+from model_pricing import ModelPricingTable, ModelRate, load_pricing
 
 
 class TestModelRate:
@@ -191,79 +186,10 @@ class TestModelPricingTable:
             table.estimate_cost("unknown", input_tokens=100, output_tokens=50) is None
         )
 
-    def test_model_ids_property(self, tmp_path):
-        path = self._write_asset(
-            tmp_path,
-            {
-                "schema_version": 1,
-                "models": {
-                    "model-a": {
-                        "input_cost_per_million": 1.0,
-                        "output_cost_per_million": 2.0,
-                    },
-                    "model-b": {
-                        "input_cost_per_million": 3.0,
-                        "output_cost_per_million": 4.0,
-                    },
-                },
-            },
-        )
-        table = ModelPricingTable(path)
-        ids = table.model_ids
-        assert "model-a" in ids
-        assert "model-b" in ids
-        assert len(ids) == 2
-
-    def test_validate_reports_no_errors_for_valid_asset(self, tmp_path):
-        path = self._write_asset(
-            tmp_path,
-            {
-                "schema_version": 1,
-                "models": {
-                    "model-a": {
-                        "input_cost_per_million": 1.0,
-                        "output_cost_per_million": 2.0,
-                    },
-                },
-            },
-        )
-        table = ModelPricingTable(path)
-        assert table.validate() == []
-
-    def test_validate_reports_empty_models(self, tmp_path):
-        path = self._write_asset(
-            tmp_path,
-            {
-                "schema_version": 1,
-                "models": {},
-            },
-        )
-        table = ModelPricingTable(path)
-        errors = table.validate()
-        assert any("No models" in e for e in errors)
-
-    def test_validate_reports_negative_cost(self, tmp_path):
-        path = self._write_asset(
-            tmp_path,
-            {
-                "schema_version": 1,
-                "models": {
-                    "bad-model": {
-                        "input_cost_per_million": -1.0,
-                        "output_cost_per_million": 2.0,
-                    },
-                },
-            },
-        )
-        table = ModelPricingTable(path)
-        errors = table.validate()
-        assert any("negative input cost" in e for e in errors)
-
     def test_missing_file_returns_none(self, tmp_path):
         path = tmp_path / "nonexistent.json"
         table = ModelPricingTable(path)
         assert table.get_rate("anything") is None
-        assert table.model_ids == []
 
     def test_corrupt_json_handled_gracefully(self, tmp_path):
         path = tmp_path / "bad.json"
@@ -283,7 +209,6 @@ class TestModelPricingTable:
         )
         table = ModelPricingTable(path)
         assert table.get_rate("incomplete") is None
-        assert table.model_ids == []
 
     def test_lazy_loading(self, tmp_path):
         path = self._write_asset(
@@ -310,71 +235,3 @@ class TestLoadPricing:
         path.write_text(json.dumps({"schema_version": 1, "models": {}}))
         table = load_pricing(path)
         assert isinstance(table, ModelPricingTable)
-
-
-class TestValidatePricingAsset:
-    def test_valid_asset_returns_no_errors(self):
-        raw = {
-            "schema_version": 1,
-            "models": {
-                "model-a": {
-                    "input_cost_per_million": 1.0,
-                    "output_cost_per_million": 2.0,
-                },
-            },
-        }
-        assert validate_pricing_asset(raw) == []
-
-    def test_missing_schema_version(self):
-        raw = {
-            "models": {
-                "model-a": {
-                    "input_cost_per_million": 1.0,
-                    "output_cost_per_million": 2.0,
-                },
-            },
-        }
-        errors = validate_pricing_asset(raw)
-        assert any("schema_version" in e for e in errors)
-
-    def test_missing_models_key(self):
-        raw = {"schema_version": 1}
-        errors = validate_pricing_asset(raw)
-        assert any("models" in e for e in errors)
-
-    def test_missing_required_cost_field(self):
-        raw = {
-            "schema_version": 1,
-            "models": {
-                "model-a": {"input_cost_per_million": 1.0},
-            },
-        }
-        errors = validate_pricing_asset(raw)
-        assert any("output_cost_per_million" in e for e in errors)
-
-    def test_non_numeric_cost_field(self):
-        raw = {
-            "schema_version": 1,
-            "models": {
-                "model-a": {
-                    "input_cost_per_million": "not_a_number",
-                    "output_cost_per_million": 2.0,
-                },
-            },
-        }
-        errors = validate_pricing_asset(raw)
-        assert any("must be numeric" in e for e in errors)
-
-    def test_non_dict_root(self):
-        errors = validate_pricing_asset([])  # type: ignore[arg-type]
-        assert errors == ["Root must be a JSON object"]
-
-    def test_non_dict_entry(self):
-        raw = {
-            "schema_version": 1,
-            "models": {
-                "model-a": "not_a_dict",
-            },
-        }
-        errors = validate_pricing_asset(raw)
-        assert any("must be an object" in e for e in errors)

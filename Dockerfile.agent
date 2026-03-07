@@ -13,13 +13,14 @@ FROM python:3.11-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system packages
+# Install system packages (ripgrep is needed by Claude CLI's Grep tool)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         make \
         curl \
         gnupg \
         ca-certificates \
+        ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x via NodeSource

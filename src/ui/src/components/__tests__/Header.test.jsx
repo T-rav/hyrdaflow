@@ -21,8 +21,8 @@ vi.mock('html2canvas', () => ({
 
 const { Header } = await import('../Header')
 
-function mockStageStatus(workers = {}, sessionCounters = {}) {
-  return deriveStageStatus({}, workers, [], sessionCounters)
+function mockStageStatus(workers = {}, pipelineStats = null) {
+  return deriveStageStatus({}, workers, [], pipelineStats)
 }
 
 function createRootContainer() {
@@ -245,17 +245,27 @@ describe('Header component', () => {
   })
 
   describe('session pipeline row', () => {
-    const counterFixture = {
-      sessionTriaged: 7,
-      sessionPlanned: 5,
-      sessionImplemented: 4,
-      sessionReviewed: 3,
-      mergedCount: 2,
+    const pipelineStatsFixture = {
+      stages: {
+        triage: { completed_session: 7 },
+        plan: { completed_session: 5 },
+        implement: { completed_session: 4 },
+        review: { completed_session: 3 },
+        merged: { completed_session: 2 },
+      },
+    }
+
+    const expectedCounts = {
+      triage: 7,
+      plan: 5,
+      implement: 4,
+      review: 3,
+      merged: 2,
     }
 
     beforeEach(() => {
       mockUseHydraFlow.mockReturnValue({
-        stageStatus: mockStageStatus({}, counterFixture),
+        stageStatus: mockStageStatus({}, pipelineStatsFixture),
         config: null,
       })
     })
@@ -264,14 +274,6 @@ describe('Header component', () => {
       render(<Header {...defaultProps} />)
       const pipelineRow = screen.getByTestId('session-pipeline')
       expect(pipelineRow).toBeInTheDocument()
-
-      const expectedCounts = {
-        triage: counterFixture.sessionTriaged,
-        plan: counterFixture.sessionPlanned,
-        implement: counterFixture.sessionImplemented,
-        review: counterFixture.sessionReviewed,
-        merged: counterFixture.mergedCount,
-      }
 
       PIPELINE_STAGES.forEach(stage => {
         const pill = screen.getByTestId(`session-stage-${stage.key}`)

@@ -334,7 +334,7 @@ def _generate_suggestion(category: str, subcategory: str, count: int) -> str:
     sub_hints: dict[str, str] = {
         "lint_error": " Add a lint pre-check step or add the lint rule to CLAUDE.md.",
         "type_error": " Add type-checking guidance to the implementation prompt.",
-        "test_failure": " Strengthen TDD requirements in the implementation prompt.",
+        "test_failure": " Strengthen test-writing guidance in the implementation prompt.",
         "import_error": " Improve dependency resolution guidance in the planner.",
         "merge_conflict": " Consider more frequent main-branch merges during implementation.",
         "visual_diff": " Update visual baselines after intentional UI changes to reduce false positives.",

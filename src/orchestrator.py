@@ -956,8 +956,10 @@ class HydraFlowOrchestrator:
                         },
                     )
                 )
+                self.update_bg_worker_status(name, "error")
                 await self._sleep_or_stop(interval)
                 continue
+            self.update_bg_worker_status(name, "ok")
             if did_work:
                 continue
             await self._sleep_or_stop(interval)
