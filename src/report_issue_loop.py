@@ -211,7 +211,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
             body += (
                 "### Screenshot\n\n"
                 f"Base64 screenshot attached ({len(report.screenshot_base64)} chars). "
-                "Could not be decoded during processing.\n"
+                "Too large to include in this issue.\n"
             )
 
         labels = list(self._config.hitl_label)
