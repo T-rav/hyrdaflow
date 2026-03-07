@@ -529,8 +529,10 @@ Run through this checklist before your final commit:
 - Do NOT run `git push` or `gh pr create`.
 - Run `make quality-lite` (lint + typecheck + security, no tests) as a sense check.
   CI runs the full test suite — you do not need to run `make quality` or `make test`.
-- ALWAYS commit your work with `git add` and `git commit`.
+- ALWAYS commit your work with `git add <file>` and `git commit`.
   The system runs its own quality gate after you finish — your job is to produce commits.
+- NEVER use interactive git commands (`git add -i`, `git add -p`, `git rebase -i`).
+  There is no TTY — interactive commands will hang. Use `git add <file>` or `git add -A`.
 - NEVER conclude that the issue is "already satisfied" or that no work is needed.
   The planner already verified this issue requires implementation. Your job is to
   write the code, not to second-guess the plan. Always produce commits.
