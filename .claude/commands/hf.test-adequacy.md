@@ -5,7 +5,7 @@ Assess whether changed production code has adequate test coverage. This is a rea
 ## When to Use
 
 - After implementing changes, before committing
-- To verify test coverage fills gaps left by removed TDD enforcement
+- To verify test coverage is adequate for the changes
 - When reviewing a branch for test completeness
 
 ## Instructions
