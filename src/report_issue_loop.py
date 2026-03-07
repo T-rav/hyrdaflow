@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import logging
 import re
 import tempfile
@@ -92,7 +93,14 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 )
                 has_secrets = True
             else:
-                screenshot_path = self._save_screenshot(report.screenshot_base64)
+                try:
+                    screenshot_path = self._save_screenshot(report.screenshot_base64)
+                except (ValueError, binascii.Error):
+                    logger.warning(
+                        "Screenshot for report %s was not valid base64; "
+                        "continuing without screenshot attachment",
+                        report.id,
+                    )
 
         # Build prompt — invoke /hf.issue so Claude gets the full skill
         # instructions (codebase research, duplicate check, structured body).
@@ -168,7 +176,10 @@ class ReportIssueLoop(BaseBackgroundLoop):
     @staticmethod
     def _save_screenshot(b64_data: str) -> Path:
         """Decode base64 screenshot and write to a temp PNG file."""
-        raw = base64.b64decode(b64_data)
+        payload = b64_data
+        if payload.startswith("data:"):
+            _, _, payload = payload.partition(",")
+        raw = base64.b64decode(payload, validate=True)
         fd, path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-report-")
         Path(path).write_bytes(raw)
         # Close the fd opened by mkstemp (write_bytes uses its own handle).
