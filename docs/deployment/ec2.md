@@ -33,6 +33,17 @@ Clone the repository as that user:
 sudo -u hydraflow git clone https://github.com/hydraflow-ai/hydraflow.git /opt/hydraflow
 ```
 
+### Quick readiness check (doctor)
+
+Before bootstrapping, run the built-in doctor to confirm the host has everything it needs:
+
+```bash
+cd /opt/hydraflow
+sudo -u hydraflow deploy/ec2/deploy-hydraflow.sh doctor
+```
+
+The doctor exits non-zero when required commands (`git`, `make`, `uv`) are missing, when `/opt/hydraflow` is not a git checkout, or when `.env` has not been created yet. It also warns if `/var/lib/hydraflow`, `/var/log/hydraflow`, or the rendered `hydraflow.service` are absent so you can fix the filesystem layout before touching systemd.
+
 ## 2. Bootstrap the runtime
 
 Run the helper script once to install Python deps, build the dashboard, and seed `.env`:

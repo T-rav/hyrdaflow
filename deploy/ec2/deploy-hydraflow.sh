@@ -99,16 +99,20 @@ uv_env_cmd() {
 }
 
 check_requirements() {
+  if ! require_commands git make "${UV_BIN}"; then
+    fatal "Install the missing commands and re-run the script"
+  fi
+}
+
+require_commands() {
   local missing=0
-  for cmd in git make "${UV_BIN}" ; do
+  for cmd in "$@"; do
     if ! command -v "${cmd}" >/dev/null 2>&1; then
       log "Missing required command: ${cmd}"
       missing=1
     fi
   done
-  if [[ ${missing} -eq 1 ]]; then
-    fatal "Install the missing commands and re-run the script"
-  fi
+  return ${missing}
 }
 
 sync_git() {
@@ -310,6 +314,58 @@ maybe_wait_for_ready() {
   fi
 }
 
+doctor() {
+  log "Running HydraFlow EC2 doctor checks"
+  local failures=0
+
+  if require_commands git make "${UV_BIN}"; then
+    log "Doctor: required commands located (git, make, ${UV_BIN})"
+  else
+    log "Doctor: required commands missing (see messages above)"
+    failures=1
+  fi
+
+  if [[ -d "${HYDRAFLOW_ROOT}/.git" ]]; then
+    log "Doctor: git checkout detected at ${HYDRAFLOW_ROOT}"
+  else
+    log "Doctor: missing .git directory under ${HYDRAFLOW_ROOT}"
+    failures=1
+  fi
+
+  if [[ -f "${ENV_FILE}" ]]; then
+    log "Doctor: env file present at ${ENV_FILE}"
+  else
+    log "Doctor: missing env file at ${ENV_FILE}"
+    failures=1
+  fi
+
+  if [[ -d "${HYDRAFLOW_HOME_DIR}" ]]; then
+    log "Doctor: HYDRAFLOW_HOME_DIR exists (${HYDRAFLOW_HOME_DIR})"
+  else
+    log "Doctor: HYDRAFLOW_HOME_DIR missing (${HYDRAFLOW_HOME_DIR}); create it to persist agent state"
+  fi
+
+  if [[ -d "${LOG_DIR}" ]]; then
+    log "Doctor: log directory exists (${LOG_DIR})"
+  else
+    log "Doctor: log directory missing (${LOG_DIR}); create it so journalctl tails are mirrored to disk"
+  fi
+
+  local unit_path="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+  if [[ -f "${unit_path}" ]]; then
+    log "Doctor: systemd unit installed at ${unit_path}"
+  else
+    log "Doctor: systemd unit not found at ${unit_path}; run install once bootstrap completes"
+  fi
+
+  if ((failures > 0)); then
+    log "Doctor detected ${failures} blocking issue(s). Fix them and re-run doctor."
+    return 1
+  fi
+
+  log "Doctor checks passed; host is ready for hydraflow deploys."
+}
+
 case "${ACTION}" in
   bootstrap)
     check_requirements
@@ -349,9 +405,12 @@ case "${ACTION}" in
   install)
     install_systemd_unit
     ;;
+  doctor)
+    doctor
+    ;;
   *)
     cat <<USAGE
-Usage: ${0##*/} [bootstrap|deploy|run|status|health|wait-ready|install] [-- additional cli args]
+Usage: ${0##*/} [bootstrap|deploy|run|status|health|wait-ready|install|doctor] [-- additional cli args]
 
 bootstrap : Prepare dependencies, copy .env.sample, and build UI assets.
 deploy    : Update git checkout, rebuild assets, and restart the systemd unit.
@@ -360,6 +419,7 @@ status    : Show the hydraflow systemd unit status.
 health    : Query /healthz (optionally fail when not ready).
 wait-ready: Poll /healthz until ready=true (with timeout controls).
 install   : Copy the systemd unit into ${SYSTEMD_DIR} and enable it.
+doctor    : Verify prerequisites: commands, repo checkout, env file, and directories.
 USAGE
     exit 1
     ;;

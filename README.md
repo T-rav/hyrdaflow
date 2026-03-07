@@ -247,6 +247,7 @@ make run
 Running HydraFlow as a 24/7 EC2 service is supported out-of-the-box:
 
 - `deploy/ec2/deploy-hydraflow.sh` bootstraps dependencies, syncs code, and restarts the orchestrator.
+- `deploy/ec2/deploy-hydraflow.sh doctor` runs a readiness check (git repo present, `.env` seeded, log/home dirs created, required binaries installed) before your first deploy.
 - `deploy/ec2/hydraflow.service` keeps the process alive under systemd; the `install` helper renders it with `SERVICE_USER`, `SERVICE_GROUP`, `SERVICE_WORK_DIR`, and `SERVICE_LOG_FILE` overrides so non-/opt installs work without manual edits.
 - FastAPI exposes `GET /healthz` with a `ready` flag plus per-component `checks` (orchestrator/worker/dashboard) so load balancers or monitors can make decisions without extra parsing.
 - `deploy/ec2/deploy-hydraflow.sh health [URL]` curls `/healthz` using the host/port from `/etc/hydraflow.env` (or your override) and exits non-zero when `HEALTHCHECK_REQUIRE_READY=1` but `ready=false`, which makes it easy to wire into cron, ALB checks, or pager hooks.

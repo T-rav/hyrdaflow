@@ -11,6 +11,49 @@ REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "deploy" / "ec2" / "deploy-hydraflow.sh"
 
 
+def _prepare_doctor_environment(tmp_path: Path, *, include_env_file: bool = True) -> dict[str, str]:
+    """Create a fake repo + PATH so the doctor command can run in CI."""
+    repo_root = tmp_path / "hydraflow"
+    repo_root.mkdir()
+    (repo_root / ".git").mkdir()
+
+    env_file = repo_root / ".env"
+    if include_env_file:
+        env_file.write_text("HYDRAFLOW_GH_TOKEN=test-token\n")
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    systemd_dir = tmp_path / "systemd"
+    systemd_dir.mkdir()
+    service_path = systemd_dir / "hf-test.service"
+    service_path.write_text("[Unit]\nDescription=HydraFlow test service\n")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("git", "make", "uv"):
+        fake = bin_dir / name
+        fake.write_text("#!/usr/bin/env bash\nexit 0\n")
+        fake.chmod(0o755)
+
+    env = os.environ.copy()
+    original_path = env.get("PATH", "")
+    env.update(
+        {
+            "HYDRAFLOW_ROOT": str(repo_root),
+            "HYDRAFLOW_HOME_DIR": str(home_dir),
+            "HYDRAFLOW_LOG_DIR": str(log_dir),
+            "ENV_FILE": str(env_file),
+            "SYSTEMD_DIR": str(systemd_dir),
+            "SERVICE_NAME": "hf-test",
+            "UV_BIN": "uv",
+            "PATH": f"{bin_dir}:{original_path}",
+        }
+    )
+    return env
+
+
 def _write_fake_curl(response: str) -> Path:
     """Create a fake curl binary under the repo root so it can execute."""
     fd, path = tempfile.mkstemp(prefix="fake-curl-", suffix=".sh", dir=REPO_ROOT)
@@ -263,3 +306,32 @@ def test_wait_ready_times_out_when_service_never_ready(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "Timed out waiting for ready" in result.stdout
+
+
+def test_doctor_passes_when_environment_ready(tmp_path: Path) -> None:
+    """doctor should succeed when repo, env, and directories exist."""
+    env = _prepare_doctor_environment(tmp_path)
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "doctor"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert "Doctor checks passed" in result.stdout
+
+
+def test_doctor_fails_when_env_file_missing(tmp_path: Path) -> None:
+    """doctor should fail fast when the env file is absent."""
+    env = _prepare_doctor_environment(tmp_path, include_env_file=False)
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "doctor"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "missing env file" in result.stdout.lower()
