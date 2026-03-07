@@ -687,6 +687,25 @@ class TestBuildConfig:
         assert cfg.max_workers == 5
         assert cfg.max_planners == 3
 
+    def test_all_worker_counts_loaded_from_config_file(self, tmp_path: Path) -> None:
+        """ALL worker count fields should survive a config file round-trip via build_config."""
+        all_counts = {
+            "max_workers": 3,
+            "max_planners": 4,
+            "max_reviewers": 5,
+            "max_triagers": 2,
+            "max_hitl_workers": 2,
+        }
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(all_counts))
+        args = parse_args(["--config-file", str(config_file)])
+        cfg = build_config(args)
+        assert cfg.max_workers == 3
+        assert cfg.max_planners == 4
+        assert cfg.max_reviewers == 5
+        assert cfg.max_triagers == 2
+        assert cfg.max_hitl_workers == 2
+
     def test_cli_arg_overrides_config_file_worker_count(self, tmp_path: Path) -> None:
         """Explicit CLI --max-workers should override the config file value."""
         config_file = tmp_path / "config.json"
@@ -1111,3 +1130,49 @@ class TestRepoConfigOverlay:
         _apply_repo_config_overlay(cfg, cli_explicit={"max_workers"})
 
         assert cfg.max_workers == 2
+
+
+# ---------------------------------------------------------------------------
+# Startup worker count logging
+# ---------------------------------------------------------------------------
+
+
+class TestStartupWorkerCountLogging:
+    """Tests that main() logs all worker counts at startup."""
+
+    def test_main_logs_all_worker_counts(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """main() should log all five worker counts at startup."""
+        import logging
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "max_workers": 3,
+                    "max_planners": 4,
+                    "max_reviewers": 5,
+                    "max_triagers": 2,
+                    "max_hitl_workers": 2,
+                }
+            )
+        )
+        # Prevent main from actually running the orchestrator
+        monkeypatch.setattr("cli.asyncio.run", lambda _coro: None)
+        monkeypatch.setattr("cli.setup_logging", lambda **_kw: None)
+
+        with caplog.at_level(logging.INFO, logger="hydraflow.cli"):
+            from cli import main
+
+            main(["--config-file", str(config_file)])
+
+        log_output = " ".join(r.message for r in caplog.records)
+        assert "triagers=2" in log_output
+        assert "planners=4" in log_output
+        assert "workers=3" in log_output
+        assert "reviewers=5" in log_output
+        assert "hitl=2" in log_output

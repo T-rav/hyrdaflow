@@ -1374,6 +1374,17 @@ def main(argv: list[str] | None = None) -> None:
 
     config = build_config(args)
 
+    _logger = logging.getLogger("hydraflow.cli")
+    _logger.info(
+        "Loaded worker counts: triagers=%d planners=%d workers=%d reviewers=%d hitl=%d (config_file=%s)",
+        config.max_triagers,
+        config.max_planners,
+        config.max_workers,
+        config.max_reviewers,
+        config.max_hitl_workers,
+        config.config_file,
+    )
+
     if args.ensure_labels:
         success = asyncio.run(_run_prep(config))
         sys.exit(0 if success else 1)
