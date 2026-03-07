@@ -827,6 +827,59 @@ class TestGhJsonQuery:
         assert result == []
         assert "Failed to fetch test payload" in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_log_exc_info_true_passes_exc_info_to_logger(
+        self, event_bus, tmp_path, caplog
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock(side_effect=RuntimeError("traceable error"))
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"):
+            result = await mgr._gh_json_query(
+                "gh",
+                "api",
+                "/test",
+                dry_run_return={},
+                error_log="Fetch failed",
+                log_exc_info=True,
+            )
+
+        assert result == {}
+        assert "Fetch failed" in caplog.text
+        # exc_info=True causes traceback to appear in log record
+        assert any(r.exc_info is not None for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_error_level_debug_uses_debug_logger(
+        self, event_bus, tmp_path, caplog
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock(side_effect=RuntimeError("minor error"))
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
+            result = await mgr._gh_json_query(
+                "gh",
+                "api",
+                "/test",
+                dry_run_return=[],
+                error_log="Minor fetch failure",
+                error_level="debug",
+            )
+
+        assert result == []
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("Minor fetch failure" in r.message for r in debug_records)
+
 
 # ---------------------------------------------------------------------------
 # push_branch
@@ -1733,6 +1786,27 @@ class TestSumLabelCounts:
         )
 
         assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_and_makes_no_calls_for_empty_label_list(
+        self, event_bus, tmp_path
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock()
+
+        result = await mgr._sum_label_counts(
+            [],
+            query_builder=lambda label: f"repo:org/repo label:{label}",
+            log_context="count empty labels",
+        )
+
+        assert result == 0
+        mgr._search_github_count.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
