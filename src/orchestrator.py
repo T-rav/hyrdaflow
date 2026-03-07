@@ -34,6 +34,7 @@ from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
     configure_gh_concurrency,
+    run_subprocess,
 )
 
 if TYPE_CHECKING:
@@ -762,6 +763,7 @@ class HydraFlowOrchestrator:
         )
 
         await self._prs.ensure_labels_exist()
+        await self._enable_rerere()
         self._warn_if_agents_md_missing()
         await self._start_session()
 
@@ -777,6 +779,21 @@ class HydraFlowOrchestrator:
             self._running = False
             await self._publish_status()
             logger.info("HydraFlow stopped")
+
+    async def _enable_rerere(self) -> None:
+        """Enable git rerere so resolved conflicts are remembered for next time."""
+        try:
+            await run_subprocess(
+                "git",
+                "config",
+                "rerere.enabled",
+                "true",
+                cwd=self._config.repo_root,
+                gh_token=self._config.gh_token,
+            )
+            logger.info("git rerere enabled")
+        except (RuntimeError, FileNotFoundError):
+            logger.debug("Could not enable git rerere", exc_info=True)
 
     def _warn_if_agents_md_missing(self) -> None:
         """Log a warning if AGENTS.md is absent from the repo root.

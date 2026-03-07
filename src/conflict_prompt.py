@@ -41,18 +41,12 @@ def build_conflict_prompt(
     """
     sections: list[str] = []
 
-    # --- Header ---
+    # --- Goal ---
     sections.append(
-        "There are merge conflicts on this branch.\n\n"
+        "Merge conflicts exist on this branch. Resolve them so `make quality` passes.\n\n"
         f"- Issue: {issue_url}\n"
         f"- PR: {pr_url}\n\n"
-        "Plan your approach before editing anything. Understand both sides "
-        "of each conflict — read the conflicted files, check git log to see "
-        "what changed on main vs the branch, and use `gh` CLI or read any "
-        "repo file if you need more context.\n\n"
-        "Then resolve all conflicts and run `make quality`. Before "
-        "committing, review your own diff — you may catch things "
-        "`make quality` won't. Do not push."
+        "Commit when done. Do not push."
     )
 
     # --- Project manifest & memory digest ---
@@ -64,24 +58,6 @@ def build_conflict_prompt(
         if digest:
             sections.append(f"## Accumulated Learnings\n\n{digest}")
 
-    # --- Post-merge checklist ---
-    sections.append(
-        "## Post-Merge Checklist\n\n"
-        "After resolving conflict markers, check for these common merge artifacts:\n\n"
-        "1. **Duplicate definitions**: Two PRs may add the same Pydantic Field, "
-        "function parameter, or env-override tuple. Pydantic silently uses the "
-        "last Field — remove the earlier duplicate and verify cross-field "
-        "validators still hold with the surviving default.\n"
-        "2. **Duplicate keyword arguments**: If a function signature had duplicate "
-        "params, the constructor call likely has duplicate kwargs too — remove them.\n"
-        "3. **Sequential numbering**: Files like `docs/adr/README.md` use "
-        "auto-incrementing IDs. When both sides added the same number, "
-        "keep main's entry and renumber the PR's entry to the next available.\n"
-        "4. **Stale assertions**: If source text changed on main "
-        '(e.g. "completed" → "resolved"), grep tests for the old string '
-        "and update assertions to match."
-    )
-
     # --- Previous attempt error ---
     if last_error and attempt > 1:
         max_chars = (
@@ -91,11 +67,8 @@ def build_conflict_prompt(
         )
         sections.append(
             f"## Previous Attempt Failed\n\n"
-            f"Attempt {attempt - 1} resolved the conflicts but "
-            f"failed verification:\n"
-            f"```\n{last_error[-max_chars:]}\n```\n"
-            f"Please resolve the conflicts again, paying attention "
-            f"to the above errors."
+            f"Attempt {attempt - 1} failed verification:\n"
+            f"```\n{last_error[-max_chars:]}\n```"
         )
 
     # --- Optional memory suggestion ---
@@ -134,13 +107,10 @@ def build_rebuild_prompt(
 
     sections: list[str] = []
 
-    # --- Header ---
+    # --- Goal ---
     sections.append(
-        "You are re-applying changes from a pull request onto a fresh branch "
-        "from main.\n\n"
-        "The original PR had merge conflicts that could not be resolved "
-        "automatically. You are now on a **clean branch from current main** "
-        "— no conflicts.\n\n"
+        "Re-apply this PR's changes onto a clean branch from main. "
+        "The original branch had unresolvable merge conflicts.\n\n"
         f"- Issue: {issue_url}\n"
         f"- PR: {pr_url}"
     )
@@ -157,33 +127,15 @@ def build_rebuild_prompt(
     # --- Original PR diff ---
     sections.append(
         "## Original PR Diff\n\n"
-        "Below is the diff of what the PR changed. Re-apply these logical "
-        "changes to the current codebase. The code on main may have evolved, "
-        "so adapt accordingly — do NOT blindly paste.\n\n"
+        "Adapt these changes to the current codebase — main may have evolved.\n\n"
         f"```diff\n{truncated_diff}\n```"
     )
 
     # --- Instructions ---
     sections.append(
-        "## Instructions\n\n"
-        "Plan before coding. Read the diff, the issue, and the current "
-        "codebase to understand what changed and what the PR intended. "
-        "Use `gh` CLI or read any file you need for context.\n\n"
-        "Then re-apply the same logical changes. If the diff adds a "
-        "numbered file (ADR, migration, etc.), check the directory for "
-        "existing numbers — do not reuse one that already exists.\n\n"
-        "Write or update tests and run `make quality`. Before committing, "
-        "review your own diff — you may catch things `make quality` won't. "
-        f'Commit with message: "Rebuild: Fixes #{issue_number}"'
-    )
-
-    # --- Rules ---
-    sections.append(
-        "## Rules\n\n"
-        "- Follow CLAUDE.md strictly.\n"
-        "- Tests are mandatory.\n"
-        "- Do NOT push or create PRs.\n"
-        "- Ensure `make quality` passes."
+        f"Ensure `make quality` passes. "
+        f'Commit with message: "Rebuild: Fixes #{issue_number}"\n'
+        f"Do not push."
     )
 
     # --- Optional memory suggestion ---
