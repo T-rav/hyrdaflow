@@ -89,8 +89,8 @@ class TestReportIssueLoopDoWork:
         assert state.peek_report() is None
 
     @pytest.mark.asyncio
-    async def test_screenshot_uploaded_before_agent(self, tmp_path: Path) -> None:
-        """When a screenshot is present, it is uploaded before invoking the agent."""
+    async def test_screenshot_saved_before_agent(self, tmp_path: Path) -> None:
+        """When a screenshot is present, it is saved and referenced for the agent."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
         report = PendingReport(
             description="UI glitch",
@@ -101,10 +101,12 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/101"
             await loop._do_work()
 
         pr_mgr.upload_screenshot_gist.assert_awaited_once_with("iVBORw0KGgo=")
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" in prompt
 
     @pytest.mark.asyncio
     async def test_empty_screenshot_skips_gist_upload(self, tmp_path: Path) -> None:
@@ -116,16 +118,16 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/102"
             await loop._do_work()
 
         pr_mgr.upload_screenshot_gist.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_agent_failure_falls_back_to_direct_issue_create(
+    async def test_agent_failure_does_not_fall_back_to_direct_issue_create(
         self, tmp_path: Path
     ) -> None:
-        """If agent execution fails, fallback direct issue creation is attempted."""
+        """If agent execution fails, no direct fallback issue is created."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
         report = PendingReport(description="Crash test")
         state.enqueue_report(report)
@@ -137,18 +139,17 @@ class TestReportIssueLoopDoWork:
             result = await loop._do_work()
 
         assert result is not None
-        assert result["processed"] == 1
+        assert result["processed"] == 0
+        assert result["error"] is True
         assert result["report_id"] == report.id
-        assert result["issue_number"] == 123
-        pr_mgr.create_issue.assert_awaited_once()
+        pr_mgr.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_returns_error_when_agent_and_fallback_both_fail(
+    async def test_returns_error_when_agent_does_not_create_issue(
         self, tmp_path: Path
     ) -> None:
-        """When neither agent nor fallback creates an issue, report stays in queue."""
+        """When the agent does not create an issue, report stays in queue."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
-        pr_mgr.create_issue.return_value = 0
         report = PendingReport(description="Still broken")
         state.enqueue_report(report)
 
@@ -162,7 +163,7 @@ class TestReportIssueLoopDoWork:
         assert result["error"] is True
         assert result["processed"] == 0
         assert result["report_id"] == report.id
-        pr_mgr.create_issue.assert_awaited_once()
+        pr_mgr.create_issue.assert_not_awaited()
         # Report should still be in the queue with incremented attempts
         pending = state.get_pending_reports()
         assert len(pending) == 1
@@ -190,7 +191,7 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/103"
             await loop._do_work()
 
         call_kwargs = mock_stream.call_args
@@ -208,7 +209,7 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/104"
             await loop._do_work()
 
         prompt = mock_stream.call_args.kwargs.get("prompt", "")
@@ -228,7 +229,7 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/105"
             await loop._do_work()
 
         # Screenshot should NOT have been uploaded
@@ -249,7 +250,7 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/110"
             await loop._do_work()
 
         prompt = mock_stream.call_args.kwargs.get("prompt", "")
@@ -317,7 +318,7 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/106"
             result = await loop._do_work()
 
         assert result is not None
@@ -344,7 +345,7 @@ class TestReportIssueLoopDoWork:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/107"
             await loop._do_work()
 
         # Scan is disabled — screenshot should still be referenced in prompt
@@ -359,7 +360,6 @@ class TestReportRetryAndEscalation:
     async def test_failed_report_stays_in_queue(self, tmp_path: Path) -> None:
         """A failed report remains in the queue for retry."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
-        pr_mgr.create_issue.return_value = 0
         report = PendingReport(description="Retry me")
         state.enqueue_report(report)
 
@@ -378,7 +378,6 @@ class TestReportRetryAndEscalation:
     async def test_attempt_counter_increments(self, tmp_path: Path) -> None:
         """Each failure increments the attempt counter."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
-        pr_mgr.create_issue.return_value = 0
         report = PendingReport(description="Keep trying")
         state.enqueue_report(report)
 
@@ -398,7 +397,6 @@ class TestReportRetryAndEscalation:
     async def test_escalates_to_hitl_after_max_attempts(self, tmp_path: Path) -> None:
         """After 5 failures, report is removed and escalated to HITL."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
-        pr_mgr.create_issue.return_value = 0
         report = PendingReport(
             description="Persistent failure",
             environment={"browser": "Chrome"},
@@ -454,7 +452,6 @@ class TestReportRetryAndEscalation:
     ) -> None:
         """Escalated HITL issue mentions the screenshot when present."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
-        pr_mgr.create_issue.return_value = 0
         report = PendingReport(
             description="Screenshot bug",
             screenshot_base64="abc123" * 100,
@@ -503,7 +500,7 @@ class TestHfIssueSkillPrompt:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/108"
             await loop._do_work()
 
         prompt = mock_stream.call_args.kwargs.get("prompt", "")
@@ -524,7 +521,7 @@ class TestHfIssueSkillPrompt:
         with patch(
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/109"
             await loop._do_work()
 
         prompt = mock_stream.call_args.kwargs.get("prompt", "")
@@ -548,7 +545,7 @@ class TestHfIssueSkillPrompt:
             for word in prompt.split():
                 if word.endswith(".png"):
                     saved_path = word
-            return "done"
+            return "https://github.com/acme/repo/issues/111"
 
         with patch(
             "report_issue_loop.stream_claude_process",
@@ -575,7 +572,7 @@ class TestHfIssueSkillPrompt:
                 wraps=__import__("agent_cli").build_agent_command,
             ) as mock_build,
         ):
-            mock_stream.return_value = "done"
+            mock_stream.return_value = "https://github.com/acme/repo/issues/112"
             await loop._do_work()
 
         call_kwargs = mock_build.call_args
@@ -585,8 +582,10 @@ class TestHfIssueSkillPrompt:
         )
 
     @pytest.mark.asyncio
-    async def test_fallback_uses_basic_description(self, tmp_path: Path) -> None:
-        """When the agent fails, the fallback issue body is based on the raw description."""
+    async def test_agent_failure_does_not_create_raw_fallback_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """When the agent fails, no raw fallback issue is created."""
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
         report = PendingReport(description="Login is broken after update")
         state.enqueue_report(report)
@@ -595,30 +594,11 @@ class TestHfIssueSkillPrompt:
             "report_issue_loop.stream_claude_process", new_callable=AsyncMock
         ) as mock_stream:
             mock_stream.side_effect = RuntimeError("agent died")
-            await loop._do_work()
+            result = await loop._do_work()
 
-        call_args = pr_mgr.create_issue.call_args
-        fallback_title = call_args[0][0]
-        fallback_body = call_args[0][1]
-        assert "[Bug Report]" in fallback_title
-        assert "Login is broken after update" in fallback_body
-
-    @pytest.mark.asyncio
-    async def test_fallback_uploads_screenshot_gist(self, tmp_path: Path) -> None:
-        """When the agent fails and a screenshot exists, fallback uploads a gist."""
-        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
-        b64 = base64.b64encode(b"\x89PNG\r\n").decode()
-        report = PendingReport(description="UI bug", screenshot_base64=b64)
-        state.enqueue_report(report)
-
-        with patch(
-            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
-        ) as mock_stream:
-            mock_stream.side_effect = RuntimeError("agent died")
-            await loop._do_work()
-
-        # Fallback should upload the screenshot as a gist
-        pr_mgr.upload_screenshot_gist.assert_awaited_once_with(b64)
-        call_args = pr_mgr.create_issue.call_args
-        fallback_body = call_args[0][1]
-        assert "Screenshot" in fallback_body or "screenshot" in fallback_body.lower()
+        assert result is not None
+        assert result["processed"] == 0
+        assert result["error"] is True
+        pr_mgr.upload_screenshot_gist.assert_not_awaited()
+        # Only escalation path should create issue after max retries.
+        pr_mgr.create_issue.assert_not_awaited()

@@ -79,7 +79,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
 
         # Save screenshot to a temp PNG so the agent can *see* it via Read.
         screenshot_path: Path | None = None
-        has_secrets = False
+        screenshot_md_url = ""
         if report.screenshot_base64:
             secret_hits = (
                 scan_base64_for_secrets(report.screenshot_base64)
@@ -93,7 +93,6 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     report.id,
                     ", ".join(secret_hits),
                 )
-                has_secrets = True
             else:
                 try:
                     screenshot_path = self._save_screenshot(report.screenshot_base64)
@@ -103,6 +102,10 @@ class ReportIssueLoop(BaseBackgroundLoop):
                         "continuing without screenshot attachment",
                         report.id,
                     )
+                else:
+                    screenshot_md_url = await self._pr_manager.upload_screenshot_gist(
+                        report.screenshot_base64
+                    )
 
         # Build prompt — invoke /hf.issue so Claude gets the full skill
         # instructions (codebase research, duplicate check, structured body).
@@ -111,6 +114,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
             description += (
                 f"\n\nA screenshot of the bug is saved at {screenshot_path} "
                 f"— read it with the Read tool to see what the user saw."
+            )
+        if screenshot_md_url:
+            description += (
+                "\n\nUse this markdown image in the GitHub issue body so the screenshot "
+                f"is visible inline:\n\n![Screenshot]({screenshot_md_url})"
             )
 
         prompt = f"/hf.issue {description}"
@@ -125,7 +133,6 @@ class ReportIssueLoop(BaseBackgroundLoop):
             "source": "report_issue",
         }
 
-        labels_list = list(self._config.planner_label)
         issue_number = 0
         try:
             transcript = await stream_claude_process(
@@ -146,21 +153,6 @@ class ReportIssueLoop(BaseBackgroundLoop):
             if screenshot_path:
                 screenshot_path.unlink(missing_ok=True)
 
-        # Reliability guard: if the agent didn't create the issue, fall back
-        # to a basic gh issue create via PRManager.
-        fallback_title = f"[Bug Report] {report.description[:100]}"
-        if issue_number <= 0:
-            fallback_body = f"## Bug Report\n\n{report.description}"
-            if report.screenshot_base64 and not has_secrets:
-                gist_url = await self._pr_manager.upload_screenshot_gist(
-                    report.screenshot_base64
-                )
-                if gist_url:
-                    fallback_body += f"\n\n![Screenshot]({gist_url})"
-            issue_number = await self._pr_manager.create_issue(
-                fallback_title, fallback_body, labels_list
-            )
-
         if issue_number > 0:
             # Success — remove from queue
             self._state.remove_report(report.id)
@@ -168,7 +160,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 "Processed report %s as issue #%d: %s",
                 report.id,
                 issue_number,
-                fallback_title,
+                f"[Bug Report] {report.description[:100]}",
             )
             return {
                 "processed": 1,
