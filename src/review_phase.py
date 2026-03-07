@@ -920,9 +920,10 @@ class ReviewPhase:
             return False
 
         if resolution.used_rebuild:
-            await self._prs.force_push_branch(
+            await self._prs.push_branch(
                 self._config.worktree_path_for_issue(pr.issue_number),
                 pr.branch,
+                force=True,
             )
         else:
             await self._prs.push_branch(wt_path, pr.branch)

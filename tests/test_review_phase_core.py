@@ -135,7 +135,6 @@ class TestPostMergeConflictFix:
 
         assert ok is True
         phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch)
-        phase._prs.force_push_branch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_attempt_post_merge_conflict_fix_force_pushes_on_rebuild(
@@ -154,8 +153,7 @@ class TestPostMergeConflictFix:
         ok = await phase._attempt_post_merge_conflict_fix(pr, issue, worker_id=7)
 
         assert ok is True
-        phase._prs.force_push_branch.assert_awaited_once_with(wt, pr.branch)
-        phase._prs.push_branch.assert_not_awaited()
+        phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch, force=True)
 
     @pytest.mark.asyncio
     async def test_returns_comment_verdict_when_issue_missing(

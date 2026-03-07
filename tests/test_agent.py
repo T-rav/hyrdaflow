@@ -293,6 +293,16 @@ class TestBuildPrompt:
         assert "push" in prompt.lower() or "Do NOT push" in prompt
         assert "pull request" in prompt.lower() or "pr create" in prompt.lower()
 
+    def test_prompt_forbids_interactive_git(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Prompt should forbid interactive git commands (no TTY in Docker)."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        assert "git add -i" in prompt
+        assert "git add -p" in prompt
+        assert "git rebase -i" in prompt
+
     def test_prompt_includes_common_feedback_when_reviews_exist(
         self, config, event_bus: EventBus, issue
     ) -> None:
@@ -877,6 +887,283 @@ class TestRunSuccess:
             result = await runner.run(issue, tmp_path, "agent/issue-42")
 
         assert result.duration_seconds >= 0
+
+
+# ---------------------------------------------------------------------------
+# AgentRunner._force_commit_uncommitted
+# ---------------------------------------------------------------------------
+
+
+class TestForceCommitUncommitted:
+    """Tests for the salvage-commit mechanism (always runs on host)."""
+
+    @pytest.mark.asyncio
+    async def test_force_commit_creates_commit_when_dirty(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Uncommitted changes should be staged and committed via host git."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        call_count = 0
+
+        async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
+            nonlocal call_count
+            call_count += 1
+            from execution import SimpleResult
+
+            if "status" in cmd:
+                return SimpleResult(stdout=" M src/foo.py", stderr="", returncode=0)
+            return SimpleResult(stdout="", stderr="", returncode=0)
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is True
+        assert call_count == 4  # unset core.worktree, status, add, commit
+
+    @pytest.mark.asyncio
+    async def test_force_commit_noop_when_clean(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """No commit should be created when working tree is clean."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
+            from execution import SimpleResult
+
+            return SimpleResult(stdout="", stderr="", returncode=0)
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is False
+        assert mock_host.run_simple.await_count == 2  # unset core.worktree, status
+
+    @pytest.mark.asyncio
+    async def test_force_commit_handles_error_gracefully(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Errors in git commands should not crash, just return False."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=OSError("git broke"))
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is False
+
+
+class TestForceCommitE2E:
+    """End-to-end tests using real git repos to verify the salvage-commit flow."""
+
+    @pytest.mark.asyncio
+    async def test_force_commit_with_docker_corrupted_worktree(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Simulate Docker corruption: core.worktree=/workspace + dirty files.
+
+        This is the exact scenario that causes zero-commit failures in production:
+        1. Docker container sets core.worktree=/workspace in git config
+        2. Agent exits without committing
+        3. Host-side git status sees nothing (looks at /workspace, not worktree)
+        4. _force_commit_uncommitted should fix the config and commit the work
+        """
+        import subprocess
+
+        # Create a real git repo with an initial commit
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", repo], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (repo / "README.md").write_text("# Hello")
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "Initial commit"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Simulate Docker corruption: set core.worktree to /workspace
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "core.worktree", "/workspace"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Verify corruption: git status sees nothing because /workspace doesn't exist
+        result = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.stdout.strip() == "", (
+            "Corruption setup failed — status should be empty"
+        )
+
+        # Simulate agent leaving uncommitted work
+        (repo / "src").mkdir()
+        (repo / "src" / "fix.py").write_text("def fix(): pass\n")
+
+        # Verify corruption still hides the new file
+        result = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.stdout.strip() == "", "Corruption should hide new files"
+
+        # Now run _force_commit_uncommitted — it should fix config + commit
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=42, title="Fix the bug")
+
+        committed = await runner._force_commit_uncommitted(task, repo)
+
+        assert committed is True
+
+        # Verify the commit exists
+        log = subprocess.run(
+            ["git", "-C", str(repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "Fix the bug" in log.stdout
+        assert (
+            "Auto-committed by HydraFlow"
+            in subprocess.run(
+                ["git", "-C", str(repo), "log", "-1", "--format=%b"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        )
+
+        # Verify core.worktree is unset
+        cfg_result = subprocess.run(
+            ["git", "-C", str(repo), "config", "core.worktree"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert cfg_result.returncode != 0, "core.worktree should be unset"
+
+        # Verify working tree is clean
+        status = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert status.stdout.strip() == ""
+
+    @pytest.mark.asyncio
+    async def test_force_commit_clean_repo_no_corruption(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """No corruption + no dirty files = no commit, returns False."""
+        import subprocess
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", repo], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (repo / "README.md").write_text("# Hello")
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "Initial commit"],
+            check=True,
+            capture_output=True,
+        )
+
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=42, title="Fix the bug")
+
+        committed = await runner._force_commit_uncommitted(task, repo)
+
+        assert committed is False
+
+    @pytest.mark.asyncio
+    async def test_force_commit_dirty_without_corruption(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Dirty files without Docker corruption should still be committed."""
+        import subprocess
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", repo], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (repo / "README.md").write_text("# Hello")
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "Initial commit"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Add a dirty file (no Docker corruption)
+        (repo / "new_file.py").write_text("print('hello')\n")
+
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=42, title="Add greeting")
+
+        committed = await runner._force_commit_uncommitted(task, repo)
+
+        assert committed is True
+
+        log = subprocess.run(
+            ["git", "-C", str(repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "Add greeting" in log.stdout
 
 
 # ---------------------------------------------------------------------------

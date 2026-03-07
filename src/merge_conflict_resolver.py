@@ -79,7 +79,7 @@ class MergeConflictResolver:
             if used_rebuild:
                 # Branch history was rewritten — need force-push
                 new_wt = self._config.worktree_path_for_issue(pr.issue_number)
-                await self._prs.force_push_branch(new_wt, pr.branch)
+                await self._prs.push_branch(new_wt, pr.branch, force=True)
             else:
                 await self._prs.push_branch(wt_path, pr.branch)
             return True

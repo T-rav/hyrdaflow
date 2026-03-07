@@ -1146,6 +1146,7 @@ class HydraFlowOrchestrator:
             done, pending = await asyncio.wait(
                 pending, return_when=asyncio.FIRST_COMPLETED
             )
+            batch_did_work = False
             for task in done:
                 exc = task.exception()
                 if exc is not None:
@@ -1163,6 +1164,12 @@ class HydraFlowOrchestrator:
                     )
                 elif task.result():
                     did_work = True
+                    batch_did_work = True
+
+            # When all completed tasks did no real work (e.g. PR not visible,
+            # re-queued), pause briefly to avoid a hot spin loop.
+            if not batch_did_work and not pending:
+                break
 
         # Cancel stragglers on stop
         for task in pending:

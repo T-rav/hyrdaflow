@@ -293,7 +293,7 @@ class PRUnsticker:
                 # Push the fixed branch
                 if resolution.used_rebuild:
                     new_wt = self._config.worktree_path_for_issue(issue_number)
-                    await self._prs.force_push_branch(new_wt, branch)
+                    await self._prs.push_branch(new_wt, branch, force=True)
                 else:
                     await self._prs.push_branch(wt_path, branch)
 
