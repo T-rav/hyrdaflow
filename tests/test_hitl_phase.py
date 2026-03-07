@@ -835,6 +835,9 @@ class TestHITLAutoFix:
         assert 42 in phase._hitl_corrections
         assert "AUTOMATIC FIX ATTEMPT" in phase._hitl_corrections[42]
         assert "CI failed" in phase._hitl_corrections[42]
+        prs.swap_pipeline_labels.assert_awaited_once_with(
+            42, config.hitl_autofix_label[0]
+        )
         prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio

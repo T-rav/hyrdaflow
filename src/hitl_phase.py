@@ -125,6 +125,12 @@ class HITLPhase:
                 "Issue #%d: attempting auto-fix before human correction",
                 issue_number,
             )
+
+            # Swap label so the issue leaves the HITL dashboard immediately
+            await self._prs.swap_pipeline_labels(
+                issue_number, self._config.hitl_autofix_label[0]
+            )
+
             await self._prs.post_comment(
                 issue_number,
                 "**Auto-fix attempt** — trying automated correction "
