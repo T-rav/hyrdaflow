@@ -507,11 +507,12 @@ Run through this checklist before your final commit:
 ## Instructions
 
 1. Understand the issue and relevant code paths.
-2. Write tests to ensure functionality, prevent regressions, and catch bugs.
-3. Diff Sanity Check and Test Adequacy Check run automatically after your implementation.
-4. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
-5. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality-lite`; fix and rerun.
-5. Commit with: "Fixes #{issue.id}: <concise summary>"
+2. Implement the solution — write the code changes first.
+3. Write tests to ensure functionality, prevent regressions, and catch bugs.
+4. Diff Sanity Check and Test Adequacy Check run automatically after your implementation.
+5. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
+6. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality-lite`; fix and rerun.
+7. Commit with: "Fixes #{issue.id}: <concise summary>"
 {feedback_section}{escalation_section}
 {self._build_self_check_checklist(escalations)}
 ## UI Guidelines
