@@ -42,7 +42,7 @@ class ReleaseEpicResultError(RuntimeError):
         self.epic_number = epic_number
         self.result = result
         message = str(result.get("error", "unknown error"))
-        super().__init__(message)
+        super().__init__(f"epic {epic_number} release failed: {message}")
 
 
 def _stage_from_labels(labels: list[str], config: HydraFlowConfig) -> str:

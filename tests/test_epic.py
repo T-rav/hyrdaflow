@@ -1186,6 +1186,12 @@ class TestReleaseEpicResultError:
     def test_message_uses_error_field(self) -> None:
         err = ReleaseEpicResultError(7, {"error": "conflict"})
         assert "conflict" in str(err)
+        assert "7" in str(err)
+
+    def test_message_includes_epic_number(self) -> None:
+        err = ReleaseEpicResultError(42, {"error": "merge failed"})
+        assert "42" in str(err)
+        assert "merge failed" in str(err)
 
     def test_is_runtime_error_subclass(self) -> None:
         err = ReleaseEpicResultError(1, {"error": "x"})
