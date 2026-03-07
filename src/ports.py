@@ -10,8 +10,8 @@ infrastructure (GitHub API, git CLI, agent subprocesses).
     Domain (phases)
         │
         ├─► TaskFetcher / TaskTransitioner (task_source.py — already formal)
-        ├─► PRPort                          (GitHub PR / label / CI operations)
-        └─► WorktreePort                   (git worktree lifecycle)
+        ├─► PRPort                        (GitHub PR / label / CI operations)
+        └─► WorktreePort                  (git worktree lifecycle)
 
 Concrete adapters:
   - PRPort      → pr_manager.PRManager

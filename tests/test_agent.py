@@ -1007,7 +1007,14 @@ class TestForceCommitE2E:
 
         # Simulate Docker corruption: set core.worktree to /workspace
         subprocess.run(
-            ["git", "-C", str(repo), "config", "core.worktree", "/workspace"],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "config",
+                "core.worktree",
+                "/nonexistent_workspace",
+            ],
             check=True,
             capture_output=True,
         )
