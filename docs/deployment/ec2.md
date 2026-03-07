@@ -80,13 +80,14 @@ You can also override the host on demand via CLI: `deploy/ec2/deploy-hydraflow.s
 
 ## 4. Install the systemd unit
 
-Copy the provided template, adjust the `User`, `Group`, `WorkingDirectory`, and logfile paths if your layout differs, then enable it:
+Let the helper script handle copying and enabling the unit:
 
 ```bash
-sudo cp /opt/hydraflow/deploy/ec2/hydraflow.service /etc/systemd/system/hydraflow.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now hydraflow.service
+cd /opt/hydraflow
+sudo deploy/ec2/deploy-hydraflow.sh install
 ```
+
+By default the unit is written to `/etc/systemd/system/hydraflow.service`; override this or the service name via `SYSTEMD_DIR=/custom/path deploy/ec2/deploy-hydraflow.sh install` and/or `SERVICE_NAME=my-hydraflow`.
 
 The unit calls the deploy script’s `run` verb, so it inherits all of the script’s environment handling. Runtime environment is loaded from `/etc/hydraflow.env` (see Step 3). Logs are written to `/var/log/hydraflow/orchestrator.log`; watch them with:
 

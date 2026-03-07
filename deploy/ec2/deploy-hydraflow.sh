@@ -20,6 +20,8 @@ GIT_BRANCH="${GIT_BRANCH:-main}"
 SERVICE_NAME="${SERVICE_NAME:-hydraflow}"
 ENV_FILE="${ENV_FILE:-${HYDRAFLOW_ROOT}/.env}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
+SYSTEMCTL_ALLOW_USER="${SYSTEMCTL_ALLOW_USER:-0}"
 
 log() {
   printf '[%s] %s\n' "$(date --iso-8601=seconds 2>/dev/null || date)" "$*"
@@ -92,11 +94,11 @@ build_artifacts() {
 }
 
 maybe_restart_service() {
-  if ! command -v systemctl >/dev/null 2>&1; then
-    log "systemctl not available; skipping service restart"
+  if ! command -v "${SYSTEMCTL_BIN}" >/dev/null 2>&1; then
+    log "${SYSTEMCTL_BIN} not available; skipping service restart"
     return
   fi
-  if [[ ${EUID} -ne 0 ]]; then
+  if [[ ${EUID} -ne 0 && "${SYSTEMCTL_ALLOW_USER}" != "1" ]]; then
     log "Not running as root; skipping systemd restart"
     return
   fi
@@ -105,9 +107,35 @@ maybe_restart_service() {
     return
   fi
   log "Reloading systemd units"
-  systemctl daemon-reload
+  "${SYSTEMCTL_BIN}" daemon-reload
   log "Restarting ${SERVICE_NAME}.service"
-  systemctl restart "${SERVICE_NAME}.service"
+  "${SYSTEMCTL_BIN}" restart "${SERVICE_NAME}.service"
+}
+
+install_systemd_unit() {
+  local src="${SCRIPT_DIR}/hydraflow.service"
+  local dest="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+
+  if [[ ! -f "${src}" ]]; then
+    fatal "Missing systemd unit template at ${src}"
+  fi
+  ensure_dir "${SYSTEMD_DIR}"
+  cp "${src}" "${dest}"
+  log "Installed ${SERVICE_NAME}.service to ${dest}"
+
+  if ! command -v "${SYSTEMCTL_BIN}" >/dev/null 2>&1; then
+    log "${SYSTEMCTL_BIN} not available; skipping systemd enable"
+    return
+  fi
+  if [[ ${EUID} -ne 0 && "${SYSTEMCTL_ALLOW_USER}" != "1" ]]; then
+    log "Not running as root; skipping systemd enable; run sudo ${SYSTEMCTL_BIN} enable --now ${SERVICE_NAME}.service"
+    return
+  fi
+
+  log "Reloading systemd units"
+  "${SYSTEMCTL_BIN}" daemon-reload
+  log "Enabling and starting ${SERVICE_NAME}.service"
+  "${SYSTEMCTL_BIN}" enable --now "${SERVICE_NAME}.service"
 }
 
 run_cli() {
@@ -144,20 +172,24 @@ case "${ACTION}" in
     run_cli
     ;;
   status)
-    if command -v systemctl >/dev/null 2>&1; then
-      systemctl status "${SERVICE_NAME}.service"
+    if command -v "${SYSTEMCTL_BIN}" >/dev/null 2>&1; then
+      "${SYSTEMCTL_BIN}" status "${SERVICE_NAME}.service"
     else
-      fatal "systemctl is not available on this host"
+      fatal "${SYSTEMCTL_BIN} is not available on this host"
     fi
+    ;;
+  install)
+    install_systemd_unit
     ;;
   *)
     cat <<USAGE
-Usage: ${0##*/} [bootstrap|deploy|run|status] [-- additional cli args]
+Usage: ${0##*/} [bootstrap|deploy|run|status|install] [-- additional cli args]
 
 bootstrap : Prepare dependencies, copy .env.sample, and build UI assets.
 deploy    : Update git checkout, rebuild assets, and restart the systemd unit.
 run       : Execute python -m cli with the provided arguments.
 status    : Show the hydraflow systemd unit status.
+install   : Copy the systemd unit into ${SYSTEMD_DIR} and enable it.
 USAGE
     exit 1
     ;;
