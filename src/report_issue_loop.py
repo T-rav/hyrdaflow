@@ -211,7 +211,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
             body += (
                 "### Screenshot\n\n"
                 f"Base64 screenshot attached ({len(report.screenshot_base64)} chars). "
-                "Could not be decoded during processing.\n"
+                "Too large to include in this issue.\n"
             )
 
         labels = list(self._config.hitl_label)
@@ -227,6 +227,8 @@ class ReportIssueLoop(BaseBackgroundLoop):
         payload = b64_data
         if payload.startswith("data:"):
             _, _, payload = payload.partition(",")
+        # Strip whitespace that may be introduced during transport
+        payload = payload.translate({ord(c): None for c in " \t\n\r"})
         raw = base64.b64decode(payload, validate=True)
         fd, path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-report-")
         Path(path).write_bytes(raw)

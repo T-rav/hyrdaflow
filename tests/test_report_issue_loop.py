@@ -281,6 +281,32 @@ class TestReportIssueLoopDoWork:
         assert ".png" in prompt
 
     @pytest.mark.asyncio
+    async def test_base64_with_whitespace_decoded_successfully(
+        self, tmp_path: Path
+    ) -> None:
+        """Base64 with embedded newlines/spaces is stripped and decoded."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        raw_png = base64.b64encode(b"\x89PNG\r\n").decode()
+        # Insert newlines and spaces to simulate transport corruption
+        corrupted = "\n".join(raw_png[i : i + 4] for i in range(0, len(raw_png), 4))
+        report = PendingReport(
+            description="Whitespace in base64",
+            screenshot_base64=f"data:image/png;base64,{corrupted}",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/99"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" in prompt
+
+    @pytest.mark.asyncio
     async def test_invalid_screenshot_payload_continues_without_attachment(
         self, tmp_path: Path
     ) -> None:
