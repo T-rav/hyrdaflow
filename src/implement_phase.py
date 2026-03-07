@@ -419,8 +419,8 @@ class ImplementPhase:
                     self._config,
                     self._prs,
                     self._state,
-                    )
-                return result
+                )
+            return result
 
         # Push final commits and create PR
         if result.worktree_path:

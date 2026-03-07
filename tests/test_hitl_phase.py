@@ -880,9 +880,7 @@ class TestHITLAutoFix:
         assert 42 not in phase._hitl_corrections
 
     @pytest.mark.asyncio
-    async def test_auto_fix_stops_on_stop_event(
-        self, config: HydraFlowConfig
-    ) -> None:
+    async def test_auto_fix_stops_on_stop_event(self, config: HydraFlowConfig) -> None:
         """Should respect the stop event and bail out early."""
         phase, state, _fetcher, prs, _wt, _runner, _bus = make_hitl_phase(config)
         issue1 = TaskFactory.create(id=42)
