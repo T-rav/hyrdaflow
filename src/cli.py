@@ -1351,6 +1351,7 @@ async def _run_main(config: HydraFlowConfig) -> None:
             "repo_config_file",
         ):
             values.pop(key, None)
+        values.update(record.overrides or {})
         values["repo_root"] = repo_path
         values["repo"] = record.repo
         values["config_file"] = config.config_file

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from repo_store import RepoRecord, RepoStore
+from repo_store import RepoRecord, RepoStore, clone_config_for_record
 
 
 def test_upsert_adds_record_and_normalizes_path(tmp_path: Path) -> None:
@@ -87,3 +87,84 @@ def test_list_skips_entries_without_slug_or_path(tmp_path: Path) -> None:
     records = store.list()
     assert len(records) == 1
     assert records[0].slug == "ok-repo"
+
+
+def test_update_overrides_persists_values(tmp_path: Path) -> None:
+    store = RepoStore(tmp_path)
+    record = RepoRecord(slug="acme-repo", repo="acme/repo", path=str(tmp_path / "repo"))
+    store.upsert(record)
+
+    result = store.update_overrides("acme-repo", {"max_workers": 4, "poll_interval": 60})
+
+    assert result is True
+    stored = store.get("acme-repo")
+    assert stored is not None
+    assert stored.overrides["max_workers"] == 4
+    assert stored.overrides["poll_interval"] == 60
+
+
+def test_update_overrides_merges_with_existing(tmp_path: Path) -> None:
+    store = RepoStore(tmp_path)
+    record = RepoRecord(
+        slug="acme-repo",
+        repo="acme/repo",
+        path=str(tmp_path / "repo"),
+        overrides={"max_workers": 2},
+    )
+    store.upsert(record)
+
+    result = store.update_overrides("acme-repo", {"poll_interval": 30})
+
+    assert result is True
+    stored = store.get("acme-repo")
+    assert stored is not None
+    assert stored.overrides["max_workers"] == 2
+    assert stored.overrides["poll_interval"] == 30
+
+
+def test_update_overrides_returns_false_for_missing_slug(tmp_path: Path) -> None:
+    store = RepoStore(tmp_path)
+    assert store.update_overrides("nonexistent", {"max_workers": 1}) is False
+    assert store.update_overrides("", {"max_workers": 1}) is False
+    assert store.update_overrides("acme-repo", {}) is False
+
+
+def test_clone_config_for_record_applies_overrides(tmp_path: Path) -> None:
+    from tests.helpers import ConfigFactory
+
+    base = ConfigFactory.create(
+        repo_root=tmp_path / "base",
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    record = RepoRecord(
+        slug="widgets",
+        repo="acme/widgets",
+        path=str(tmp_path / "widgets"),
+        overrides={"max_workers": 7},
+    )
+
+    cloned = clone_config_for_record(base, record)
+
+    assert cloned.repo == "acme/widgets"
+    assert cloned.max_workers == 7
+
+
+def test_clone_config_for_record_sets_repo_fields(tmp_path: Path) -> None:
+    from tests.helpers import ConfigFactory
+
+    base = ConfigFactory.create(
+        repo_root=tmp_path / "base",
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    record = RepoRecord(
+        slug="widgets",
+        repo="acme/widgets",
+        path=str(tmp_path / "widgets"),
+    )
+
+    cloned = clone_config_for_record(base, record)
+
+    assert cloned.repo == "acme/widgets"
+    assert str(cloned.repo_root) == str(tmp_path / "widgets")

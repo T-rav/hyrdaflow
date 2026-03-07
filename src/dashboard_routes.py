@@ -549,8 +549,6 @@ def create_router(
             if rt is None:
                 raise HTTPException(status_code=404, detail=f"Unknown repo: {target}")
             return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
-        if registry is not None and slug:
-            raise HTTPException(status_code=404, detail=f"Unknown repo: {slug}")
         return config, state, event_bus, get_orchestrator
 
     def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
