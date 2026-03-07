@@ -21,6 +21,15 @@ from subprocess_util import (
     parse_credit_resume_time,
 )
 
+logger = logging.getLogger("hydraflow.runner_utils")
+
+
+class AuthenticationRetryError(RuntimeError):
+    """Raised when the agent CLI reports authentication_failed.
+
+    Treated as retryable — OAuth token refresh can fail transiently.
+    """
+
 
 async def stream_claude_process(
     *,
@@ -173,13 +182,13 @@ async def stream_claude_process(
 
             # Detect authentication failures from stream-json output.
             # Claude CLI emits '"error":"authentication_failed"' when it
-            # has no valid API key or OAuth session (common in Docker
-            # containers without ANTHROPIC_API_KEY).
+            # cannot authenticate — this can be a transient OAuth token
+            # refresh failure, so the caller retries with backoff.
             raw_output = "\n".join(raw_lines)
             if "authentication_failed" in raw_output:
-                raise RuntimeError(
-                    "Agent CLI authentication failed — set ANTHROPIC_API_KEY "
-                    "in .env for Docker execution mode"
+                raise AuthenticationRetryError(
+                    "Agent CLI authentication failed — check "
+                    "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
                 )
 
             # Check for credit exhaustion in both stderr and transcript.
