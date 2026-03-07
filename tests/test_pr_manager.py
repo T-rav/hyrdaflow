@@ -716,7 +716,9 @@ class TestUploadScreenshotGist:
         assert "--public" in args
 
     @pytest.mark.asyncio
-    async def test_binary_upload_falls_back_to_svg_gist(self, event_bus, tmp_path):
+    async def test_binary_upload_does_not_fall_back_to_svg_gist(
+        self, event_bus, tmp_path
+    ):
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -728,23 +730,14 @@ class TestUploadScreenshotGist:
             "Command ('gh', 'gist', 'create', ...) failed (rc=1): "
             "failed to upload file: binary file not supported"
         )
-        mgr._run_gh = AsyncMock(
-            side_effect=[
-                binary_error,
-                "https://gist.github.com/testuser/fallback123",
-            ]
-        )
+        mgr._run_gh = AsyncMock(side_effect=[binary_error])
 
         result = await mgr.upload_screenshot_gist(png_b64)
 
-        assert result == (
-            "https://gist.githubusercontent.com/testuser/fallback123/raw/screenshot.svg"
-        )
-        assert mgr._run_gh.await_count == 2
+        assert result == ""
+        assert mgr._run_gh.await_count == 1
         first_call = mgr._run_gh.await_args_list[0].args
-        second_call = mgr._run_gh.await_args_list[1].args
         assert "--filename" in first_call and "screenshot.png" in first_call
-        assert "--filename" in second_call and "screenshot.svg" in second_call
 
     @pytest.mark.asyncio
     async def test_invalid_base64_returns_empty_string(self, event_bus, tmp_path):

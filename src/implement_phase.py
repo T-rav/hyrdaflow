@@ -18,6 +18,7 @@ from phase_utils import (
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
+    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from pr_manager import PRManager
@@ -154,6 +155,37 @@ class ImplementPhase:
     async def _worker_inner(self, idx: int, issue: Task, branch: str) -> WorkerResult:
         """Core implementation logic — called inside the semaphore."""
         self._prepare_adr_plan(issue)
+
+        # If a non-draft PR already exists and this is NOT a review-feedback
+        # retry, skip implementation and transition directly to review.
+        # This handles issues requeued to hydraflow-ready that already have
+        # completed PRs from a prior run.
+        review_feedback = self._state.get_review_feedback(issue.id) or ""
+        if not review_feedback:
+            existing_pr = await self._prs.find_open_pr_for_branch(
+                branch, issue_number=issue.id
+            )
+            if existing_pr and existing_pr.number > 0 and not existing_pr.draft:
+                logger.info(
+                    "Issue #%d already has open PR #%d — skipping to review",
+                    issue.id,
+                    existing_pr.number,
+                )
+                await self._transitioner.transition(
+                    issue.id,
+                    "review",
+                    pr_number=existing_pr.number,
+                )
+                self._store.enqueue_transition(issue, "review")
+                self._state.increment_session_counter("implemented")
+                self._state.mark_issue(issue.id, "success")
+                return WorkerResult(
+                    issue_number=issue.id,
+                    branch=branch,
+                    success=True,
+                    pr_info=existing_pr,
+                )
+
         cap_result = await self._check_attempt_cap(issue, branch)
         if cap_result is not None:
             return cap_result
@@ -171,7 +203,6 @@ class ImplementPhase:
                 logger.debug("Run recording setup failed", exc_info=True)
                 ctx = None
 
-        review_feedback = self._state.get_review_feedback(issue.id) or ""
         result = await self._run_implementation(issue, branch, idx, review_feedback)
 
         # Finalize the recording
@@ -351,6 +382,15 @@ class ImplementPhase:
                 hitl_label=self._config.hitl_label[0],
             )
             self._store.enqueue_transition(issue, "hitl")
+            if result.transcript:
+                await safe_file_memory_suggestion(
+                    result.transcript,
+                    "implement_zero_commits",
+                    f"issue #{issue.id}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
             return result
 
         # Push final commits and create PR
@@ -400,6 +440,15 @@ class ImplementPhase:
                             hitl_label=self._config.hitl_label[0],
                         )
                         self._store.enqueue_transition(issue, "hitl")
+                        if result.transcript:
+                            await safe_file_memory_suggestion(
+                                result.transcript,
+                                "implement_zero_diff",
+                                f"issue #{issue.id}",
+                                self._config,
+                                self._prs,
+                                self._state,
+                            )
                         return result
                     logger.warning(
                         "Implementation succeeded for issue #%d but no open PR exists for branch %s",

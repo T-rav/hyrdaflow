@@ -655,6 +655,9 @@ describe('Merged stage count display', () => {
           { issue_number: 2, title: 'Queued issue', status: 'queued' },
         ],
       },
+      pipelineStats: {
+        stages: { implement: { queued: 1, active: 1, completed_session: 0, worker_count: 0 } },
+      },
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-implement')

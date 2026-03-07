@@ -1313,6 +1313,7 @@ class PendingReport(BaseModel):
     screenshot_base64: str = ""
     environment: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    attempts: int = 0
 
 
 class PRListItem(BaseModel):

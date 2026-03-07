@@ -43,6 +43,7 @@ from phase_utils import (
     record_harness_failure,
     release_batch_in_flight,
     run_concurrent_batch,
+    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
@@ -272,22 +273,6 @@ class ReviewPhase:
         match = re.search(pattern, body)
         return match.group("section").strip() if match else ""
 
-    async def _should_skip_review(self, pr: PRInfo, last_sha: str | None) -> bool:
-        """Return True if the PR HEAD SHA is unchanged since last review."""
-        current_sha = await self._prs.get_pr_head_sha(pr.number)
-        if not isinstance(current_sha, str) or not current_sha:
-            return False
-        if last_sha and last_sha == current_sha:
-            logger.info(
-                "PR #%d (issue #%d): skipping review — no new commits since "
-                "last review (SHA %s)",
-                pr.number,
-                pr.issue_number,
-                current_sha[:12],
-            )
-            return True
-        return False
-
     async def _prepare_review_worktree(
         self, pr: PRInfo, task: Task, idx: int
     ) -> Path | None:
@@ -406,14 +391,6 @@ class ReviewPhase:
                 pr_number=pr.number,
                 issue_number=pr.issue_number,
                 summary="Issue not found",
-            )
-
-        last_sha = self._state.get_last_reviewed_sha(pr.issue_number)
-        if await self._should_skip_review(pr, last_sha):
-            return ReviewResult(
-                pr_number=pr.number,
-                issue_number=pr.issue_number,
-                summary="Skipped — no new commits since last review",
             )
 
         wt_path = await self._prepare_review_worktree(pr, task, idx)
@@ -1201,6 +1178,15 @@ class ReviewPhase:
                 break
 
         result.ci_passed = False
+        if result.transcript:
+            await safe_file_memory_suggestion(
+                result.transcript,
+                "ci_fix_failure",
+                f"PR #{pr.number}",
+                self._config,
+                self._prs,
+                self._state,
+            )
         await self._publish_review_status(pr, worker_id, "escalating")
         await self._escalate_ci_failure(pr, issue, summary, result.ci_fix_attempts)
         return False
@@ -1533,6 +1519,15 @@ class ReviewPhase:
                 event_cause="review_fix_cap_exceeded",
                 task=task,
             )
+            if result.transcript:
+                await safe_file_memory_suggestion(
+                    result.transcript,
+                    "review_fix_cap_exceeded",
+                    f"PR #{pr.number}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
             return False  # Destroy worktree
 
     def _record_harness_failure(

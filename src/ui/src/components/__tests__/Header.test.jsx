@@ -356,6 +356,7 @@ describe('Header component', () => {
 
     it('opens modal with screenshot thumbnail after capture', async () => {
       html2canvasFn.mockResolvedValue({
+        width: 800,
         toDataURL: () => 'data:image/png;base64,header-screenshot',
       })
 
@@ -375,6 +376,7 @@ describe('Header component', () => {
       html2canvasFn
         .mockRejectedValueOnce(new Error('primary failed'))
         .mockResolvedValueOnce({
+          width: 800,
           toDataURL: () => 'data:image/png;base64,safe-mode-screenshot',
         })
 

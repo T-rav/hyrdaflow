@@ -760,6 +760,9 @@ class TestReviewFeedbackPassing:
             agent_run=simple_agent,
             create_pr_return=PRInfoFactory.create(),
         )
+        # On retry, find_open_pr_for_branch returns the existing PR (used by
+        # _handle_implementation_result to recover the PR on the retry path)
+        mock_prs.find_open_pr_for_branch.return_value = PRInfoFactory.create()
         # Set review feedback to simulate a retry cycle
         phase._state.set_review_feedback(42, "Fix error handling")
 
@@ -1024,6 +1027,121 @@ class TestZeroCommitEscalation:
 
         cause = phase._state.get_hitl_cause(42)
         assert cause == "Epic child (#1551): implementation produced zero commits"
+
+
+# ---------------------------------------------------------------------------
+# Post-mortem memory filing
+# ---------------------------------------------------------------------------
+
+
+class TestPostMortemMemoryFiling:
+    """Failure escalations file memory suggestions from agent transcripts."""
+
+    @pytest.mark.asyncio
+    async def test_zero_commit_files_memory_from_transcript(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit failure should attempt to file a memory suggestion."""
+        issue = TaskFactory.create()
+
+        async def zero_commit_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResult(
+                issue_number=issue.id,
+                branch=branch,
+                success=False,
+                error="No commits found on branch",
+                commits=0,
+                worktree_path=str(wt_path),
+                transcript="MEMORY_SUGGESTION_START\ntitle: test\nlearning: learned\nMEMORY_SUGGESTION_END",
+            )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
+
+        await phase.run_batch()
+
+        # Memory suggestion should be filed as an issue
+        create_calls = mock_prs.create_issue.call_args_list
+        assert any("[Memory]" in str(c) for c in create_calls)
+
+    @pytest.mark.asyncio
+    async def test_zero_commit_no_memory_when_no_transcript(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit with empty transcript should not attempt memory filing."""
+        issue = TaskFactory.create()
+
+        async def zero_commit_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResult(
+                issue_number=issue.id,
+                branch=branch,
+                success=False,
+                error="No commits found on branch",
+                commits=0,
+                worktree_path=str(wt_path),
+                transcript="",
+            )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
+
+        await phase.run_batch()
+
+        # No memory issue should be created
+        create_calls = mock_prs.create_issue.call_args_list
+        assert not any("[Memory]" in str(c) for c in create_calls)
+
+    @pytest.mark.asyncio
+    async def test_zero_diff_files_memory_from_transcript(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-diff failure should attempt to file a memory suggestion."""
+        issue = TaskFactory.create()
+
+        async def zero_diff_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResult(
+                issue_number=issue.id,
+                branch=branch,
+                success=True,
+                commits=1,
+                worktree_path=str(wt_path),
+                transcript="MEMORY_SUGGESTION_START\ntitle: zero diff\nlearning: no changes\nMEMORY_SUGGESTION_END",
+            )
+
+        from tests.conftest import PRInfoFactory
+
+        # create_pr returns a PR with number=0 to trigger the zero-diff check
+        null_pr = PRInfoFactory.create(number=0)
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_diff_agent, create_pr_return=null_pr
+        )
+        # Make branch_has_diff_from_main return False to trigger zero-diff path
+        mock_prs.branch_has_diff_from_main = AsyncMock(return_value=False)
+
+        await phase.run_batch()
+
+        create_calls = mock_prs.create_issue.call_args_list
+        assert any("[Memory]" in str(c) for c in create_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -1482,6 +1600,7 @@ class TestHandleImplementationResult:
         )
 
         phase, _, mock_prs = make_implement_phase(config, [issue])
+        mock_prs.find_open_pr_for_branch.return_value = PRInfoFactory.create()
 
         returned = await phase._handle_implementation_result(issue, result, True)
 
@@ -1631,6 +1750,60 @@ class TestWorkerInner:
         result = await phase._worker_inner(0, issue, "agent/issue-42")
 
         assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_existing_non_draft_pr_skips_to_review(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Issue with existing open non-draft PR should skip implementation."""
+        issue = TaskFactory.create()
+        existing_pr = PRInfoFactory.create(number=99, draft=False)
+
+        agent_called = False
+
+        async def tracking_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            nonlocal agent_called
+            agent_called = True
+            return WorkerResultFactory.create(
+                issue_number=issue.id, worktree_path=str(wt_path)
+            )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=tracking_agent
+        )
+        mock_prs.find_open_pr_for_branch.return_value = existing_pr
+
+        result = await phase._worker_inner(0, issue, "agent/issue-42")
+
+        assert result.success is True
+        assert result.pr_info == existing_pr
+        assert not agent_called
+        mock_prs.transition.assert_awaited_once_with(issue.id, "review", pr_number=99)
+
+    @pytest.mark.asyncio
+    async def test_existing_draft_pr_does_not_skip(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Issue with a draft PR should proceed with normal implementation."""
+        issue = TaskFactory.create()
+        draft_pr = PRInfoFactory.create(number=99, draft=True)
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], create_pr_return=PRInfoFactory.create()
+        )
+        mock_prs.find_open_pr_for_branch.return_value = draft_pr
+
+        result = await phase._worker_inner(0, issue, "agent/issue-42")
+
+        assert result.success is True
+        # transition should be called from _handle_implementation_result, not the skip path
+        mock_prs.transition.assert_awaited()
 
 
 # ---------------------------------------------------------------------------

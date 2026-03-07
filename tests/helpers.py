@@ -1041,7 +1041,7 @@ def make_implement_phase(
         if create_pr_return is not None
         else PRInfoFactory.create()
     )
-    mock_prs.find_open_pr_for_branch = AsyncMock(return_value=PRInfoFactory.create())
+    mock_prs.find_open_pr_for_branch = AsyncMock(return_value=None)
     mock_prs.branch_has_diff_from_main = AsyncMock(return_value=True)
     mock_prs.add_labels = AsyncMock()
     mock_prs.remove_label = AsyncMock()

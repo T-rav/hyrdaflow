@@ -50,7 +50,7 @@ describe('HITLTable component', () => {
 
   it('shows empty state when no items', () => {
     render(<HITLTable items={[]} onRefresh={() => {}} />)
-    expect(screen.getByText('No stuck PRs')).toBeInTheDocument()
+    expect(screen.getByText('No stuck issues')).toBeInTheDocument()
   })
 
   it('renders status column header', () => {

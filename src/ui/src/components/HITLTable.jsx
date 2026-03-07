@@ -212,7 +212,7 @@ export function HITLTable({ items, onRefresh }) {
         </div>
       </div>
       {visibleItems.length === 0 ? (
-        <div style={styles.empty}>No stuck PRs</div>
+        <div style={styles.empty}>No stuck issues</div>
       ) : (
       <table style={styles.table}>
         <thead>
