@@ -57,8 +57,10 @@ class PRPort(Protocol):
 
     # --- Branch / PR lifecycle ---
 
-    async def push_branch(self, worktree_path: Path, branch: str) -> bool:
-        """Push *branch* from *worktree_path* to origin. Returns True on success."""
+    async def push_branch(
+        self, worktree_path: Path, branch: str, *, force: bool = False
+    ) -> bool:
+        """Push *branch* from *worktree_path* to origin. Force-push when ``force`` is True."""
         ...
 
     async def create_pr(
