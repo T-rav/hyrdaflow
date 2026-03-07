@@ -24,6 +24,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS",
         1,
     ),
+    ("max_diff_sanity_attempts", "HYDRAFLOW_MAX_DIFF_SANITY_ATTEMPTS", 1),
+    ("max_test_adequacy_attempts", "HYDRAFLOW_MAX_TEST_ADEQUACY_ATTEMPTS", 1),
     ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
     ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
     ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
@@ -288,6 +290,18 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=5,
         description="Max pre-quality review/correction passes before quality verification",
+    )
+    max_diff_sanity_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max diff sanity check passes (0 = disabled)",
+    )
+    max_test_adequacy_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max test adequacy check passes (0 = disabled)",
     )
     max_review_fix_attempts: int = Field(
         default=2,
@@ -1860,30 +1874,35 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
-    if config.execution_mode == "docker":
-        if shutil.which("docker") is None:
-            msg = (
-                "execution_mode is 'docker' but the 'docker' command "
-                "was not found on PATH"
-            )
-            raise ValueError(msg)
+    if config.execution_mode != "docker":
+        return
 
-        if not config.gh_token:
-            logger.warning(
-                "Docker mode without GH token configured; container actions may use the local gh auth context "
-                "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
-            )
-        if bool(config.git_user_name) ^ bool(config.git_user_email):
-            logger.warning(
-                "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",
-                config.git_user_name,
-                config.git_user_email,
-            )
-        elif not config.git_user_name and not config.git_user_email:
-            logger.warning(
-                "Docker mode git identity not configured; commits may use fallback host/global git identity "
-                "(set HYDRAFLOW_GIT_USER_NAME and HYDRAFLOW_GIT_USER_EMAIL, e.g. in .env)."
-            )
+    if not config.docker_image.strip():
+        # No image configured → fall back to host execution; no Docker validation needed.
+        return
+
+    if shutil.which("docker") is None:
+        msg = (
+            "execution_mode is 'docker' but the 'docker' command was not found on PATH"
+        )
+        raise ValueError(msg)
+
+    if not config.gh_token:
+        logger.warning(
+            "Docker mode without GH token configured; container actions may use the local gh auth context "
+            "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
+        )
+    if bool(config.git_user_name) ^ bool(config.git_user_email):
+        logger.warning(
+            "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",
+            config.git_user_name,
+            config.git_user_email,
+        )
+    elif not config.git_user_name and not config.git_user_email:
+        logger.warning(
+            "Docker mode git identity not configured; commits may use fallback host/global git identity "
+            "(set HYDRAFLOW_GIT_USER_NAME and HYDRAFLOW_GIT_USER_EMAIL, e.g. in .env)."
+        )
 
 
 def _find_repo_root() -> Path:

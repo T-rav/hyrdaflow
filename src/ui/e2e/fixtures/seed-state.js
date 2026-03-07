@@ -254,8 +254,15 @@ export const seedState = {
   currentSessionId: 'session-001',
   selectedSessionId: null,
   selectedRepoSlug: null,
+  selectedRepoSlugRaw: null,
   supervisedRepos: seedSupervisedRepos,
   runtimes: [],
+  issueHistory: null,
+  harnessInsights: null,
+  reviewInsights: null,
+  retrospectives: null,
+  troubleshooting: null,
+  memories: null,
 }
 
 /**

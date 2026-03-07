@@ -13,17 +13,14 @@ const emptyPipeline = {
 
 const initialState = {
   connected: false,
+  lastSeenId: -1,
   phase: 'idle',
   orchestratorStatus: 'idle',
+  creditsPausedUntil: null,
   workers: {},
   prs: [],
   reviews: [],
-  mergedCount: 0,
   sessionPrsCount: 0,
-  sessionTriaged: 0,
-  sessionPlanned: 0,
-  sessionImplemented: 0,
-  sessionReviewed: 0,
   lifetimeStats: null,
   queueStats: null,
   config: null,
@@ -38,13 +35,23 @@ const initialState = {
   epics: [],
   epicReleasing: null,
   githubMetrics: null,
+  metricsHistory: null,
   pipelineIssues: { ...emptyPipeline },
+  pipelineStats: null,
   pipelinePollerLastRun: null,
   sessions: [],
   currentSessionId: null,
   selectedSessionId: null,
+  selectedRepoSlug: null,
   supervisedRepos: [],
   selectedRepoSlugRaw: null,
+  runtimes: [],
+  issueHistory: null,
+  harnessInsights: null,
+  reviewInsights: null,
+  retrospectives: null,
+  troubleshooting: null,
+  memories: null,
 }
 
 const originalFetch = global.fetch
@@ -104,8 +111,6 @@ describe('HydraFlowContext reducer', () => {
     const state = {
       ...initialState,
       orchestratorStatus: 'running',
-      sessionTriaged: 3,
-      sessionPlanned: 2,
       githubMetrics: { open_by_label: {}, total_closed: 5, total_merged: 3 },
     }
     const next = reducer(state, {
@@ -113,8 +118,6 @@ describe('HydraFlowContext reducer', () => {
       data: { status: 'idle' },
       timestamp: new Date().toISOString(),
     })
-    expect(next.sessionTriaged).toBe(0)
-    expect(next.sessionPlanned).toBe(0)
     expect(next.githubMetrics).toEqual({ open_by_label: {}, total_closed: 5, total_merged: 3 })
   })
 
@@ -122,7 +125,6 @@ describe('HydraFlowContext reducer', () => {
     const state = {
       ...initialState,
       phase: 'idle',
-      sessionTriaged: 3,
       githubMetrics: { open_by_label: { 'hydraflow-plan': 2 }, total_closed: 1, total_merged: 1 },
     }
     const next = reducer(state, {
@@ -130,8 +132,49 @@ describe('HydraFlowContext reducer', () => {
       data: { phase: 'plan' },
       timestamp: new Date().toISOString(),
     })
-    expect(next.sessionTriaged).toBe(0)
     expect(next.githubMetrics).toEqual({ open_by_label: { 'hydraflow-plan': 2 }, total_closed: 1, total_merged: 1 })
+  })
+})
+
+describe('SET_CENTRALIZED_DATA reducer', () => {
+  it('merges whitelisted fields into state', () => {
+    const data = {
+      issueHistory: { items: [{ issue_number: 1 }], totals: {} },
+      harnessInsights: { total_failures: 5 },
+      reviewInsights: { total_reviews: 3 },
+    }
+    const next = reducer(initialState, { type: 'SET_CENTRALIZED_DATA', data })
+    expect(next.issueHistory).toEqual(data.issueHistory)
+    expect(next.harnessInsights).toEqual(data.harnessInsights)
+    expect(next.reviewInsights).toEqual(data.reviewInsights)
+    expect(next.retrospectives).toBeNull()
+    expect(next.troubleshooting).toBeNull()
+    expect(next.memories).toBeNull()
+  })
+
+  it('preserves previous values for fields not in update', () => {
+    const prev = {
+      ...initialState,
+      issueHistory: { items: [{ issue_number: 1 }], totals: {} },
+      memories: { total_items: 10, items: [] },
+    }
+    const next = reducer(prev, {
+      type: 'SET_CENTRALIZED_DATA',
+      data: { harnessInsights: { total_failures: 2 } },
+    })
+    expect(next.issueHistory).toEqual(prev.issueHistory)
+    expect(next.memories).toEqual(prev.memories)
+    expect(next.harnessInsights).toEqual({ total_failures: 2 })
+  })
+
+  it('ignores unknown fields in data payload', () => {
+    const next = reducer(initialState, {
+      type: 'SET_CENTRALIZED_DATA',
+      data: { connected: false, phase: 'done', issueHistory: { items: [] } },
+    })
+    expect(next.connected).toBe(false) // from initialState, not overwritten
+    expect(next.phase).toBe('idle') // from initialState, not overwritten
+    expect(next.issueHistory).toEqual({ items: [] })
   })
 })
 
@@ -1491,12 +1534,7 @@ describe('orchestrator_status reducer — session reset for other clients', () =
       workers: { 42: { status: 'done', role: 'implementer', transcript: [] } },
       prs: [{ pr: 100, issue: 42, merged: true }],
       reviews: [{ pr: 100, verdict: 'approve' }],
-      mergedCount: 2,
       sessionPrsCount: 3,
-      sessionTriaged: 1,
-      sessionPlanned: 2,
-      sessionImplemented: 1,
-      sessionReviewed: 1,
       hitlItems: [{ issue: 42, title: 'Bug' }],
       hitlEscalation: { pr: 99, issue: 42, cause: 'CI failed' },
       humanInputRequests: { 42: { question: 'Continue?' } },
@@ -1514,12 +1552,7 @@ describe('orchestrator_status reducer — session reset for other clients', () =
     expect(next.workers).toEqual({})
     expect(next.prs).toEqual([])
     expect(next.reviews).toEqual([])
-    expect(next.mergedCount).toBe(0)
     expect(next.sessionPrsCount).toBe(0)
-    expect(next.sessionTriaged).toBe(0)
-    expect(next.sessionPlanned).toBe(0)
-    expect(next.sessionImplemented).toBe(0)
-    expect(next.sessionReviewed).toBe(0)
     expect(next.hitlItems).toEqual([])
     expect(next.hitlEscalation).toBeNull()
     expect(next.humanInputRequests).toEqual({})
@@ -1532,7 +1565,6 @@ describe('orchestrator_status reducer — session reset for other clients', () =
       ...initialState,
       orchestratorStatus: 'running',
       workers: { 42: { status: 'running', role: 'implementer', transcript: [] } },
-      mergedCount: 2,
     }
 
     const next = reducer(dirtyState, {
@@ -1543,7 +1575,6 @@ describe('orchestrator_status reducer — session reset for other clients', () =
 
     // State preserved — this is a reconnect to an already-running orchestrator
     expect(next.workers).toEqual(dirtyState.workers)
-    expect(next.mergedCount).toBe(2)
   })
 })
 
@@ -1557,12 +1588,7 @@ describe('SESSION_RESET reducer', () => {
       },
       prs: [{ pr: 100, issue: 42, merged: true }, { pr: 101, issue: 43, merged: false }],
       reviews: [{ pr: 100, verdict: 'approve' }],
-      mergedCount: 3,
       sessionPrsCount: 5,
-      sessionTriaged: 2,
-      sessionPlanned: 4,
-      sessionImplemented: 3,
-      sessionReviewed: 1,
       hitlItems: [{ issue: 42, title: 'Bug' }],
       hitlEscalation: { pr: 99, issue: 42, cause: 'CI failed' },
       humanInputRequests: { 42: { question: 'Continue?', timestamp: '2026-01-01' } },
@@ -1583,12 +1609,7 @@ describe('SESSION_RESET reducer', () => {
     expect(next.workers).toEqual({})
     expect(next.prs).toEqual([])
     expect(next.reviews).toEqual([])
-    expect(next.mergedCount).toBe(0)
     expect(next.sessionPrsCount).toBe(0)
-    expect(next.sessionTriaged).toBe(0)
-    expect(next.sessionPlanned).toBe(0)
-    expect(next.sessionImplemented).toBe(0)
-    expect(next.sessionReviewed).toBe(0)
     expect(next.hitlItems).toEqual([])
     expect(next.hitlEscalation).toBeNull()
     expect(next.humanInputRequests).toEqual({})
@@ -1618,7 +1639,6 @@ describe('SESSION_RESET reducer', () => {
       metricsHistory: [{ timestamp: '2026-01-01', value: 1 }],
       // Dirty session state
       workers: { 42: { status: 'done' } },
-      mergedCount: 5,
     }
 
     const next = reducer(state, { type: 'SESSION_RESET' })
@@ -1636,6 +1656,5 @@ describe('SESSION_RESET reducer', () => {
 
     // Session fields cleared
     expect(next.workers).toEqual({})
-    expect(next.mergedCount).toBe(0)
   })
 })

@@ -296,14 +296,14 @@ describe('SessionSidebar selection', () => {
     expect(selectSession).toHaveBeenCalledWith(SESSION_A.id)
   })
 
-  it('calls selectRepo with canonical slug when clicking repo header', () => {
+  it('calls selectRepo with raw slug when clicking repo header', () => {
     const selectRepo = vi.fn()
     mockUseHydraFlow.mockReturnValue(
       defaultContext({ sessions: [SESSION_A], selectRepo })
     )
     render(<SessionSidebar />)
     fireEvent.click(screen.getByText('org/repo'))
-    expect(selectRepo).toHaveBeenCalledWith('org-repo')
+    expect(selectRepo).toHaveBeenCalledWith('org/repo')
   })
 })
 

@@ -20,12 +20,7 @@ export const initialState = {
   workers: {},
   prs: [],
   reviews: [],
-  mergedCount: 0,
   sessionPrsCount: 0,
-  sessionTriaged: 0,
-  sessionPlanned: 0,
-  sessionImplemented: 0,
-  sessionReviewed: 0,
   lifetimeStats: null,
   queueStats: null,
   config: null,
@@ -51,6 +46,12 @@ export const initialState = {
   selectedRepoSlugRaw: null,
   supervisedRepos: [],
   runtimes: [],
+  issueHistory: null,
+  harnessInsights: null,
+  reviewInsights: null,
+  retrospectives: null,
+  troubleshooting: null,
+  memories: null,
 }
 
 function normalizeRepoSlug(value) {
@@ -107,12 +108,7 @@ export function reducer(state, action) {
           workers: {},
           prs: [],
           reviews: [],
-          mergedCount: 0,
           sessionPrsCount: 0,
-          sessionTriaged: 0,
-          sessionPlanned: 0,
-          sessionImplemented: 0,
-          sessionReviewed: 0,
           hitlItems: [],
           hitlEscalation: null,
           lastSeenId: -1,
@@ -131,23 +127,13 @@ export function reducer(state, action) {
         creditsPausedUntil: action.data.credits_paused_until || null,
         ...(isStopped ? {
           workers: {},
-          sessionTriaged: 0,
-          sessionPlanned: 0,
-          sessionImplemented: 0,
-          sessionReviewed: 0,
-          mergedCount: 0,
           sessionPrsCount: 0,
         } : {}),
         ...(isSessionStart ? {
           workers: {},
           prs: [],
           reviews: [],
-          mergedCount: 0,
           sessionPrsCount: 0,
-          sessionTriaged: 0,
-          sessionPlanned: 0,
-          sessionImplemented: 0,
-          sessionReviewed: 0,
           hitlItems: [],
           hitlEscalation: null,
           lastSeenId: -1,
@@ -169,12 +155,8 @@ export function reducer(state, action) {
         transcript: [],
         pr: null,
       }
-      const prevStatus = existing?.status
-      const newImplemented = status === 'done' && prevStatus !== 'done'
-        ? state.sessionImplemented + 1 : state.sessionImplemented
       return {
         ...state,
-        sessionImplemented: newImplemented,
         workers: {
           ...state.workers,
           [issue]: { ...existing, status, worker, role: role || existing.role },
@@ -225,11 +207,8 @@ export function reducer(state, action) {
         pr: null,
       }
       const existingTriage = state.workers[triageKey]
-      const newTriaged = triageStatus === 'done' && existingTriage?.status !== 'done'
-        ? state.sessionTriaged + 1 : state.sessionTriaged
       return {
         ...addEvent(state, action),
-        sessionTriaged: newTriaged,
         workers: {
           ...state.workers,
           [triageKey]: existingTriage
@@ -252,11 +231,8 @@ export function reducer(state, action) {
         pr: null,
       }
       const existingPlanner = state.workers[planKey]
-      const newPlanned = planStatus === 'done' && existingPlanner?.status !== 'done'
-        ? state.sessionPlanned + 1 : state.sessionPlanned
       return {
         ...addEvent(state, action),
-        sessionPlanned: newPlanned,
         workers: {
           ...state.workers,
           [planKey]: existingPlanner
@@ -279,8 +255,6 @@ export function reducer(state, action) {
         pr: action.data.pr,
       }
       const existingReviewer = state.workers[reviewKey]
-      const newReviewed = reviewStatus === 'done' && existingReviewer?.status !== 'done'
-        ? state.sessionReviewed + 1 : state.sessionReviewed
       const updatedWorkers = {
         ...state.workers,
         [reviewKey]: existingReviewer
@@ -290,7 +264,6 @@ export function reducer(state, action) {
       if (action.data.status === 'done') {
         return {
           ...addEvent(state, action),
-          sessionReviewed: newReviewed,
           workers: updatedWorkers,
           reviews: [...state.reviews, action.data],
         }
@@ -306,9 +279,6 @@ export function reducer(state, action) {
       return {
         ...addEvent(state, action),
         prs: updatedPrs,
-        mergedCount: isMerged
-          ? state.mergedCount + 1
-          : state.mergedCount,
       }
     }
 
@@ -601,12 +571,7 @@ export function reducer(state, action) {
         workers: {},
         prs: [],
         reviews: [],
-        mergedCount: 0,
         sessionPrsCount: 0,
-        sessionTriaged: 0,
-        sessionPlanned: 0,
-        sessionImplemented: 0,
-        sessionReviewed: 0,
         hitlItems: [],
         hitlEscalation: null,
         humanInputRequests: {},
@@ -717,6 +682,17 @@ export function reducer(state, action) {
       return {
         ...state,
         runtimes: Array.isArray(action.data?.runtimes) ? action.data.runtimes : [],
+      }
+
+    case 'SET_CENTRALIZED_DATA':
+      return {
+        ...state,
+        issueHistory: action.data?.issueHistory ?? state.issueHistory,
+        harnessInsights: action.data?.harnessInsights ?? state.harnessInsights,
+        reviewInsights: action.data?.reviewInsights ?? state.reviewInsights,
+        retrospectives: action.data?.retrospectives ?? state.retrospectives,
+        troubleshooting: action.data?.troubleshooting ?? state.troubleshooting,
+        memories: action.data?.memories ?? state.memories,
       }
 
     case 'DELETE_SESSION':
@@ -1423,16 +1399,9 @@ export function HydraFlowProvider({ children }) {
       state.pipelineIssues,
       state.workers,
       state.backgroundWorkers,
-      {
-        sessionTriaged: state.sessionTriaged,
-        sessionPlanned: state.sessionPlanned,
-        sessionImplemented: state.sessionImplemented,
-        sessionReviewed: state.sessionReviewed,
-        mergedCount: state.mergedCount,
-      },
-      state.config,
+      state.pipelineStats,
     ),
-    [state.pipelineIssues, state.workers, state.backgroundWorkers, state.sessionTriaged, state.sessionPlanned, state.sessionImplemented, state.sessionReviewed, state.mergedCount, state.config],
+    [state.pipelineIssues, state.workers, state.backgroundWorkers, state.pipelineStats],
   )
 
   const repoFilteredSessions = useMemo(() => {
@@ -1453,6 +1422,43 @@ export function HydraFlowProvider({ children }) {
     const end = selectedSession.ended_at || new Date().toISOString()
     return state.events.filter(e => e.timestamp && e.timestamp >= start && e.timestamp <= end)
   }, [state.events, selectedSession])
+
+  // Centralized polling for insights/history data (replaces per-component fetches)
+  useEffect(() => {
+    if (isSeeded) return
+    if (!state.connected) return
+    let cancelled = false
+
+    const endpoints = [
+      { url: '/api/issues/history?limit=500', key: 'issueHistory' },
+      { url: '/api/harness-insights', key: 'harnessInsights' },
+      { url: '/api/review-insights', key: 'reviewInsights' },
+      { url: '/api/retrospectives', key: 'retrospectives' },
+      { url: '/api/troubleshooting', key: 'troubleshooting' },
+      { url: '/api/memories', key: 'memories' },
+    ]
+
+    async function poll() {
+      const results = await Promise.allSettled(
+        endpoints.map(({ url }) => fetch(url).then(r => r.ok ? r.json() : null))
+      )
+      if (cancelled) return
+      const update = {}
+      endpoints.forEach(({ key }, i) => {
+        const r = results[i]
+        if (r.status === 'fulfilled' && r.value != null) {
+          update[key] = r.value
+        }
+      })
+      if (Object.keys(update).length > 0) {
+        dispatch({ type: 'SET_CENTRALIZED_DATA', data: update })
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 30_000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [state.connected, isSeeded])
 
   const value = {
     ...state,

@@ -131,6 +131,12 @@ class TriagePhase:
 
         if result.ready:
             if not await self._maybe_decompose(issue, result):
+                if result.enrichment:
+                    await self._transitioner.post_comment(issue.id, result.enrichment)
+                    logger.info(
+                        "Issue #%d enriched by triage before promotion",
+                        issue.id,
+                    )
                 await self._transitioner.transition(issue.id, "plan")
                 self._store.enqueue_transition(issue, "plan")
                 self._state.increment_session_counter("triaged")

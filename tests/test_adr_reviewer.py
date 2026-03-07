@@ -116,6 +116,40 @@ class TestFindProposedADRs:
         assert len(result) == 1
         assert result[0][0] == 1
 
+    def test_superseded_adr_not_in_proposed(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 1, "Old ADR", "Superseded")
+        _write_adr(adr_dir, 2, "New ADR", "Proposed")
+        reviewer = _make_reviewer(tmp_path)
+
+        proposed = reviewer._find_proposed_adrs(adr_dir)
+        assert len(proposed) == 1
+        assert proposed[0][0] == 2
+
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        assert {entry[0] for entry in all_adrs} == {1, 2}
+
+    def test_old_compound_status_not_treated_as_proposed(self, tmp_path: Path) -> None:
+        """Regression: 'Superseded by #1883' must not match as Proposed."""
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True, exist_ok=True)
+        # Simulate the pre-fix ADR-0020 format with embedded issue reference
+        old_style = adr_dir / "0001-old-style.md"
+        old_style.write_text(
+            "# ADR-0001: Old Style\n\n**Status:** Superseded by #1883\n\n"
+            "## Context\nOld.\n\n## Decision\nDone.\n\n## Consequences\nNone.\n",
+            encoding="utf-8",
+        )
+        reviewer = _make_reviewer(tmp_path)
+        proposed = reviewer._find_proposed_adrs(adr_dir)
+        assert proposed == [], "Old compound status should not be matched as Proposed"
+
+        # Also verify the index context shows 'Superseded' not the compound form
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        index = reviewer._build_index_context(all_adrs)
+        assert "Status: Superseded" in index
+        assert "by #1883" not in index
+
 
 class TestLoadAllADRs:
     """Tests for _load_all_adrs."""
@@ -163,6 +197,14 @@ class TestBuildIndexContext:
         assert "ADR-0002" in result
         assert "Accepted" in result
         assert "Proposed" in result
+
+    def test_build_index_context_shows_superseded_status(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 5, "Superseded ADR", "Superseded")
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        result = reviewer._build_index_context(all_adrs)
+        assert "Status: Superseded" in result
 
 
 class TestDuplicateDetection:
