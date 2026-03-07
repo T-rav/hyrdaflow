@@ -18,6 +18,7 @@ from phase_utils import (
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
+    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from pr_manager import PRManager
@@ -351,6 +352,15 @@ class ImplementPhase:
                 hitl_label=self._config.hitl_label[0],
             )
             self._store.enqueue_transition(issue, "hitl")
+            if result.transcript:
+                await safe_file_memory_suggestion(
+                    result.transcript,
+                    "implement_zero_commits",
+                    f"issue #{issue.id}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
             return result
 
         # Push final commits and create PR
@@ -400,6 +410,15 @@ class ImplementPhase:
                             hitl_label=self._config.hitl_label[0],
                         )
                         self._store.enqueue_transition(issue, "hitl")
+                        if result.transcript:
+                            await safe_file_memory_suggestion(
+                                result.transcript,
+                                "implement_zero_diff",
+                                f"issue #{issue.id}",
+                                self._config,
+                                self._prs,
+                                self._state,
+                            )
                         return result
                     logger.warning(
                         "Implementation succeeded for issue #%d but no open PR exists for branch %s",

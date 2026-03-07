@@ -43,6 +43,7 @@ from phase_utils import (
     record_harness_failure,
     release_batch_in_flight,
     run_concurrent_batch,
+    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
@@ -1201,6 +1202,15 @@ class ReviewPhase:
                 break
 
         result.ci_passed = False
+        if result.transcript:
+            await safe_file_memory_suggestion(
+                result.transcript,
+                "ci_fix_failure",
+                f"PR #{pr.number}",
+                self._config,
+                self._prs,
+                self._state,
+            )
         await self._publish_review_status(pr, worker_id, "escalating")
         await self._escalate_ci_failure(pr, issue, summary, result.ci_fix_attempts)
         return False
@@ -1533,6 +1543,15 @@ class ReviewPhase:
                 event_cause="review_fix_cap_exceeded",
                 task=task,
             )
+            if result.transcript:
+                await safe_file_memory_suggestion(
+                    result.transcript,
+                    "review_fix_cap_exceeded",
+                    f"PR #{pr.number}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
             return False  # Destroy worktree
 
     def _record_harness_failure(

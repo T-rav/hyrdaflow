@@ -1027,6 +1027,121 @@ class TestZeroCommitEscalation:
 
 
 # ---------------------------------------------------------------------------
+# Post-mortem memory filing
+# ---------------------------------------------------------------------------
+
+
+class TestPostMortemMemoryFiling:
+    """Failure escalations file memory suggestions from agent transcripts."""
+
+    @pytest.mark.asyncio
+    async def test_zero_commit_files_memory_from_transcript(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit failure should attempt to file a memory suggestion."""
+        issue = TaskFactory.create()
+
+        async def zero_commit_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResult(
+                issue_number=issue.id,
+                branch=branch,
+                success=False,
+                error="No commits found on branch",
+                commits=0,
+                worktree_path=str(wt_path),
+                transcript="MEMORY_SUGGESTION_START\ntitle: test\nlearning: learned\nMEMORY_SUGGESTION_END",
+            )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
+
+        await phase.run_batch()
+
+        # Memory suggestion should be filed as an issue
+        create_calls = mock_prs.create_issue.call_args_list
+        assert any("[Memory]" in str(c) for c in create_calls)
+
+    @pytest.mark.asyncio
+    async def test_zero_commit_no_memory_when_no_transcript(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit with empty transcript should not attempt memory filing."""
+        issue = TaskFactory.create()
+
+        async def zero_commit_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResult(
+                issue_number=issue.id,
+                branch=branch,
+                success=False,
+                error="No commits found on branch",
+                commits=0,
+                worktree_path=str(wt_path),
+                transcript="",
+            )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_commit_agent
+        )
+
+        await phase.run_batch()
+
+        # No memory issue should be created
+        create_calls = mock_prs.create_issue.call_args_list
+        assert not any("[Memory]" in str(c) for c in create_calls)
+
+    @pytest.mark.asyncio
+    async def test_zero_diff_files_memory_from_transcript(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-diff failure should attempt to file a memory suggestion."""
+        issue = TaskFactory.create()
+
+        async def zero_diff_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+        ) -> WorkerResult:
+            return WorkerResult(
+                issue_number=issue.id,
+                branch=branch,
+                success=True,
+                commits=1,
+                worktree_path=str(wt_path),
+                transcript="MEMORY_SUGGESTION_START\ntitle: zero diff\nlearning: no changes\nMEMORY_SUGGESTION_END",
+            )
+
+        from tests.conftest import PRInfoFactory
+
+        # create_pr returns a PR with number=0 to trigger the zero-diff check
+        null_pr = PRInfoFactory.create(number=0)
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], agent_run=zero_diff_agent, create_pr_return=null_pr
+        )
+        # Make branch_has_diff_from_main return False to trigger zero-diff path
+        mock_prs.branch_has_diff_from_main = AsyncMock(return_value=False)
+
+        await phase.run_batch()
+
+        create_calls = mock_prs.create_issue.call_args_list
+        assert any("[Memory]" in str(c) for c in create_calls)
+
+
+# ---------------------------------------------------------------------------
 # Retry cap escalation
 # ---------------------------------------------------------------------------
 
