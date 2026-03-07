@@ -4994,6 +4994,234 @@ class TestHITLSkipCommentResilience:
 
 
 # ---------------------------------------------------------------------------
+# _clear_hitl_state / _resolve_hitl_item helpers
+# ---------------------------------------------------------------------------
+
+
+class TestClearHitlStateHelper:
+    """Tests for the _clear_hitl_state internal helper."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=get_orch or (lambda: None),
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_clear_hitl_state_clears_all_fields_via_skip(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """All HITL state fields are cleared by endpoints using _clear_hitl_state."""
+        from models import HITLSkipRequest
+
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.post_comment = AsyncMock()
+
+        state.set_hitl_origin(99, "hydraflow-review")
+        state.set_hitl_cause(99, "CI failure")
+        state.set_hitl_summary(99, "some summary")
+
+        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        await skip(99, HITLSkipRequest(reason="test cleanup"))
+
+        mock_orch.skip_hitl_issue.assert_called_once_with(99)
+        assert state.get_hitl_origin(99) is None
+        assert state.get_hitl_cause(99) is None
+        assert state.get_hitl_summary(99) is None
+
+    @pytest.mark.asyncio
+    async def test_clear_hitl_state_tolerates_none_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """approve-memory uses _clear_hitl_state with orch=None and should not crash."""
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+
+        state.set_hitl_origin(50, "hydraflow-plan")
+        state.set_hitl_cause(50, "reason")
+        state.set_hitl_summary(50, "summary")
+
+        endpoint = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-memory"
+        )
+        response = await endpoint(50)
+        assert response.status_code == 200
+
+        assert state.get_hitl_origin(50) is None
+        assert state.get_hitl_cause(50) is None
+        assert state.get_hitl_summary(50) is None
+
+
+class TestResolveHitlItemHelper:
+    """Tests for the _resolve_hitl_item internal helper."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=get_orch or (lambda: None),
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_resolve_records_outcome_and_publishes_event(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """_resolve_hitl_item should record outcome and publish HITL_UPDATE event."""
+        import json
+
+        from models import HITLCloseRequest
+
+        events_received: list[object] = []
+        event_bus.subscribe("hitl_update", events_received.append)
+
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.close_issue = AsyncMock()
+        pr_mgr.post_comment = AsyncMock()
+
+        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        response = await endpoint(77, HITLCloseRequest(reason="Resolved elsewhere"))
+
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+
+        outcome = state.get_outcome(77)
+        assert outcome is not None
+        assert outcome.outcome.value == "hitl_closed"
+        assert outcome.reason == "Resolved elsewhere"
+
+    @pytest.mark.asyncio
+    async def test_resolve_returns_400_without_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Endpoints using _resolve_hitl_item return 400 when no orchestrator."""
+        from models import HITLSkipRequest
+
+        router, _ = self._make_router(config, event_bus, state, tmp_path)
+        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        response = await skip(42, HITLSkipRequest(reason="test"))
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_resolve_comment_failure_does_not_break_response(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Comment posting failure in _resolve_hitl_item should not prevent success."""
+        import json
+
+        from models import HITLSkipRequest
+
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.post_comment = AsyncMock(side_effect=RuntimeError("API error"))
+
+        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        response = await endpoint(42, HITLSkipRequest(reason="test"))
+
+        assert response.status_code == 200
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_resolve_all_three_endpoints_use_same_pattern(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """skip, close, and approve-process all clear state via _resolve_hitl_item."""
+        import json
+
+        from models import HITLCloseRequest, HITLSkipRequest
+
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.close_issue = AsyncMock()
+        pr_mgr.post_comment = AsyncMock()
+
+        # Test skip
+        state.set_hitl_origin(1, "hydraflow-plan")
+        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        resp = await skip(1, HITLSkipRequest(reason="r1"))
+        assert json.loads(resp.body)["status"] == "ok"
+        assert state.get_hitl_origin(1) is None
+
+        # Test close
+        state.set_hitl_origin(2, "hydraflow-plan")
+        close = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        resp = await close(2, HITLCloseRequest(reason="r2"))
+        assert json.loads(resp.body)["status"] == "ok"
+        assert state.get_hitl_origin(2) is None
+
+        # Test approve-process
+        state.set_hitl_origin(3, "hydraflow-plan")
+        approve = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-process"
+        )
+        resp = await approve(3)
+        assert json.loads(resp.body)["status"] == "ok"
+        assert state.get_hitl_origin(3) is None
+
+
+# ---------------------------------------------------------------------------
 # POST /api/hitl/{issue_number}/approve-memory
 # ---------------------------------------------------------------------------
 
