@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from file_util import atomic_write, file_lock
+from file_util import append_jsonl, atomic_write, file_lock
 
 
 class TestAtomicWrite:
@@ -98,6 +98,33 @@ class TestAtomicWrite:
         atomic_write(target, "")
         assert target.exists()
         assert target.read_text() == ""
+
+
+class TestAppendJsonl:
+    """Tests for append_jsonl()."""
+
+    def test_appends_line_with_newline(self, tmp_path: Path) -> None:
+        target = tmp_path / "events.jsonl"
+        append_jsonl(target, '{"a": 1}')
+        assert target.read_text() == '{"a": 1}\n'
+
+    def test_appends_multiple_lines(self, tmp_path: Path) -> None:
+        target = tmp_path / "events.jsonl"
+        append_jsonl(target, '{"a": 1}')
+        append_jsonl(target, '{"b": 2}')
+        lines = target.read_text().splitlines()
+        assert lines == ['{"a": 1}', '{"b": 2}']
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "sub" / "dir" / "events.jsonl"
+        append_jsonl(target, "line")
+        assert target.exists()
+
+    def test_calls_fsync(self, tmp_path: Path) -> None:
+        target = tmp_path / "events.jsonl"
+        with patch("file_util.os.fsync") as mock_fsync:
+            append_jsonl(target, "data")
+        mock_fsync.assert_called_once()
 
 
 class TestFileLock:
