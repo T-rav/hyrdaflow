@@ -94,72 +94,7 @@ describe('useHydraFlowSocket reducer', () => {
     expect(next.events[0].data.issue).toBe(42)
   })
 
-  describe('session counter tracking', () => {
-    it('worker_update increments sessionImplemented when status transitions to done', () => {
-      const state = {
-        ...initialState,
-        workers: { 10: { status: 'running', worker: 1, role: 'implementer', title: 'Issue #10', branch: '', transcript: [], pr: null } },
-      }
-      const next = reducer(state, {
-        type: 'worker_update',
-        data: { issue: 10, status: 'done', worker: 1, role: 'implementer' },
-      })
-      expect(next.sessionImplemented).toBe(1)
-    })
-
-    it('worker_update does not double-count if already done', () => {
-      const state = {
-        ...initialState,
-        sessionImplemented: 1,
-        workers: { 10: { status: 'done', worker: 1, role: 'implementer', title: 'Issue #10', branch: '', transcript: [], pr: null } },
-      }
-      const next = reducer(state, {
-        type: 'worker_update',
-        data: { issue: 10, status: 'done', worker: 1, role: 'implementer' },
-      })
-      expect(next.sessionImplemented).toBe(1)
-    })
-
-    it('worker_update does not increment sessionImplemented for non-done status', () => {
-      const next = reducer(initialState, {
-        type: 'worker_update',
-        data: { issue: 10, status: 'running', worker: 1, role: 'implementer' },
-      })
-      expect(next.sessionImplemented).toBe(0)
-    })
-
-    it('triage_update increments sessionTriaged when status is done', () => {
-      const next = reducer(initialState, {
-        type: 'triage_update',
-        data: { issue: 5, status: 'done', worker: 1 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionTriaged).toBe(1)
-    })
-
-    it('triage_update does not double-count if already done', () => {
-      const state = {
-        ...initialState,
-        sessionTriaged: 1,
-        workers: { 'triage-5': { status: 'done', worker: 1, role: 'triage', title: 'Triage Issue #5', branch: '', transcript: [], pr: null } },
-      }
-      const next = reducer(state, {
-        type: 'triage_update',
-        data: { issue: 5, status: 'done', worker: 1 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionTriaged).toBe(1)
-    })
-
-    it('triage_update does not increment sessionTriaged for non-done status', () => {
-      const next = reducer(initialState, {
-        type: 'triage_update',
-        data: { issue: 5, status: 'evaluating', worker: 1 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionTriaged).toBe(0)
-    })
-
+  describe('status passthrough for worker types', () => {
     it('triage_update passes through evaluating status instead of normalizing to running', () => {
       const next = reducer(initialState, {
         type: 'triage_update',
@@ -176,38 +111,6 @@ describe('useHydraFlowSocket reducer', () => {
         timestamp: '2024-01-01T00:00:00Z',
       })
       expect(next.workers['triage-5'].status).toBe('failed')
-    })
-
-    it('planner_update increments sessionPlanned when status is done', () => {
-      const next = reducer(initialState, {
-        type: 'planner_update',
-        data: { issue: 7, status: 'done', worker: 2 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionPlanned).toBe(1)
-    })
-
-    it('planner_update does not double-count if already done', () => {
-      const state = {
-        ...initialState,
-        sessionPlanned: 1,
-        workers: { 'plan-7': { status: 'done', worker: 2, role: 'planner', title: 'Plan Issue #7', branch: '', transcript: [], pr: null } },
-      }
-      const next = reducer(state, {
-        type: 'planner_update',
-        data: { issue: 7, status: 'done', worker: 2 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionPlanned).toBe(1)
-    })
-
-    it('planner_update does not increment sessionPlanned for failed status', () => {
-      const next = reducer(initialState, {
-        type: 'planner_update',
-        data: { issue: 7, status: 'failed', worker: 2 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionPlanned).toBe(0)
     })
 
     it('planner_update passes through planning status instead of normalizing to running', () => {
@@ -228,38 +131,6 @@ describe('useHydraFlowSocket reducer', () => {
       expect(next.workers['plan-7'].status).toBe('some_other')
     })
 
-    it('review_update increments sessionReviewed when status is done', () => {
-      const next = reducer(initialState, {
-        type: 'review_update',
-        data: { issue: 3, pr: 20, status: 'done', worker: 3 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionReviewed).toBe(1)
-    })
-
-    it('review_update does not double-count if already done', () => {
-      const state = {
-        ...initialState,
-        sessionReviewed: 1,
-        workers: { 'review-20': { status: 'done', worker: 3, role: 'reviewer', title: 'PR #20 (Issue #3)', branch: '', transcript: [], pr: 20 } },
-      }
-      const next = reducer(state, {
-        type: 'review_update',
-        data: { issue: 3, pr: 20, status: 'done', worker: 3 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionReviewed).toBe(1)
-    })
-
-    it('review_update does not increment sessionReviewed for running status', () => {
-      const next = reducer(initialState, {
-        type: 'review_update',
-        data: { issue: 3, pr: 20, status: 'running', worker: 3 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      expect(next.sessionReviewed).toBe(0)
-    })
-
     it('review_update passes through reviewing status instead of normalizing to running', () => {
       const next = reducer(initialState, {
         type: 'review_update',
@@ -276,73 +147,6 @@ describe('useHydraFlowSocket reducer', () => {
         timestamp: '2024-01-01T00:00:00Z',
       })
       expect(next.workers['review-20'].status).toBe('fixing')
-    })
-
-    it('phase_change resets all session counters on new run', () => {
-      const state = {
-        ...initialState,
-        phase: 'idle',
-        sessionTriaged: 3,
-        sessionPlanned: 5,
-        sessionImplemented: 4,
-        sessionReviewed: 2,
-        mergedCount: 1,
-        sessionPrsCount: 4,
-      }
-      const next = reducer(state, {
-        type: 'phase_change',
-        data: { phase: 'plan' },
-        timestamp: new Date().toISOString(),
-      })
-      expect(next.sessionTriaged).toBe(0)
-      expect(next.sessionPlanned).toBe(0)
-      expect(next.sessionImplemented).toBe(0)
-      expect(next.sessionReviewed).toBe(0)
-      expect(next.mergedCount).toBe(0)
-      expect(next.sessionPrsCount).toBe(0)
-    })
-
-    it('phase_change does not reset session counters on non-new-run transitions', () => {
-      const state = {
-        ...initialState,
-        phase: 'plan',
-        sessionTriaged: 3,
-        sessionPlanned: 5,
-        sessionImplemented: 4,
-        sessionReviewed: 2,
-      }
-      const next = reducer(state, {
-        type: 'phase_change',
-        data: { phase: 'implement' },
-        timestamp: new Date().toISOString(),
-      })
-      expect(next.sessionTriaged).toBe(3)
-      expect(next.sessionPlanned).toBe(5)
-      expect(next.sessionImplemented).toBe(4)
-      expect(next.sessionReviewed).toBe(2)
-    })
-
-    it('multiple stage completions accumulate independently', () => {
-      let state = initialState
-      state = reducer(state, {
-        type: 'triage_update',
-        data: { issue: 1, status: 'done', worker: 1 },
-        timestamp: '2024-01-01T00:00:00Z',
-      })
-      state = reducer(state, {
-        type: 'triage_update',
-        data: { issue: 2, status: 'done', worker: 1 },
-        timestamp: '2024-01-01T00:00:01Z',
-      })
-      state = reducer(state, {
-        type: 'planner_update',
-        data: { issue: 1, status: 'done', worker: 2 },
-        timestamp: '2024-01-01T00:00:02Z',
-      })
-      expect(state.sessionTriaged).toBe(2)
-      expect(state.sessionPlanned).toBe(1)
-      expect(state.sessionImplemented).toBe(0)
-      expect(state.sessionReviewed).toBe(0)
     })
   })
 
@@ -593,11 +397,6 @@ describe('useHydraFlowSocket reducer', () => {
         1: { status: 'running', worker: 1, role: 'implementer', title: 'Issue #1', branch: '', transcript: [], pr: null },
         'plan-2': { status: 'planning', worker: 2, role: 'planner', title: 'Plan Issue #2', branch: '', transcript: [], pr: null },
       },
-      sessionTriaged: 3,
-      sessionPlanned: 2,
-      sessionImplemented: 5,
-      sessionReviewed: 4,
-      mergedCount: 1,
       sessionPrsCount: 3,
     }
 
@@ -609,11 +408,6 @@ describe('useHydraFlowSocket reducer', () => {
       })
       expect(next.orchestratorStatus).toBe('idle')
       expect(next.workers).toEqual({})
-      expect(next.sessionTriaged).toBe(0)
-      expect(next.sessionPlanned).toBe(0)
-      expect(next.sessionImplemented).toBe(0)
-      expect(next.sessionReviewed).toBe(0)
-      expect(next.mergedCount).toBe(0)
       expect(next.sessionPrsCount).toBe(0)
     })
 
@@ -625,7 +419,6 @@ describe('useHydraFlowSocket reducer', () => {
       })
       expect(next.orchestratorStatus).toBe('done')
       expect(next.workers).toEqual({})
-      expect(next.sessionImplemented).toBe(0)
     })
 
     it('preserves workers and session stats when status is running', () => {
@@ -636,7 +429,6 @@ describe('useHydraFlowSocket reducer', () => {
       })
       expect(next.orchestratorStatus).toBe('running')
       expect(Object.keys(next.workers)).toHaveLength(2)
-      expect(next.sessionImplemented).toBe(5)
     })
 
     it('clears workers and session stats when status is stopping', () => {
@@ -647,7 +439,6 @@ describe('useHydraFlowSocket reducer', () => {
       })
       expect(next.orchestratorStatus).toBe('stopping')
       expect(next.workers).toEqual({})
-      expect(next.sessionImplemented).toBe(0)
     })
   })
 

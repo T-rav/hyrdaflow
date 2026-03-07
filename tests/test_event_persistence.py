@@ -418,10 +418,11 @@ class TestEventBusWithPersistence:
         log = EventLog(tmp_path / "events.jsonl")
         bus = EventBus(event_log=log)
 
-        # Make the directory read-only to force a write error
-        log.path.parent.mkdir(parents=True, exist_ok=True)
+        # Make the directory unreadable/unwritable to force a write error even on permissive FSes.
+        log_dir = log.path.parent
+        log_dir.mkdir(parents=True, exist_ok=True)
         log.path.touch()
-        log.path.chmod(0o000)
+        log_dir.chmod(0o000)
 
         try:
             event = _make_event(data={"fail": True})
@@ -431,6 +432,7 @@ class TestEventBusWithPersistence:
 
             assert "Could not append to event log" in caplog.text
         finally:
+            log_dir.chmod(0o755)
             log.path.chmod(0o644)
 
 

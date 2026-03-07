@@ -82,8 +82,15 @@ def build_container_kwargs(config: HydraFlowConfig) -> dict[str, Any]:
         kwargs["security_opt"] = security_opt
     kwargs["cap_drop"] = ["ALL"]
 
-    # Writable tmpfs for /tmp (container-internal mount, not a host path)
-    kwargs["tmpfs"] = {"/tmp": f"size={config.docker_tmp_size}"}  # nosec B108
+    # Writable tmpfs mounts (container-internal, not host paths).
+    # /tmp: general temp files.
+    # /home/hydraflow: agent tools (uv, npm, etc.) need a writable HOME for
+    # caches and config even when the root filesystem is read-only.
+    # uid/gid=1000 matches the container's hydraflow user.
+    kwargs["tmpfs"] = {
+        "/tmp": f"size={config.docker_tmp_size}",  # nosec B108
+        _CONTAINER_HOME: f"size={config.docker_tmp_size},uid=1000,gid=1000",
+    }
 
     logger.info(
         "Container constraints: cpu=%.1f mem=%s pids=%d net=%s readonly=%s",
@@ -308,12 +315,50 @@ class DockerRunner:
     async def __aexit__(self, *_: object) -> None:
         await self.cleanup()
 
+    @staticmethod
+    def _detect_worktree(cwd: str) -> str | None:
+        """If *cwd* is a git worktree, return the worktree name (e.g. ``issue-1944``).
+
+        Git worktrees have a ``.git`` *file* (not directory) containing a
+        ``gitdir:`` line that points to ``<repo>/.git/worktrees/<name>``.
+        Returns ``None`` when *cwd* is not a worktree.
+        """
+        git_path = Path(cwd) / ".git"
+        if not git_path.is_file():
+            return None
+        try:
+            content = git_path.read_text().strip()
+        except OSError:
+            return None
+        if not content.startswith("gitdir:"):
+            return None
+        gitdir = content.split(":", 1)[1].strip()
+        parts = Path(gitdir).parts
+        # Expect …/.git/worktrees/<name>
+        try:
+            wt_idx = parts.index("worktrees")
+            return parts[wt_idx + 1]
+        except (ValueError, IndexError):
+            return None
+
     def _build_mounts(self, cwd: str | None) -> dict[str, dict[str, str]]:
         """Build Docker volume mount specification."""
         mounts: dict[str, dict[str, str]] = {}
         if cwd:
             mounts[cwd] = {"bind": "/workspace", "mode": "rw"}
-        mounts[str(self._repo_root)] = {"bind": "/repo", "mode": "ro"}
+        # Only mount /repo separately when it differs from cwd — otherwise
+        # the dict key collision overwrites the /workspace mount with /repo.
+        repo_str = str(self._repo_root)
+        if repo_str != cwd:
+            mounts[repo_str] = {"bind": "/repo", "mode": "ro"}
+
+        # Mount the main .git directory (rw) so worktrees can commit.
+        # Worktree .git files reference <repo>/.git/worktrees/<name> which
+        # must exist inside the container for git operations to work.
+        git_dir = self._repo_root / ".git"
+        if git_dir.is_dir():
+            mounts[str(git_dir)] = {"bind": "/dot-git", "mode": "rw"}
+
         self._log_dir.mkdir(parents=True, exist_ok=True)
         mounts[str(self._log_dir)] = {"bind": "/logs", "mode": "rw"}
         mounts.update(self._get_user_tool_mounts())
@@ -323,6 +368,24 @@ class DockerRunner:
                 mode = parts[2] if len(parts) > 2 else "ro"
                 mounts[parts[0]] = {"bind": parts[1], "mode": mode}
         return mounts
+
+    def _worktree_git_env(self, cwd: str | None) -> dict[str, str]:
+        """Return ``GIT_DIR`` / ``GIT_WORK_TREE`` env vars when *cwd* is a worktree.
+
+        Instead of rewriting the ``.git`` file inside the container (which
+        corrupts the host worktree when the container is killed), we set
+        environment variables that tell git where the gitdir lives.  This is
+        safe regardless of how the container exits.
+        """
+        if not cwd:
+            return {}
+        wt_name = self._detect_worktree(cwd)
+        if not wt_name:
+            return {}
+        return {
+            "GIT_DIR": f"/dot-git/worktrees/{wt_name}",
+            "GIT_WORK_TREE": "/workspace",
+        }
 
     def _get_user_tool_mounts(self) -> dict[str, dict[str, str]]:
         """Return cached user-tool mounts, refreshing when env/home selection changes."""
@@ -399,6 +462,11 @@ class DockerRunner:
             env["CODEX_HOME"] = _CONTAINER_CODEX_HOME
         if env.get("CLAUDE_CONFIG_DIR"):
             env["CLAUDE_CONFIG_DIR"] = _CONTAINER_CLAUDE_HOME
+        # Ensure temp dirs use the writable tmpfs, not the readonly root fs.
+        env.setdefault("TMPDIR", "/tmp")  # nosec B108  # noqa: S108
+        # HOME must point to the writable tmpfs so tools (uv, npm, git) can
+        # write caches and config without fighting a read-only root fs.
+        env.setdefault("HOME", _CONTAINER_HOME)
         return env
 
     def _get_resource_kwargs(self) -> dict[str, Any]:
@@ -447,13 +515,14 @@ class DockerRunner:
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
+        container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
 
         needs_stdin = stdin is None or stdin == asyncio.subprocess.PIPE
 
         container_kwargs: dict[str, Any] = {
             "image": self._image,
-            "command": cmd,
+            "command": list(cmd),
             "environment": container_env,
             "volumes": mounts,
             "stdin_open": needs_stdin,
@@ -485,7 +554,9 @@ class DockerRunner:
             return cast(
                 asyncio.subprocess.Process,
                 DockerProcess(
-                    cast(ContainerLike, container), cast(DockerSocket, socket), loop
+                    cast(ContainerLike, container),
+                    cast(DockerSocket, socket),
+                    loop,
                 ),
             )
         except Exception:
@@ -517,11 +588,12 @@ class DockerRunner:
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
+        container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
 
         container_kwargs: dict[str, Any] = {
             "image": self._image,
-            "command": cmd,
+            "command": list(cmd),
             "environment": container_env,
             "volumes": mounts,
             "detach": True,
