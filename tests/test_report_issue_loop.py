@@ -253,6 +253,52 @@ class TestReportIssueLoopDoWork:
         assert ".png" in prompt
 
     @pytest.mark.asyncio
+    async def test_data_uri_screenshot_saved_as_temp_file(self, tmp_path: Path) -> None:
+        """A data URI screenshot is normalized and saved as a temp PNG."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        raw_png = base64.b64encode(b"\x89PNG\r\n").decode()
+        report = PendingReport(
+            description="Data URI screenshot",
+            screenshot_base64=f"data:image/png;base64,{raw_png}",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/88"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" in prompt
+
+    @pytest.mark.asyncio
+    async def test_invalid_screenshot_payload_continues_without_attachment(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid screenshot payloads do not crash processing."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = PendingReport(
+            description="Broken screenshot payload",
+            screenshot_base64="data:image/png;base64,not-valid-base64",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/89"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" not in prompt
+        pr_mgr.upload_screenshot_gist.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_screenshot_with_secrets_still_creates_issue(
         self, tmp_path: Path
     ) -> None:
