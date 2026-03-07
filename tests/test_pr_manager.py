@@ -1741,9 +1741,7 @@ class TestSumLabelCounts:
         assert mgr._search_github_count.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_skips_failed_label_and_continues(
-        self, event_bus, tmp_path, caplog
-    ):
+    async def test_skips_failed_label_and_continues(self, event_bus, tmp_path, caplog):
         """Errors from _search_github_count should be swallowed and logged at debug."""
         import logging
 
@@ -1775,9 +1773,7 @@ class TestSumLabelCounts:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-        mgr._search_github_count = AsyncMock(
-            side_effect=RuntimeError("network error")
-        )
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
 
         result = await mgr._sum_label_counts(
             ["label-a", "label-b"],
@@ -3478,7 +3474,6 @@ class TestCountHelpers:
         assert captured_queries == [
             'repo:test-org/test-repo is:pr is:merged label:"hydraflow-fixed"'
         ]
-
 
 
 # ---------------------------------------------------------------------------

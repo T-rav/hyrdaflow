@@ -140,7 +140,11 @@ class PRManager:
             if dry_run_log:
                 logger.info(dry_run_log)
             return dry_run_return
-        exc_types = exceptions if exceptions is not None else (RuntimeError, json.JSONDecodeError)
+        exc_types = (
+            exceptions
+            if exceptions is not None
+            else (RuntimeError, json.JSONDecodeError)
+        )
         try:
             raw = await self._run_gh(*cmd)
             return loader(raw)
