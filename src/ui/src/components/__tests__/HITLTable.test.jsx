@@ -53,6 +53,16 @@ describe('HITLTable component', () => {
     expect(screen.getByText('No stuck issues')).toBeInTheDocument()
   })
 
+  it('shows empty state when items prop is omitted', () => {
+    render(<HITLTable onRefresh={() => {}} />)
+    expect(screen.getByText('No stuck issues')).toBeInTheDocument()
+  })
+
+  it('shows empty state when items prop is null', () => {
+    render(<HITLTable items={null} onRefresh={() => {}} />)
+    expect(screen.getByText('No stuck issues')).toBeInTheDocument()
+  })
+
   it('renders status column header', () => {
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
     expect(screen.getByText('Status')).toBeInTheDocument()

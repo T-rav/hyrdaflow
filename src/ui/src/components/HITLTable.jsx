@@ -4,11 +4,12 @@ import { PIPELINE_STAGES } from '../constants'
 import { useHITLCorrection } from '../hooks/useHITLCorrection'
 
 export function HITLTable({ items, onRefresh }) {
+  const safeItems = Array.isArray(items) ? items : []
   const [expandedIssue, setExpandedIssue] = useState(null)
   const [summaryExpandedIssue, setSummaryExpandedIssue] = useState(null)
   const [summaries, setSummaries] = useState(() =>
     Object.fromEntries(
-      (items || []).map(item => [
+      safeItems.map(item => [
         item.issue,
         {
           text: item.llmSummary || '',
@@ -51,7 +52,7 @@ export function HITLTable({ items, onRefresh }) {
   useEffect(() => {
     setSummaries(prev => {
       const next = { ...prev }
-      for (const item of items || []) {
+      for (const item of safeItems) {
         if (item.llmSummary) {
           next[item.issue] = {
             text: item.llmSummary,
@@ -72,7 +73,7 @@ export function HITLTable({ items, onRefresh }) {
     })
   }, [items])
 
-  const visibleItems = items.filter(item => !closedIssues.has(item.issue))
+  const visibleItems = safeItems.filter(item => !closedIssues.has(item.issue))
 
   const toggleExpand = (issueNum) => {
     setExpandedIssue(prev => prev === issueNum ? null : issueNum)
