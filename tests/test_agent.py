@@ -293,6 +293,16 @@ class TestBuildPrompt:
         assert "push" in prompt.lower() or "Do NOT push" in prompt
         assert "pull request" in prompt.lower() or "pr create" in prompt.lower()
 
+    def test_prompt_forbids_interactive_git(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Prompt should forbid interactive git commands (no TTY in Docker)."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        assert "git add -i" in prompt
+        assert "git add -p" in prompt
+        assert "git rebase -i" in prompt
+
     def test_prompt_includes_common_feedback_when_reviews_exist(
         self, config, event_bus: EventBus, issue
     ) -> None:
