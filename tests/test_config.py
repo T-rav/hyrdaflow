@@ -100,11 +100,11 @@ class TestFindRepoRoot:
     def test_finds_git_root_initialized_with_subprocess(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should find the root of a real git repo created with git init."""
+        """Should find the root when a .git directory exists."""
         # Arrange
         git_root = tmp_path / "real_repo"
         git_root.mkdir()
-        subprocess.run(["git", "init", str(git_root)], check=True, capture_output=True)
+        (git_root / ".git").mkdir()
         nested = git_root / "a" / "b" / "c"
         nested.mkdir(parents=True)
         monkeypatch.chdir(nested)

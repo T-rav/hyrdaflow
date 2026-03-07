@@ -7123,6 +7123,42 @@ class TestDetectRepoSlugFromPath:
 class TestAddRepoByPath:
     """Tests for POST /api/repos/add endpoint."""
 
+    class _FakeGitProcess:
+        """Minimal async proc stub for git subprocess calls."""
+
+        def __init__(self, stdout: bytes, returncode: int = 0) -> None:
+            self._stdout = stdout
+            self.returncode = returncode
+
+        async def communicate(self):
+            return self._stdout, b""
+
+    def _mock_git_validation(
+        self,
+        repo_dir: Path,
+        *,
+        remote_url: str | None = "https://github.com/testowner/testrepo.git",
+    ):
+        """Patch asyncio.create_subprocess_exec for git validation + slug detection."""
+        expected_path = str(repo_dir.resolve())
+
+        async def fake_create_subprocess_exec(*cmd, **_kwargs):
+            assert cmd[0] == "git", f"unexpected binary {cmd[0]}"
+            assert cmd[1] == "-C", "git -C <path> expected"
+            assert cmd[2] == expected_path, f"unexpected repo path {cmd[2]}"
+            git_args = tuple(cmd[3:])
+            if git_args[:2] == ("rev-parse", "--git-dir"):
+                return self._FakeGitProcess(b".git\n", returncode=0)
+            if git_args[:3] == ("remote", "get-url", "origin"):
+                stdout = (remote_url + "\n").encode() if remote_url else b""
+                return self._FakeGitProcess(stdout, returncode=0)
+            raise AssertionError(f"unexpected git args {git_args}")
+
+        return patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        )
+
     def _make_router(self, config, event_bus, state, tmp_path):
         from dashboard_routes import create_router
         from pr_manager import PRManager
@@ -7271,24 +7307,9 @@ class TestAddRepoByPath:
     ) -> None:
         """Valid git repo path is registered with supervisor."""
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "my-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/testowner/testrepo.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7312,7 +7333,12 @@ class TestAddRepoByPath:
             )
             endpoint = self._get_endpoint(router)
 
-            with patch("prep.ensure_labels", new_callable=AsyncMock):
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/testowner/testrepo.git"
+                ),
+                patch("prep.ensure_labels", new_callable=AsyncMock),
+            ):
                 resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
@@ -7330,24 +7356,9 @@ class TestAddRepoByPath:
     ) -> None:
         """Labels fail but repo is still registered with a warning."""
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "label-fail-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/org/labeltest.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7371,10 +7382,15 @@ class TestAddRepoByPath:
             )
             endpoint = self._get_endpoint(router)
 
-            with patch(
-                "prep.ensure_labels",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("gh not found"),
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/org/labeltest.git"
+                ),
+                patch(
+                    "prep.ensure_labels",
+                    new_callable=AsyncMock,
+                    side_effect=RuntimeError("gh not found"),
+                ),
             ):
                 resp = await endpoint({"path": str(repo_dir)})
 
@@ -7392,24 +7408,9 @@ class TestAddRepoByPath:
         tmp_path: Path,
     ) -> None:
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "supervisor-down-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/org/down.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7442,7 +7443,12 @@ class TestAddRepoByPath:
                 template_dir=tmp_path / "no-templates",
             )
             endpoint = self._get_endpoint(router)
-            with patch("prep.ensure_labels", new_callable=AsyncMock) as ensure_labels:
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/org/down.git"
+                ),
+                patch("prep.ensure_labels", new_callable=AsyncMock) as ensure_labels,
+            ):
                 resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
@@ -7460,24 +7466,9 @@ class TestAddRepoByPath:
         tmp_path: Path,
     ) -> None:
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "supervisor-autostart-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/org/autostart.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7513,7 +7504,12 @@ class TestAddRepoByPath:
                 template_dir=tmp_path / "no-templates",
             )
             endpoint = self._get_endpoint(router)
-            with patch("prep.ensure_labels", new_callable=AsyncMock):
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/org/autostart.git"
+                ),
+                patch("prep.ensure_labels", new_callable=AsyncMock),
+            ):
                 resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
