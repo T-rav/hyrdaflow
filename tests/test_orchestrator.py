@@ -383,6 +383,33 @@ class TestRunLoop:
 # ---------------------------------------------------------------------------
 
 
+class TestRunCallsSanitizeRepo:
+    """Verify run() calls sanitize_repo at startup and shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_sanitize_repo_called_on_startup(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        _mock_fetcher_noop(orch)
+
+        async def plan_and_stop() -> list[PlanResult]:
+            orch._stop_event.set()
+            return []
+
+        orch._planner_phase.plan_issues = plan_and_stop  # type: ignore[method-assign]
+        orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        with patch.object(
+            orch._worktrees, "sanitize_repo", new_callable=AsyncMock
+        ) as mock_sanitize:
+            await orch.run()
+
+        # Called at startup + shutdown = at least 2 times
+        assert mock_sanitize.await_count >= 2
+
+
 class TestRunFinallyTerminatesRunners:
     """Tests that run() finally block terminates all runners."""
 

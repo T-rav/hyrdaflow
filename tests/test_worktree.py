@@ -2791,6 +2791,38 @@ class TestPostWorkCleanup:
         assert any("worktree prune" in c for c in cmd_strs)
 
 
+# ---------------------------------------------------------------------------
+# Wiring: pre_work_check called from create
+# ---------------------------------------------------------------------------
+
+
+class TestCreateCallsPreWorkCheck:
+    """Verify WorktreeManager.create calls pre_work_check before creating."""
+
+    @pytest.mark.asyncio
+    async def test_create_calls_pre_work_check(self, config) -> None:
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = make_proc(returncode=0)
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=success_proc),
+            patch.object(
+                manager, "_assert_origin_matches_repo", new_callable=AsyncMock
+            ),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(manager, "_setup_env"),
+            patch.object(manager, "_create_venv", new_callable=AsyncMock),
+            patch.object(manager, "_install_hooks", new_callable=AsyncMock),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock) as mock_pre,
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+        mock_pre.assert_awaited_once()
+
+
 # NOTE: Tests for the subprocess helper (stdout parsing, error handling,
 # GH_TOKEN injection, CLAUDECODE stripping) are now in test_subprocess_util.py
 # since the logic was extracted into subprocess_util.run_subprocess.
