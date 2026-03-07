@@ -698,11 +698,11 @@ class ReviewPhase:
 
         if not skip:
             try:
-                await self._worktrees.destroy(pr.issue_number)
+                await self._worktrees.post_work_cleanup(pr.issue_number)
                 self._state.remove_worktree(pr.issue_number)
             except RuntimeError as exc:
                 logger.warning(
-                    "Could not destroy worktree for issue #%d: %s",
+                    "Could not clean up worktree for issue #%d: %s",
                     pr.issue_number,
                     exc,
                 )

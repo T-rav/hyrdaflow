@@ -762,6 +762,7 @@ class HydraFlowOrchestrator:
             self._config.poll_interval,
         )
 
+        await self._worktrees.sanitize_repo()
         await self._prs.ensure_labels_exist()
         await self._enable_rerere()
         self._warn_if_agents_md_missing()
@@ -775,6 +776,8 @@ class HydraFlowOrchestrator:
             self._agents.terminate()
             self._reviewers.terminate()
             self._hitl_runner.terminate()
+            with contextlib.suppress(Exception):
+                await self._worktrees.sanitize_repo()
             await asyncio.sleep(0)
             self._running = False
             await self._publish_status()

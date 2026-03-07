@@ -2602,6 +2602,144 @@ class TestDetectUiDirs:
         assert manager._ui_dirs == ["webapp"]
 
 
+# ---------------------------------------------------------------------------
+# sanitize_repo
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeRepo:
+    """Tests for WorktreeManager.sanitize_repo."""
+
+    @pytest.mark.asyncio
+    async def test_sanitize_prunes_and_checks_out_main(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "symbolic-ref", "--short", "HEAD"):
+                return "main\n"
+            if args == ("git", "branch", "--list", "agent/*"):
+                return "  agent/issue-99\n  agent/issue-100\n"
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
+        ):
+            await manager.sanitize_repo()
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("config --unset core.worktree" in c for c in cmd_strs)
+        assert any("worktree prune" in c for c in cmd_strs)
+        assert any("branch -D agent/issue-99" in c for c in cmd_strs)
+        assert any("branch -D agent/issue-100" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_sanitize_forces_checkout_when_on_wrong_branch(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "symbolic-ref", "--short", "HEAD"):
+                return "agent/issue-42\n"
+            if args == ("git", "branch", "--list", "agent/*"):
+                return ""
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
+        ):
+            await manager.sanitize_repo()
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("checkout -f main" in c for c in cmd_strs)
+        assert any("reset --hard origin/main" in c for c in cmd_strs)
+
+
+# ---------------------------------------------------------------------------
+# pre_work_check
+# ---------------------------------------------------------------------------
+
+
+class TestPreWorkCheck:
+    """Tests for WorktreeManager.pre_work_check."""
+
+    @pytest.mark.asyncio
+    async def test_pre_work_prunes_and_unsets_worktree(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
+        ):
+            await manager.pre_work_check()
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("worktree prune" in c for c in cmd_strs)
+        assert any("config --unset core.worktree" in c for c in cmd_strs)
+
+
+# ---------------------------------------------------------------------------
+# post_work_cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestPostWorkCleanup:
+    """Tests for WorktreeManager.post_work_cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_post_work_destroys_and_prunes(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "destroy", new_callable=AsyncMock) as mock_destroy,
+        ):
+            await manager.post_work_cleanup(42)
+
+        mock_destroy.assert_called_once_with(42)
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("worktree prune" in c for c in cmd_strs)
+        assert any("config --unset core.worktree" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_post_work_continues_if_destroy_fails(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "destroy", side_effect=RuntimeError("worktree gone")),
+        ):
+            await manager.post_work_cleanup(42)
+
+        # Should still prune and unset even if destroy fails
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("worktree prune" in c for c in cmd_strs)
+
+
 # NOTE: Tests for the subprocess helper (stdout parsing, error handling,
 # GH_TOKEN injection, CLAUDECODE stripping) are now in test_subprocess_util.py
 # since the logic was extracted into subprocess_util.run_subprocess.
