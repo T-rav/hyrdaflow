@@ -430,9 +430,8 @@ class ImplementPhase:
             if pushed:
                 pr = None
                 if not is_retry:
-                    draft = not result.success
                     gh_issue = GitHubIssue.from_task(issue)
-                    pr = await self._prs.create_pr(gh_issue, result.branch, draft=draft)
+                    pr = await self._prs.create_pr(gh_issue, result.branch)
                     result.pr_info = pr
                 else:
                     pr = await self._prs.find_open_pr_for_branch(
