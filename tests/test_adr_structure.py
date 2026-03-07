@@ -46,7 +46,7 @@ def _status_from_file(path: Path) -> str:
     content = path.read_text()
     match = re.search(r"\*\*Status:\*\*\s*(.+)", content)
     if not match:
-        raise AssertionError(f"{path.name} missing **Status:** metadata")
+        pytest.fail(f"{path.name} missing **Status:** metadata")
     return match.group(1).strip()
 
 
@@ -65,10 +65,11 @@ class TestADRFileStructure:
 
     def test_has_status_metadata(self, adr_path: Path) -> None:
         content = adr_path.read_text()
-        match = re.search(r"\*\*Status:\*\*\s*(\w+)", content)
+        match = re.search(r"\*\*Status:\*\*\s*(.+)", content)
         assert match, f"{adr_path.name} missing **Status:** metadata"
-        assert match.group(1) in STATUS_VALUES, (
-            f"{adr_path.name} has unrecognised status '{match.group(1)}'"
+        status = match.group(1).strip()
+        assert status in STATUS_VALUES, (
+            f"{adr_path.name} has unrecognised status '{status}'"
         )
 
     def test_has_date_metadata(self, adr_path: Path) -> None:
@@ -89,7 +90,7 @@ class TestADRFileStructure:
         for section in REQUIRED_SECTIONS:
             idx = content.find(section)
             if idx == -1:
-                pytest.skip(f"Section '{section}' not found")
+                pytest.fail(f"Section '{section}' not found")
             after = content[idx + len(section) :]
             next_heading = re.search(r"\n## ", after)
             body = after[: next_heading.start()] if next_heading else after
