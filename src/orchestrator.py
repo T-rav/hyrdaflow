@@ -1020,11 +1020,21 @@ class HydraFlowOrchestrator:
             enabled_name="review",
         )
 
+    async def _do_hitl_work(self) -> None:
+        """Fetch HITL issues, attempt auto-fixes, then process human corrections."""
+        hitl_issues = await self._fetcher.fetch_issues_by_labels(
+            list(self._config.hitl_label),
+            limit=50,
+        )
+        if hitl_issues:
+            await self._hitl_phase.attempt_auto_fixes(hitl_issues)
+        await self._hitl_phase.process_corrections()
+
     async def _hitl_loop(self) -> None:
         """Continuously process HITL corrections submitted via the dashboard."""
         await self._polling_loop(
             "hitl",
-            self._hitl_phase.process_corrections,
+            self._do_hitl_work,
             self._config.poll_interval,
         )
 
