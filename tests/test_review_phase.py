@@ -4742,7 +4742,6 @@ class TestRunInitialGuards:
         wt_path = config.worktree_path_for_issue(issue.id)
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        phase._should_skip_review = AsyncMock(return_value=False)
         phase._prepare_review_worktree = AsyncMock(return_value=wt_path)
 
         guards = await phase._run_initial_guards(0, pr, {issue.id: issue})
@@ -4751,21 +4750,6 @@ class TestRunInitialGuards:
         assert guards.task == issue
         assert guards.worktree_path == wt_path
         phase._prepare_review_worktree.assert_awaited_once_with(pr, issue, 0)
-
-    @pytest.mark.asyncio
-    async def test_skip_guard_short_circuits(self, config: HydraFlowConfig) -> None:
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create(issue_number=issue.id)
-
-        phase._should_skip_review = AsyncMock(return_value=True)
-        phase._prepare_review_worktree = AsyncMock()
-
-        result = await phase._run_initial_guards(0, pr, {issue.id: issue})
-
-        assert isinstance(result, ReviewResult)
-        assert result.summary.startswith("Skipped")
-        phase._prepare_review_worktree.assert_not_awaited()
 
 
 class TestPreReviewChecks:
