@@ -590,18 +590,20 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
 ## Review Instructions
 
-1. Evaluate three dimensions: correctness, completeness, and quality.
-2. Look for edge cases, missing error handling, security risks, test gaps, and style violations.
-3. You MUST find at least {min_findings} issues across all categories. If you find fewer, re-examine the code more carefully.
-4. If you genuinely find fewer than {min_findings} issues, include THOROUGH_REVIEW_COMPLETE:
+1. Evaluate four dimensions: **scope**, correctness, completeness, and quality.
+2. **Scope check (mandatory first step):** Compare every changed file against the issue title and description. Flag any file or change that is unrelated to the stated goal. Unrelated test files, docs, or config changes are scope creep — reject them. Follow CLAUDE.md rules strictly (e.g., never add tests for ADR markdown content).
+3. Look for edge cases, missing error handling, security risks, test gaps, and style violations.
+4. You MUST find at least {min_findings} issues across all categories. If you find fewer, re-examine the code more carefully.
+5. If you genuinely find fewer than {min_findings} issues, include THOROUGH_REVIEW_COMPLETE:
 ```
 THOROUGH_REVIEW_COMPLETE
+Scope: No issues — <justification>
 Correctness: No issues — <justification>
 Completeness: No issues — <justification>
 Quality: No issues — <justification>
 ```
 {verify_step}
-6. Run project audits on changed code:
+7. Run project audits on changed code:
    - Review code quality patterns (SRP, type hints, naming, complexity)
    - Review test quality (3As structure, factories, edge cases)
    - Check for security issues (injection, crypto, auth)

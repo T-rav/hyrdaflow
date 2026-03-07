@@ -2559,7 +2559,7 @@ class TestReviewInsightIntegration:
         call_args = phase._prs.create_task.call_args
         assert "[Review Insight]" in call_args.args[0]
         assert "hydraflow-improve" in call_args.args[2]
-        assert "hydraflow-hitl" in call_args.args[2]
+        assert "hydraflow-hitl" not in call_args.args[2]
 
     @pytest.mark.asyncio
     async def test_review_insight_does_not_refile_proposed_category(

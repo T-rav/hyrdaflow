@@ -24,7 +24,7 @@ from phase_utils import (
 from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
-from subprocess_util import AuthenticationError, CreditExhaustedError
+from subprocess_util import AuthenticationError, CreditExhaustedError, run_subprocess
 from task_source import TaskTransitioner
 from worktree import WorktreeManager
 
@@ -279,11 +279,38 @@ class ImplementPhase:
             error=f"Implementation attempt cap exceeded ({attempts - 1} attempts)",
         )
 
-    async def _setup_worktree_and_branch(self, issue: Task, branch: str) -> Path:
-        """Ensure worktree exists/resumed and branch is pushed."""
+    async def _setup_worktree_and_branch(
+        self, issue: Task, branch: str, *, reset_to_main: bool = False
+    ) -> Path:
+        """Ensure worktree exists/resumed and branch is pushed.
+
+        When *reset_to_main* is True (review-feedback retry), hard-reset the
+        branch to ``origin/main`` so the agent starts fresh instead of
+        re-implementing on top of previously rejected code.
+        """
         wt_path = self._config.worktree_path_for_issue(issue.id)
         if wt_path.is_dir():
-            logger.info("Resuming existing worktree for issue #%d", issue.id)
+            if reset_to_main:
+                logger.info(
+                    "Resetting worktree for issue #%d to main (review retry)",
+                    issue.id,
+                )
+                await run_subprocess(
+                    "git",
+                    "fetch",
+                    "origin",
+                    "main",
+                    cwd=wt_path,
+                )
+                await run_subprocess(
+                    "git",
+                    "reset",
+                    "--hard",
+                    "origin/main",
+                    cwd=wt_path,
+                )
+            else:
+                logger.info("Resuming existing worktree for issue #%d", issue.id)
         else:
             wt_path = await self._worktrees.create(issue.id, branch)
         self._state.set_worktree(issue.id, str(wt_path))
@@ -332,7 +359,9 @@ class ImplementPhase:
         review_feedback: str,
     ) -> WorkerResult:
         """Set up worktree, push branch, run agent, record metrics."""
-        wt_path = await self._setup_worktree_and_branch(issue, branch)
+        wt_path = await self._setup_worktree_and_branch(
+            issue, branch, reset_to_main=bool(review_feedback)
+        )
 
         result = await self._agents.run(
             issue,

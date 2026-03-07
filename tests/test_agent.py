@@ -690,6 +690,40 @@ class TestDiffSanityLoop:
         assert ok is False
         assert "debug code" in msg
 
+    @pytest.mark.asyncio
+    async def test_run_fails_when_diff_sanity_fails(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        """AgentRunner.run should return success=False when diff sanity fails."""
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_execute", new_callable=AsyncMock, return_value="transcript"
+            ),
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+print('debug')\n",
+            ),
+            patch.object(runner, "_save_transcript"),
+        ):
+            # Mock _execute to return RETRY for diff sanity (second call)
+            runner._execute = AsyncMock(
+                side_effect=[
+                    "transcript",  # implementation run
+                    "DIFF_SANITY_RESULT: RETRY\nSUMMARY: scope creep",
+                ]
+            )
+            result = await runner.run(issue, tmp_path, "agent/issue-42")
+
+        assert result.success is False
+        assert "Diff sanity" in (result.error or "")
+
 
 class TestTestAdequacyLoop:
     """Tests for the test adequacy check skill integration."""

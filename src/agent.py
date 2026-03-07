@@ -132,16 +132,22 @@ Run through this checklist before your final commit:
             )
             result.transcript = transcript
 
-            # Diff sanity + test adequacy skills (read-only checks)
+            # Diff sanity check (blocking — agent must fix flagged issues)
             sanity_ok, sanity_msg = await self._run_diff_sanity_loop(
                 task, worktree_path, branch, worker_id
             )
             if not sanity_ok:
                 logger.warning(
-                    "Diff sanity flagged issues for #%d: %s (non-blocking)",
+                    "Diff sanity flagged issues for #%d: %s",
                     task.id,
                     sanity_msg,
                 )
+                result.success = False
+                result.error = f"Diff sanity check failed: {sanity_msg}"
+                result.commits = await self._count_commits(worktree_path, branch)
+                await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
+                result.duration_seconds = time.monotonic() - start
+                return result
 
             adequacy_ok, adequacy_msg = await self._run_test_adequacy_loop(
                 task, worktree_path, branch, worker_id

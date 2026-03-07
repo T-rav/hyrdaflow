@@ -1223,15 +1223,8 @@ class ReviewPhase:
                 body = build_insight_issue_body(category, count, len(recent), evidence)
                 desc = CATEGORY_DESCRIPTIONS.get(category, category)
                 title = f"[Review Insight] Recurring feedback: {desc}"
-                labels = self._config.improve_label[:1] + self._config.hitl_label[:1]
-                issue_num = await self._transitioner.create_task(title, body, labels)
-                if issue_num:
-                    self._state.set_hitl_origin(
-                        issue_num, self._config.improve_label[0]
-                    )
-                    self._state.set_hitl_cause(
-                        issue_num, f"Recurring review pattern: {desc}"
-                    )
+                labels = self._config.improve_label[:1]
+                await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
         except Exception:  # noqa: BLE001
             status = "error"
