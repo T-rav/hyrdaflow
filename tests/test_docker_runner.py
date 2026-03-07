@@ -1404,7 +1404,7 @@ class TestDetectWorktree:
 class TestWorktreeGitEnv:
     """Tests for DockerRunner._worktree_git_env."""
 
-    def test_returns_git_env_for_worktree(self, tmp_path: Path) -> None:
+    def test_returns_git_dir_for_worktree(self, tmp_path: Path) -> None:
         (tmp_path / ".git").write_text("gitdir: /repo/.git/worktrees/issue-99\n")
         runner, _ = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
@@ -1412,7 +1412,7 @@ class TestWorktreeGitEnv:
         env = runner._worktree_git_env(str(tmp_path))
 
         assert env["GIT_DIR"] == "/dot-git/worktrees/issue-99"
-        assert env["GIT_WORK_TREE"] == "/workspace"
+        assert "GIT_WORK_TREE" not in env
 
     def test_empty_for_non_worktree(self, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
@@ -1428,6 +1428,74 @@ class TestWorktreeGitEnv:
 
         env = runner._worktree_git_env(None)
         assert env == {}
+
+
+class TestPatchWorktreeConfig:
+    """Tests for DockerRunner._patch_worktree_config / _unpatch_worktree_config."""
+
+    def test_patch_sets_core_worktree(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        git_dir = repo / ".git"
+        git_dir.mkdir()
+        wt_dir = git_dir / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+        # Create a minimal config
+        (wt_dir / "config").write_text("[core]\n\tbare = false\n")
+
+        wt_path = tmp_path / "workspace"
+        wt_path.mkdir()
+        (wt_path / ".git").write_text(f"gitdir: {wt_dir}\n")
+
+        runner, _ = _make_runner(repo_root=repo, log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        config_path = runner._patch_worktree_config(str(wt_path))
+
+        assert config_path is not None
+        content = config_path.read_text()
+        assert "core.worktree" in content or "worktree = /workspace" in content
+
+    def test_unpatch_removes_core_worktree(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        git_dir = repo / ".git"
+        git_dir.mkdir()
+        wt_dir = git_dir / "worktrees" / "issue-42"
+        wt_dir.mkdir(parents=True)
+        (wt_dir / "config").write_text("[core]\n\tbare = false\n")
+
+        wt_path = tmp_path / "workspace"
+        wt_path.mkdir()
+        (wt_path / ".git").write_text(f"gitdir: {wt_dir}\n")
+
+        runner, _ = _make_runner(repo_root=repo, log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        config_path = runner._patch_worktree_config(str(wt_path))
+        runner._unpatch_worktree_config(config_path)
+
+        content = (wt_dir / "config").read_text()
+        assert "/workspace" not in content
+
+    def test_patch_returns_none_for_non_worktree(self, tmp_path: Path) -> None:
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        assert runner._patch_worktree_config(str(tmp_path)) is None
+
+    def test_patch_returns_none_when_cwd_none(self, tmp_path: Path) -> None:
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        assert runner._patch_worktree_config(None) is None
+
+    def test_unpatch_handles_none(self, tmp_path: Path) -> None:
+        runner, _ = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        # Should not raise
+        runner._unpatch_worktree_config(None)
 
 
 class TestBuildMountsGitDir:

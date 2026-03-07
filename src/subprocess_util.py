@@ -209,10 +209,17 @@ def _is_auth_error(stderr: str) -> bool:
 def make_clean_env(gh_token: str = "") -> dict[str, str]:
     """Build a subprocess env dict with ``CLAUDECODE`` stripped.
 
+    Also strips ``GIT_WORK_TREE`` and ``GIT_DIR`` to prevent git
+    worktree corruption — these env vars override git's internal
+    resolution and cause ``core.worktree`` to be written to the
+    config, corrupting the repo for subsequent operations.
+
     When *gh_token* is non-empty it is injected as ``GH_TOKEN``.
     """
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
+    env.pop("GIT_WORK_TREE", None)
+    env.pop("GIT_DIR", None)
     if gh_token:
         env["GH_TOKEN"] = gh_token
     return env

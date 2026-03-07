@@ -12,6 +12,7 @@ import contextlib
 import logging
 import os
 import struct
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -267,6 +268,11 @@ class DockerProcess:
         result = await self._loop.run_in_executor(None, self._container.wait)
         code = int(result.get("StatusCode", 1))
         self.returncode = code
+        # Clean up core.worktree patch after container exits
+        unpatch = getattr(self, "_unpatch", None)
+        config = getattr(self, "_patched_config", None)
+        if unpatch and config:
+            unpatch(config)
         return code
 
 
@@ -370,12 +376,17 @@ class DockerRunner:
         return mounts
 
     def _worktree_git_env(self, cwd: str | None) -> dict[str, str]:
-        """Return ``GIT_DIR`` / ``GIT_WORK_TREE`` env vars when *cwd* is a worktree.
+        """Return ``GIT_DIR`` env var when *cwd* is a worktree.
 
-        Instead of rewriting the ``.git`` file inside the container (which
-        corrupts the host worktree when the container is killed), we set
-        environment variables that tell git where the gitdir lives.  This is
-        safe regardless of how the container exits.
+        Only ``GIT_DIR`` is set — **not** ``GIT_WORK_TREE``.  Setting
+        ``GIT_WORK_TREE`` causes git to persist a ``core.worktree``
+        entry in the gitdir config, which corrupts the host repo for
+        all subsequent operations after the container exits.
+
+        Instead, the worktree gitdir config is patched with the
+        container-side ``core.worktree`` value before the container
+        starts and cleaned up afterwards (see ``_patch_worktree_config``
+        / ``_unpatch_worktree_config``).
         """
         if not cwd:
             return {}
@@ -384,8 +395,59 @@ class DockerRunner:
             return {}
         return {
             "GIT_DIR": f"/dot-git/worktrees/{wt_name}",
-            "GIT_WORK_TREE": "/workspace",
         }
+
+    def _patch_worktree_config(self, cwd: str | None) -> Path | None:
+        """Set ``core.worktree`` in the worktree gitdir config to ``/workspace``.
+
+        Returns the config path so it can be cleaned up after the
+        container exits, or ``None`` if *cwd* is not a worktree.
+        """
+        if not cwd:
+            return None
+        wt_name = self._detect_worktree(cwd)
+        if not wt_name:
+            return None
+        config_path = self._repo_root / ".git" / "worktrees" / wt_name / "config"
+        if not config_path.exists():
+            return None
+        try:
+            subprocess.run(
+                [
+                    "git",
+                    "config",
+                    "--file",
+                    str(config_path),
+                    "core.worktree",
+                    "/workspace",
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except (subprocess.CalledProcessError, OSError) as exc:
+            logger.warning("Failed to patch worktree config: %s", exc)
+            return None
+        return config_path
+
+    def _unpatch_worktree_config(self, config_path: Path | None) -> None:
+        """Remove ``core.worktree`` from the worktree gitdir config."""
+        if config_path is None or not config_path.exists():
+            return
+        try:
+            subprocess.run(
+                [
+                    "git",
+                    "config",
+                    "--file",
+                    str(config_path),
+                    "--unset",
+                    "core.worktree",
+                ],
+                check=False,
+                capture_output=True,
+            )
+        except OSError as exc:
+            logger.warning("Failed to unpatch worktree config: %s", exc)
 
     def _get_user_tool_mounts(self) -> dict[str, dict[str, str]]:
         """Return cached user-tool mounts, refreshing when env/home selection changes."""
@@ -518,6 +580,9 @@ class DockerRunner:
         container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
 
+        # Patch worktree config so git resolves /workspace inside container
+        patched_config = self._patch_worktree_config(cwd)
+
         needs_stdin = stdin is None or stdin == asyncio.subprocess.PIPE
 
         container_kwargs: dict[str, Any] = {
@@ -551,15 +616,16 @@ class DockerRunner:
                 None,
                 lambda: container.attach_socket(params=attach_params),
             )
-            return cast(
-                asyncio.subprocess.Process,
-                DockerProcess(
-                    cast(ContainerLike, container),
-                    cast(DockerSocket, socket),
-                    loop,
-                ),
+            proc = DockerProcess(
+                cast(ContainerLike, container),
+                cast(DockerSocket, socket),
+                loop,
             )
+            proc._patched_config = patched_config  # type: ignore[attr-defined]
+            proc._unpatch = self._unpatch_worktree_config  # type: ignore[attr-defined]
+            return cast(asyncio.subprocess.Process, proc)
         except Exception:
+            self._unpatch_worktree_config(patched_config)
             with contextlib.suppress(Exception):
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
             self._containers.discard(container)
@@ -590,6 +656,9 @@ class DockerRunner:
         container_env = self._build_env()
         container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
+
+        # Patch worktree config so git resolves /workspace inside container
+        patched_config = self._patch_worktree_config(cwd)
 
         container_kwargs: dict[str, Any] = {
             "image": self._image,
@@ -643,6 +712,7 @@ class DockerRunner:
                 await loop.run_in_executor(None, container.kill)
             raise
         finally:
+            self._unpatch_worktree_config(patched_config)
             with contextlib.suppress(Exception):
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
             self._containers.discard(container)

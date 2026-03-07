@@ -212,6 +212,17 @@ def test_make_clean_env_no_gh_token() -> None:
     assert "GH_TOKEN" not in env
 
 
+def test_make_clean_env_strips_git_worktree_vars() -> None:
+    with patch.dict(
+        "os.environ",
+        {"GIT_WORK_TREE": "/workspace", "GIT_DIR": "/dot-git", "HOME": "/tmp"},
+        clear=False,
+    ):
+        env = make_clean_env()
+    assert "GIT_WORK_TREE" not in env
+    assert "GIT_DIR" not in env
+
+
 def test_make_clean_env_does_not_mutate_os_environ() -> None:
     with patch.dict("os.environ", {"CLAUDECODE": "1"}, clear=False):
         make_clean_env(gh_token="ghp_secret")
