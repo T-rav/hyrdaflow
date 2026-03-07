@@ -73,6 +73,15 @@ def setup_test_environment():
         os.environ.update(git_keys)
 
 
+@pytest.fixture(autouse=True)
+def _reset_gh_semaphore():
+    """Reset the global gh semaphore between tests to avoid stale event-loop binding."""
+    import subprocess_util
+
+    subprocess_util._gh_semaphore = None
+    subprocess_util._rate_limit_until = None
+
+
 # --- Config Fixtures ---
 
 
