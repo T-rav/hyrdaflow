@@ -142,6 +142,16 @@ class TestCheckEmptySections:
         codes = [i.code for i in result.issues]
         assert "empty_section_decision" in codes
 
+    def test_empty_consequences_detected(self) -> None:
+        content = (
+            "# ADR\n**Status:** Proposed\n"
+            "## Context\nctx\n## Decision\ndec\n## Consequences\n\n"
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "empty_section_consequences" in codes
+
     def test_nonempty_sections_pass(self) -> None:
         validator = ADRPreValidator()
         result = validator.validate(_valid_adr())
@@ -175,6 +185,15 @@ class TestCheckSupersession:
     def test_superseding_variant_detected(self) -> None:
         """Regex matches 'superseding' variant."""
         content = _valid_adr(decision="This is superseding ADR-8888.")
+        all_adrs = [(1, "Old ADR", "old content")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "invalid_supersession" in codes
+
+    def test_superseded_past_tense_detected(self) -> None:
+        """Regex matches 'superseded' past-tense variant."""
+        content = _valid_adr(decision="This ADR superseded ADR-7777.")
         all_adrs = [(1, "Old ADR", "old content")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)

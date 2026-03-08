@@ -31,7 +31,9 @@ class ADRValidationResult:
 
 
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
-_SUPERSEDE_RE = re.compile(r"supersed(?:es?|ing)\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE)
+_SUPERSEDE_RE = re.compile(
+    r"supersed(?:es?|ed|ing)\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE
+)
 _REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
 
 
