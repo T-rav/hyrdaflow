@@ -97,8 +97,10 @@ def _write_sequence_curl(
         'if [[ -f "${counter_file}" ]]; then\n'
         '  count="$(<"${counter_file}")"\n'
         "fi\n"
-        'mapfile -t responses < "${responses_file}"\n'
-        'total="${#responses[@]}"\n'
+        "total=0\n"
+        'while IFS= read -r _line || [[ -n "$_line" ]]; do\n'
+        "  total=$((total + 1))\n"
+        'done < "${responses_file}"\n'
         "if (( total == 0 )); then\n"
         "  printf '{}'\n"
         "  exit 0\n"
@@ -106,7 +108,14 @@ def _write_sequence_curl(
         "if (( count >= total )); then\n"
         "  count=$((total - 1))\n"
         "fi\n"
-        'printf "%s\\n" "${responses[count]}"\n'
+        "line_no=0\n"
+        'while IFS= read -r line || [[ -n "$line" ]]; do\n'
+        "  if (( line_no == count )); then\n"
+        '    printf "%s\\n" "$line"\n'
+        "    break\n"
+        "  fi\n"
+        "  line_no=$((line_no + 1))\n"
+        'done < "${responses_file}"\n'
         'echo $((count + 1)) > "${counter_file}"\n'
     )
     script_path.chmod(0o755)

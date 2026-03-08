@@ -266,7 +266,8 @@ health_probe() {
   if [[ ${quiet} -eq 0 ]]; then
     printf '%s\n' "${response}"
   fi
-  local require_ready="${HEALTHCHECK_REQUIRE_READY,,}"
+  local require_ready
+  require_ready="$(printf '%s' "${HEALTHCHECK_REQUIRE_READY:-}" | tr '[:upper:]' '[:lower:]')"
   if [[ "${require_ready}" =~ ^(1|true|yes)$ && "${ready}" != "true" ]]; then
     HEALTH_PROBE_LAST_CODE="not_ready"
     HEALTH_PROBE_LAST_MESSAGE="Service is not ready (ready=${ready:-unset})"
@@ -308,7 +309,8 @@ wait_for_health_ready() {
 }
 
 maybe_wait_for_ready() {
-  local wait_flag="${HEALTHCHECK_WAIT_FOR_READY,,}"
+  local wait_flag
+  wait_flag="$(printf '%s' "${HEALTHCHECK_WAIT_FOR_READY:-}" | tr '[:upper:]' '[:lower:]')"
   if [[ "${wait_flag}" =~ ^(1|true|yes)$ ]]; then
     wait_for_health_ready
   fi

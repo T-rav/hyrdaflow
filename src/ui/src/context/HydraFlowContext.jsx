@@ -43,6 +43,7 @@ export const initialState = {
   currentSessionId: null,
   selectedSessionId: null,
   selectedRepoSlug: null,
+  selectedRepoSlugRaw: null,
   supervisedRepos: [],
   runtimes: [],
   issueHistory: null,
@@ -54,7 +55,8 @@ export const initialState = {
 }
 
 function normalizeRepoSlug(value) {
-  return String(value || '').trim().replace(/[\\/]+/g, '-')
+  if (value == null) return null
+  return String(value).trim().replace(/[\\/]+/g, '-') || null
 }
 
 function isDuplicate(state, action) {
@@ -669,12 +671,25 @@ export function reducer(state, action) {
     case 'SELECT_SESSION':
       return { ...state, selectedSessionId: action.data.sessionId }
 
-    case 'SELECT_REPO':
+    case 'SELECT_REPO': {
+      const newSlug = normalizeRepoSlug(action.data.slug)
+      const changed = newSlug !== state.selectedRepoSlug
       return {
         ...state,
-        selectedRepoSlug: normalizeRepoSlug(action.data.slug),
+        selectedRepoSlug: newSlug,
+        selectedRepoSlugRaw: action.data.slug ?? null,
         selectedSessionId: null,
+        ...(changed && {
+          pipelineIssues: { ...emptyPipeline },
+          hitlItems: [],
+          workers: {},
+          prs: [],
+          reviews: [],
+          sessionPrsCount: 0,
+          events: [],
+        }),
       }
+    }
 
     case 'SET_RUNTIMES':
       return {
