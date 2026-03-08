@@ -5359,9 +5359,6 @@ class TestResolveHitlItemHelper:
 
         from models import HITLCloseRequest
 
-        events_received: list[object] = []
-        event_bus.subscribe("hitl_update", events_received.append)
-
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
         router, pr_mgr = self._make_router(
@@ -5380,6 +5377,12 @@ class TestResolveHitlItemHelper:
         assert outcome is not None
         assert outcome.outcome.value == "hitl_closed"
         assert outcome.reason == "Resolved elsewhere"
+
+        # Verify HITL_UPDATE event was published
+        hitl_events = [e for e in event_bus._history if e.type == EventType.HITL_UPDATE]
+        assert len(hitl_events) == 1
+        assert hitl_events[0].data["action"] == "close"
+        assert hitl_events[0].data["status"] == "resolved"
 
     @pytest.mark.asyncio
     async def test_resolve_returns_400_without_orchestrator(
