@@ -1021,6 +1021,7 @@ def make_implement_phase(
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,

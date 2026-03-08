@@ -58,6 +58,7 @@ class TestImplementBatch:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return next(r for r in expected if r.issue_number == issue.id)
 
@@ -80,6 +81,7 @@ class TestImplementBatch:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             concurrency_counter["current"] += 1
             concurrency_counter["peak"] = max(
@@ -233,6 +235,7 @@ class TestImplementIncludesPush:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             call_order.append("agent")
             return WorkerResultFactory.create(
@@ -295,6 +298,7 @@ class TestWorkerExceptionIsolation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             raise RuntimeError("agent crashed")
 
@@ -320,6 +324,7 @@ class TestWorkerExceptionIsolation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             raise RuntimeError("agent crashed")
 
@@ -343,6 +348,7 @@ class TestWorkerExceptionIsolation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             raise RuntimeError("agent crashed")
 
@@ -368,6 +374,7 @@ class TestWorkerExceptionIsolation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             nonlocal call_count
             call_count += 1
@@ -448,37 +455,121 @@ class TestWorktreeCreationFailure:
     async def test_review_retry_resets_worktree_to_main(
         self, config: HydraFlowConfig
     ) -> None:
-        """When review feedback exists, worktree branch should reset to origin/main."""
+        """When prior failure exists, worktree should reset via workspace manager."""
         from state import StateTracker
 
         issue = TaskFactory.create(id=99)
         state = StateTracker(config.state_file)
-        state.set_review_feedback(99, "Fix the scope creep")
+        # Record a prior failure so reset_for_retry triggers
+        state.set_worker_result_meta(99, {"error": "Previous attempt failed"})
+        state.increment_issue_attempts(99)
 
-        phase, mock_wt, _ = make_implement_phase(config, [issue])
+        captured_prior_failure: list[str] = []
+
+        async def capturing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+            prior_failure: str = "",
+        ) -> WorkerResult:
+            captured_prior_failure.append(prior_failure)
+            return WorkerResultFactory.create(
+                issue_number=issue.id,
+                success=True,
+                worktree_path=str(wt_path),
+            )
+
+        phase, mock_wt, _ = make_implement_phase(
+            config, [issue], agent_run=capturing_agent
+        )
 
         # Simulate existing worktree directory
         wt_path = config.worktree_path_for_issue(99)
         wt_path.mkdir(parents=True, exist_ok=True)
         phase._state = state
 
-        # Mock run_subprocess to track git reset calls
-        from unittest.mock import patch
+        results, _ = await phase.run_batch()
 
-        with patch(
-            "implement_phase.run_subprocess", new_callable=AsyncMock
-        ) as mock_run:
-            results, _ = await phase.run_batch()
+        # Verify workspace manager's reset_to_main was called
+        mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
+        # Verify prior_failure was passed to the agent
+        assert captured_prior_failure == ["Previous attempt failed"]
 
-        # Verify git fetch + reset --hard were called
-        fetch_calls = [c for c in mock_run.call_args_list if "fetch" in c.args]
-        reset_calls = [
-            c
-            for c in mock_run.call_args_list
-            if "reset" in c.args and "--hard" in c.args
-        ]
-        assert len(fetch_calls) >= 1, "Should fetch origin main"
-        assert len(reset_calls) >= 1, "Should reset --hard to origin/main"
+    @pytest.mark.asyncio
+    async def test_review_feedback_resets_worktree_to_main(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When review feedback exists (no prior error), worktree should still reset."""
+        from state import StateTracker
+
+        issue = TaskFactory.create(id=99)
+        state = StateTracker(config.state_file)
+        # Set review feedback with no prior error (successful attempt, rejected by reviewer)
+        state.set_review_feedback(99, "Please fix the scope creep")
+        state.set_worker_result_meta(99, {"error": None, "commits": 3})
+        state.increment_issue_attempts(99)
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+
+        wt_path = config.worktree_path_for_issue(99)
+        wt_path.mkdir(parents=True, exist_ok=True)
+        phase._state = state
+
+        results, _ = await phase.run_batch()
+
+        # Verify workspace manager's reset_to_main was called even with no prior error
+        mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
+
+    @pytest.mark.asyncio
+    async def test_review_feedback_suppresses_prior_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When review_feedback is present, prior_failure should NOT be injected.
+
+        A review-feedback retry means the previous implementation produced a PR.
+        Any error stored in meta is stale (e.g., a quality gate issue that was
+        eventually resolved). The agent should focus on the reviewer's comments,
+        not be distracted by that old error.
+        """
+        from state import StateTracker
+
+        issue = TaskFactory.create(id=99)
+        state = StateTracker(config.state_file)
+        # Simulate: prior run had commits but also a stale quality error
+        state.set_review_feedback(99, "Please fix the logic error")
+        state.set_worker_result_meta(99, {"error": "make quality failed", "commits": 3})
+        state.increment_issue_attempts(99)
+
+        captured_prior_failure: list[str] = []
+
+        async def capturing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+            prior_failure: str = "",
+        ) -> WorkerResult:
+            captured_prior_failure.append(prior_failure)
+            return WorkerResultFactory.create(
+                issue_number=issue.id,
+                success=True,
+                worktree_path=str(wt_path),
+            )
+
+        phase, mock_wt, _ = make_implement_phase(
+            config, [issue], agent_run=capturing_agent
+        )
+        wt_path = config.worktree_path_for_issue(99)
+        wt_path.mkdir(parents=True, exist_ok=True)
+        phase._state = state
+
+        await phase.run_batch()
+
+        # prior_failure must be empty — stale error suppressed when review_feedback present
+        assert captured_prior_failure == [""]
 
     @pytest.mark.asyncio
     async def test_stop_event_cancels_remaining_workers(
@@ -497,6 +588,7 @@ class TestWorktreeCreationFailure:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             # Simulate slow execution
             await asyncio.sleep(10)
@@ -540,6 +632,7 @@ class TestImplementLifecycleMetrics:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -568,6 +661,7 @@ class TestImplementLifecycleMetrics:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -596,6 +690,7 @@ class TestImplementLifecycleMetrics:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -637,6 +732,7 @@ class TestImplementLifecycleMetrics:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -677,6 +773,7 @@ class TestReviewFeedbackPassing:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             captured_feedback.append(review_feedback)
             return WorkerResultFactory.create(
@@ -712,6 +809,7 @@ class TestReviewFeedbackPassing:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
@@ -746,6 +844,7 @@ class TestReviewFeedbackPassing:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             captured_feedback.append(review_feedback)
             return WorkerResultFactory.create(
@@ -778,6 +877,7 @@ class TestReviewFeedbackPassing:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
@@ -818,6 +918,7 @@ class TestReviewFeedbackPassing:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
@@ -862,6 +963,7 @@ class TestWorkerResultMetaPersistence:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -897,6 +999,7 @@ class TestWorkerResultMetaPersistence:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -922,11 +1025,13 @@ class TestWorkerResultMetaPersistence:
 
 
 class TestZeroCommitEscalation:
-    """Tests that zero-commit failures escalate to HITL instead of closing."""
+    """Tests that zero-commit failures are handled as retryable failures."""
 
     @pytest.mark.asyncio
-    async def test_zero_commit_escalates_to_hitl(self, config: HydraFlowConfig) -> None:
-        """When agent returns zero commits, issue should escalate to HITL."""
+    async def test_zero_commit_marks_failed_without_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit should mark failed and allow retry, not directly escalate to HITL."""
         issue = TaskFactory.create()
 
         async def zero_commit_agent(
@@ -935,6 +1040,7 @@ class TestZeroCommitEscalation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -955,9 +1061,8 @@ class TestZeroCommitEscalation:
         comment_calls = [c.args for c in mock_prs.post_comment.call_args_list]
         assert any("Zero Commits" in c[1] for c in comment_calls)
 
-        # Issue should be escalated to HITL with cause
-        mock_prs.swap_pipeline_labels.assert_awaited_once_with(42, config.hitl_label[0])
-        assert phase._state.get_hitl_cause(42) == "implementation produced zero commits"
+        # Should NOT directly escalate to HITL — let attempt cap handle it
+        assert phase._state.get_hitl_cause(42) is None
 
     @pytest.mark.asyncio
     async def test_zero_commit_marks_issue_failed(
@@ -972,6 +1077,7 @@ class TestZeroCommitEscalation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1003,6 +1109,7 @@ class TestZeroCommitEscalation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1025,10 +1132,10 @@ class TestZeroCommitEscalation:
         assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
 
     @pytest.mark.asyncio
-    async def test_epic_child_zero_commit_cause_includes_epic_context(
+    async def test_epic_child_zero_commit_does_not_directly_escalate(
         self, config: HydraFlowConfig
     ) -> None:
-        """Epic child issues should have cause prefixed with epic context."""
+        """Epic child zero-commit should mark failed, not directly escalate."""
         issue = TaskFactory.create(
             tags=["hydraflow-epic-child"],
             body="## Parent Epic: #1551\n\nSome description",
@@ -1040,6 +1147,7 @@ class TestZeroCommitEscalation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1056,8 +1164,10 @@ class TestZeroCommitEscalation:
 
         await phase.run_batch()
 
+        # Zero-commit no longer directly escalates — should be None
         cause = phase._state.get_hitl_cause(42)
-        assert cause == "Epic child (#1551): implementation produced zero commits"
+        assert cause is None
+        assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -1069,10 +1179,10 @@ class TestPostMortemMemoryFiling:
     """Failure escalations file memory suggestions from agent transcripts."""
 
     @pytest.mark.asyncio
-    async def test_zero_commit_files_memory_from_transcript(
+    async def test_zero_commit_marks_failed_for_retry(
         self, config: HydraFlowConfig
     ) -> None:
-        """Zero-commit failure should attempt to file a memory suggestion."""
+        """Zero-commit failure should mark as failed (no HITL escalation) for retry."""
         issue = TaskFactory.create()
 
         async def zero_commit_agent(
@@ -1081,6 +1191,7 @@ class TestPostMortemMemoryFiling:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1096,11 +1207,18 @@ class TestPostMortemMemoryFiling:
             config, [issue], agent_run=zero_commit_agent
         )
 
-        await phase.run_batch()
+        results, _ = await phase.run_batch()
 
-        # Memory suggestion should be filed as an issue
-        create_calls = mock_prs.create_issue.call_args_list
-        assert any("[Memory]" in str(c) for c in create_calls)
+        # Should NOT escalate to HITL — just mark failed for retry
+        assert results[0].success is False
+        assert results[0].error == "No commits found on branch"
+        # No HITL transition should occur
+        hitl_calls = [
+            c
+            for c in mock_prs.swap_pipeline_labels.call_args_list
+            if any("hitl" in str(a).lower() for a in c.args + tuple(c.kwargs.values()))
+        ]
+        assert len(hitl_calls) == 0
 
     @pytest.mark.asyncio
     async def test_zero_commit_no_memory_when_no_transcript(
@@ -1115,6 +1233,7 @@ class TestPostMortemMemoryFiling:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1149,6 +1268,7 @@ class TestPostMortemMemoryFiling:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1227,6 +1347,7 @@ class TestRetryCapEscalation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             nonlocal agent_called
             agent_called = True
@@ -1306,6 +1427,7 @@ class TestCommitsPersistedInMeta:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1509,6 +1631,7 @@ class TestRunImplementation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             captured_feedback.append(review_feedback)
             return WorkerResultFactory.create(
@@ -1550,6 +1673,7 @@ class TestRunImplementation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResult(
                 issue_number=issue.id,
@@ -1575,8 +1699,10 @@ class TestHandleImplementationResult:
     """Unit tests for the _handle_implementation_result helper."""
 
     @pytest.mark.asyncio
-    async def test_zero_commit_escalates_to_hitl(self, config: HydraFlowConfig) -> None:
-        """Zero-commit failure should escalate to HITL, not close as satisfied."""
+    async def test_zero_commit_marks_failed_without_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit failure should mark as failed, not directly escalate to HITL."""
         issue = TaskFactory.create()
         result = WorkerResult(
             issue_number=42,
@@ -1592,8 +1718,9 @@ class TestHandleImplementationResult:
         returned = await phase._handle_implementation_result(issue, result, False)
 
         assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
-        mock_prs.swap_pipeline_labels.assert_awaited_once_with(42, config.hitl_label[0])
-        assert phase._state.get_hitl_cause(42) == "implementation produced zero commits"
+        # Should NOT directly escalate to HITL
+        mock_prs.swap_pipeline_labels.assert_not_awaited()
+        assert phase._state.get_hitl_cause(42) is None
         assert returned is result
 
     @pytest.mark.asyncio
@@ -1751,6 +1878,7 @@ class TestWorkerInner:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             nonlocal agent_called
             agent_called = True
@@ -1798,6 +1926,7 @@ class TestWorkerInner:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             nonlocal agent_called
             agent_called = True
@@ -1888,6 +2017,7 @@ class TestCriticalExceptionPropagation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             raise AuthenticationError("401 Unauthorized")
 
@@ -1913,6 +2043,7 @@ class TestCriticalExceptionPropagation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             raise CreditExhaustedError("limit reached")
 
@@ -1936,6 +2067,7 @@ class TestCriticalExceptionPropagation:
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             raise MemoryError("out of memory")
 
@@ -1976,3 +2108,173 @@ class TestADRSequence:
 
         plan_path = config.plans_dir / "issue-501.md"
         assert not plan_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Worktree reset between retries
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeResetOnRetry:
+    """Tests for worktree reset when prior failure context exists."""
+
+    @pytest.mark.asyncio
+    async def test_resets_worktree_when_prior_error_exists(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Existing worktree should be reset when there's a prior error."""
+        issue = TaskFactory.create()
+        wt_path = config.worktree_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+        # Set prior failure metadata
+        phase._state.set_worker_result_meta(
+            42, {"error": "TDD red phase modified non-test files: docs/adr/001.md"}
+        )
+
+        await phase._run_implementation(issue, "agent/issue-42", 0, "")
+
+        mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
+        mock_wt.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_reset_when_no_prior_error(self, config: HydraFlowConfig) -> None:
+        """Should not reset worktree when there's no prior error."""
+        issue = TaskFactory.create()
+        wt_path = config.worktree_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+
+        await phase._run_implementation(issue, "agent/issue-42", 0, "")
+
+        mock_wt.reset_to_main.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_creates_worktree_when_dir_missing_despite_prior_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When worktree dir doesn't exist, should create even with prior error."""
+        issue = TaskFactory.create()
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+        phase._state.set_worker_result_meta(42, {"error": "some prior error"})
+
+        await phase._run_implementation(issue, "agent/issue-42", 0, "")
+
+        mock_wt.create.assert_awaited_once()
+        mock_wt.reset_to_main.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reset_failure_does_not_crash(self, config: HydraFlowConfig) -> None:
+        """If reset_to_main raises, should log warning and continue."""
+        issue = TaskFactory.create()
+        wt_path = config.worktree_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+        phase._state.set_worker_result_meta(42, {"error": "prior error"})
+        mock_wt.reset_to_main = AsyncMock(side_effect=RuntimeError("reset failed"))
+
+        # Should not raise
+        await phase._run_implementation(issue, "agent/issue-42", 0, "")
+
+
+# ---------------------------------------------------------------------------
+# Prior failure context fed to agent
+# ---------------------------------------------------------------------------
+
+
+class TestPriorFailureFeedback:
+    """Tests for feeding prior failure context to the agent on retry."""
+
+    @pytest.mark.asyncio
+    async def test_prior_failure_passed_to_agent(self, config: HydraFlowConfig) -> None:
+        """Agent should receive prior_failure from state on retry."""
+        issue = TaskFactory.create()
+        captured: list[str] = []
+
+        async def capturing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+            prior_failure: str = "",
+        ) -> WorkerResult:
+            captured.append(prior_failure)
+            return WorkerResultFactory.create(
+                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+            )
+
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=capturing_agent)
+        phase._state.set_worker_result_meta(
+            issue.id, {"error": "TDD red phase modified non-test files"}
+        )
+
+        await phase._run_implementation(issue, f"agent/issue-{issue.id}", 0, "")
+
+        assert captured[0] == "TDD red phase modified non-test files"
+
+    @pytest.mark.asyncio
+    async def test_no_prior_failure_on_first_attempt(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """On first attempt with no prior meta, prior_failure should be empty."""
+        issue = TaskFactory.create()
+        captured: list[str] = []
+
+        async def capturing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+            prior_failure: str = "",
+        ) -> WorkerResult:
+            captured.append(prior_failure)
+            return WorkerResultFactory.create(
+                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+            )
+
+        phase, _, _ = make_implement_phase(config, [issue], agent_run=capturing_agent)
+
+        await phase._run_implementation(issue, "agent/issue-42", 0, "")
+
+        assert captured[0] == ""
+
+
+# ---------------------------------------------------------------------------
+# Zero-commit corrective retry (via attempt cap)
+# ---------------------------------------------------------------------------
+
+
+class TestZeroCommitCorrectiveRetry:
+    """Tests that zero-commit results get corrective retries via attempt cap."""
+
+    @pytest.mark.asyncio
+    async def test_zero_commit_comment_includes_attempt_count(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Zero-commit comment should show attempt/max info."""
+        issue = TaskFactory.create()
+        result = WorkerResult(
+            issue_number=42,
+            branch="agent/issue-42",
+            success=False,
+            error="No commits found on branch",
+            commits=0,
+            worktree_path=str(config.worktree_path_for_issue(42)),
+        )
+
+        phase, _, mock_prs = make_implement_phase(config, [issue])
+        # Simulate attempt 1 of 3
+        phase._state.increment_issue_attempts(42)
+
+        await phase._handle_implementation_result(issue, result, False)
+
+        comment_calls = [c.args for c in mock_prs.post_comment.call_args_list]
+        assert any("Attempt 1/3" in c[1] for c in comment_calls)
+        # Zero-commit path should NOT escalate to HITL — retry instead
+        mock_prs.transition_issue_label.assert_not_called()
