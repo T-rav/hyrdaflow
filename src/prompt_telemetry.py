@@ -42,6 +42,7 @@ class PromptTelemetry:
         self,
         config: HydraFlowConfig,
         pricing: ModelPricingTable | None = None,
+        state: Any | None = None,
     ) -> None:
         self._config = config
         self._dir = config.data_path("metrics", "prompt")
@@ -49,6 +50,7 @@ class PromptTelemetry:
         self._pr_stats_file = self._dir / "pr_stats.json"
         self._lock_file = self._dir / ".lock"
         self._pricing = pricing or load_pricing()
+        self._state = state
 
     def record(
         self,
@@ -209,6 +211,12 @@ class PromptTelemetry:
                 self._inferences_file,
                 exc_info=True,
             )
+
+        if self._state and hasattr(self._state, "append_inference"):
+            try:
+                self._state.append_inference(record)
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt inference write failed", exc_info=True)
 
     def _update_pr_stats(self, record: dict[str, object]) -> None:
         data = self._load_pr_stats()

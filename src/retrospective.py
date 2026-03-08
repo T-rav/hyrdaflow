@@ -215,6 +215,13 @@ class RetrospectiveCollector:
                 exc_info=True,
             )
 
+        # Dual-write to Dolt when available
+        if hasattr(self._state, "append_retrospective"):
+            try:
+                self._state.append_retrospective(entry.model_dump())
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt retrospective write failed", exc_info=True)
+
     def _load_recent(self, n: int) -> list[RetrospectiveEntry]:
         """Load the last *n* entries from the retrospective log."""
         if not self._retro_path.exists():

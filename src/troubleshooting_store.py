@@ -12,6 +12,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -53,9 +54,10 @@ class TroubleshootingPattern(BaseModel):
 class TroubleshootingPatternStore:
     """JSONL-backed store for learned troubleshooting patterns."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(self, memory_dir: Path, state: Any | None = None) -> None:
         self._memory_dir = memory_dir
         self._path = memory_dir / "troubleshooting_patterns.jsonl"
+        self._state = state
 
     def append_pattern(self, pattern: TroubleshootingPattern) -> None:
         """Append or merge *pattern* into the store.
@@ -82,6 +84,13 @@ class TroubleshootingPatternStore:
 
         self._write_all(all_patterns)
 
+        # Dual-write to Dolt when available
+        if self._state and hasattr(self._state, "append_troubleshooting_pattern"):
+            try:
+                self._state.append_troubleshooting_pattern(pattern.model_dump())
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt troubleshooting pattern write failed", exc_info=True)
+
     def load_patterns(
         self, *, language: str | None = None, limit: int | None = 10
     ) -> list[TroubleshootingPattern]:
@@ -89,7 +98,27 @@ class TroubleshootingPatternStore:
 
         Returns up to *limit* patterns sorted by frequency descending.
         Pass ``limit=None`` to return all patterns without a cap.
+        Tries Dolt first when available, falls back to file.
         """
+        if self._state and hasattr(self._state, "load_troubleshooting_patterns"):
+            try:
+                rows = self._state.load_troubleshooting_patterns(
+                    language=language, limit=limit
+                )
+                if rows:
+                    patterns = []
+                    for row in rows:
+                        try:
+                            patterns.append(TroubleshootingPattern.model_validate(row))
+                        except Exception:  # noqa: BLE001
+                            continue
+                    if patterns:
+                        return patterns
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "Dolt troubleshooting load failed, falling back", exc_info=True
+                )
+
         all_patterns = self._load_all()
         if language:
             lang_lower = language.lower()

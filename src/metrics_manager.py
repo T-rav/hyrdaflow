@@ -83,6 +83,13 @@ class MetricsManager:
         # Always write to local cache first
         self._save_to_local_cache(snapshot)
 
+        # Dual-write to Dolt when available
+        if hasattr(self._state, "record_metrics_snapshot"):
+            try:
+                self._state.record_metrics_snapshot(snapshot.model_dump())
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt metrics snapshot write failed", exc_info=True)
+
         if self._config.dry_run:
             logger.info("[dry-run] Would post metrics snapshot")
             self._state.update_metrics_state(snapshot_hash)
@@ -146,7 +153,23 @@ class MetricsManager:
         """Load metrics snapshots from local disk cache.
 
         Returns up to *limit* snapshots, oldest-first.
+        Tries Dolt first when available, falls back to file.
         """
+        if hasattr(self._state, "get_metrics_history"):
+            try:
+                rows = self._state.get_metrics_history(limit=limit)
+                if rows:
+                    snapshots = []
+                    for row in rows:
+                        try:
+                            snapshots.append(MetricsSnapshot.model_validate(row))
+                        except ValidationError:
+                            continue
+                    if snapshots:
+                        return snapshots
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt metrics history load failed, falling back", exc_info=True)
+
         snapshots_file = self._cache_dir / "snapshots.jsonl"
         if not snapshots_file.exists():
             return []

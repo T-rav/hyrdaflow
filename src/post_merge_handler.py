@@ -103,7 +103,7 @@ class PostMergeHandler:
         self._verification_judge = verification_judge
         self._epic_checker = epic_checker
         self._update_bg_worker_status = update_bg_worker_status
-        self._prompt_telemetry = PromptTelemetry(config)
+        self._prompt_telemetry = PromptTelemetry(config, state=state)
         self._epic_manager = epic_manager
 
     def _should_defer_merge(self, issue_number: int) -> bool:

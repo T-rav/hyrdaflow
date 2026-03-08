@@ -542,66 +542,66 @@ class TestBuildPrompt:
 
 
 class TestGetEscalationData:
-    """Tests for the _get_escalation_data method (JSON round-trip and error handling)."""
+    """Tests for the _get_escalation_data method (direct _insights path)."""
 
     def test_returns_empty_list_when_no_reviews(
         self, config, event_bus: EventBus
     ) -> None:
-        """Returns [] when context cache returns empty string."""
+        """Returns [] when _insights.load_recent returns empty list."""
         runner = AgentRunner(config, event_bus)
         with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            return_value=("", False),
+            runner._insights,
+            "load_recent",
+            return_value=[],
         ):
             result = runner._get_escalation_data()
         assert result == []
 
-    def test_returns_deserialized_escalations(
+    def test_returns_escalations_from_insights(
         self, config, event_bus: EventBus
     ) -> None:
-        """Deserializes JSON returned from cache back to list of dicts."""
-        import json
+        """Returns escalation data from _insights.load_recent."""
+        from review_insights import ReviewRecord, ReviewVerdict
 
-        escalation = {
-            "category": "missing_tests",
-            "count": 4,
-            "mandatory_block": "## Mandatory Requirements\nTests are required.",
-            "checklist_items": ["- [ ] Every function has a test"],
-            "pre_quality_guidance": "Check tests.",
-        }
+        records = [
+            ReviewRecord(
+                pr_number=i,
+                issue_number=i,
+                timestamp="2025-01-01T00:00:00+00:00",
+                verdict=ReviewVerdict.REQUEST_CHANGES,
+                summary="missing test coverage for new functions",
+                fixes_made=False,
+                categories=["missing_tests"],
+            )
+            for i in range(5)
+        ]
         runner = AgentRunner(config, event_bus)
         with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            return_value=(json.dumps([escalation]), False),
+            runner._insights,
+            "load_recent",
+            return_value=records,
         ):
             result = runner._get_escalation_data()
-        assert len(result) == 1
+        assert len(result) >= 1
         assert result[0]["category"] == "missing_tests"
-        assert result[0]["count"] == 4
 
-    def test_returns_empty_list_on_json_error(
+    def test_returns_empty_list_when_insights_is_none(
         self, config, event_bus: EventBus
     ) -> None:
-        """Returns [] when cache contains malformed JSON."""
+        """Returns [] when _insights is falsy."""
         runner = AgentRunner(config, event_bus)
-        with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            return_value=("not-valid-json", False),
-        ):
-            result = runner._get_escalation_data()
+        runner._insights = None  # type: ignore[assignment]
+        result = runner._get_escalation_data()
         assert result == []
 
-    def test_returns_empty_list_on_cache_exception(
+    def test_returns_empty_list_on_exception(
         self, config, event_bus: EventBus
     ) -> None:
-        """Returns [] when the cache raises an unexpected exception."""
+        """Returns [] when _insights raises an unexpected exception."""
         runner = AgentRunner(config, event_bus)
         with patch.object(
-            runner._context_cache,
-            "get_or_load",
+            runner._insights,
+            "load_recent",
             side_effect=OSError("disk error"),
         ):
             result = runner._get_escalation_data()

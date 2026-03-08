@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("hydraflow.model_pricing")
 
@@ -42,17 +43,29 @@ class ModelRate:
 class ModelPricingTable:
     """Loads and resolves model pricing from the managed JSON asset."""
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, state: Any | None = None) -> None:
         self._path = path or _ASSET_PATH
         self._rates: dict[str, ModelRate] = {}
         self._aliases: dict[str, str] = {}
         self._loaded = False
+        self._state = state
 
     def _load(self) -> None:
         """Parse the pricing JSON and build lookup tables."""
         if self._loaded:
             return
         self._loaded = True
+
+        # Try Dolt first
+        if self._state and hasattr(self._state, "load_all_model_pricing"):
+            try:
+                rows = self._state.load_all_model_pricing()
+                if rows:
+                    self._load_from_dolt_rows(rows)
+                    return
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt pricing load failed, falling back", exc_info=True)
+
         if not self._path.is_file():
             logger.warning("Model pricing asset not found: %s", self._path)
             return
@@ -123,6 +136,55 @@ class ModelPricingTable:
         )
 
 
-def load_pricing(path: Path | None = None) -> ModelPricingTable:
+    def _load_from_dolt_rows(self, rows: list[dict[str, Any]]) -> None:
+        """Populate rates and aliases from Dolt query rows."""
+        for row in rows:
+            model_id = str(row.get("model_id", "")).strip()
+            if not model_id:
+                continue
+            try:
+                rate = ModelRate(
+                    input_cost_per_million=float(row.get("input_cost_per_million", 0)),
+                    output_cost_per_million=float(row.get("output_cost_per_million", 0)),
+                    cache_write_cost_per_million=float(
+                        row.get("cache_write_cost_per_million", 0)
+                    ),
+                    cache_read_cost_per_million=float(
+                        row.get("cache_read_cost_per_million", 0)
+                    ),
+                )
+            except (TypeError, ValueError):
+                continue
+            self._rates[model_id] = rate
+            aliases = row.get("aliases", [])
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    if isinstance(alias, str):
+                        self._aliases[alias.lower()] = model_id
+
+    def seed_dolt(self) -> None:
+        """Seed the Dolt backend with data from the JSON asset file."""
+        if not self._state or not hasattr(self._state, "upsert_model_pricing"):
+            return
+        self._load()
+        for model_id, rate in self._rates.items():
+            aliases = [
+                alias
+                for alias, canonical in self._aliases.items()
+                if canonical == model_id
+            ]
+            self._state.upsert_model_pricing(
+                model_id=model_id,
+                input_cost_per_million=rate.input_cost_per_million,
+                output_cost_per_million=rate.output_cost_per_million,
+                cache_write_cost_per_million=rate.cache_write_cost_per_million,
+                cache_read_cost_per_million=rate.cache_read_cost_per_million,
+                aliases=aliases,
+            )
+
+
+def load_pricing(
+    path: Path | None = None, state: Any | None = None
+) -> ModelPricingTable:
     """Load the model pricing table from the default or given path."""
-    return ModelPricingTable(path)
+    return ModelPricingTable(path, state=state)

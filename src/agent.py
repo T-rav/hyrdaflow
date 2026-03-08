@@ -311,47 +311,26 @@ Run through this checklist before your final commit:
         Returns an empty string if no data is available or on any error.
         """
         try:
-            reviews_path = self._config.memory_dir / "reviews.jsonl"
-
-            def _load_feedback(_cfg: HydraFlowConfig) -> str:
-                recent = self._insights.load_recent(self._config.review_insight_window)
-                return get_common_feedback_section(recent)
-
-            feedback, _hit = self._context_cache.get_or_load(
-                key="common_review_feedback",
-                source_path=reviews_path,
-                loader=_load_feedback,
-            )
-            return feedback
+            if not self._insights:
+                return ""
+            recent = self._insights.load_recent(self._config.review_insight_window)
+            return get_common_feedback_section(recent)
         except Exception:  # noqa: BLE001
             return ""
 
     def _get_escalation_data(self) -> list[dict[str, str | int | list[str]]]:
         """Return escalation data for recurring feedback categories.
 
-        Uses the context cache with a separate key. The cache stores
-        JSON-serialized data since the cache interface is typed for strings.
         Returns an empty list on any error.
         """
         try:
-            reviews_path = self._config.memory_dir / "reviews.jsonl"
-
-            def _load_escalations(_cfg: HydraFlowConfig) -> str:
-                recent = self._insights.load_recent(self._config.review_insight_window)
-                data = get_escalation_data(
-                    recent,
-                    threshold=self._config.review_pattern_threshold,
-                )
-                return json.dumps(data)
-
-            raw, _hit = self._context_cache.get_or_load(
-                key="review_escalations",
-                source_path=reviews_path,
-                loader=_load_escalations,
-            )
-            if not raw:
+            if not self._insights:
                 return []
-            return json.loads(raw)  # type: ignore[no-any-return]
+            recent = self._insights.load_recent(self._config.review_insight_window)
+            return get_escalation_data(
+                recent,
+                threshold=self._config.review_pattern_threshold,
+            )
         except Exception:  # noqa: BLE001
             return []
 

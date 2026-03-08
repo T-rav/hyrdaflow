@@ -1721,7 +1721,7 @@ def create_router(
     }
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
-        telemetry = PromptTelemetry(config)
+        telemetry = PromptTelemetry(config, state=state)
         source_totals = telemetry.get_source_totals()
 
         worker_totals: dict[str, dict[str, int]] = {}
@@ -2008,7 +2008,7 @@ def create_router(
         query_text = (query or "").strip().lower()
         clamped_limit = max(1, min(limit, 1000))
 
-        telemetry = PromptTelemetry(config)
+        telemetry = PromptTelemetry(config, state=state)
         all_events = event_bus.get_history()
 
         # Check if we can reuse cached aggregation for the unfiltered case.
@@ -2470,7 +2470,7 @@ def create_router(
         if retries:
             rates["retries_per_stage"] = sum(retries.values())
 
-        telemetry = PromptTelemetry(config)
+        telemetry = PromptTelemetry(config, state=state)
         inference_lifetime = telemetry.get_lifetime_totals()
         orch = get_orchestrator()
         session_id = orch.current_session_id if orch else ""

@@ -251,6 +251,13 @@ class MemorySyncWorker:
         current_ids = sorted(i["number"] for i in issues)
         prev_ids, prev_hash, _ = self._state.get_memory_state()
 
+        # Dual-write memory state to Dolt when available
+        if hasattr(self._state, "set_memory_state"):
+            try:
+                self._state.set_memory_state(current_ids, prev_hash)
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt memory state write failed", exc_info=True)
+
         if not issues:
             pruned = 0
             if self._config.memory_prune_stale_items:

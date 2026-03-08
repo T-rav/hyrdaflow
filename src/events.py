@@ -243,6 +243,7 @@ class EventBus:
         self,
         max_history: int = 5000,
         event_log: EventLog | None = None,
+        state: Any | None = None,
     ) -> None:
         self._subscribers: list[asyncio.Queue[HydraFlowEvent]] = []
         self._history: list[HydraFlowEvent] = []
@@ -251,6 +252,7 @@ class EventBus:
         self._active_session_id: str | None = None
         self._active_repo: str = ""
         self._pending_persists: set[asyncio.Task[None]] = set()
+        self._state = state
 
     def set_session_id(self, session_id: str | None) -> None:
         """Set the active session ID to auto-inject into published events."""
@@ -292,6 +294,13 @@ class EventBus:
             self._pending_persists.add(task)
             task.add_done_callback(self._pending_persists.discard)
             task.add_done_callback(_log_persist_failure)
+
+        # Dual-write to Dolt when available
+        if self._state and hasattr(self._state, "append_event"):
+            try:
+                self._state.append_event(event.model_dump())
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt event write failed", exc_info=True)
 
     async def _persist_event(self, event: HydraFlowEvent) -> None:
         """Write event to disk, logging any errors without crashing."""

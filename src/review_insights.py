@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -170,10 +171,11 @@ def extract_categories(summary: str) -> list[str]:
 class ReviewInsightStore:
     """File-backed store for review records and proposed-category tracking."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(self, memory_dir: Path, state: Any | None = None) -> None:
         self._memory_dir = memory_dir
         self._reviews_path = memory_dir / "reviews.jsonl"
         self._proposed_path = memory_dir / "proposed_categories.json"
+        self._state = state
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
@@ -187,6 +189,13 @@ class ReviewInsightStore:
                 self._reviews_path,
                 exc_info=True,
             )
+
+        # Dual-write to Dolt when available
+        if self._state and hasattr(self._state, "append_review_record"):
+            try:
+                self._state.append_review_record(record.model_dump())
+            except Exception:  # noqa: BLE001
+                logger.debug("Dolt review record write failed", exc_info=True)
 
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
         """Load the last *n* review records from disk."""

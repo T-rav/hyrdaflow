@@ -899,6 +899,13 @@ class HydraFlowConfig(BaseModel):
     )
     state_file: Path = Field(default=Path("."), description="Path to state JSON file")
 
+    # Dolt backend (optional)
+    dolt_path: Path | None = Field(
+        default=None,
+        description="Path to Dolt database directory (enables Dolt backend when set)",
+    )
+    dolt_port: int = Field(default=3307, description="Port for Dolt SQL server")
+
     # Event persistence
     event_log_path: Path = Field(
         default=Path("."),
@@ -1556,6 +1563,10 @@ def _resolve_repo_scoped_paths(config: HydraFlowConfig) -> None:
         object.__setattr__(
             config, "event_log_path", config.event_log_path.expanduser().resolve()
         )
+
+    # --- dolt_path ---
+    if "dolt_path" in explicit and config.dolt_path is not None:
+        object.__setattr__(config, "dolt_path", config.dolt_path.expanduser().resolve())
 
     # --- config_file ---
     # config_file defaults to None (persistence disabled); only resolve if explicit.

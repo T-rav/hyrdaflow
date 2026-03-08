@@ -65,7 +65,14 @@ class HydraFlowOrchestrator:
     ) -> None:
         self._config = config
         self._bus = event_bus or EventBus()
-        self._state = state or StateTracker(config.state_file)
+        if state:
+            self._state = state
+        elif config.dolt_path is not None:
+            from dolt.store import DoltStore  # noqa: PLC0415
+
+            self._state = DoltStore(config.dolt_path, port=config.dolt_port)
+        else:
+            self._state = StateTracker(config.state_file)
         self._dashboard: object | None = None
         # Pending human-input requests: {issue_number: question}
         self._human_input_requests: dict[int, str] = {}
