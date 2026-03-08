@@ -500,6 +500,14 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.dashboard_port == 5555
 
+    def test_dashboard_host_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.dashboard_host == "127.0.0.1"
+
     def test_dashboard_enabled_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -623,6 +631,15 @@ class TestHydraFlowConfigCustomValues:
             state_file=tmp_path / "s.json",
         )
         assert cfg.dashboard_port == 8080
+
+    def test_custom_dashboard_host(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            dashboard_host="0.0.0.0",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.dashboard_host == "0.0.0.0"
 
     def test_custom_dashboard_enabled_false(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(

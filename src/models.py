@@ -2165,3 +2165,27 @@ class ADRCouncilResult(BaseModel):
     @property
     def reject_count(self) -> int:
         return sum(1 for v in self.votes if v.verdict == CouncilVerdict.REJECT)
+
+
+class ADRValidationIssue(BaseModel):
+    """A single issue found during ADR pre-review validation."""
+
+    field: str
+    message: str
+    fixable: bool = False
+
+
+class ADRValidationResult(BaseModel):
+    """Result of pre-review validation on an ADR."""
+
+    adr_number: int
+    adr_path: str = ""
+    issues: list[ADRValidationIssue] = Field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return len(self.issues) == 0
+
+    @property
+    def has_fixable_only(self) -> bool:
+        return len(self.issues) > 0 and all(i.fixable for i in self.issues)

@@ -424,6 +424,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Dashboard web UI port (default: 5555)",
     )
     parser.add_argument(
+        "--dashboard-host",
+        default=None,
+        help="Interface/IP to bind the dashboard web UI (default: 127.0.0.1)",
+    )
+    parser.add_argument(
         "--no-dashboard",
         action="store_true",
         help="Disable the live web dashboard",
@@ -631,6 +636,7 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
         "ac_tool",
         "verification_judge_tool",
         "dashboard_port",
+        "dashboard_host",
         "gh_token",
         "git_user_name",
         "git_user_email",

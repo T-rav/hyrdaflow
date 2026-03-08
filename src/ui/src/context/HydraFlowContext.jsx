@@ -1110,6 +1110,19 @@ export function HydraFlowProvider({ children }) {
     } catch { /* ignore — local state already updated */ }
   }, [])
 
+  const triggerBgWorker = useCallback(async (name) => {
+    try {
+      const resp = await fetch('/api/control/bg-worker/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      return resp.ok
+    } catch {
+      return false
+    }
+  }, [])
+
   const updateBgWorkerInterval = useCallback(async (name, intervalSeconds) => {
     // Optimistic local update
     dispatch({ type: 'UPDATE_BG_WORKER_INTERVAL', data: { name, interval_seconds: intervalSeconds } })
@@ -1192,7 +1205,8 @@ export function HydraFlowProvider({ children }) {
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
+    const repoParam = state.selectedRepoSlug ? `?repo=${encodeURIComponent(state.selectedRepoSlug)}` : ''
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws${repoParam}`)
 
     ws.onopen = () => {
       dispatch({ type: 'CONNECTED' })
@@ -1300,14 +1314,22 @@ export function HydraFlowProvider({ children }) {
       } catch { /* ignore parse errors */ }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      // Guard against stale connections: when selectedRepoSlug changes, the
+      // useEffect cleanup closes the old WS and connect() opens a new one
+      // (wsRef.current = new_ws). If this onclose fires after that, skip the
+      // reconnect to avoid opening a second connection to the wrong repo.
+      if (wsRef.current !== ws) return
       dispatch({ type: 'DISCONNECTED' })
+      // 1008 = Policy Violation — server explicitly rejected our repo slug.
+      // Don't reconnect; the slug is invalid and retrying would loop forever.
+      if (event.code === 1008) return
       reconnectTimer.current = setTimeout(connect, 2000)
     }
 
     ws.onerror = () => ws.close()
     wsRef.current = ws
-  }, [fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
+  }, [state.selectedRepoSlug, fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
 
   useEffect(() => {
     if (isSeeded) return
@@ -1439,6 +1461,7 @@ export function HydraFlowProvider({ children }) {
     submitHumanInput,
     requestChanges,
     toggleBgWorker,
+    triggerBgWorker,
     updateBgWorkerInterval,
     refreshHitl: fetchHitlItems,
     selectSession,

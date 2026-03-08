@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from models import SessionLog
-from tests.helpers import ConfigFactory
+from tests.helpers import ConfigFactory, find_endpoint, make_dashboard_router
 
 pytestmark = pytest.mark.integration
 
@@ -22,32 +22,6 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_router(config, event_bus, state, tmp_path, *, registry=None):
-    from dashboard_routes import create_router
-    from pr_manager import PRManager
-
-    pr_mgr = PRManager(config, event_bus)
-    return create_router(
-        config=config,
-        event_bus=event_bus,
-        state=state,
-        pr_manager=pr_mgr,
-        get_orchestrator=lambda: None,
-        set_orchestrator=lambda o: None,
-        set_run_task=lambda t: None,
-        ui_dist_dir=tmp_path / "no-dist",
-        template_dir=tmp_path / "no-templates",
-        registry=registry,
-    )
-
-
-def _find_endpoint(router, path: str):
-    for route in router.routes:
-        if hasattr(route, "path") and route.path == path and hasattr(route, "endpoint"):
-            return route.endpoint
-    return None
 
 
 def _make_session(repo: str, session_id: str) -> SessionLog:
@@ -78,8 +52,8 @@ class TestSessionAPIRepoFiltering:
         state.save_session(_make_session("owner/alpha", "alpha-2"))
         state.save_session(_make_session("owner/beta", "beta-1"))
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
 
         resp_alpha = await endpoint(repo="owner/alpha")
         data_alpha = json.loads(resp_alpha.body)
@@ -99,8 +73,8 @@ class TestSessionAPIRepoFiltering:
         state.save_session(_make_session("owner/alpha", "alpha-1"))
         state.save_session(_make_session("owner/beta", "beta-1"))
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
 
         resp = await endpoint(repo=None)
         data = json.loads(resp.body)
@@ -113,8 +87,8 @@ class TestSessionAPIRepoFiltering:
         """GET /api/sessions?repo=unknown should return an empty list."""
         state.save_session(_make_session("owner/alpha", "alpha-1"))
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
 
         resp = await endpoint(repo="owner/nonexistent")
         data = json.loads(resp.body)
@@ -152,10 +126,10 @@ class TestStateEndpointRepoScoping:
         mock_registry = MagicMock()
         mock_registry.get.return_value = alpha_runtime
 
-        router = _make_router(
+        router, _pr = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        ep = _find_endpoint(router, "/api/state")
+        ep = find_endpoint(router, "/api/state")
 
         resp = await ep(repo="owner-alpha")
         assert resp.status_code == 200
@@ -166,8 +140,8 @@ class TestStateEndpointRepoScoping:
         self, config, event_bus, state, tmp_path: Path
     ) -> None:
         """GET /api/state with no repo param returns default state."""
-        router = _make_router(config, event_bus, state, tmp_path)
-        ep = _find_endpoint(router, "/api/state")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/state")
 
         resp = await ep(repo=None)
         assert resp.status_code == 200
@@ -189,8 +163,8 @@ class TestContextSwitchingIndependence:
         for i in range(3):
             state.save_session(_make_session("owner/beta", f"beta-{i}"))
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
 
         # Simulate context switching
         resp_alpha = await endpoint(repo="owner/alpha")
@@ -215,8 +189,8 @@ class TestContextSwitchingIndependence:
         state.save_session(_make_session("owner/alpha", "unique-alpha"))
         state.save_session(_make_session("owner/beta", "unique-beta"))
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
 
         resp_alpha = await endpoint(repo="owner/alpha")
         resp_beta = await endpoint(repo="owner/beta")
@@ -240,7 +214,7 @@ class TestRuntimeEndpointAvailability:
         self, config, event_bus, state, tmp_path: Path
     ) -> None:
         """Router should register all runtime lifecycle routes."""
-        router = _make_router(config, event_bus, state, tmp_path)
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
         paths = {getattr(route, "path", "") for route in router.routes}
 
         expected = {
