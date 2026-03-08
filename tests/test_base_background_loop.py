@@ -218,6 +218,95 @@ class TestBaseBackgroundLoopInterval:
         assert loop._get_interval() == 42
 
 
+class TestBaseBackgroundLoopTrigger:
+    """Tests for the trigger() method and _sleep_or_trigger() helper."""
+
+    @pytest.mark.asyncio
+    async def test_trigger__skips_sleep(self, tmp_path: Path) -> None:
+        """trigger() causes _sleep_or_trigger to return True immediately."""
+        loop, _ = _make_stub(tmp_path)
+        loop.trigger()
+        triggered = await loop._sleep_or_trigger(60)
+        assert triggered is True
+
+    @pytest.mark.asyncio
+    async def test_sleep_or_trigger__returns_false_on_normal_sleep(
+        self, tmp_path: Path
+    ) -> None:
+        """Without a trigger, _sleep_or_trigger returns False after sleeping."""
+        loop, _ = _make_stub(tmp_path)
+        triggered = await loop._sleep_or_trigger(0)
+        assert triggered is False
+
+    @pytest.mark.asyncio
+    async def test_trigger__during_work_is_not_dropped(self, tmp_path: Path) -> None:
+        """A trigger fired during _execute_cycle skips the following sleep."""
+        loop, _ = _make_stub(tmp_path)
+
+        # Simulate trigger fired during the work phase
+        loop.trigger()
+
+        # _sleep_or_trigger should notice the pre-set event and return immediately
+        triggered = await loop._sleep_or_trigger(9999)
+        assert triggered is True
+
+    @pytest.mark.asyncio
+    async def test_trigger__wakes_sleeping_loop(self, tmp_path: Path) -> None:
+        """trigger() interrupts an in-progress sleep and returns True."""
+        loop, _ = _make_stub(tmp_path)
+
+        async def real_sleep(seconds: int | float) -> None:
+            await asyncio.sleep(seconds)
+
+        loop._sleep_fn = real_sleep  # use real sleep so we can interrupt it
+
+        async def fire_trigger() -> None:
+            await asyncio.sleep(0.01)
+            loop.trigger()
+
+        asyncio.create_task(fire_trigger())
+        triggered = await loop._sleep_or_trigger(9999)
+        assert triggered is True
+
+    @pytest.mark.asyncio
+    async def test_trigger__run_on_startup_disabled_worker_still_runs(
+        self, tmp_path: Path
+    ) -> None:
+        """With run_on_startup=True, trigger bypasses disabled check and runs work."""
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        bus = EventBus()
+        stop_event = asyncio.Event()
+        call_count = 0
+
+        def counting_work() -> dict[str, Any]:
+            nonlocal call_count
+            call_count += 1
+            return {"n": call_count}
+
+        async def single_sleep(_seconds: int | float) -> None:
+            # Immediately stop after first sleep so the loop exits
+            stop_event.set()
+            await asyncio.sleep(0)
+
+        loop = _StubLoop(
+            work_fn=counting_work,
+            worker_name="test_worker",
+            config=config,
+            bus=bus,
+            stop_event=stop_event,
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: False,  # always disabled
+            sleep_fn=single_sleep,
+            run_on_startup=True,
+        )
+        # Trigger before run so it fires immediately in _sleep_or_trigger
+        loop.trigger()
+        await loop.run()
+
+        # Startup run (call_count=1) + trigger bypasses disabled (call_count=2)
+        assert call_count == 2
+
+
 class TestBaseBackgroundLoopRunOnStartup:
     """Tests for the run_on_startup flag."""
 

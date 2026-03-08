@@ -138,15 +138,23 @@ class BaseBackgroundLoop(abc.ABC):
                 )
             )
 
-    async def _sleep_or_trigger(self, seconds: int | float) -> None:
+    async def _sleep_or_trigger(self, seconds: int | float) -> bool:
         """Call the configured sleep function, but return early on trigger.
 
         Races ``_sleep_fn(seconds)`` against the trigger event so that
-        :meth:`trigger` can interrupt any pending sleep.
+        :meth:`trigger` can interrupt any pending sleep.  Returns ``True``
+        if the sleep was cut short by a trigger, ``False`` if it ran to
+        completion.
+
+        If the trigger event is already set when this method is called
+        (i.e. :meth:`trigger` was called during the preceding work cycle),
+        the sleep is skipped entirely and ``True`` is returned immediately.
         """
-        self._trigger_event.clear()
-        sleep_task = asyncio.ensure_future(self._sleep_fn(seconds))
-        trigger_task = asyncio.ensure_future(self._trigger_event.wait())
+        if self._trigger_event.is_set():
+            self._trigger_event.clear()
+            return True
+        sleep_task = asyncio.create_task(self._sleep_fn(seconds))
+        trigger_task = asyncio.create_task(self._trigger_event.wait())
         try:
             done, pending = await asyncio.wait(
                 {sleep_task, trigger_task},
@@ -154,8 +162,10 @@ class BaseBackgroundLoop(abc.ABC):
             )
             for p in pending:
                 p.cancel()
-            if trigger_task in done:
+            triggered = trigger_task in done
+            if triggered:
                 self._trigger_event.clear()
+            return triggered
         except Exception:
             sleep_task.cancel()
             trigger_task.cancel()
@@ -169,13 +179,11 @@ class BaseBackgroundLoop(abc.ABC):
         while not self._stop_event.is_set():
             interval = self._get_interval()
             if self._run_on_startup:
-                await self._sleep_or_trigger(interval)
+                triggered = await self._sleep_or_trigger(interval)
                 if self._stop_event.is_set():
                     break
-                if not self._enabled_cb(self._worker_name):
-                    if not self._trigger_event.is_set():
-                        continue
-                    self._trigger_event.clear()
+                if not self._enabled_cb(self._worker_name) and not triggered:
+                    continue
             elif not self._enabled_cb(self._worker_name):
                 await self._sleep_or_trigger(interval)
                 continue
