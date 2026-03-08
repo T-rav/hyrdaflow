@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -13,7 +12,9 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
+from harness_insights import HarnessInsightStore, get_harness_feedback_section
 from models import Task, WorkerResult, WorkerStatus
+from retrospective import load_retro_feedback_section
 from review_insights import (
     ReviewInsightStore,
     get_common_feedback_section,
@@ -89,6 +90,8 @@ Run through this checklist before your final commit:
     ) -> None:
         super().__init__(config, event_bus, runner)
         self._insights = ReviewInsightStore(config.memory_dir, state=state)
+        self._harness_insights = HarnessInsightStore(config.memory_dir, state=state)
+        self._state = state
 
     async def run(
         self,
@@ -335,6 +338,20 @@ Run through this checklist before your final commit:
         except Exception:  # noqa: BLE001
             return []
 
+    def _get_harness_feedback_section(self) -> str:
+        """Build a harness failure patterns section from recent failure data."""
+        try:
+            recent = self._harness_insights.load_recent(
+                self._config.review_insight_window
+            )
+            return get_harness_feedback_section(recent)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _get_retro_feedback_section(self) -> str:
+        """Build a retrospective insights section from recent entries."""
+        return load_retro_feedback_section(self._state)
+
     def _summarize_for_prompt(self, text: str, max_chars: int, label: str) -> str:
         """Return text trimmed for prompt efficiency with a traceable note."""
         if len(text) <= max_chars:
@@ -453,6 +470,16 @@ Run through this checklist before your final commit:
             history_before += len(escalation_section)
             history_after += len(escalation_section)
 
+        harness_section = self._get_harness_feedback_section()
+        if harness_section:
+            history_before += len(harness_section)
+            history_after += len(harness_section)
+
+        retro_section = self._get_retro_feedback_section()
+        if retro_section:
+            history_before += len(retro_section)
+            history_after += len(retro_section)
+
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
         # Runtime log injection (opt-in)
@@ -492,7 +519,7 @@ Run through this checklist before your final commit:
 5. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
 6. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality-lite`; fix and rerun.
 7. Commit with: "Fixes #{issue.id}: <concise summary>"
-{feedback_section}{escalation_section}
+{feedback_section}{escalation_section}{harness_section}{retro_section}
 {self._build_self_check_checklist(escalations)}
 ## UI Guidelines
 

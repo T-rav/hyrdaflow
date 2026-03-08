@@ -16,7 +16,12 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from models import ReviewVerdict
-from retrospective import RetrospectiveCollector, RetrospectiveEntry
+from retrospective import (
+    RetrospectiveCollector,
+    RetrospectiveEntry,
+    get_retro_feedback_section,
+    load_retro_feedback_section,
+)
 from tests.conftest import ReviewResultFactory
 from tests.helpers import InMemoryState
 
@@ -461,3 +466,194 @@ class TestAppendEntryErrorHandling:
             timestamp="2026-02-20T10:30:00Z",
         )
         collector._append_entry(entry)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# get_retro_feedback_section
+# ---------------------------------------------------------------------------
+
+
+def _make_retro_entry(**overrides: object) -> RetrospectiveEntry:
+    defaults = {
+        "issue_number": 1,
+        "pr_number": 10,
+        "timestamp": "2026-03-01T00:00:00Z",
+        "plan_accuracy_pct": 90.0,
+        "quality_fix_rounds": 0,
+        "reviewer_fixes_made": False,
+        "ci_fix_rounds": 0,
+    }
+    defaults.update(overrides)
+    return RetrospectiveEntry(**defaults)
+
+
+class TestGetRetroFeedbackSection:
+    """Tests for the prompt-injection retrospective feedback builder."""
+
+    def test_too_few_entries_returns_empty(self) -> None:
+        entries = [_make_retro_entry(), _make_retro_entry()]
+        assert get_retro_feedback_section(entries) == ""
+
+    def test_empty_returns_empty(self) -> None:
+        assert get_retro_feedback_section([]) == ""
+
+    def test_high_quality_fix_rate_detected(self) -> None:
+        entries = [
+            _make_retro_entry(quality_fix_rounds=2),
+            _make_retro_entry(quality_fix_rounds=1),
+            _make_retro_entry(quality_fix_rounds=0),
+            _make_retro_entry(quality_fix_rounds=3),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "## Retrospective Insights" in section
+        assert "quality fixes" in section
+        assert "75%" in section
+
+    def test_low_plan_accuracy_detected(self) -> None:
+        entries = [
+            _make_retro_entry(plan_accuracy_pct=50.0),
+            _make_retro_entry(plan_accuracy_pct=60.0),
+            _make_retro_entry(plan_accuracy_pct=40.0),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "plan accuracy" in section.lower()
+        assert "50%" in section
+
+    def test_high_ci_fix_rounds_detected(self) -> None:
+        entries = [
+            _make_retro_entry(ci_fix_rounds=2),
+            _make_retro_entry(ci_fix_rounds=3),
+            _make_retro_entry(ci_fix_rounds=0),
+            _make_retro_entry(ci_fix_rounds=1),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "CI fixes" in section
+
+    def test_reviewer_fixes_detected(self) -> None:
+        entries = [
+            _make_retro_entry(reviewer_fixes_made=True),
+            _make_retro_entry(reviewer_fixes_made=True),
+            _make_retro_entry(reviewer_fixes_made=False),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "Reviewer" in section
+        assert "67%" in section
+
+    def test_no_patterns_returns_empty(self) -> None:
+        entries = [
+            _make_retro_entry(
+                plan_accuracy_pct=95.0,
+                quality_fix_rounds=0,
+                ci_fix_rounds=0,
+                reviewer_fixes_made=False,
+            )
+            for _ in range(5)
+        ]
+        assert get_retro_feedback_section(entries) == ""
+
+    def test_missed_files_detected(self) -> None:
+        entries = [
+            _make_retro_entry(missed_files=["a.py", "b.py"]),
+            _make_retro_entry(missed_files=["c.py"]),
+            _make_retro_entry(missed_files=[]),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "plan missed" in section.lower()
+
+    def test_exactly_three_entries_is_minimum(self) -> None:
+        """Boundary: exactly 3 entries should be processed (not rejected)."""
+        entries = [
+            _make_retro_entry(quality_fix_rounds=1),
+            _make_retro_entry(quality_fix_rounds=1),
+            _make_retro_entry(quality_fix_rounds=1),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "## Retrospective Insights" in section
+
+    def test_quality_fix_at_exactly_30_pct_does_not_trigger(self) -> None:
+        """Boundary: exactly 30% (3/10) should NOT trigger (> 0.3, not >=)."""
+        entries = [_make_retro_entry(quality_fix_rounds=1)] * 3
+        entries += [_make_retro_entry(quality_fix_rounds=0)] * 7
+        section = get_retro_feedback_section(entries)
+        assert "quality fixes" not in section.lower()
+
+    def test_plan_accuracy_at_exactly_70_does_not_trigger(self) -> None:
+        """Boundary: exactly 70% plan accuracy should NOT trigger (< 70)."""
+        entries = [
+            _make_retro_entry(plan_accuracy_pct=70.0),
+            _make_retro_entry(plan_accuracy_pct=70.0),
+            _make_retro_entry(plan_accuracy_pct=70.0),
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "plan accuracy" not in section.lower()
+
+    def test_multiple_patterns_combined(self) -> None:
+        """Multiple patterns should all appear in the same section."""
+        entries = [
+            _make_retro_entry(
+                quality_fix_rounds=2,
+                ci_fix_rounds=3,
+                reviewer_fixes_made=True,
+                plan_accuracy_pct=40.0,
+            )
+            for _ in range(5)
+        ]
+        section = get_retro_feedback_section(entries)
+        assert "quality fixes" in section.lower()
+        assert "CI fixes" in section
+        assert "Reviewer" in section
+        assert "plan accuracy" in section.lower()
+
+
+# ---------------------------------------------------------------------------
+# load_retro_feedback_section (shared loader)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadRetroFeedbackSection:
+    """Tests for the shared state→feedback loader."""
+
+    def test_none_state_returns_empty(self) -> None:
+        assert load_retro_feedback_section(None) == ""
+
+    def test_state_without_method_returns_empty(self) -> None:
+        assert load_retro_feedback_section(object()) == ""
+
+    def test_state_with_data_returns_section(self) -> None:
+        class FakeState:
+            def load_recent_retrospectives(self, n: int) -> list[dict]:
+                return [
+                    {
+                        "issue_number": i,
+                        "pr_number": i * 10,
+                        "timestamp": "2026-03-01T00:00:00Z",
+                        "quality_fix_rounds": 2,
+                    }
+                    for i in range(1, 6)
+                ]
+
+        section = load_retro_feedback_section(FakeState())
+        assert "## Retrospective Insights" in section
+
+    def test_state_raising_exception_returns_empty(self) -> None:
+        class BrokenState:
+            def load_recent_retrospectives(self, n: int) -> list[dict]:
+                raise RuntimeError("db error")
+
+        assert load_retro_feedback_section(BrokenState()) == ""
+
+    def test_state_with_malformed_rows_skips_them(self) -> None:
+        class BadRowState:
+            def load_recent_retrospectives(self, n: int) -> list[dict]:
+                return [
+                    {"garbage": True},
+                    {
+                        "issue_number": 1,
+                        "pr_number": 10,
+                        "timestamp": "2026-03-01T00:00:00Z",
+                        "quality_fix_rounds": 2,
+                    },
+                ]
+
+        # Only 1 valid entry (<3 minimum), so returns empty
+        assert load_retro_feedback_section(BadRowState()) == ""

@@ -6,14 +6,20 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import NewIssueSpec, PlannerStatus, PlanResult, Task
+from retrospective import load_retro_feedback_section
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
+
+if TYPE_CHECKING:
+    from config import HydraFlowConfig
+    from events import EventBus
+    from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.planner")
 
@@ -71,6 +77,20 @@ class PlannerRunner(BaseRunner):
     """
 
     _log = logger
+
+    def __init__(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        runner: SubprocessRunner | None = None,
+        state: Any = None,
+    ) -> None:
+        super().__init__(config, event_bus, runner)
+        self._state = state
+
+    def _get_retro_feedback_section(self) -> str:
+        """Build a retrospective insights section for planning guidance."""
+        return load_retro_feedback_section(self._state)
 
     async def plan(
         self,
@@ -378,6 +398,11 @@ class PlannerRunner(BaseRunner):
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
+        retro_section = self._get_retro_feedback_section()
+        if retro_section:
+            history_before += len(retro_section)
+            history_after += len(retro_section)
+
         find_label = self._config.find_label[0]
 
         # --- Scale-adaptive schema section ---
@@ -416,7 +441,7 @@ class PlannerRunner(BaseRunner):
 
 ## Issue: {issue.title}
 
-{body}{image_note}{comments_section}{manifest_section}{memory_section}
+{body}{image_note}{comments_section}{manifest_section}{memory_section}{retro_section}
 
 ## Instructions
 

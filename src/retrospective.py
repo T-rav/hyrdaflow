@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,6 +37,106 @@ class RetrospectiveEntry(BaseModel):
     reviewer_fixes_made: bool = False
     ci_fix_rounds: int = 0
     duration_seconds: float = 0.0
+
+
+def get_retro_feedback_section(
+    entries: list[RetrospectiveEntry],
+) -> str:
+    """Build a ``## Retrospective Insights`` section for agent prompts.
+
+    Analyzes recent retrospective entries and returns a markdown section
+    with actionable guidance based on detected patterns. Returns an empty
+    string if no meaningful patterns are found.
+    """
+    if len(entries) < 3:
+        return ""
+
+    lines: list[str] = [
+        "\n## Retrospective Insights",
+        f"Analysis of {len(entries)} recent completed issues:",
+    ]
+    has_content = False
+
+    # Pattern: high quality-fix rate
+    quality_fix_count = sum(1 for e in entries if (e.quality_fix_rounds or 0) > 0)
+    if quality_fix_count > len(entries) * 0.3:
+        pct = round(quality_fix_count / len(entries) * 100)
+        lines.append(
+            f"- **{pct}% of issues needed quality fixes.** "
+            "Run `make quality-lite` before committing. "
+            "Check lint, type hints, and test coverage proactively."
+        )
+        has_content = True
+
+    # Pattern: low plan accuracy
+    accuracies = [e.plan_accuracy_pct for e in entries if e.plan_accuracy_pct is not None]
+    if accuracies:
+        avg_accuracy = sum(accuracies) / len(accuracies)
+        if avg_accuracy < 70:
+            lines.append(
+                f"- **Average plan accuracy is {avg_accuracy:.0f}%.** "
+                "Plans frequently miss files or include unplanned changes. "
+                "Carefully review the plan and identify all affected files before coding."
+            )
+            has_content = True
+
+    # Pattern: high CI fix rounds
+    ci_rounds = [e.ci_fix_rounds for e in entries if e.ci_fix_rounds > 0]
+    if len(ci_rounds) > len(entries) * 0.3:
+        avg_rounds = sum(ci_rounds) / len(ci_rounds)
+        lines.append(
+            f"- **{len(ci_rounds)}/{len(entries)} issues needed CI fixes** "
+            f"(avg {avg_rounds:.1f} rounds). "
+            "Run tests locally before pushing. Check for missing imports and type errors."
+        )
+        has_content = True
+
+    # Pattern: reviewer frequently makes fixes
+    reviewer_fix_count = sum(1 for e in entries if e.reviewer_fixes_made)
+    if reviewer_fix_count > len(entries) * 0.3:
+        pct = round(reviewer_fix_count / len(entries) * 100)
+        lines.append(
+            f"- **Reviewer had to fix code in {pct}% of issues.** "
+            "Self-review your changes before submitting. "
+            "Check for edge cases, error handling, and test coverage."
+        )
+        has_content = True
+
+    # Pattern: missed files in plan
+    missed_counts = [len(e.missed_files) for e in entries if e.missed_files]
+    if len(missed_counts) > len(entries) * 0.3:
+        lines.append(
+            f"- **{len(missed_counts)}/{len(entries)} issues had files the plan missed.** "
+            "Trace all call sites and dependencies when identifying files to change."
+        )
+        has_content = True
+
+    if not has_content:
+        return ""
+
+    return "\n".join(lines)
+
+
+def load_retro_feedback_section(state: Any) -> str:
+    """Load recent retrospectives from *state* and build a feedback section.
+
+    Shared helper used by AgentRunner and PlannerRunner to avoid
+    duplicating the load → validate → format pipeline.
+    Returns an empty string on any error or missing data.
+    """
+    try:
+        if not state or not hasattr(state, "load_recent_retrospectives"):
+            return ""
+        rows = state.load_recent_retrospectives(20)
+        entries = []
+        for row in rows:
+            try:
+                entries.append(RetrospectiveEntry.model_validate(row))
+            except Exception:  # noqa: BLE001
+                continue
+        return get_retro_feedback_section(entries)
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 class RetrospectiveCollector:

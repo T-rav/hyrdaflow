@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
-from proposal_worker import ProposalWorker
 from adr_reviewer import ADRCouncilReviewer
 from adr_reviewer_loop import ADRReviewerLoop
 from agent import AgentRunner
@@ -40,6 +39,7 @@ from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
+from proposal_worker import ProposalWorker
 from report_issue_loop import ReportIssueLoop
 from retrospective import RetrospectiveCollector
 from review_phase import ReviewPhase
@@ -136,10 +136,10 @@ def build_services(
     worktrees = WorkspaceManager(config)
     subprocess_runner = get_docker_runner(config)
     agents = AgentRunner(config, event_bus, runner=subprocess_runner, state=state)
-    planners = PlannerRunner(config, event_bus, runner=subprocess_runner)
+    planners = PlannerRunner(config, event_bus, runner=subprocess_runner, state=state)
     prs = PRManager(config, event_bus)
     manifest_syncer = ManifestIssueSyncer(config, state, prs)
-    reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner)
+    reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner, state=state)
     hitl_runner = HITLRunner(config, event_bus, runner=subprocess_runner)
     triage = TriageRunner(config, event_bus, runner=subprocess_runner)
     summarizer = TranscriptSummarizer(

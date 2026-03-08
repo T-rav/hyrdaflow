@@ -6,10 +6,17 @@ import logging
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
+from harness_insights import HarnessInsightStore, get_harness_feedback_section
+
+if TYPE_CHECKING:
+    from config import HydraFlowConfig
+    from events import EventBus
+    from execution import SubprocessRunner
 from models import (
     PRInfo,
     ReviewerStatus,
@@ -46,6 +53,24 @@ class ReviewRunner(BaseRunner):
 
     _log = logger
     _MAX_CI_LOG_PROMPT_CHARS = 6_000
+
+    def __init__(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        runner: SubprocessRunner | None = None,
+        state: Any = None,
+    ) -> None:
+        super().__init__(config, event_bus, runner)
+        self._harness_insights = HarnessInsightStore(config.memory_dir, state=state)
+
+    def _get_harness_feedback_section(self) -> str:
+        """Build a harness failure patterns section for review awareness."""
+        try:
+            recent = self._harness_insights.load_recent(20)
+            return get_harness_feedback_section(recent)
+        except Exception:  # noqa: BLE001
+            return ""
 
     @staticmethod
     def _format_code_scanning_alerts(
@@ -667,13 +692,15 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             if formatted:
                 scanning_section = f"\n\n## Code Scanning Alerts\n\n{formatted}"
 
+        harness_section = self._get_harness_feedback_section()
+
         issue_body = self._summarize_issue_body(issue.body)
 
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}
+{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}{harness_section}
 
 ## Precheck Context
 

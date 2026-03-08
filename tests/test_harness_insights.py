@@ -20,6 +20,7 @@ from harness_insights import (
     build_harness_issue_body,
     extract_subcategories,
     generate_suggestions,
+    get_harness_feedback_section,
 )
 from models import PipelineStage
 from tests.conftest import ConfigFactory
@@ -693,3 +694,61 @@ class TestFieldDescriptions:
         assert "description" in props["window_size"]
         assert "description" in props["description"]
         assert "description" in props["suggestion"]
+
+
+# ---------------------------------------------------------------------------
+# get_harness_feedback_section
+# ---------------------------------------------------------------------------
+
+
+class TestGetHarnessFeedbackSection:
+    """Tests for the prompt-injection feedback section builder."""
+
+    def test_empty_records_returns_empty(self) -> None:
+        assert get_harness_feedback_section([]) == ""
+
+    def test_single_category_produces_section(self) -> None:
+        records = [
+            _make_record(category=FailureCategory.CI_FAILURE),
+            _make_record(category=FailureCategory.CI_FAILURE),
+            _make_record(category=FailureCategory.CI_FAILURE),
+        ]
+        section = get_harness_feedback_section(records)
+        assert "## Harness Failure Patterns" in section
+        assert "CI pipeline failure" in section
+        assert "3/3 failures" in section
+
+    def test_mixed_categories_shows_top(self) -> None:
+        records = [
+            _make_record(category=FailureCategory.CI_FAILURE),
+            _make_record(category=FailureCategory.CI_FAILURE),
+            _make_record(category=FailureCategory.QUALITY_GATE),
+            _make_record(category=FailureCategory.REVIEW_REJECTION),
+        ]
+        section = get_harness_feedback_section(records)
+        assert "CI pipeline failure" in section
+        assert "4" in section  # total count
+
+    def test_subcategories_appear_when_present(self) -> None:
+        records = [
+            _make_record(
+                category=FailureCategory.QUALITY_GATE,
+                subcategories=["lint_error"],
+            ),
+            _make_record(
+                category=FailureCategory.QUALITY_GATE,
+                subcategories=["lint_error"],
+            ),
+        ]
+        section = get_harness_feedback_section(records)
+        assert "lint_error" in section
+        assert "Specific problem areas" in section
+
+    def test_top_n_limits_output(self) -> None:
+        records = [_make_record(category=FailureCategory.CI_FAILURE) for _ in range(10)]
+        section = get_harness_feedback_section(records, top_n=1)
+        # Only one category line expected
+        category_lines = [
+            ln for ln in section.splitlines() if ln.startswith("- **")
+        ]
+        assert len(category_lines) == 1

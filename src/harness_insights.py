@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 
 from models import IsoTimestamp, PipelineStage
 
-
 logger = logging.getLogger("hydraflow.harness_insights")
 
 # ---------------------------------------------------------------------------
@@ -339,6 +338,52 @@ def _generate_suggestion(category: str, subcategory: str, count: int) -> str:
 # ---------------------------------------------------------------------------
 # Improvement suggestion generation
 # ---------------------------------------------------------------------------
+
+
+def get_harness_feedback_section(
+    records: list[FailureRecord],
+    top_n: int = 5,
+) -> str:
+    """Build a ``## Harness Failure Patterns`` section for agent prompts.
+
+    Analyzes recent pipeline failures and returns a markdown section
+    listing the most frequent failure categories and actionable guidance.
+    Returns an empty string if no patterns are found.
+    """
+    if not records:
+        return ""
+
+    cat_counts: Counter[str] = Counter()
+    sub_counts: Counter[str] = Counter()
+    for record in records:
+        cat_counts[record.category] += 1
+        for sub in record.subcategories:
+            sub_counts[sub] += 1
+
+    if not cat_counts:
+        return ""
+
+    total = len(records)
+    top_cats = cat_counts.most_common(top_n)
+    top_subs = sub_counts.most_common(top_n)
+
+    lines = [
+        "\n## Harness Failure Patterns",
+        f"Analysis of {total} recent pipeline failures detected these recurring patterns. "
+        "Avoid these pitfalls:",
+    ]
+    for cat, count in top_cats:
+        desc = CATEGORY_DESCRIPTIONS.get(cat, cat)
+        suggestion = _generate_suggestion(cat, "", count)
+        lines.append(f"- **{desc}** ({count}/{total} failures): {suggestion}")
+
+    if top_subs:
+        lines.append("")
+        lines.append("Specific problem areas:")
+        for sub, count in top_subs:
+            lines.append(f"- `{sub}` flagged in {count} of last {total} failures")
+
+    return "\n".join(lines)
 
 
 def generate_suggestions(
