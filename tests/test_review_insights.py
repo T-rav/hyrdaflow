@@ -383,7 +383,7 @@ class TestGetCommonFeedbackSection:
         """Categories without remediation hints should not get an Action line."""
         records = [_make_record(pr_number=i, categories=["naming"]) for i in range(3)]
         section = get_common_feedback_section(records)
-        assert "naming" in section.lower() or "Poor naming" in section
+        assert "Poor naming" in section
         assert "Action:" not in section
 
 

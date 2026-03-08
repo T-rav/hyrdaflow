@@ -376,6 +376,17 @@ class TestBuildPrompt:
         runner = AgentRunner(config, event_bus)
         prompt = runner._build_prompt(issue)
         assert "Mandatory Requirements" not in prompt
+        assert "## Common Review Feedback" in prompt
+
+    def test_prompt_includes_new_self_check_items(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Prompt should include the new dead-code and failure-path checklist items."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        assert "New code is reachable" in prompt
+        assert "Tests verify issue requirements" in prompt
+        assert "Failure paths are tested" in prompt
 
     def test_prompt_works_without_review_data(
         self, config, event_bus: EventBus, issue
