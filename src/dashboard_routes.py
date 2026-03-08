@@ -47,6 +47,7 @@ from models import (
     IssueHistoryLink,
     IssueHistoryPR,
     IssueHistoryResponse,
+    IssueOutcome,
     IssueOutcomeType,
     MetricsHistoryResponse,
     MetricsResponse,
@@ -677,7 +678,17 @@ def create_router(
             row["issue_url"] = issue.url or row.get("issue_url", "")
             labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
             if not row.get("epic"):
-                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                # Skip internal pipeline labels (e.g. hydraflow-epic-child);
+                # only keep labels that look like actual epic names.
+                _skip = {"hydraflow-epic-child", "hydraflow-epic"}
+                epic = next(
+                    (
+                        lbl
+                        for lbl in labels
+                        if "epic" in lbl.lower() and lbl.lower() not in _skip
+                    ),
+                    "",
+                )
                 row["epic"] = epic
             ms_num = _coerce_int(getattr(issue, "milestone_number", None))
             if ms_num > 0 and not row.get("crate_number"):
@@ -2168,10 +2179,15 @@ def create_router(
 
                 if event.type == EventType.ISSUE_CREATED:
                     labels = event.data.get("labels", [])
+                    _skip_event = {"hydraflow-epic-child", "hydraflow-epic"}
                     if isinstance(labels, list) and not row.get("epic"):
                         for lbl in labels:
                             s = str(lbl).strip()
-                            if s and "epic" in s.lower():
+                            if (
+                                s
+                                and "epic" in s.lower()
+                                and s.lower() not in _skip_event
+                            ):
                                 row["epic"] = s
                                 break
                     milestone_num = _coerce_int(event.data.get("milestone_number"))
@@ -2418,6 +2434,42 @@ def create_router(
                     _save_history_cache()
             except Exception:
                 logger.debug("Failed to fetch milestones for crate titles")
+
+        # Backfill epic field from state's epic tracking when not already set.
+        # Build a child issue → epic title lookup from persisted epic states.
+        epic_states = state.get_all_epic_states()
+        if epic_states:
+            child_to_epic: dict[int, str] = {}
+            for es in epic_states.values():
+                title = es.title or f"Epic #{es.epic_number}"
+                for child in es.child_issues:
+                    child_to_epic[child] = title
+            if child_to_epic:
+                items = [
+                    i.model_copy(update={"epic": child_to_epic[i.issue_number]})
+                    if not i.epic and i.issue_number in child_to_epic
+                    else i
+                    for i in items
+                ]
+
+        # Derive outcome for issues that completed the pipeline (have a
+        # merged PR) but were never given an explicit record_outcome() call.
+        items = [
+            i.model_copy(
+                update={
+                    "outcome": IssueOutcome(
+                        outcome=IssueOutcomeType.MERGED,
+                        reason="Derived from merged PR",
+                        closed_at=i.last_seen or "",
+                        pr_number=next((p.number for p in i.prs if p.merged), None),
+                        phase="review",
+                    )
+                }
+            )
+            if not i.outcome and any(p.merged for p in i.prs)
+            else i
+            for i in items
+        ]
 
         totals = {
             "issues": len(items),
