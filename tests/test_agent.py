@@ -2738,3 +2738,45 @@ class TestBuildPromptRuntimeLogs:
             prompt = runner._build_prompt(issue)
 
         assert "## Recent Application Logs" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Prior failure section in prompt
+# ---------------------------------------------------------------------------
+
+
+class TestPriorFailureInPrompt:
+    """Tests that prior_failure is included in the implementation prompt."""
+
+    def test_prior_failure_included_in_prompt(
+        self, config, event_bus: EventBus
+    ) -> None:
+        runner = AgentRunner(config, event_bus)
+        issue = TaskFactory.create()
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
+        ):
+            prompt = runner._build_prompt(
+                issue,
+                prior_failure="TDD red phase modified non-test files: docs/adr/001.md",
+            )
+
+        assert "## Prior Attempt Failure" in prompt
+        assert "TDD red phase modified non-test files: docs/adr/001.md" in prompt
+        assert "Avoid repeating the same mistake" in prompt
+
+    def test_no_prior_failure_section_when_empty(
+        self, config, event_bus: EventBus
+    ) -> None:
+        runner = AgentRunner(config, event_bus)
+        issue = TaskFactory.create()
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value=""),
+        ):
+            prompt = runner._build_prompt(issue, prior_failure="")
+
+        assert "## Prior Attempt Failure" not in prompt

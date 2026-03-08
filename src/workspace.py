@@ -573,6 +573,32 @@ class WorkspaceManager:
         )
         return True
 
+    async def reset_to_main(self, worktree_path: Path) -> None:
+        """Hard-reset worktree to ``origin/main`` and clean untracked files.
+
+        Used between implementation retry attempts to discard stale state
+        from a prior failed attempt, ensuring a clean slate.
+        """
+        await self._fetch_origin_with_retry(worktree_path, self._config.main_branch)
+        await run_subprocess(
+            "git",
+            "reset",
+            "--hard",
+            f"origin/{self._config.main_branch}",
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        await run_subprocess(
+            "git",
+            "clean",
+            "-fd",
+            cwd=worktree_path,
+            gh_token=self._config.gh_token,
+        )
+        logger.info(
+            "Reset worktree %s to origin/%s", worktree_path, self._config.main_branch
+        )
+
     async def merge_main(self, worktree_path: Path, branch: str) -> bool:
         """Merge latest main into *branch* inside *worktree_path*.
 

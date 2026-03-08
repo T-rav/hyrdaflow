@@ -96,6 +96,7 @@ Run through this checklist before your final commit:
         branch: str,
         worker_id: int = 0,
         review_feedback: str = "",
+        prior_failure: str = "",
     ) -> WorkerResult:
         """Run the implementation agent for *task*.
 
@@ -121,7 +122,7 @@ Run through this checklist before your final commit:
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
             prompt, prompt_stats = self._build_prompt_with_stats(
-                task, review_feedback=review_feedback
+                task, review_feedback=review_feedback, prior_failure=prior_failure
             )
             transcript = await self._execute(
                 cmd,
@@ -383,15 +384,17 @@ Run through this checklist before your final commit:
             + f"\n[Comment truncated from {len(raw):,} chars]"
         )
 
-    def _build_prompt(self, issue: Task, review_feedback: str = "") -> str:
+    def _build_prompt(
+        self, issue: Task, review_feedback: str = "", prior_failure: str = ""
+    ) -> str:
         """Build the implementation prompt for the agent."""
         prompt, _stats = self._build_prompt_with_stats(
-            issue, review_feedback=review_feedback
+            issue, review_feedback=review_feedback, prior_failure=prior_failure
         )
         return prompt
 
     def _build_prompt_with_stats(
-        self, issue: Task, review_feedback: str = ""
+        self, issue: Task, review_feedback: str = "", prior_failure: str = ""
     ) -> tuple[str, dict[str, object]]:
         """Build the implementation prompt and pruning stats."""
         plan_comment, other_comments = self._extract_plan_comment(issue.comments)
@@ -438,6 +441,22 @@ Run through this checklist before your final commit:
                 f"A reviewer rejected the previous implementation. "
                 f"Address all feedback below:\n\n"
                 f"{review_feedback}"
+            )
+
+        prior_failure_section = ""
+        if prior_failure:
+            history_before += len(prior_failure)
+            prior_failure = self._summarize_for_prompt(
+                prior_failure,
+                max_chars=self._config.error_output_max_chars,
+                label="Prior failure",
+            )
+            history_after += len(prior_failure)
+            prior_failure_section = (
+                f"\n\n## Prior Attempt Failure\n\n"
+                f"Your previous implementation attempt failed with the following error. "
+                f"Avoid repeating the same mistake:\n\n"
+                f"```\n{prior_failure}\n```"
             )
 
         comments_section = ""
@@ -501,7 +520,7 @@ Run through this checklist before your final commit:
 
 ## Issue: {issue.title}
 
-{body}{plan_section}{review_feedback_section}{comments_section}{manifest_section}{memory_section}{log_section}
+{body}{plan_section}{review_feedback_section}{prior_failure_section}{comments_section}{manifest_section}{memory_section}{log_section}
 
 ## Instructions
 
