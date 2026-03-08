@@ -5314,6 +5314,158 @@ class TestHITLApproveMemoryEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/hitl/{issue_number}/approve-process
+# ---------------------------------------------------------------------------
+
+
+class TestHITLApproveProcessEndpoint:
+    """Tests for POST /api/hitl/{issue_number}/approve-process."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=get_orch or (lambda: None),
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_approve_process_returns_400_without_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-process"
+        )
+        assert endpoint is not None
+        response = await endpoint(42)
+        data = json.loads(response.body)
+        assert response.status_code == 400
+        assert data["status"] == "no orchestrator"
+
+    @pytest.mark.asyncio
+    async def test_approve_process_swaps_labels_and_clears_state(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
+        pr_mgr.post_comment = AsyncMock()
+
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "issue type hold")
+        state.set_hitl_summary(42, "cached summary")
+
+        endpoint = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-process"
+        )
+        response = await endpoint(42)
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+
+        # Label swap to find/triage label
+        pr_mgr.swap_pipeline_labels.assert_called_once_with(42, config.find_label[0])
+
+        # HITL state cleaned up
+        mock_orch.skip_hitl_issue.assert_called_once_with(42)
+        assert state.get_hitl_origin(42) is None
+        assert state.get_hitl_cause(42) is None
+        assert state.get_hitl_summary(42) is None
+
+    @pytest.mark.asyncio
+    async def test_approve_process_records_outcome(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
+        pr_mgr.post_comment = AsyncMock()
+
+        endpoint = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-process"
+        )
+        await endpoint(42)
+
+        outcome = state.get_outcome(42)
+        assert outcome is not None
+        assert outcome.outcome.value == "hitl_approved"
+
+    @pytest.mark.asyncio
+    async def test_approve_process_posts_comment(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
+        pr_mgr.post_comment = AsyncMock()
+
+        endpoint = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-process"
+        )
+        await endpoint(42)
+
+        pr_mgr.post_comment.assert_called_once()
+        comment_text = pr_mgr.post_comment.call_args[0][1]
+        assert "Approved for processing" in comment_text
+        assert "triage" in comment_text
+
+    @pytest.mark.asyncio
+    async def test_approve_process_succeeds_if_comment_fails(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        mock_orch = MagicMock()
+        mock_orch.skip_hitl_issue = MagicMock()
+        router, pr_mgr = self._make_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
+        pr_mgr.post_comment = AsyncMock(side_effect=RuntimeError("API error"))
+
+        endpoint = self._find_endpoint(
+            router, "/api/hitl/{issue_number}/approve-process"
+        )
+        response = await endpoint(42)
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+        # State should still be cleaned up
+        mock_orch.skip_hitl_issue.assert_called_once_with(42)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/intent
 # ---------------------------------------------------------------------------
 
