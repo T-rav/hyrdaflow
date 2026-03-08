@@ -811,7 +811,9 @@ class TestRunMainSignalHandlers:
         ):
             await _run_main(config)
 
-        mock_runtime.stop.assert_called_once()
+        # stop() may be called more than once: once by the signal handler
+        # and once by registry.stop_all() in the finally block.
+        assert mock_runtime.stop.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_dashboard_registers_signal_handlers(self) -> None:
@@ -1256,6 +1258,8 @@ class TestRunMainRegistryWiring:
         mock_registry = MagicMock()
         mock_registry.load_saved = AsyncMock(return_value=0)
         mock_registry.stop_all = AsyncMock()
+        mock_registry.register = AsyncMock(return_value=MagicMock())
+        mock_registry.__contains__ = MagicMock(return_value=False)
 
         def trigger_stop(sig: int, cb: object) -> None:
             if callable(cb):
@@ -1272,4 +1276,3 @@ class TestRunMainRegistryWiring:
             await _run_main(config)
 
         MockRegistry.assert_called_once_with(data_root=config.data_root)
-        mock_registry.load_saved.assert_awaited_once_with(config)

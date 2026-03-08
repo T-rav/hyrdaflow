@@ -931,6 +931,16 @@ class HydraFlowConfig(BaseModel):
         default=None,
         description="Path to JSON config file for persisting runtime changes",
     )
+    repo_config_file: Path | None = Field(
+        default=None,
+        description="Repo-scoped config file path (defaults to data_root/config.json)",
+        exclude=True,
+    )
+    cli_explicit_fields: frozenset[str] = Field(
+        default_factory=frozenset,
+        description="Fields explicitly set via CLI args (internal use)",
+        exclude=True,
+    )
 
     # Changelog
     changelog_file: str = Field(

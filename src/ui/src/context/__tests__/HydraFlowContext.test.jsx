@@ -1058,6 +1058,126 @@ describe('startRuntime compatibility flow', () => {
   })
 })
 
+describe('start/stop orchestrator with repo selection', () => {
+  afterEach(() => {
+    delete window.__HYDRAFLOW_SEED_STATE__
+  })
+
+  it('startOrchestrator delegates to runtime endpoint when repo selected', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle', selectedRepoSlug: 'demo' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.startsWith('/api/runtimes')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        })
+      }
+      if (url === '/api/control/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'idle', credits_paused_until: null }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let captured = null
+    function Capture() {
+      captured = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <Capture />
+        </HydraFlowProvider>
+      )
+    })
+
+    fetchSpy.mockClear()
+    await captured.startOrchestrator()
+
+    const calledUrls = fetchSpy.mock.calls.map(([url]) => (typeof url === 'string' ? url : String(url)))
+    expect(calledUrls).toContain('/api/runtimes/demo/start')
+    expect(calledUrls).not.toContain('/api/control/start')
+  })
+
+  it('stopOrchestrator delegates to runtime endpoint when repo selected', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle', selectedRepoSlug: 'demo' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.startsWith('/api/runtimes')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        })
+      }
+      if (url === '/api/control/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'running', credits_paused_until: null }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let captured = null
+    function Capture() {
+      captured = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <Capture />
+        </HydraFlowProvider>
+      )
+    })
+
+    fetchSpy.mockClear()
+    await captured.stopOrchestrator()
+
+    const calledUrls = fetchSpy.mock.calls.map(([url]) => (typeof url === 'string' ? url : String(url)))
+    expect(calledUrls).toContain('/api/runtimes/demo/stop')
+    expect(calledUrls).not.toContain('/api/control/stop')
+  })
+})
+
 describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {
   afterEach(() => {
     delete window.__HYDRAFLOW_SEED_STATE__
