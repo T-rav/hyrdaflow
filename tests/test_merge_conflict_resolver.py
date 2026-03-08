@@ -374,7 +374,7 @@ class TestFreshBranchRebuild:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        new_wt = tmp_path / "worktrees" / "issue-42"
+        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
         resolver._worktrees.destroy = AsyncMock()
         resolver._worktrees.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
@@ -448,8 +448,8 @@ class TestFreshBranchRebuild:
         resolver._worktrees.destroy.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_fresh_rebuild_uses_force_push(self, tmp_path: Path) -> None:
-        """After rebuild, merge_with_main should use force_push_branch."""
+    async def test_fresh_rebuild_uses_force_flag(self, tmp_path: Path) -> None:
+        """After rebuild, merge_with_main should force push via push_branch(force=True)."""
         cfg = ConfigFactory.create(
             max_merge_conflict_fix_attempts=1,
             enable_fresh_branch_rebuild=True,
@@ -467,7 +467,7 @@ class TestFreshBranchRebuild:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        new_wt = tmp_path / "worktrees" / "issue-42"
+        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
         resolver._worktrees.merge_main = AsyncMock(return_value=False)
         resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
         resolver._worktrees.abort_merge = AsyncMock()
@@ -475,7 +475,6 @@ class TestFreshBranchRebuild:
         resolver._worktrees.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
         resolver._prs.push_branch = AsyncMock(return_value=True)
-        resolver._prs.force_push_branch = AsyncMock(return_value=True)
 
         publish_fn = AsyncMock()
         escalate_fn = AsyncMock()
@@ -490,5 +489,6 @@ class TestFreshBranchRebuild:
         )
 
         assert result is True
-        resolver._prs.force_push_branch.assert_awaited_once()
-        resolver._prs.push_branch.assert_not_awaited()
+        resolver._prs.push_branch.assert_awaited_once_with(
+            cfg.worktree_path_for_issue(pr.issue_number), pr.branch, force=True
+        )

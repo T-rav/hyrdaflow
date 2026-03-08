@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import signal
@@ -17,6 +18,8 @@ from typing import Any
 
 from . import supervisor_state
 from .config import DEFAULT_SUPERVISOR_PORT, STATE_DIR, SUPERVISOR_PORT_FILE
+
+logger = logging.getLogger(__name__)
 
 
 class RepoProcess:
@@ -90,20 +93,24 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str, s
         else src_path
     )
     env.setdefault("HF_SUPERVISOR_PORT_FILE", str(SUPERVISOR_PORT_FILE))
-    proc = subprocess.Popen(  # noqa: S603
-        [
-            sys.executable,
-            str(repo_path / "src" / "cli.py"),
-            "--dashboard-port",
-            str(port),
-        ],
-        cwd=str(repo_path),
-        stdout=log_file.open("a"),
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        env=env,
-        text=True,
-    )
+    log_handle = log_file.open("a")
+    try:
+        proc = subprocess.Popen(  # noqa: S603
+            [
+                sys.executable,
+                str(repo_path / "src" / "cli.py"),
+                "--dashboard-port",
+                str(port),
+            ],
+            cwd=str(repo_path),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=env,
+            text=True,
+        )
+    finally:
+        log_handle.close()
     RUNNERS[slug] = RepoProcess(slug, proc, port, repo_path)
     try:
         _wait_for_port(port, proc, log_file)
@@ -162,6 +169,8 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
     try:
         raw = await reader.readline()
         if not raw:
+            writer.close()
+            await writer.wait_closed()
             return
         request = json.loads(raw.decode())
         action = request.get("action")
@@ -236,10 +245,14 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
         else:
             response = {"status": "error", "error": "unknown action"}
     except Exception as exc:  # noqa: BLE001
+        logger.exception("Unhandled error in supervisor handler")
         response = {"status": "error", "error": str(exc)}
-    writer.write((json.dumps(response) + "\n").encode())
-    await writer.drain()
-    writer.close()
+    try:
+        writer.write((json.dumps(response) + "\n").encode())
+        await writer.drain()
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 def _build_repo_status_payload() -> list[dict[str, Any]]:

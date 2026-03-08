@@ -1,15 +1,20 @@
 """Background worker loop — report issue processing.
 
-Dequeues pending bug reports from state, uploads screenshots, and
-invokes the configured CLI agent to create GitHub issues.
+Dequeues pending bug reports from state, saves screenshots to temp files,
+and invokes the Claude CLI with ``/hf.issue`` so that the agent can see the
+image, research the codebase, and file a well-structured GitHub issue.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import re
+import tempfile
 from collections.abc import Callable, Coroutine
+from pathlib import Path
 from typing import Any
 
 from agent_cli import build_agent_command
@@ -17,13 +22,15 @@ from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
 from execution import SubprocessRunner
-from models import StatusCallback, TranscriptEventData
+from models import PendingReport, StatusCallback, TranscriptEventData
 from pr_manager import PRManager
 from runner_utils import stream_claude_process
 from screenshot_scanner import scan_base64_for_secrets
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.report_issue_loop")
+
+_MAX_REPORT_ATTEMPTS = 5
 
 
 class ReportIssueLoop(BaseBackgroundLoop):
@@ -66,12 +73,14 @@ class ReportIssueLoop(BaseBackgroundLoop):
         if self._config.dry_run:
             return None
 
-        report = self._state.dequeue_report()
+        report = self._state.peek_report()
         if report is None:
             return None
 
-        # Upload screenshot gist if present (skip if secrets detected)
-        screenshot_url = ""
+        # Save screenshot to a temp PNG so the agent can *see* it via Read
+        # and reference it as a markdown image in the issue body.  The `gh
+        # issue create` CLI auto-uploads local image paths used in markdown.
+        screenshot_path: Path | None = None
         if report.screenshot_base64:
             secret_hits = (
                 scan_base64_for_secrets(report.screenshot_base64)
@@ -86,59 +95,34 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     ", ".join(secret_hits),
                 )
             else:
-                screenshot_url = await self._pr_manager.upload_screenshot_gist(
-                    report.screenshot_base64
-                )
+                try:
+                    screenshot_path = self._save_screenshot(report.screenshot_base64)
+                except (ValueError, binascii.Error):
+                    logger.warning(
+                        "Screenshot for report %s was not valid base64; "
+                        "continuing without screenshot attachment",
+                        report.id,
+                    )
 
-        # Build the agent prompt
-        title = f"[Bug Report] {report.description[:100]}"
-        body_parts = ["## Bug Report", "", "### Description", report.description]
-
-        if screenshot_url:
-            body_parts += [
-                "",
-                "### Dashboard Screenshot",
-                f"![Screenshot]({screenshot_url})",
-            ]
-
-        env = report.environment
-        if env:
-            source = env.get("source", "dashboard")
-            version = env.get("app_version", "unknown")
-            status = env.get("orchestrator_status", "unknown")
-            queue_depths = env.get("queue_depths", {})
-            queue_line = ", ".join(
-                f"{k}={queue_depths.get(k, 0)}"
-                for k in ("triage", "plan", "implement", "review")
+        # Build prompt — invoke /hf.issue so Claude gets the full skill
+        # instructions (codebase research, duplicate check, structured body).
+        description = report.description
+        if screenshot_path:
+            description += (
+                f"\n\nA screenshot of the bug is saved at {screenshot_path} "
+                f"— read it with the Read tool to see what the user saw."
+                f"\n\nInclude this markdown image in the GitHub issue body so "
+                f"the screenshot is visible inline (gh issue create will "
+                f"auto-upload the local file):\n\n"
+                f"![Screenshot]({screenshot_path})"
             )
-            body_parts += [
-                "",
-                "### Environment",
-                f"- **HydraFlow version**: {version}",
-                f"- **Status**: {status}",
-                f"- **Queue depths**: {queue_line}",
-                f"- **Source**: {source}",
-            ]
 
-        body = "\n".join(body_parts)
-        repo = self._config.repo
-        labels_list = list(self._config.planner_label)
-        labels = ",".join(labels_list)
-
-        prompt = (
-            f"Create a GitHub issue in the repo {repo} with the following details.\n\n"
-            f"Title: {title}\n\n"
-            f"Body:\n{body}\n\n"
-            f"Labels: {labels}\n\n"
-            f"Use `gh issue create --repo {repo} "
-            f'--title "{title}" --label "{labels}" --body \'...\'` '
-            f"to create the issue. Output only the gh command and its result."
-        )
+        prompt = f"/hf.issue {description}"
 
         cmd = build_agent_command(
             tool=self._config.report_issue_tool,
             model=self._config.report_issue_model,
-            max_turns=3,
+            max_turns=10,
         )
 
         event_data: TranscriptEventData = {
@@ -161,22 +145,98 @@ class ReportIssueLoop(BaseBackgroundLoop):
             issue_number = self._extract_issue_number_from_transcript(transcript)
         except Exception:
             logger.exception("Report issue agent failed for report %s", report.id)
+        finally:
+            if screenshot_path:
+                screenshot_path.unlink(missing_ok=True)
 
-        # Reliability guard: never mark a report as processed until we have a
-        # concrete issue number.
-        if issue_number <= 0:
-            issue_number = await self._pr_manager.create_issue(title, body, labels_list)
-        if issue_number <= 0:
-            logger.error(
-                "Report %s failed: issue was not created via agent or fallback",
+        if issue_number > 0:
+            # Success — remove from queue
+            self._state.remove_report(report.id)
+            logger.info(
+                "Processed report %s as issue #%d: %s",
                 report.id,
+                issue_number,
+                f"[Bug Report] {report.description[:100]}",
             )
-            return {"processed": 0, "report_id": report.id, "error": True}
+            return {
+                "processed": 1,
+                "report_id": report.id,
+                "issue_number": issue_number,
+            }
 
-        logger.info(
-            "Processed report %s as issue #%d: %s", report.id, issue_number, title
+        # Failed — increment attempts and check cap
+        attempt_count = self._state.fail_report(report.id)
+        if attempt_count >= _MAX_REPORT_ATTEMPTS:
+            self._state.remove_report(report.id)
+            await self._escalate_failed_report(report)
+            logger.error(
+                "Report %s failed %d times — escalated to HITL",
+                report.id,
+                attempt_count,
+            )
+            return {
+                "processed": 0,
+                "report_id": report.id,
+                "error": True,
+                "escalated": True,
+            }
+
+        logger.warning(
+            "Report %s failed (attempt %d/%d) — will retry next cycle",
+            report.id,
+            attempt_count,
+            _MAX_REPORT_ATTEMPTS,
         )
-        return {"processed": 1, "report_id": report.id, "issue_number": issue_number}
+        return {"processed": 0, "report_id": report.id, "error": True}
+
+    async def _escalate_failed_report(self, report: PendingReport) -> None:
+        """Create a HITL issue with the raw report content for manual review."""
+        body = (
+            "## Bug Report — Processing Failed\n\n"
+            "This bug report could not be processed automatically after "
+            f"{_MAX_REPORT_ATTEMPTS} attempts. The raw input is preserved "
+            "below for manual review.\n\n"
+            f"**Report ID:** {report.id}\n"
+            f"**Created:** {report.created_at}\n\n"
+            "### Description\n\n"
+            f"{report.description}\n\n"
+        )
+        if report.environment:
+            body += "### Environment\n\n"
+            for key, value in report.environment.items():
+                body += f"- **{key}:** {value}\n"
+            body += "\n"
+        if report.screenshot_base64:
+            # Include a truncated indicator — the full base64 is too large for an issue
+            body += (
+                "### Screenshot\n\n"
+                f"Base64 screenshot attached ({len(report.screenshot_base64)} chars). "
+                "Too large to include in this issue.\n"
+            )
+
+        labels = list(self._config.hitl_label)
+        await self._pr_manager.create_issue(
+            f"[Bug Report] Failed to process: {report.description[:80]}",
+            body,
+            labels,
+        )
+
+    @staticmethod
+    def _save_screenshot(b64_data: str) -> Path:
+        """Decode base64 screenshot and write to a temp PNG file."""
+        payload = b64_data
+        if payload.startswith("data:"):
+            _, _, payload = payload.partition(",")
+        # Strip whitespace that may be introduced during transport
+        payload = payload.translate({ord(c): None for c in " \t\n\r"})
+        raw = base64.b64decode(payload, validate=True)
+        fd, path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-report-")
+        Path(path).write_bytes(raw)
+        # Close the fd opened by mkstemp (write_bytes uses its own handle).
+        import os
+
+        os.close(fd)
+        return Path(path)
 
     @classmethod
     def _extract_issue_number_from_transcript(cls, transcript: str) -> int:

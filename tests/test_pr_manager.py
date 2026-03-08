@@ -716,7 +716,9 @@ class TestUploadScreenshotGist:
         assert "--public" in args
 
     @pytest.mark.asyncio
-    async def test_binary_upload_falls_back_to_svg_gist(self, event_bus, tmp_path):
+    async def test_binary_upload_does_not_fall_back_to_svg_gist(
+        self, event_bus, tmp_path
+    ):
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -728,23 +730,14 @@ class TestUploadScreenshotGist:
             "Command ('gh', 'gist', 'create', ...) failed (rc=1): "
             "failed to upload file: binary file not supported"
         )
-        mgr._run_gh = AsyncMock(
-            side_effect=[
-                binary_error,
-                "https://gist.github.com/testuser/fallback123",
-            ]
-        )
+        mgr._run_gh = AsyncMock(side_effect=[binary_error])
 
         result = await mgr.upload_screenshot_gist(png_b64)
 
-        assert result == (
-            "https://gist.githubusercontent.com/testuser/fallback123/raw/screenshot.svg"
-        )
-        assert mgr._run_gh.await_count == 2
+        assert result == ""
+        assert mgr._run_gh.await_count == 1
         first_call = mgr._run_gh.await_args_list[0].args
-        second_call = mgr._run_gh.await_args_list[1].args
         assert "--filename" in first_call and "screenshot.png" in first_call
-        assert "--filename" in second_call and "screenshot.svg" in second_call
 
     @pytest.mark.asyncio
     async def test_invalid_base64_returns_empty_string(self, event_bus, tmp_path):
@@ -760,6 +753,132 @@ class TestUploadScreenshotGist:
 
         assert result == ""
         mgr._run_gh.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _gh_json_query
+# ---------------------------------------------------------------------------
+
+
+class TestGhJsonQuery:
+    """Unit tests for the shared JSON gh helper."""
+
+    @pytest.mark.asyncio
+    async def test_successful_query_returns_parsed_payload(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock(return_value='{"value": 42}')
+
+        result = await mgr._gh_json_query(
+            "gh",
+            "api",
+            "/test",
+            dry_run_return={},
+            error_log="unused",
+        )
+
+        assert result == {"value": 42}
+        mgr._run_gh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_dry_run_short_circuits_and_logs(self, dry_config, event_bus, caplog):
+        mgr = _make_manager(dry_config, event_bus)
+        mgr._run_gh = AsyncMock()
+
+        with caplog.at_level(logging.INFO, logger="hydraflow.pr_manager"):
+            result = await mgr._gh_json_query(
+                "gh",
+                "api",
+                "/test",
+                dry_run_return=[],
+                dry_run_log="[dry-run] Would fetch data",
+                error_log="unused",
+            )
+
+        assert result == []
+        assert "[dry-run] Would fetch data" in caplog.text
+        mgr._run_gh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_errors_log_warning_and_return_default(
+        self, event_bus, tmp_path, caplog
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"):
+            result = await mgr._gh_json_query(
+                "gh",
+                "api",
+                "/test",
+                dry_run_return=[],
+                error_log="Failed to fetch test payload",
+            )
+
+        assert result == []
+        assert "Failed to fetch test payload" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_log_exc_info_true_passes_exc_info_to_logger(
+        self, event_bus, tmp_path, caplog
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock(side_effect=RuntimeError("traceable error"))
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"):
+            result = await mgr._gh_json_query(
+                "gh",
+                "api",
+                "/test",
+                dry_run_return={},
+                error_log="Fetch failed",
+                log_exc_info=True,
+            )
+
+        assert result == {}
+        assert "Fetch failed" in caplog.text
+        # exc_info=True causes traceback to appear in log record
+        assert any(r.exc_info is not None for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_error_level_debug_uses_debug_logger(
+        self, event_bus, tmp_path, caplog
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock(side_effect=RuntimeError("minor error"))
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
+            result = await mgr._gh_json_query(
+                "gh",
+                "api",
+                "/test",
+                dry_run_return=[],
+                error_log="Minor fetch failure",
+                error_level="debug",
+            )
+
+        assert result == []
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("Minor fetch failure" in r.message for r in debug_records)
 
 
 # ---------------------------------------------------------------------------
@@ -783,6 +902,7 @@ async def test_push_branch_calls_git_push(config, event_bus, tmp_path):
     assert "-u" in args
     assert "origin" in args
     assert "agent/issue-42" in args
+    assert "--force-with-lease" not in args
 
 
 @pytest.mark.asyncio
@@ -801,50 +921,25 @@ async def test_push_branch_failure_returns_false(config, event_bus, tmp_path):
     assert result is False
 
 
-# ---------------------------------------------------------------------------
-# force_push_branch
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
-async def test_force_push_branch_success(config, event_bus, tmp_path):
+async def test_push_branch_force_true_adds_force_with_lease(
+    config, event_bus, tmp_path
+):
     manager = _make_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
-        result = await manager.force_push_branch(tmp_path, "agent/issue-42")
+        result = await manager.push_branch(tmp_path, "agent/issue-42", force=True)
 
     assert result is True
     args = mock_create.call_args[0]
-    assert args[0] == "git"
-    assert args[1] == "push"
     assert "--force-with-lease" in args
-    assert "--no-verify" in args
-    assert "-u" in args
-    assert "origin" in args
-    assert "agent/issue-42" in args
 
 
 @pytest.mark.asyncio
-async def test_force_push_branch_failure(config, event_bus, tmp_path):
-    manager = _make_manager(config, event_bus)
-    mock_create = (
-        SubprocessMockBuilder()
-        .with_returncode(1)
-        .with_stderr("error: failed to push")
-        .build()
-    )
-
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        result = await manager.force_push_branch(tmp_path, "agent/issue-99")
-
-    assert result is False
-
-
-@pytest.mark.asyncio
-async def test_force_push_branch_dry_run(dry_config, event_bus, tmp_path):
+async def test_push_branch_force_true_dry_run(dry_config, event_bus, tmp_path):
     manager = _make_manager(dry_config, event_bus)
-    result = await manager.force_push_branch(tmp_path, "agent/issue-42")
+    result = await manager.push_branch(tmp_path, "agent/issue-42", force=True)
     assert result is True
 
 
@@ -1616,6 +1711,98 @@ async def test_wait_for_ci_publishes_ci_check_events(event_bus, tmp_path):
     assert len(ci_events) >= 1
     assert ci_events[0].data["pr"] == 101
     assert ci_events[0].data["status"] == "passed"
+
+
+# ---------------------------------------------------------------------------
+# _sum_label_counts
+# ---------------------------------------------------------------------------
+
+
+class TestSumLabelCounts:
+    """Unit tests for the _sum_label_counts helper."""
+
+    @pytest.mark.asyncio
+    async def test_sums_counts_for_each_label(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock(side_effect=[3, 7])
+
+        result = await mgr._sum_label_counts(
+            ["label-a", "label-b"],
+            query_builder=lambda label: f"repo:org/repo label:{label}",
+            log_context="count test labels",
+        )
+
+        assert result == 10
+        assert mgr._search_github_count.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_skips_failed_label_and_continues(self, event_bus, tmp_path, caplog):
+        """Errors from _search_github_count should be swallowed and logged at debug."""
+        import logging
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock(
+            side_effect=[RuntimeError("API rate limit"), 5]
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
+            result = await mgr._sum_label_counts(
+                ["label-a", "label-b"],
+                query_builder=lambda label: f"repo:org/repo label:{label}",
+                log_context="count test labels",
+            )
+
+        assert result == 5
+        assert "count test labels" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_when_all_fail(self, event_bus, tmp_path):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
+
+        result = await mgr._sum_label_counts(
+            ["label-a", "label-b"],
+            query_builder=lambda label: f"repo:org/repo label:{label}",
+            log_context="count test labels",
+        )
+
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_and_makes_no_calls_for_empty_label_list(
+        self, event_bus, tmp_path
+    ):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._search_github_count = AsyncMock()
+
+        result = await mgr._sum_label_counts(
+            [],
+            query_builder=lambda label: f"repo:org/repo label:{label}",
+            log_context="count empty labels",
+        )
+
+        assert result == 0
+        mgr._search_github_count.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -3053,18 +3240,14 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            return "5\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=[5, 7])
         result = await mgr._count_open_issues_by_label(
             {
                 "hydraflow-plan": ["hydraflow-plan"],
                 "hydraflow-ready": ["hydraflow-ready"],
             }
         )
-        assert result == {"hydraflow-plan": 5, "hydraflow-ready": 5}
+        assert result == {"hydraflow-plan": 5, "hydraflow-ready": 7}
 
     @pytest.mark.asyncio
     async def test_count_open_issues_by_label_handles_errors_returns_zero_count(
@@ -3076,11 +3259,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            raise RuntimeError("network error")
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         result = await mgr._count_open_issues_by_label(
             {"hydraflow-plan": ["hydraflow-plan"]}
         )
@@ -3096,11 +3275,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            raise RuntimeError("network error")
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
             await mgr._count_open_issues_by_label(
                 {"hydraflow-plan": ["hydraflow-plan"]}
@@ -3117,11 +3292,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            return "not-a-number\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=ValueError("bad parse"))
         result = await mgr._count_open_issues_by_label(
             {"hydraflow-plan": ["hydraflow-plan"]}
         )
@@ -3135,13 +3306,9 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            return "7\n"
-
-        mgr._run_gh = mock_run_gh
-        result = await mgr._count_closed_issues(["hydraflow-fixed"])
-        assert result == 7
+        mgr._search_github_count = AsyncMock(side_effect=[7, 8])
+        result = await mgr._count_closed_issues(["hydraflow-fixed", "hf-fixed-alt"])
+        assert result == 15
 
     @pytest.mark.asyncio
     async def test_count_closed_issues_handles_errors_returns_zero_count(
@@ -3153,11 +3320,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            raise RuntimeError("network error")
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         result = await mgr._count_closed_issues(["hydraflow-fixed"])
         assert result == 0
 
@@ -3171,11 +3334,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            raise RuntimeError("network error")
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
             await mgr._count_closed_issues(["hydraflow-fixed"])
         assert "Could not count closed issues for label" in caplog.text
@@ -3190,11 +3349,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            return "not-a-number\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=ValueError("bad parse"))
         result = await mgr._count_closed_issues(["hydraflow-fixed"])
         assert result == 0
 
@@ -3206,11 +3361,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            return "12\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(return_value=12)
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 12
 
@@ -3224,11 +3375,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            raise RuntimeError("network error")
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 0
 
@@ -3242,11 +3389,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            raise RuntimeError("network error")
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
             await mgr._count_merged_prs("hydraflow-fixed")
         assert "Could not count merged PRs for label" in caplog.text
@@ -3261,11 +3404,7 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
-
-        async def mock_run_gh(*cmd, cwd=None):
-            return "not-a-number\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = AsyncMock(side_effect=ValueError("bad parse"))
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 0
 
@@ -3279,26 +3418,20 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
+        captured_queries: list[str] = []
 
-        captured_cmds: list[tuple[str, ...]] = []
+        async def mock_search(query: str) -> int:
+            captured_queries.append(query)
+            return 5
 
-        async def mock_run_gh(*cmd, cwd=None):
-            captured_cmds.append(cmd)
-            return "5\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = mock_search
         result = await mgr._count_open_issues_by_label(
             {"hydraflow-plan": ["hydraflow-plan"]}
         )
         assert result == {"hydraflow-plan": 5}
-        assert len(captured_cmds) == 1
-        cmd = captured_cmds[0]
-        _assert_search_api_cmd(cmd)
-        query_arg = [c for c in cmd if c.startswith("q=")][0]
-        assert "repo:test-org/test-repo" in query_arg
-        assert "is:issue" in query_arg
-        assert "is:open" in query_arg
-        assert 'label:"hydraflow-plan"' in query_arg
+        assert captured_queries == [
+            'repo:test-org/test-repo is:issue is:open label:"hydraflow-plan"'
+        ]
 
     @pytest.mark.asyncio
     async def test_count_closed_issues_uses_search_api(self, event_bus, tmp_path):
@@ -3308,24 +3441,18 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
+        captured_queries: list[str] = []
 
-        captured_cmds: list[tuple[str, ...]] = []
+        async def mock_search(query: str) -> int:
+            captured_queries.append(query)
+            return 7
 
-        async def mock_run_gh(*cmd, cwd=None):
-            captured_cmds.append(cmd)
-            return "7\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = mock_search
         result = await mgr._count_closed_issues(["hydraflow-fixed"])
         assert result == 7
-        assert len(captured_cmds) == 1
-        cmd = captured_cmds[0]
-        _assert_search_api_cmd(cmd)
-        query_arg = [c for c in cmd if c.startswith("q=")][0]
-        assert "repo:test-org/test-repo" in query_arg
-        assert "is:issue" in query_arg
-        assert "is:closed" in query_arg
-        assert 'label:"hydraflow-fixed"' in query_arg
+        assert captured_queries == [
+            'repo:test-org/test-repo is:issue is:closed label:"hydraflow-fixed"'
+        ]
 
     @pytest.mark.asyncio
     async def test_count_merged_prs_uses_search_api(self, event_bus, tmp_path):
@@ -3335,24 +3462,18 @@ class TestCountHelpers:
             state_file=tmp_path / "state.json",
         )
         mgr = _make_manager(cfg, event_bus)
+        captured_queries: list[str] = []
 
-        captured_cmds: list[tuple[str, ...]] = []
+        async def mock_search(query: str) -> int:
+            captured_queries.append(query)
+            return 12
 
-        async def mock_run_gh(*cmd, cwd=None):
-            captured_cmds.append(cmd)
-            return "12\n"
-
-        mgr._run_gh = mock_run_gh
+        mgr._search_github_count = mock_search
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 12
-        assert len(captured_cmds) == 1
-        cmd = captured_cmds[0]
-        _assert_search_api_cmd(cmd)
-        query_arg = [c for c in cmd if c.startswith("q=")][0]
-        assert "repo:test-org/test-repo" in query_arg
-        assert "is:pr" in query_arg
-        assert "is:merged" in query_arg
-        assert 'label:"hydraflow-fixed"' in query_arg
+        assert captured_queries == [
+            'repo:test-org/test-repo is:pr is:merged label:"hydraflow-fixed"'
+        ]
 
 
 # ---------------------------------------------------------------------------

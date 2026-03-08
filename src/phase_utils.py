@@ -275,6 +275,38 @@ def adr_validation_reasons(body: str) -> list[str]:
     return reasons
 
 
+def normalize_adr_topic(title: str) -> str:
+    """Extract a normalized topic key from a memory/ADR title for dedup.
+
+    Strips prefixes like ``[Memory]``, ``[ADR] Draft decision from memory #N:``,
+    lowercases, and removes non-alphanumeric characters.
+    """
+    cleaned = re.sub(
+        r"^\[(?:Memory|ADR)\]\s*(?:Draft decision from memory #\d+:\s*)?",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    ).strip()
+    return re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+
+
+def load_existing_adr_topics(repo_root: Path) -> set[str]:
+    """Scan ``docs/adr/`` files and return normalized topic keys."""
+    adr_dir = repo_root / "docs" / "adr"
+    topics: set[str] = set()
+    if not adr_dir.is_dir():
+        return topics
+    for path in adr_dir.glob("*.md"):
+        if path.name.lower() == "readme.md":
+            continue
+        stem = path.stem
+        cleaned = re.sub(r"^\d+-", "", stem)
+        topic = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
+        if topic:
+            topics.add(topic)
+    return topics
+
+
 _ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
 
 

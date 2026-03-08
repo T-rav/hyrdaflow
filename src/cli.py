@@ -1258,12 +1258,12 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 async def _run_clean(config: HydraFlowConfig) -> None:
     """Remove all worktrees and reset state."""
     from state import StateTracker
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
     logger = logging.getLogger("hydraflow")
     logger.info("Cleaning up all HydraFlow worktrees and state...")
 
-    wt_mgr = WorktreeManager(config)
+    wt_mgr = WorkspaceManager(config)
     await wt_mgr.destroy_all()
 
     state = StateTracker(config.state_file)

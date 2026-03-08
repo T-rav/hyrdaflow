@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from hf_cli import supervisor_service
+
+
+def _create_repo(tmp_path: Path) -> Path:
+    repo_path = tmp_path / "repo"
+    (repo_path / "src").mkdir(parents=True)
+    (repo_path / "src" / "cli.py").write_text("print('hello world')\n")
+    return repo_path
 
 
 def test_slug_for_repo_replaces_spaces() -> None:
@@ -14,6 +22,74 @@ def test_slug_for_repo_replaces_spaces() -> None:
 def test_start_repo_raises_for_missing_path() -> None:
     with pytest.raises(FileNotFoundError, match="Repo path not found"):
         supervisor_service._start_repo("/definitely/missing/path")
+
+
+def test_start_repo_closes_log_file_handle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_path = _create_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(supervisor_service, "STATE_DIR", state_dir)
+    monkeypatch.setattr(supervisor_service, "RUNNERS", {})
+    monkeypatch.setattr(
+        supervisor_service, "SUPERVISOR_PORT_FILE", state_dir / "port-file"
+    )
+    monkeypatch.setattr(supervisor_service, "_wait_for_port", lambda *_a, **_k: None)
+
+    captured: dict[str, object] = {}
+
+    class _Proc:
+        returncode: int | None = None
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            return None
+
+        def wait(self, _timeout: float) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+    def _fake_popen(*_a, **kwargs):
+        captured["stdout"] = kwargs["stdout"]
+        return _Proc()
+
+    monkeypatch.setattr(supervisor_service.subprocess, "Popen", _fake_popen)
+
+    supervisor_service._start_repo(str(repo_path))
+
+    stdout_handle = captured["stdout"]
+    assert getattr(stdout_handle, "closed", False) is True
+
+
+def test_start_repo_closes_log_handle_on_popen_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_path = _create_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(supervisor_service, "STATE_DIR", state_dir)
+    monkeypatch.setattr(supervisor_service, "RUNNERS", {})
+    monkeypatch.setattr(
+        supervisor_service, "SUPERVISOR_PORT_FILE", state_dir / "port-file"
+    )
+    monkeypatch.setattr(supervisor_service, "_wait_for_port", lambda *_a, **_k: None)
+
+    captured: dict[str, object] = {}
+
+    def _boom_popen(*_a, **kwargs):
+        captured["stdout"] = kwargs["stdout"]
+        raise OSError("spawn failed")
+
+    monkeypatch.setattr(supervisor_service.subprocess, "Popen", _boom_popen)
+
+    with pytest.raises(OSError):
+        supervisor_service._start_repo(str(repo_path))
+
+    stdout_handle = captured["stdout"]
+    assert getattr(stdout_handle, "closed", False) is True
 
 
 def test_find_free_port_returns_positive_int() -> None:
@@ -96,6 +172,8 @@ async def test_handle_returns_missing_path_error_for_add_repo() -> None:
     class _Writer:
         def __init__(self):
             self.buffer = b""
+            self.closed = False
+            self.wait_closed_called = False
 
         def write(self, data: bytes) -> None:
             self.buffer += data
@@ -104,13 +182,18 @@ async def test_handle_returns_missing_path_error_for_add_repo() -> None:
             return None
 
         def close(self) -> None:
-            return None
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_called = True
 
     writer = _Writer()
     await supervisor_service._handle(_Reader(), writer)
 
     assert b'"status": "error"' in writer.buffer
     assert b'"Missing path"' in writer.buffer
+    assert writer.closed is True
+    assert writer.wait_closed_called is True
 
 
 @pytest.mark.asyncio
@@ -122,6 +205,8 @@ async def test_handle_returns_unknown_action_error() -> None:
     class _Writer:
         def __init__(self):
             self.buffer = b""
+            self.closed = False
+            self.wait_closed_called = False
 
         def write(self, data: bytes) -> None:
             self.buffer += data
@@ -130,10 +215,157 @@ async def test_handle_returns_unknown_action_error() -> None:
             return None
 
         def close(self) -> None:
-            return None
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_called = True
 
     writer = _Writer()
     await supervisor_service._handle(_Reader(), writer)
 
     assert b'"status": "error"' in writer.buffer
     assert b'"unknown action"' in writer.buffer
+    assert writer.closed is True
+    assert writer.wait_closed_called is True
+
+
+@pytest.mark.asyncio
+async def test_handle_calls_wait_closed() -> None:
+    """writer.wait_closed() must be awaited after writer.close()."""
+
+    class _Reader:
+        async def readline(self):
+            return b'{"action":"ping"}\n'
+
+    class _Writer:
+        def __init__(self):
+            self.buffer = b""
+            self.closed = False
+            self.wait_closed_called = False
+
+        def write(self, data: bytes) -> None:
+            self.buffer += data
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_called = True
+
+    writer = _Writer()
+    await supervisor_service._handle(_Reader(), writer)
+
+    resp = json.loads(writer.buffer.decode())
+    assert resp == {"status": "ok"}
+    assert writer.closed is True
+    assert writer.wait_closed_called is True
+
+
+@pytest.mark.asyncio
+async def test_handle_wait_closed_called_on_exception() -> None:
+    """writer.wait_closed() must be called even when the handler raises."""
+
+    class _Reader:
+        async def readline(self):
+            return b"not valid json\n"
+
+    class _Writer:
+        def __init__(self):
+            self.buffer = b""
+            self.closed = False
+            self.wait_closed_called = False
+
+        def write(self, data: bytes) -> None:
+            self.buffer += data
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_called = True
+
+    writer = _Writer()
+    await supervisor_service._handle(_Reader(), writer)
+
+    resp = json.loads(writer.buffer.decode())
+    assert resp["status"] == "error"
+    assert writer.closed is True
+    assert writer.wait_closed_called is True
+
+
+@pytest.mark.asyncio
+async def test_handle_logs_exception(caplog: pytest.LogCaptureFixture) -> None:
+    """Exceptions in handler should be logged."""
+
+    class _Reader:
+        async def readline(self):
+            return b"{{bad json\n"
+
+    class _Writer:
+        def __init__(self):
+            self.buffer = b""
+            self.closed = False
+            self.wait_closed_called = False
+
+        def write(self, data: bytes) -> None:
+            self.buffer += data
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_called = True
+
+    writer = _Writer()
+    with caplog.at_level("ERROR", logger="hf_cli.supervisor_service"):
+        await supervisor_service._handle(_Reader(), writer)
+
+    assert any("Unhandled error" in r.message for r in caplog.records)
+    resp = json.loads(writer.buffer.decode())
+    assert resp["status"] == "error"
+    assert writer.closed is True
+    assert writer.wait_closed_called is True
+
+
+@pytest.mark.asyncio
+async def test_handle_empty_readline_closes_writer() -> None:
+    """Empty readline should close the writer without writing a response."""
+
+    class _Reader:
+        async def readline(self):
+            return b""
+
+    class _Writer:
+        def __init__(self):
+            self.buffer = b""
+            self.closed = False
+            self.wait_closed_called = False
+
+        def write(self, data: bytes) -> None:
+            self.buffer += data
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            self.wait_closed_called = True
+
+    writer = _Writer()
+    await supervisor_service._handle(_Reader(), writer)
+
+    # Empty readline returns early — no response written but writer is cleaned up
+    assert writer.buffer == b""
+    assert writer.closed is True
+    assert writer.wait_closed_called is True

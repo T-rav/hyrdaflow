@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from base_runner import BaseRunner
 from events import EventBus, EventType
 from models import TriageResult
+from runner_utils import AuthenticationRetryError
 from subprocess_util import CreditExhaustedError
 from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
@@ -251,10 +252,10 @@ class TestLLMEvaluation:
         assert any("error" in r.lower() for r in result.reasons)
 
     @pytest.mark.asyncio
-    async def test_auth_failure_raises_runtime_error(
+    async def test_auth_failure_retries_then_raises(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
-        """Docker containers without API key produce auth_failed stream events."""
+        """Auth failures retry 3 times with backoff, then raise."""
         issue = TaskFactory.create(
             id=4,
             title="Implement feature X for module Y",
@@ -281,10 +282,22 @@ class TestLLMEvaluation:
             }
         )
         stdout = f"{auth_failed}\n{result_event}"
-        mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
+        # Each retry needs a fresh proc (AsyncLineIter exhausts after one use)
+        mock_runner.create_streaming_process = AsyncMock(
+            side_effect=[
+                make_streaming_proc(stdout=stdout).return_value,
+                make_streaming_proc(stdout=stdout).return_value,
+                make_streaming_proc(stdout=stdout).return_value,
+            ]
+        )
 
-        with pytest.raises(RuntimeError, match="authentication failed"):
+        with (
+            unittest.mock.patch("asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(AuthenticationRetryError, match="authentication failed"),
+        ):
             await runner.evaluate(issue)
+        # Should have been called 3 times (initial + 2 retries)
+        assert mock_runner.create_streaming_process.call_count == 3
 
     @pytest.mark.asyncio
     async def test_credit_exhausted_propagates(

@@ -41,7 +41,7 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
         "The human operator has provided additional guidance below.\n"
         "1. Read the issue and the guidance carefully.\n"
         "2. Explore the codebase to understand the context.\n"
-        "3. Write comprehensive tests FIRST (TDD approach).\n"
+        "3. Write comprehensive tests for new and changed code.\n"
         "4. Implement the solution.\n"
         "5. Run `make quality` to verify.\n"
         '6. Commit with message: "hitl-fix: <description> (#{issue})".'

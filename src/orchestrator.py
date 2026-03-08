@@ -34,6 +34,7 @@ from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
     configure_gh_concurrency,
+    run_subprocess,
 )
 
 if TYPE_CHECKING:
@@ -761,7 +762,9 @@ class HydraFlowOrchestrator:
             self._config.poll_interval,
         )
 
+        await self._worktrees.sanitize_repo()
         await self._prs.ensure_labels_exist()
+        await self._enable_rerere()
         self._warn_if_agents_md_missing()
         await self._start_session()
 
@@ -773,10 +776,27 @@ class HydraFlowOrchestrator:
             self._agents.terminate()
             self._reviewers.terminate()
             self._hitl_runner.terminate()
+            with contextlib.suppress(Exception):
+                await self._worktrees.sanitize_repo()
             await asyncio.sleep(0)
             self._running = False
             await self._publish_status()
             logger.info("HydraFlow stopped")
+
+    async def _enable_rerere(self) -> None:
+        """Enable git rerere so resolved conflicts are remembered for next time."""
+        try:
+            await run_subprocess(
+                "git",
+                "config",
+                "rerere.enabled",
+                "true",
+                cwd=self._config.repo_root,
+                gh_token=self._config.gh_token,
+            )
+            logger.info("git rerere enabled")
+        except (RuntimeError, FileNotFoundError):
+            logger.debug("Could not enable git rerere", exc_info=True)
 
     def _warn_if_agents_md_missing(self) -> None:
         """Log a warning if AGENTS.md is absent from the repo root.
@@ -956,8 +976,10 @@ class HydraFlowOrchestrator:
                         },
                     )
                 )
+                self.update_bg_worker_status(name, "error")
                 await self._sleep_or_stop(interval)
                 continue
+            self.update_bg_worker_status(name, "ok")
             if did_work:
                 continue
             await self._sleep_or_stop(interval)
@@ -998,11 +1020,21 @@ class HydraFlowOrchestrator:
             enabled_name="review",
         )
 
+    async def _do_hitl_work(self) -> None:
+        """Fetch HITL issues, attempt auto-fixes, then process human corrections."""
+        hitl_issues = await self._fetcher.fetch_issues_by_labels(
+            list(self._config.hitl_label),
+            limit=50,
+        )
+        if hitl_issues:
+            await self._hitl_phase.attempt_auto_fixes(hitl_issues)
+        await self._hitl_phase.process_corrections()
+
     async def _hitl_loop(self) -> None:
         """Continuously process HITL corrections submitted via the dashboard."""
         await self._polling_loop(
             "hitl",
-            self._hitl_phase.process_corrections,
+            self._do_hitl_work,
             self._config.poll_interval,
         )
 
@@ -1127,6 +1159,7 @@ class HydraFlowOrchestrator:
             done, pending = await asyncio.wait(
                 pending, return_when=asyncio.FIRST_COMPLETED
             )
+            batch_did_work = False
             for task in done:
                 exc = task.exception()
                 if exc is not None:
@@ -1144,6 +1177,12 @@ class HydraFlowOrchestrator:
                     )
                 elif task.result():
                     did_work = True
+                    batch_did_work = True
+
+            # When all completed tasks did no real work (e.g. PR not visible,
+            # re-queued), pause briefly to avoid a hot spin loop.
+            if not batch_did_work and not pending:
+                break
 
         # Cancel stragglers on stop
         for task in pending:

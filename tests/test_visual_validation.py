@@ -487,14 +487,14 @@ class TestReviewPhaseVisualValidation:
         from review_phase import ReviewPhase
         from reviewer import ReviewRunner
         from state import StateTracker
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
         config = ConfigFactory.create()
         state = StateTracker(config.state_file)
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=AsyncMock(spec=WorktreeManager),
+            worktrees=AsyncMock(spec=WorkspaceManager),
             reviewers=AsyncMock(spec=ReviewRunner),
             prs=AsyncMock(),
             stop_event=asyncio.Event(),
@@ -517,14 +517,14 @@ class TestReviewPhaseVisualValidation:
         from review_phase import ReviewPhase
         from reviewer import ReviewRunner
         from state import StateTracker
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
         config = ConfigFactory.create(visual_validation_enabled=False)
         state = StateTracker(config.state_file)
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=AsyncMock(spec=WorktreeManager),
+            worktrees=AsyncMock(spec=WorkspaceManager),
             reviewers=AsyncMock(spec=ReviewRunner),
             prs=AsyncMock(),
             stop_event=asyncio.Event(),

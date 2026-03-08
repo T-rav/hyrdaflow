@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from execution import SimpleResult
 from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
@@ -69,6 +71,39 @@ async def test_error_message_includes_command_and_returncode() -> None:
     assert exc_info.value.args, "RuntimeError should include a message"
     message = exc_info.value.args[0]
     assert "('git', 'status')" in message
+
+
+class _StaticRunner:
+    def __init__(self, result: SimpleResult) -> None:
+        self._result = result
+
+    async def run_simple(self, *args, **kwargs) -> SimpleResult:  # noqa: ANN001, D401
+        return self._result
+
+
+@pytest.mark.asyncio
+async def test_runtime_error_chains_called_process_error() -> None:
+    runner = _StaticRunner(SimpleResult(stdout="", stderr="boom", returncode=9))
+    with pytest.raises(RuntimeError) as exc_info:
+        await run_subprocess("ls", runner=runner)
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, subprocess.CalledProcessError)
+    assert cause.returncode == 9
+    assert cause.cmd == ["ls"]
+
+
+@pytest.mark.asyncio
+async def test_authentication_error_chains_called_process_error() -> None:
+    runner = _StaticRunner(
+        SimpleResult(stdout="", stderr="Authentication required", returncode=1)
+    )
+    with pytest.raises(AuthenticationError) as exc_info:
+        await run_subprocess("gh", "api", runner=runner)
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, subprocess.CalledProcessError)
+    assert cause.cmd == ["gh", "api"]
 
 
 # --- environment ---
@@ -175,6 +210,17 @@ def test_make_clean_env_no_gh_token() -> None:
     with patch.dict("os.environ", env_without_token, clear=True):
         env = make_clean_env()
     assert "GH_TOKEN" not in env
+
+
+def test_make_clean_env_strips_git_worktree_vars() -> None:
+    with patch.dict(
+        "os.environ",
+        {"GIT_WORK_TREE": "/workspace", "GIT_DIR": "/dot-git", "HOME": "/tmp"},
+        clear=False,
+    ):
+        env = make_clean_env()
+    assert "GIT_WORK_TREE" not in env
+    assert "GIT_DIR" not in env
 
 
 def test_make_clean_env_does_not_mutate_os_environ() -> None:
@@ -700,6 +746,52 @@ class TestMakeDockerEnv:
             "GIT_COMMITTER_EMAIL",
         }
         assert set(env.keys()) == expected_keys
+
+    def test_reads_passthrough_keys_from_dotenv(self, tmp_path: Path) -> None:
+        """Keys not in os.environ should be read from .env when repo_root given."""
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("CLAUDE_CODE_OAUTH_TOKEN=oauth-from-dotenv\n")
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env(repo_root=tmp_path)
+        assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-from-dotenv"
+
+    def test_os_environ_takes_precedence_over_dotenv(self, tmp_path: Path) -> None:
+        """os.environ value should win over .env value."""
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("ANTHROPIC_API_KEY=from-dotenv\n")
+        with patch.dict(
+            "os.environ", {"ANTHROPIC_API_KEY": "from-environ"}, clear=True
+        ):
+            env = make_docker_env(repo_root=tmp_path)
+        assert env["ANTHROPIC_API_KEY"] == "from-environ"
+
+    def test_dotenv_ignores_comments_and_blank_lines(self, tmp_path: Path) -> None:
+        """Comments and blank lines in .env should be ignored."""
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("# comment\n\nCLAUDE_CODE_OAUTH_TOKEN=token123\n\n")
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env(repo_root=tmp_path)
+        assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "token123"
+
+    def test_dotenv_strips_quotes(self, tmp_path: Path) -> None:
+        """Quoted values in .env should have quotes stripped."""
+        dotenv = tmp_path / ".env"
+        dotenv.write_text('ANTHROPIC_API_KEY="sk-quoted"\n')
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env(repo_root=tmp_path)
+        assert env["ANTHROPIC_API_KEY"] == "sk-quoted"
+
+    def test_no_dotenv_when_repo_root_not_given(self) -> None:
+        """Without repo_root, .env should not be read."""
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env()
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+
+    def test_missing_dotenv_file_is_not_error(self, tmp_path: Path) -> None:
+        """Non-existent .env should not cause errors."""
+        with patch.dict("os.environ", {}, clear=True):
+            env = make_docker_env(repo_root=tmp_path)
+        assert set(env.keys()) == {"HOME"}
 
 
 # --- GitHub API concurrency semaphore ---
