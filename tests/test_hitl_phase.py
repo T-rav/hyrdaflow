@@ -387,13 +387,13 @@ class TestHITLGetStatus:
         state.set_hitl_origin(42, config.improve_label[0])
         assert phase.get_status(42) == "approval"
 
-    def test_get_status_does_not_return_approval_for_non_improve_origin(
+    def test_get_status_returns_from_review_for_review_origin(
         self, config: HydraFlowConfig
     ) -> None:
-        """Non-memory escalations should not show 'approval'."""
+        """Verification issues with review origin should show 'from review'."""
         phase, state, *_ = make_hitl_phase(config)
         state.set_hitl_origin(42, "hydraflow-review")
-        assert phase.get_status(42) != "approval"
+        assert phase.get_status(42) == "from review"
 
 
 class TestHITLPhaseCorrections:

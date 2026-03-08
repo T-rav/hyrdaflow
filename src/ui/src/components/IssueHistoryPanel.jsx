@@ -170,8 +170,35 @@ function renderLinkedIssue(linked, index) {
   )
 }
 
+function extractRepoSlug(issueUrl) {
+  if (!issueUrl) return null
+  try {
+    const url = typeof issueUrl === 'string' ? issueUrl : String(issueUrl)
+    const match = url.match(/github\.com\/([^/]+\/[^/]+)/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
+function formatDuration(firstSeen, lastSeen) {
+  if (!firstSeen) return null
+  const start = new Date(firstSeen)
+  if (Number.isNaN(start.getTime())) return null
+  const end = lastSeen ? new Date(lastSeen) : new Date()
+  if (Number.isNaN(end.getTime())) return null
+  const diffMs = end - start
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return '<1m'
+  if (diffMins < 60) return `${diffMins}m`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ${diffMins % 60}m`
+  const diffDays = Math.floor(diffHours / 24)
+  return `${diffDays}d ${diffHours % 24}h`
+}
+
 // Grid column template — shared between header and data rows
-const GRID_COLUMNS = '26px 52px minmax(180px, 2fr) 84px 100px 50px minmax(80px, 1fr) 70px 100px'
+const GRID_COLUMNS = '26px 52px minmax(220px, 3fr) minmax(80px, 1fr) 84px 100px 40px 60px 90px'
 
 export function OutcomesPanel() {
   const { issueHistory } = useHydraFlow()
@@ -215,6 +242,10 @@ export function OutcomesPanel() {
       if (issueText.includes(q)) return true
       if ((item.epic || '').toLowerCase().includes(q)) return true
       if ((item.crate_title || '').toLowerCase().includes(q)) return true
+      if (item.crate_number != null && String(item.crate_number).includes(q)) return true
+      const slug = extractRepoSlug(item.issue_url)
+      if (slug && slug.toLowerCase().includes(q)) return true
+      if ((item.outcome?.reason || '').toLowerCase().includes(q)) return true
       return false
     })
   }, [payload.items, statusFilter, outcomeFilter, epicOnly, search, timeRange.since, timeRange.until])
@@ -290,6 +321,10 @@ export function OutcomesPanel() {
     const issueUnprunedTokens = issueActualTokens + issueSavedTokens
     const outcomeType = item.outcome?.outcome
     const title = item.title || ''
+    const outcomeReason = item.outcome?.reason || ''
+    const repoSlug = extractRepoSlug(item.issue_url)
+    const duration = formatDuration(item.first_seen, item.last_seen)
+    const hasCrate = item.crate_title != null || item.crate_number != null
     return (
       <div key={issueNum} style={styles.rowWrap}>
         <div style={styles.row}>
@@ -304,21 +339,43 @@ export function OutcomesPanel() {
           <a href={item.issue_url || '#'} target="_blank" rel="noreferrer" style={styles.issueLink}>
             #{issueNum}
           </a>
-          <span style={styles.titleCell} title={title || `Issue #${issueNum}`}>
-            {title || <span style={styles.dimText}>Untitled</span>}
+          <div style={styles.titleCell} title={title || `Issue #${issueNum}`}>
+            <div style={styles.titleMain}>
+              <span style={styles.titleText}>{title || <span style={styles.dimText}>Untitled</span>}</span>
+              {hasCrate && (
+                <span style={styles.cratePill} title={item.crate_title || `Crate #${item.crate_number}`}>
+                  {item.crate_title || `#${item.crate_number}`}
+                </span>
+              )}
+              {item.epic && (
+                <span style={styles.epicPill} title={item.epic}>
+                  {item.epic}
+                </span>
+              )}
+            </div>
+            {outcomeReason && (
+              <div style={styles.titleSub} title={outcomeReason}>
+                {outcomeReason}
+              </div>
+            )}
+          </div>
+          <span style={styles.repoCell} title={repoSlug || ''}>
+            {repoSlug ? repoSlug.split('/')[1] || repoSlug : <span style={styles.dimText}>{'\u2014'}</span>}
           </span>
           <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
           <span style={styles.outcomeCell}>
             {outcomeType
               ? <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.manual_close}>{outcomeType.replace(/_/g, ' ')}</span>
-              : <span style={styles.dimText}>\u2014</span>}
+              : <span style={styles.dimText}>{'\u2014'}</span>}
           </span>
           <span style={styles.metaCell}>{item.prs?.length || 0}</span>
-          <span style={styles.epicCell} title={item.epic || ''}>{item.epic || <span style={styles.dimText}>\u2014</span>}</span>
           <span style={styles.tokenCell} title={`${formatNumber(issueActualTokens)} actual · ${formatNumber(issueSavedTokens)} saved`}>
             {formatCompact(issueActualTokens)}
           </span>
-          <span style={styles.timeCell} title={formatTs(item.last_seen)}>{formatShortTs(item.last_seen)}</span>
+          <span style={styles.timeCell} title={`First: ${formatTs(item.first_seen)}\nLast: ${formatTs(item.last_seen)}`}>
+            <span>{formatShortTs(item.last_seen)}</span>
+            {duration && <span style={styles.durationText}>{duration}</span>}
+          </span>
         </div>
 
         {isExpanded && (
@@ -462,7 +519,7 @@ export function OutcomesPanel() {
         <div style={styles.filterRow}>
           <input
             type="text"
-            placeholder="Search issue #, title, epic, crate"
+            placeholder="Search issue #, title, repo, epic, crate, reason"
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
@@ -513,12 +570,12 @@ export function OutcomesPanel() {
           <span />
           <span style={styles.headerCell}>#</span>
           <span style={styles.headerCell}>Title</span>
+          <span style={styles.headerCell}>Repo</span>
           <span style={styles.headerCell}>Stage</span>
           <span style={styles.headerCell}>Outcome</span>
           <span style={styles.headerCell}>PRs</span>
-          <span style={styles.headerCell}>Epic</span>
           <span style={styles.headerCellRight}>Tokens</span>
-          <span style={styles.headerCellRight}>Last Seen</span>
+          <span style={styles.headerCellRight}>Timing</span>
         </div>
 
         <div style={styles.tableBody}>
@@ -771,9 +828,70 @@ const styles = {
   },
   titleCell: {
     overflow: 'hidden',
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  titleMain: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    overflow: 'hidden',
+  },
+  titleText: {
+    overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    flexShrink: 1,
     minWidth: 0,
+  },
+  titleSub: {
+    fontSize: 10,
+    color: theme.textMuted,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    lineHeight: 1.3,
+  },
+  cratePill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    borderRadius: 999,
+    fontSize: 9,
+    fontWeight: 600,
+    padding: '1px 6px',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+    color: theme.purple,
+    background: theme.purpleSubtle,
+    border: `1px solid ${theme.purple}`,
+    opacity: 0.8,
+  },
+  epicPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    borderRadius: 999,
+    fontSize: 9,
+    fontWeight: 600,
+    padding: '1px 6px',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+    color: theme.accent,
+    background: theme.accentSubtle,
+    border: `1px solid ${theme.accent}`,
+    opacity: 0.8,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: 120,
+  },
+  repoCell: {
+    color: theme.textMuted,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    minWidth: 0,
+    fontSize: 11,
   },
   dimText: {
     color: theme.textMuted,
@@ -788,12 +906,11 @@ const styles = {
     whiteSpace: 'nowrap',
     textAlign: 'center',
   },
-  epicCell: {
+  durationText: {
+    fontSize: 9,
     color: theme.textMuted,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    minWidth: 0,
+    opacity: 0.7,
+    display: 'block',
   },
   tokenCell: {
     color: theme.textMuted,
@@ -806,6 +923,10 @@ const styles = {
     whiteSpace: 'nowrap',
     textAlign: 'right',
     fontSize: 11,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 1,
   },
   expanded: {
     borderTop: `1px dashed ${theme.border}`,

@@ -22,7 +22,7 @@ from tests.helpers import ConfigFactory
 
 
 @pytest.fixture
-def config(tmp_path: Path):
+def baseline_config(tmp_path: Path):
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
         state_file=tmp_path / "state.json",
@@ -37,18 +37,8 @@ def config(tmp_path: Path):
 
 
 @pytest.fixture
-def state(tmp_path: Path):
-    return StateTracker(tmp_path / "state.json")
-
-
-@pytest.fixture
-def bus():
-    return EventBus()
-
-
-@pytest.fixture
-def policy(config, state, bus):
-    return BaselinePolicy(config=config, state=state, event_bus=bus)
+def policy(baseline_config, state, event_bus):
+    return BaselinePolicy(config=baseline_config, state=state, event_bus=event_bus)
 
 
 # ---------------------------------------------------------------------------
@@ -330,9 +320,9 @@ class TestCheckApproval:
 
     @pytest.mark.asyncio
     async def test_publishes_event_on_check(
-        self, policy: BaselinePolicy, bus: EventBus
+        self, policy: BaselinePolicy, event_bus: EventBus
     ):
-        queue = bus.subscribe()
+        queue = event_bus.subscribe()
         await policy.check_approval(
             pr_number=101,
             issue_number=42,
@@ -346,10 +336,10 @@ class TestCheckApproval:
 
     @pytest.mark.asyncio
     async def test_publishes_event_on_denial(
-        self, policy: BaselinePolicy, bus: EventBus
+        self, policy: BaselinePolicy, event_bus: EventBus
     ):
         """BASELINE_UPDATE event must be published even when approval is denied."""
-        queue = bus.subscribe()
+        queue = event_bus.subscribe()
         await policy.check_approval(
             pr_number=101,
             issue_number=42,
@@ -469,7 +459,7 @@ class TestRollback:
 
     @pytest.mark.asyncio
     async def test_rollback_publishes_event(
-        self, policy: BaselinePolicy, bus: EventBus
+        self, policy: BaselinePolicy, event_bus: EventBus
     ):
         # Initial update
         await policy.check_approval(
@@ -479,7 +469,7 @@ class TestRollback:
             pr_approvers=["alice"],
         )
 
-        queue = bus.subscribe()
+        queue = event_bus.subscribe()
         await policy.rollback(
             issue_number=42,
             pr_number=101,
