@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import shutil
 from collections.abc import Callable, Coroutine
 from contextlib import ExitStack
@@ -90,15 +89,54 @@ class InMemoryState:
 
     # --- Troubleshooting patterns ---
     def append_troubleshooting_pattern(self, record: dict[str, Any]) -> None:
-        self._troubleshooting.append(record)
+        lang = record.get("language", "").lower()
+        name = record.get("pattern_name", "").lower()
+        key = f"{lang}:{name}"
+        for existing in self._troubleshooting:
+            existing_key = (
+                f"{existing.get('language', '').lower()}"
+                f":{existing.get('pattern_name', '').lower()}"
+            )
+            if existing_key == key:
+                existing["frequency"] = existing.get("frequency", 1) + 1
+                # Merge source_issues
+                old_issues = existing.get("source_issues", [])
+                new_issues = record.get("source_issues", [])
+                merged = list(dict.fromkeys(old_issues + new_issues))
+                existing["source_issues"] = merged
+                return
+        self._troubleshooting.append(dict(record))
 
-    def load_troubleshooting_patterns(self) -> list[dict[str, Any]]:
-        return list(self._troubleshooting)
+    def load_troubleshooting_patterns(
+        self,
+        *,
+        language: str | None = None,
+        limit: int | None = 10,
+    ) -> list[dict[str, Any]]:
+        results = list(self._troubleshooting)
+        if language:
+            lang_lower = language.lower()
+            results = [
+                p
+                for p in results
+                if p.get("language", "").lower() in (lang_lower, "general")
+            ]
+        results.sort(key=lambda p: p.get("frequency", 1), reverse=True)
+        if limit is not None:
+            results = results[:limit]
+        return results
 
-    def increment_troubleshooting_frequency(self, pattern_id: str) -> None:
+    def increment_troubleshooting_frequency(
+        self, language: str, pattern_name: str
+    ) -> None:
+        lang_lower = language.lower()
+        name_lower = pattern_name.lower()
         for p in self._troubleshooting:
-            if p.get("id") == pattern_id:
-                p["frequency"] = p.get("frequency", 0) + 1
+            if (
+                p.get("language", "").lower() == lang_lower
+                and p.get("pattern_name", "").lower() == name_lower
+            ):
+                p["frequency"] = p.get("frequency", 1) + 1
                 return
 
     # --- Events ---

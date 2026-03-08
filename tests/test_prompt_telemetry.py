@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from model_pricing import ModelPricingTable
 from prompt_telemetry import PromptTelemetry, _as_float, parse_command_tool_model
 from tests.helpers import ConfigFactory
@@ -169,14 +167,17 @@ class TestPromptTelemetry:
         assert row["total_tokens"] == 200
 
         pr = state.load_inference_stats("pr:202")
+        assert pr is not None
         assert pr["total_tokens"] == 200
         assert pr["actual_usage_calls"] == 1
         assert pr["usage_unavailable_calls"] == 0
 
         lifetime = state.load_inference_stats("lifetime")
+        assert lifetime is not None
         assert lifetime["total_tokens"] == 200
 
         session = state.load_inference_stats("session:sess-2")
+        assert session is not None
         assert session["total_tokens"] == 200
 
     def test_record_marks_usage_unavailable_when_backend_reports_none(self, tmp_path):
@@ -208,6 +209,7 @@ class TestPromptTelemetry:
         assert isinstance(row["raw_usage"], list)
 
         lifetime = state.load_inference_stats("lifetime")
+        assert lifetime is not None
         assert lifetime["usage_unavailable_calls"] == 1
 
     def test_get_session_and_lifetime_totals(self, tmp_path):
@@ -240,7 +242,9 @@ class TestPromptTelemetry:
         )
         assert telemetry.get_lifetime_totals()["total_tokens"] == 120
         assert telemetry.get_session_totals("sess-3")["total_tokens"] == 50
-        assert telemetry.get_pr_totals(300)["total_tokens"] == 70
+        pr_totals = telemetry.get_pr_totals(300)
+        assert pr_totals is not None
+        assert pr_totals["total_tokens"] == 70
         assert telemetry.get_issue_totals()[2]["total_tokens"] == 70
         assert telemetry.get_source_totals()["reviewer"]["total_tokens"] == 70
 
@@ -326,6 +330,7 @@ class TestPromptTelemetry:
         assert row["section_chars"]["issue_body_before"] == 1000
 
         pr = state.load_inference_stats("pr:500")
+        assert pr is not None
         assert pr["pruned_chars_total"] == 123
 
     def test_record_derives_pruned_counter_when_explicit_missing(self, tmp_path):
@@ -447,6 +452,7 @@ class TestPromptTelemetry:
                 stats={"input_tokens": 1000, "output_tokens": 200},
             )
         pr = state.load_inference_stats("pr:700")
+        assert pr is not None
         pr_cost = pr["estimated_cost_usd"]
         single_cost = (15.0 * 1000 + 75.0 * 200) / 1_000_000
         assert abs(pr_cost - round(single_cost * 3, 6)) < 1e-6

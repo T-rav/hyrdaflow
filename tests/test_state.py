@@ -1,11 +1,8 @@
-"""Tests for dx/hydraflow/state.py - StateTracker class."""
+"""Tests for dx/hydraflow/state.py - StateTracker (DoltStore) class."""
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -14,8 +11,6 @@ from models import (
     BackgroundWorkerState,
     LifetimeStats,
     PendingReport,
-    SessionLog,
-    SessionStatus,
     StateData,
 )
 from state import StateTracker
@@ -25,9 +20,9 @@ from state import StateTracker
 # ---------------------------------------------------------------------------
 
 
-def make_tracker(tmp_path: Path, *, filename: str = "state.json") -> StateTracker:
-    """Return a StateTracker backed by a temp file."""
-    return StateTracker(tmp_path / filename)
+def make_tracker(tmp_path: Path) -> StateTracker:
+    """Return a StateTracker (DoltStore) backed by a temp Dolt directory."""
+    return StateTracker(tmp_path / "dolt_db")
 
 
 # ---------------------------------------------------------------------------
@@ -122,49 +117,8 @@ class TestInitialization:
 
 
 # ---------------------------------------------------------------------------
-# Persistence (load / save round-trip)
+# Background worker state persistence
 # ---------------------------------------------------------------------------
-
-
-class TestLoadSave:
-    def test_save_creates_dolt_dir(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        # DoltStore creates a "_dolt" directory when given a .json path
-        dolt_dir = tmp_path / "_dolt"
-        assert dolt_dir.exists()
-
-    def test_save_produces_valid_dict(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.save()
-        data = tracker.to_dict()
-        assert isinstance(data, dict)
-
-    def test_save_sets_last_updated(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.save()
-        d = tracker.to_dict()
-        assert d["last_updated"] is not None
-        # Should be a valid ISO string
-        assert "T" in d["last_updated"]
-
-    def test_round_trip_preserves_data(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.mark_issue(10, "success")
-        tracker.set_worktree(10, "/tmp/wt-10")
-        tracker.set_branch(10, "agent/issue-10")
-        tracker.mark_pr(99, "merged")
-
-        # Data should be immediately visible via the same instance
-        d = tracker.to_dict()
-        assert d["processed_issues"].get(str(10)) == "success"
-        assert tracker.get_active_worktrees() == {10: "/tmp/wt-10"}
-        assert tracker.get_branch(10) == "agent/issue-10"
-        assert d["reviewed_prs"].get(str(99)) == "merged"
-
-    def test_explicit_load_returns_dict(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        result = tracker.load()
-        assert isinstance(result, dict)
 
 
 class TestBackgroundWorkerStatePersistence:
@@ -240,33 +194,6 @@ class TestWorkerHeartbeatPersistence:
         assert beats["metrics"]["status"] == "error"
         assert beats["metrics"]["details"]["synced"] == 0
 
-    def test_legacy_state_file_migrates_bg_worker_states_to_heartbeats(
-        self, tmp_path: Path
-    ) -> None:
-        """Loading a legacy state file with only bg_worker_states populates worker_heartbeats."""
-        dolt_path = tmp_path / "dolt_db"
-        # Write a legacy state file: bg_worker_states populated, worker_heartbeats absent
-        dolt_path.write_text(
-            json.dumps(
-                {
-                    "bg_worker_states": {
-                        "memory_sync": {
-                            "name": "memory_sync",
-                            "status": "ok",
-                            "last_run": "2025-01-01T00:00:00Z",
-                            "details": {"count": 3},
-                        }
-                    }
-                }
-            )
-        )
-        tracker = StateTracker(dolt_path)
-        beats = tracker.get_worker_heartbeats()
-        assert "memory_sync" in beats
-        assert beats["memory_sync"]["status"] == "ok"
-        assert beats["memory_sync"]["last_run"] == "2025-01-01T00:00:00Z"
-        assert beats["memory_sync"]["details"]["count"] == 3
-
 
 # ---------------------------------------------------------------------------
 # Issue tracking
@@ -284,13 +211,6 @@ class TestIssueTracking:
         tracker.mark_issue(42, "in_progress")
         tracker.mark_issue(42, "success")
         assert tracker.to_dict()["processed_issues"].get(str(42)) == "success"
-
-    def test_mark_issue_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.mark_issue(5, "success")
-        # File must exist after mark_issue
-        assert dolt_path.exists()
 
     def test_multiple_issues_tracked_independently(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -313,12 +233,6 @@ class TestWorktreeTracking:
         tracker = make_tracker(tmp_path)
         tracker.set_worktree(7, "/tmp/wt-7")
         assert tracker.get_active_worktrees() == {7: "/tmp/wt-7"}
-
-    def test_set_worktree_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.set_worktree(7, "/tmp/wt-7")
-        assert dolt_path.exists()
 
     def test_remove_worktree_deletes_entry(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -368,12 +282,6 @@ class TestBranchTracking:
         tracker = make_tracker(tmp_path)
         assert tracker.get_branch(999) is None
 
-    def test_set_branch_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.set_branch(1, "agent/issue-1")
-        assert dolt_path.exists()
-
     def test_set_branch_overwrites(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.set_branch(5, "branch-v1")
@@ -409,12 +317,6 @@ class TestPRTracking:
         tracker = make_tracker(tmp_path)
         assert tracker.to_dict()["reviewed_prs"].get(str(999)) is None
 
-    def test_mark_pr_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.mark_pr(50, "open")
-        assert dolt_path.exists()
-
     def test_multiple_prs_tracked_independently(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_pr(1, "open")
@@ -437,12 +339,6 @@ class TestHITLOriginTracking:
     def test_get_hitl_origin_returns_none_for_unknown(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_hitl_origin(999) is None
-
-    def test_set_hitl_origin_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.set_hitl_origin(42, "hydraflow-review")
-        assert dolt_path.exists()
 
     def test_set_hitl_origin_overwrites(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -483,23 +379,6 @@ class TestHITLOriginTracking:
         tracker.reset()
         assert tracker.get_hitl_origin(42) is None
 
-    def test_migration_adds_hitl_origins_to_old_file(self, tmp_path: Path) -> None:
-        """Loading a state file without hitl_origins should default to {}."""
-        dolt_path = tmp_path / "dolt_db"
-        old_data = {
-            "processed_issues": {"1": "success"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "last_updated": None,
-        }
-        dolt_path.write_text(json.dumps(old_data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_hitl_origin(1) is None
-        # Existing data is preserved
-        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
-
 
 # ---------------------------------------------------------------------------
 # HITL cause tracking
@@ -515,12 +394,6 @@ class TestHITLCauseTracking:
     def test_get_hitl_cause_returns_none_for_unknown(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_hitl_cause(999) is None
-
-    def test_set_hitl_cause_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.set_hitl_cause(42, "Merge conflict with main branch")
-        assert dolt_path.exists()
 
     def test_set_hitl_cause_overwrites(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -561,24 +434,6 @@ class TestHITLCauseTracking:
         tracker.reset()
         assert tracker.get_hitl_cause(42) is None
 
-    def test_migration_adds_hitl_causes_to_old_file(self, tmp_path: Path) -> None:
-        """Loading a state file without hitl_causes should default to {}."""
-        dolt_path = tmp_path / "dolt_db"
-        old_data = {
-            "processed_issues": {"1": "success"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "hitl_origins": {"42": "hydraflow-review"},
-            "last_updated": None,
-        }
-        dolt_path.write_text(json.dumps(old_data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_hitl_cause(42) is None
-        # Existing data is preserved
-        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
-
 
 # ---------------------------------------------------------------------------
 # HITL visual evidence tracking
@@ -606,14 +461,6 @@ class TestHITLVisualEvidence:
     def test_get_returns_none_for_unknown(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_hitl_visual_evidence(999) is None
-
-    def test_set_triggers_save(self, tmp_path: Path) -> None:
-        from models import VisualEvidence
-
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.set_hitl_visual_evidence(42, VisualEvidence())
-        assert dolt_path.exists()
 
     def test_set_overwrites_existing(self, tmp_path: Path) -> None:
         from models import VisualEvidence, VisualEvidenceItem
@@ -794,53 +641,6 @@ class TestReset:
 
 
 # ---------------------------------------------------------------------------
-# Corrupt file handling
-# ---------------------------------------------------------------------------
-
-
-class TestCorruptFileHandling:
-    def test_corrupt_json_falls_back_to_defaults(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        dolt_path.write_text("{ this is not valid JSON }")
-
-        # Should not raise; should silently reset to defaults
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_active_worktrees() == {}
-
-    def test_empty_file_falls_back_to_defaults(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        dolt_path.write_text("")
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_active_worktrees() == {}
-
-    def test_load_with_corrupt_file_falls_back_to_defaults(
-        self, tmp_path: Path
-    ) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        # Start with a valid tracker then corrupt it
-        tracker = StateTracker(dolt_path)
-        tracker.mark_issue(1, "success")
-
-        dolt_path.write_text("{ bad json !!!")
-        result = tracker.load()
-
-        assert isinstance(result, dict)
-        assert result.get("processed_issues") == {}
-
-    def test_corrupt_file_does_not_raise(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        dolt_path.write_text("null")
-
-        # Constructing a tracker on a file containing 'null' should not raise
-        try:
-            tracker = StateTracker(dolt_path)
-            _ = tracker.get_active_worktrees()
-        except Exception as exc:  # noqa: BLE001
-            pytest.fail(f"Unexpected exception for corrupt file: {exc}")
-
-
-# ---------------------------------------------------------------------------
 # to_dict
 # ---------------------------------------------------------------------------
 
@@ -976,115 +776,6 @@ class TestLifetimeStats:
         assert stats.prs_merged == 1
         assert stats.issues_completed == 1
         assert stats.issues_created == 1
-
-    def test_migration_adds_lifetime_stats_to_old_file(self, tmp_path: Path) -> None:
-        """Loading a state file without lifetime_stats should inject zero defaults."""
-        dolt_path = tmp_path / "dolt_db"
-        old_data = {
-            "processed_issues": {"1": "success"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "last_updated": None,
-        }
-        dolt_path.write_text(json.dumps(old_data))
-
-        tracker = StateTracker(dolt_path)
-        stats = tracker.get_lifetime_stats()
-        assert stats.issues_completed == 0
-        assert stats.prs_merged == 0
-        assert stats.issues_created == 0
-        assert stats.total_quality_fix_rounds == 0
-        assert stats.total_hitl_escalations == 0
-        # Existing data is preserved
-        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
-
-
-# ---------------------------------------------------------------------------
-# Atomic save
-# ---------------------------------------------------------------------------
-
-
-class TestAtomicSave:
-    def test_save_uses_atomic_replace(self, tmp_path: Path) -> None:
-        """save() should write to a temp file then atomically replace."""
-        tracker = make_tracker(tmp_path)
-        with patch("file_util.os.replace", wraps=os.replace) as mock_replace:
-            tracker.save()
-            mock_replace.assert_called_once()
-            args = mock_replace.call_args[0]
-            # Second arg should be the state file path
-            assert str(args[1]) == str(tmp_path / "state.json")
-            # First arg (temp file) should no longer exist after replace
-            assert not Path(args[0]).exists()
-
-    def test_save_cleans_up_temp_on_write_failure(self, tmp_path: Path) -> None:
-        """If writing to the temp file fails, the temp file should be removed."""
-        tracker = make_tracker(tmp_path)
-        state_dir = tmp_path
-
-        with (
-            patch("file_util.os.fdopen", side_effect=OSError("disk full")),
-            pytest.raises(OSError, match="disk full"),
-        ):
-            tracker.save()
-
-        # No leftover temp files
-        temps = list(state_dir.glob(".state-*.tmp"))
-        assert temps == []
-
-    def test_save_cleans_up_temp_on_fsync_failure(self, tmp_path: Path) -> None:
-        """If fsync fails, the temp file should be cleaned up."""
-        tracker = make_tracker(tmp_path)
-
-        with (
-            patch("file_util.os.fsync", side_effect=OSError("fsync failed")),
-            pytest.raises(OSError, match="fsync failed"),
-        ):
-            tracker.save()
-
-        temps = list(tmp_path.glob(".state-*.tmp"))
-        assert temps == []
-
-    def test_save_does_not_corrupt_existing_file_on_failure(
-        self, tmp_path: Path
-    ) -> None:
-        """A failed save must leave the original state file intact."""
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.mark_issue(1, "success")
-
-        original_content = state_file.read_text()
-
-        with (
-            patch("file_util.os.fsync", side_effect=OSError("fsync failed")),
-            pytest.raises(OSError),
-        ):
-            tracker.save()
-
-        # Original file should be unchanged
-        assert state_file.read_text() == original_content
-        data = json.loads(state_file.read_text())
-        assert data["processed_issues"]["1"] == "success"
-
-    def test_no_temp_files_left_after_successful_save(self, tmp_path: Path) -> None:
-        """After a normal save, no temp files should remain."""
-        tracker = make_tracker(tmp_path)
-        tracker.save()
-
-        temps = list(tmp_path.glob(".state-*.tmp"))
-        assert temps == []
-
-    def test_save_temp_file_in_same_directory(self, tmp_path: Path) -> None:
-        """The temp file must be created in the same dir as the state file."""
-        tracker = make_tracker(tmp_path)
-        with patch(
-            "file_util.tempfile.mkstemp", wraps=__import__("tempfile").mkstemp
-        ) as mock_mkstemp:
-            tracker.save()
-            mock_mkstemp.assert_called_once()
-            kwargs = mock_mkstemp.call_args[1]
-            assert str(kwargs["dir"]) == str(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1244,7 +935,7 @@ class TestStateDataModel:
             StateData.model_validate({"processed_issues": "not_a_dict"})
 
     def test_model_dump_roundtrip(self) -> None:
-        """model_dump_json → model_validate_json should round-trip."""
+        """model_dump_json -> model_validate_json should round-trip."""
         original = StateData(
             processed_issues={"1": "success"},
             lifetime_stats=LifetimeStats(issues_completed=5),
@@ -1252,17 +943,6 @@ class TestStateDataModel:
         json_str = original.model_dump_json()
         restored = StateData.model_validate_json(json_str)
         assert restored == original
-
-    def test_save_writes_model_dump_json(self, tmp_path: Path) -> None:
-        """The saved file should be parseable by StateData.model_validate_json."""
-        tracker = make_tracker(tmp_path)
-        tracker.mark_issue(1, "success")
-        tracker.record_pr_merged()
-
-        raw = (tmp_path / "state.json").read_text()
-        restored = StateData.model_validate_json(raw)
-        assert restored.processed_issues["1"] == "success"
-        assert restored.lifetime_stats.prs_merged == 1
 
 
 class TestWorkerResultMeta:
@@ -1277,12 +957,6 @@ class TestWorkerResultMeta:
     def test_get_returns_empty_for_unknown(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_worker_result_meta(999) == {}
-
-    def test_set_triggers_save(self, tmp_path: Path) -> None:
-        dolt_path = tmp_path / "dolt_db"
-        tracker = StateTracker(dolt_path)
-        tracker.set_worker_result_meta(42, {"quality_fix_attempts": 1})
-        assert dolt_path.exists()
 
     def test_persists_across_reload(self, tmp_path: Path) -> None:
         dolt_path = tmp_path / "dolt_db"
@@ -1305,24 +979,6 @@ class TestWorkerResultMeta:
         tracker.set_worker_result_meta(42, {"quality_fix_attempts": 1})
         tracker.set_worker_result_meta(42, {"quality_fix_attempts": 5})
         assert tracker.get_worker_result_meta(42) == {"quality_fix_attempts": 5}
-
-    def test_migration_adds_worker_result_meta_to_old_file(
-        self, tmp_path: Path
-    ) -> None:
-        """Loading a state file without worker_result_meta should default to {}."""
-        dolt_path = tmp_path / "dolt_db"
-        old_data = {
-            "processed_issues": {"1": "success"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "last_updated": None,
-        }
-        dolt_path.write_text(json.dumps(old_data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_worker_result_meta(42) == {}
-        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 class TestLifetimeStatsModel:
@@ -1602,7 +1258,7 @@ class TestThresholdTracking:
         tracker = make_tracker(tmp_path)
         for _ in range(5):
             tracker.record_issue_completed()
-        # 1 approval, 4 request-changes → rate = 1/5 = 0.2 < 0.5
+        # 1 approval, 4 request-changes -> rate = 1/5 = 0.2 < 0.5
         tracker.record_review_verdict("approve", fixes_made=False)
         for _ in range(4):
             tracker.record_review_verdict("request-changes", fixes_made=False)
@@ -1636,7 +1292,7 @@ class TestThresholdTracking:
         tracker.mark_threshold_fired("quality_fix_rate")
         for _ in range(5):
             tracker.record_issue_completed()
-        # rate = 0/5 = 0.0 < 0.5 → recovered
+        # rate = 0/5 = 0.0 < 0.5 -> recovered
         tracker.check_thresholds(0.5, 0.5, 0.2)
         assert "quality_fix_rate" not in tracker.get_fired_thresholds()
 
@@ -1759,22 +1415,6 @@ class TestIssueAttemptTracking:
         tracker.reset()
         assert tracker.get_issue_attempts(42) == 0
 
-    def test_migration_adds_issue_attempts_to_old_file(self, tmp_path: Path) -> None:
-        """Loading a state file without issue_attempts should default to {}."""
-        dolt_path = tmp_path / "dolt_db"
-        old_data = {
-            "processed_issues": {"1": "success"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "last_updated": None,
-        }
-        dolt_path.write_text(json.dumps(old_data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_issue_attempts(1) == 0
-        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
-
 
 # ---------------------------------------------------------------------------
 # Active issue numbers tracking
@@ -1818,24 +1458,6 @@ class TestActiveIssueNumbersTracking:
         result = tracker.get_active_issue_numbers()
         result.append(99)
         assert tracker.get_active_issue_numbers() == [1, 2]
-
-    def test_migration_adds_active_issue_numbers_to_old_file(
-        self, tmp_path: Path
-    ) -> None:
-        """Loading a state file without active_issue_numbers should default to []."""
-        dolt_path = tmp_path / "dolt_db"
-        old_data = {
-            "processed_issues": {"1": "success"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "last_updated": None,
-        }
-        dolt_path.write_text(json.dumps(old_data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_active_issue_numbers() == []
-        assert tracker.to_dict()["processed_issues"].get(str(1)) == "success"
 
 
 class TestWorkerIntervals:
@@ -1990,300 +1612,6 @@ class TestLastReviewedSha:
         tracker.set_last_reviewed_sha(2, "sha-issue-2")
         assert tracker.get_last_reviewed_sha(1) == "sha-issue-1"
         assert tracker.get_last_reviewed_sha(2) == "sha-issue-2"
-
-
-# ---------------------------------------------------------------------------
-# Narrowed exception handling (issue #879)
-# ---------------------------------------------------------------------------
-
-
-def _make_session(session_id: str, repo: str = "org/repo") -> SessionLog:
-    return SessionLog(
-        id=session_id,
-        repo=repo,
-        started_at="2024-01-01T00:00:00",
-        status=SessionStatus.COMPLETED,
-    )
-
-
-def _write_sessions(path: Path, lines: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
-
-
-class TestLoadSessionsCorruptLines:
-    """Verify load_sessions skips corrupt JSONL lines with warning+exc_info."""
-
-    def test_skips_corrupt_lines_returns_valid(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines are skipped; valid sessions are still returned."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-1")
-        sessions_path = tracker._sessions_path
-        _write_sessions(
-            sessions_path,
-            [session.model_dump_json(), "corrupt garbage", session.model_dump_json()],
-        )
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
-            result = tracker.load_sessions()
-
-        assert len(result) == 1
-        assert result[0].id == "sess-1"
-        assert "Skipping corrupt session line" in caplog.text
-        warning_records = [r for r in caplog.records if r.exc_info is not None]
-        assert len(warning_records) >= 1
-
-    def test_corrupt_only_returns_empty(self, tmp_path: Path) -> None:
-        """A sessions file with only corrupt lines returns an empty list."""
-        tracker = make_tracker(tmp_path)
-        _write_sessions(tracker._sessions_path, ["bad line", "also bad"])
-
-        result = tracker.load_sessions()
-        assert result == []
-
-
-class TestGetSessionCorruptLines:
-    """Verify get_session skips corrupt JSONL lines with debug logging."""
-
-    def test_skips_corrupt_line_finds_valid(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines are skipped; the target session is still found."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-2")
-        sessions_path = tracker._sessions_path
-        _write_sessions(
-            sessions_path,
-            ["corrupt garbage", session.model_dump_json()],
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
-            result = tracker.get_session("sess-2")
-
-        assert result is not None
-        assert result.id == "sess-2"
-        assert "Skipping corrupt session line" in caplog.text
-
-    def test_corrupt_only_returns_none(self, tmp_path: Path) -> None:
-        """A sessions file with only corrupt lines returns None."""
-        tracker = make_tracker(tmp_path)
-        _write_sessions(tracker._sessions_path, ["bad", "worse"])
-
-        assert tracker.get_session("any-id") is None
-
-
-class TestDeleteSessionCorruptLines:
-    """Verify delete_session skips corrupt JSONL lines with debug logging."""
-
-    def test_skips_corrupt_line_deletes_target(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines are skipped; the target session is still deleted."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-3")
-        sessions_path = tracker._sessions_path
-        _write_sessions(
-            sessions_path,
-            ["corrupt garbage", session.model_dump_json()],
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
-            deleted = tracker.delete_session("sess-3")
-
-        assert deleted is True
-        assert "Skipping corrupt session line" in caplog.text
-
-
-class TestPruneSessionsCorruptLines:
-    """Verify prune_sessions skips corrupt JSONL lines with debug logging."""
-
-    def test_skips_corrupt_lines_preserves_valid(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines are skipped; valid sessions are preserved."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-4")
-        sessions_path = tracker._sessions_path
-        _write_sessions(
-            sessions_path,
-            ["corrupt garbage", session.model_dump_json()],
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
-            tracker.prune_sessions("org/repo", max_keep=10)
-
-        assert "Skipping corrupt session line" in caplog.text
-        # Valid session should survive pruning
-        result = tracker.load_sessions()
-        assert any(s.id == "sess-4" for s in result)
-
-
-# ---------------------------------------------------------------------------
-# UnicodeDecodeError handling in load() (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestLoadUnicodeDecodeError:
-    """Verify load() catches UnicodeDecodeError from binary-corrupted state files."""
-
-    def test_load_recovers_from_binary_corrupted_state_file(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Binary data in state file should reset to defaults with a warning."""
-        import logging
-
-        dolt_path = tmp_path / "dolt_db"
-        state_file.write_bytes(b"\x80\x81\x82\xff\xfe")
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
-            tracker = make_tracker(tmp_path)
-
-        assert "Corrupt state file, resetting" in caplog.text
-        # Should have default state
-        assert tracker.get_active_worktrees() == {}
-        assert tracker.to_dict()["processed_issues"] == {}
-
-
-# ---------------------------------------------------------------------------
-# OSError handling in save_session / _load_sessions_deduped (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestSaveSessionOSError:
-    """Verify save_session catches OSError gracefully."""
-
-    def test_save_session_logs_warning_on_oserror(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When the sessions file can't be written, log warning and don't raise."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-err")
-
-        with (
-            patch("builtins.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
-        ):
-            tracker.save_session(session)  # should not raise
-
-        assert "Could not save session to" in caplog.text
-
-    def test_save_session_handles_mkdir_failure(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When mkdir fails with PermissionError, log warning and don't raise."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-err")
-
-        with (
-            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
-        ):
-            tracker.save_session(session)  # should not raise
-
-        assert "Could not save session to" in caplog.text
-
-
-class TestLoadSessionsDedupedOSError:
-    """Verify _load_sessions_deduped catches OSError and UnicodeDecodeError gracefully."""
-
-    def test_load_sessions_deduped_returns_empty_on_oserror(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When sessions file can't be opened, return empty dict with warning."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        # Create the file so exists() check passes (_sessions_path is sibling to state.json)
-        sessions_path = tracker._sessions_path
-        sessions_path.parent.mkdir(parents=True, exist_ok=True)
-        sessions_path.write_text("")
-
-        with (
-            patch("builtins.open", side_effect=OSError("permission denied")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.state"),
-        ):
-            result = tracker._load_sessions_deduped()
-
-        assert result == {}
-        assert "Could not open sessions file" in caplog.text
-
-    def test_load_sessions_deduped_returns_empty_on_unicode_error(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When sessions file contains binary data, return empty dict with warning."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        sessions_path = tracker._sessions_path
-        sessions_path.parent.mkdir(parents=True, exist_ok=True)
-        sessions_path.write_bytes(b"\x80\x81\x82\xff\xfe")
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
-            result = tracker._load_sessions_deduped()
-
-        assert result == {}
-        assert "Could not open sessions file" in caplog.text
-
-
-# --- save_session ---
-
-
-class TestSaveSession:
-    """Tests for StateTracker.save_session."""
-
-    def test_save_session_creates_file(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        session = SessionLog(
-            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
-        )
-        tracker.save_session(session)
-        assert tracker._sessions_path.exists()
-
-    def test_save_session_appends_json(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        s1 = SessionLog(
-            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
-        )
-        s2 = SessionLog(
-            id="s2", repo="test-org/test-repo", started_at="2024-01-01T00:01:00Z"
-        )
-        tracker.save_session(s1)
-        tracker.save_session(s2)
-        lines = tracker._sessions_path.read_text().strip().splitlines()
-        assert len(lines) == 2
-
-    def test_save_session_creates_parent_dirs(self, tmp_path: Path) -> None:
-        nested = tmp_path / "deep" / "nested" / "state.json"
-        tracker = StateTracker(nested)
-        session = SessionLog(
-            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
-        )
-        tracker.save_session(session)
-        assert tracker._sessions_path.exists()
-
-    def test_save_session_roundtrip_with_load(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        session = SessionLog(
-            id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
-        )
-        tracker.save_session(session)
-        loaded = tracker.load_sessions()
-        assert len(loaded) == 1
-        assert loaded[0].id == "s1"
 
 
 # --- Memory State ---
@@ -2714,7 +2042,7 @@ class TestHookFailureTracking:
 
 
 # ---------------------------------------------------------------------------
-# Outcome tracking — additional coverage
+# Outcome tracking -- additional coverage
 # ---------------------------------------------------------------------------
 
 
@@ -2915,7 +2243,7 @@ class TestSessionCounters:
         tracker.increment_session_counter("triaged")
 
         throughput = tracker.compute_session_throughput()
-        # 4 triaged / ~2 hours ≈ 2.0/hr (allow some tolerance for test timing)
+        # 4 triaged / ~2 hours ~ 2.0/hr (allow some tolerance for test timing)
         assert 1.5 <= throughput["triaged"] <= 2.5
         assert throughput["planned"] == 0.0
 
@@ -2971,69 +2299,6 @@ class TestDisabledWorkersPersistence:
         tracker.set_disabled_workers(set())
         assert tracker.get_disabled_workers() == set()
 
-    def test_partial_corruption_missing_disabled_workers(self, tmp_path: Path) -> None:
-        """State file with missing disabled_workers field loads gracefully."""
-        dolt_path = tmp_path / "dolt_db"
-        data = {
-            "processed_issues": {},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "bg_worker_states": {
-                "memory_sync": {
-                    "name": "memory_sync",
-                    "status": "ok",
-                    "last_run": "2026-02-20T10:00:00Z",
-                    "details": {},
-                }
-            },
-        }
-        dolt_path.write_text(json.dumps(data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_disabled_workers() == set()
-        states = tracker.get_bg_worker_states()
-        assert "memory_sync" in states
-
-    def test_partial_corruption_invalid_bg_worker_states(self, tmp_path: Path) -> None:
-        """State file with corrupted bg_worker_states section but valid JSON loads gracefully."""
-        dolt_path = tmp_path / "dolt_db"
-        data = {
-            "processed_issues": {"42": "merged"},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "bg_worker_states": "not_a_dict",
-            "worker_heartbeats": {},
-            "disabled_workers": ["memory_sync"],
-        }
-        dolt_path.write_text(json.dumps(data))
-
-        # Pydantic validation will fail, resetting to defaults
-        tracker = StateTracker(dolt_path)
-        # After reset, disabled workers should be empty (defaults)
-        assert tracker.get_disabled_workers() == set()
-        assert tracker.get_bg_worker_states() == {}
-
-    def test_deleted_bg_worker_states_preserves_disabled_workers(
-        self, tmp_path: Path
-    ) -> None:
-        """Deleting bg_worker_states from state file preserves disabled_workers."""
-        dolt_path = tmp_path / "dolt_db"
-        data = {
-            "processed_issues": {},
-            "active_worktrees": {},
-            "active_branches": {},
-            "reviewed_prs": {},
-            "disabled_workers": ["memory_sync"],
-        }
-        dolt_path.write_text(json.dumps(data))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_disabled_workers() == {"memory_sync"}
-        # bg_worker_states defaults to empty when absent
-        assert tracker.get_bg_worker_states() == {}
-
 
 class TestActiveCrate:
     """Tests for active crate number persistence."""
@@ -3060,11 +2325,3 @@ class TestActiveCrate:
 
         tracker2 = StateTracker(dolt_path)
         assert tracker2.get_active_crate_number() == 7
-
-    def test_migration_from_old_state_file(self, tmp_path: Path) -> None:
-        """Old state files without active_crate_number should default to None."""
-        dolt_path = tmp_path / "dolt_db"
-        dolt_path.write_text(json.dumps({"processed_issues": {}}))
-
-        tracker = StateTracker(dolt_path)
-        assert tracker.get_active_crate_number() is None

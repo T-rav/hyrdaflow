@@ -216,7 +216,6 @@ dependencies = [
     { name = "docker" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "mysql-connector-python" },
     { name = "pydantic" },
     { name = "uvicorn" },
     { name = "websockets" },
@@ -255,7 +254,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.100.0" },
-    { name = "mysql-connector-python", specifier = ">=9.6.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = "==1.1.408" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.4.0" },
@@ -321,20 +319,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
-]
-
-[[package]]
-name = "mysql-connector-python"
-version = "9.6.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/6e/c89babc7de3df01467d159854414659c885152579903a8220c8db02a3835/mysql_connector_python-9.6.0.tar.gz", hash = "sha256:c453bb55347174d87504b534246fb10c589daf5d057515bf615627198a3c7ef1", size = 12254999, upload-time = "2026-02-10T12:04:52.63Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/08/0e9bce000736454c2b8bb4c40bded79328887483689487dad7df4cf59fb7/mysql_connector_python-9.6.0-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:011931f7392a1087e10d305b0303f2a20cc1af2c1c8a15cd5691609aa95dfcbd", size = 17582646, upload-time = "2026-01-21T09:04:48.327Z" },
-    { url = "https://files.pythonhosted.org/packages/93/aa/3dd4db039fc6a9bcbdbade83be9914ead6786c0be4918170dfaf89327b76/mysql_connector_python-9.6.0-cp311-cp311-macosx_14_0_x86_64.whl", hash = "sha256:b5212372aff6833473d2560ac87d3df9fb2498d0faacb7ebf231d947175fa36a", size = 18449358, upload-time = "2026-01-21T09:04:50.278Z" },
-    { url = "https://files.pythonhosted.org/packages/53/38/ecd6d35382b6265ff5f030464d53b45e51ff2c2523ab88771c277fd84c05/mysql_connector_python-9.6.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:61deca6e243fafbb3cf08ae27bd0c83d0f8188de8456e46aeba0d3db15bb7230", size = 34169309, upload-time = "2026-01-21T09:04:52.402Z" },
-    { url = "https://files.pythonhosted.org/packages/18/1d/fe1133eb76089342854d8fbe88e28598f7e06bc684a763d21fc7b23f1d5e/mysql_connector_python-9.6.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:adabbc5e1475cdf5fb6f1902a25edc3bd1e0726fa45f01ab1b8f479ff43b3337", size = 34541101, upload-time = "2026-01-21T09:04:55.897Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/99/da0f55beb970ca049fd7d37a6391d686222af89a8b13e636d8e9bbd06536/mysql_connector_python-9.6.0-cp311-cp311-win_amd64.whl", hash = "sha256:8732ca0b7417b45238bcbfc7e64d9c4d62c759672207c6284f0921c366efddc7", size = 16514767, upload-time = "2026-02-10T12:03:50.584Z" },
-    { url = "https://files.pythonhosted.org/packages/15/dd/b3250826c29cee7816de4409a2fe5e469a68b9a89f6bfaa5eed74f05532c/mysql_connector_python-9.6.0-py2.py3-none-any.whl", hash = "sha256:44b0fb57207ebc6ae05b5b21b7968a9ed33b29187fe87b38951bad2a334d75d5", size = 480527, upload-time = "2026-02-10T12:04:36.176Z" },
 ]
 
 [[package]]

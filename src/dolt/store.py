@@ -1748,6 +1748,54 @@ class DoltStore:
         return result
 
     # ------------------------------------------------------------------
+    # Troubleshooting patterns
+    # ------------------------------------------------------------------
+
+    def append_troubleshooting_pattern(self, record: dict[str, Any]) -> None:
+        """Append or merge a troubleshooting pattern."""
+        lang = str(record.get("language", "")).lower()
+        name = str(record.get("pattern_name", "")).lower()
+        key = f"{lang}:{name}"
+        existing = self._troubleshooting.get(key)
+        if existing:
+            existing["frequency"] = existing.get("frequency", 1) + 1
+            src = existing.get("source_issues", [])
+            for iss in record.get("source_issues", []):
+                if iss not in src:
+                    src.append(iss)
+            existing["source_issues"] = src
+            self._troubleshooting.upsert(key, existing)
+        else:
+            self._troubleshooting.upsert(key, record)
+
+    def load_troubleshooting_patterns(
+        self, *, language: str | None = None, limit: int | None = 10
+    ) -> list[dict[str, Any]]:
+        """Load patterns filtered by *language*, sorted by frequency descending."""
+        all_patterns = self._troubleshooting.get_all()
+        results = []
+        for _key, pattern in all_patterns.items():
+            if language:
+                pat_lang = str(pattern.get("language", "")).lower()
+                if pat_lang != language.lower() and pat_lang != "general":
+                    continue
+            results.append(pattern)
+        results.sort(key=lambda p: p.get("frequency", 1), reverse=True)
+        if limit is not None:
+            results = results[:limit]
+        return results
+
+    def increment_troubleshooting_frequency(
+        self, language: str, pattern_name: str
+    ) -> None:
+        """Bump the frequency counter for an existing pattern."""
+        key = f"{language.lower()}:{pattern_name.lower()}"
+        existing = self._troubleshooting.get(key)
+        if existing:
+            existing["frequency"] = existing.get("frequency", 1) + 1
+            self._troubleshooting.upsert(key, existing)
+
+    # ------------------------------------------------------------------
     # Dolt version-control helpers (pass-through)
     # ------------------------------------------------------------------
 

@@ -234,59 +234,59 @@ class TestFailureRecord:
 class TestHarnessInsightStore:
     """Tests for HarnessInsightStore persistence."""
 
-    def test_append_creates_file(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+    def test_append_stores_record(self, tmp_path: Path) -> None:
+        from tests.helpers import InMemoryState
+
+        state = InMemoryState()
+        store = HarnessInsightStore(tmp_path / "memory", state=state)
         record = _make_record()
         store.append_failure(record)
 
-        failures_path = tmp_path / "memory" / "harness_failures.jsonl"
-        assert failures_path.exists()
-        lines = failures_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+        assert len(state._harness_failures) == 1
 
     def test_append_multiple_records(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        from tests.helpers import InMemoryState
+
+        state = InMemoryState()
+        store = HarnessInsightStore(tmp_path / "memory", state=state)
         for i in range(5):
             store.append_failure(_make_record(issue_number=100 + i))
 
-        failures_path = tmp_path / "memory" / "harness_failures.jsonl"
-        lines = failures_path.read_text().strip().splitlines()
-        assert len(lines) == 5
+        assert len(state._harness_failures) == 5
 
     def test_load_recent_returns_tail(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        from tests.helpers import InMemoryState
+
+        state = InMemoryState()
+        store = HarnessInsightStore(tmp_path / "memory", state=state)
         for i in range(15):
             store.append_failure(_make_record(issue_number=100 + i))
 
         recent = store.load_recent(5)
         assert len(recent) == 5
-        assert recent[0].issue_number == 110
-        assert recent[-1].issue_number == 114
+        # Newest first from Dolt
+        assert recent[0].issue_number == 114
+        assert recent[-1].issue_number == 110
 
     def test_load_recent_returns_all_when_fewer(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        from tests.helpers import InMemoryState
+
+        state = InMemoryState()
+        store = HarnessInsightStore(tmp_path / "memory", state=state)
         for i in range(3):
             store.append_failure(_make_record(issue_number=100 + i))
 
         recent = store.load_recent(10)
         assert len(recent) == 3
 
-    def test_load_recent_handles_missing_file(self, tmp_path: Path) -> None:
+    def test_load_recent_handles_no_state(self, tmp_path: Path) -> None:
         store = HarnessInsightStore(tmp_path / "memory")
         assert store.load_recent() == []
 
-    def test_load_recent_skips_malformed_lines(self, tmp_path: Path) -> None:
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir(parents=True)
-        failures_path = memory_dir / "harness_failures.jsonl"
-
-        valid = _make_record(issue_number=42)
-        failures_path.write_text(valid.model_dump_json() + "\n" + "not valid json\n")
-
-        store = HarnessInsightStore(memory_dir)
+    def test_load_recent_no_state_returns_empty(self, tmp_path: Path) -> None:
+        store = HarnessInsightStore(tmp_path / "memory")
         records = store.load_recent()
-        assert len(records) == 1
-        assert records[0].issue_number == 42
+        assert len(records) == 0
 
     def test_get_proposed_patterns_empty_when_no_file(self, tmp_path: Path) -> None:
         store = HarnessInsightStore(tmp_path / "memory")
@@ -824,41 +824,29 @@ class TestImprovementSuggestion:
 # ---------------------------------------------------------------------------
 
 
-class TestAppendFailureOSError:
-    """Verify HarnessInsightStore.append_failure catches OSError gracefully."""
+class TestAppendFailureErrorHandling:
+    """Verify HarnessInsightStore.append_failure catches state errors gracefully."""
 
-    def test_append_failure_logs_warning_on_oserror(self, tmp_path, caplog) -> None:
-        """When the failures file can't be written, log warning and don't raise."""
+    def test_append_failure_logs_warning_on_state_error(self, tmp_path, caplog) -> None:
+        """When the state write fails, log warning and don't raise."""
         import logging
-        from unittest.mock import patch
+        from unittest.mock import MagicMock
 
-        store = HarnessInsightStore(tmp_path / "memory")
+        state = MagicMock()
+        state.append_harness_failure.side_effect = RuntimeError("db error")
+        store = HarnessInsightStore(tmp_path / "memory", state=state)
         record = _make_record()
 
-        with (
-            patch("file_util.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
-        ):
+        with caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"):
             store.append_failure(record)  # should not raise
 
-        assert "Could not append failure" in caplog.text
+        assert "Dolt harness failure write failed" in caplog.text
 
-    def test_append_failure_handles_mkdir_failure(self, tmp_path, caplog) -> None:
-        """When mkdir fails with PermissionError, log warning and don't raise."""
-        import logging
-        from pathlib import Path
-        from unittest.mock import patch
-
+    def test_append_failure_without_state_is_noop(self, tmp_path) -> None:
+        """When no state is provided, append_failure is a no-op."""
         store = HarnessInsightStore(tmp_path / "memory")
         record = _make_record()
-
-        with (
-            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
-        ):
-            store.append_failure(record)  # should not raise
-
-        assert "Could not append failure" in caplog.text
+        store.append_failure(record)  # should not raise
 
 
 # ---------------------------------------------------------------------------
