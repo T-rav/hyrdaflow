@@ -5216,22 +5216,10 @@ class TestWebSocketEndpoint:
     """Tests for WebSocket /ws endpoint."""
 
     def _make_router(self, config, event_bus, state, tmp_path, *, registry=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            registry=registry,
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=registry
         )
+        return router
 
     def test_websocket_route_is_registered(
         self, config, event_bus, state, tmp_path
@@ -5338,12 +5326,12 @@ class TestWebSocketEndpoint:
 
             await endpoint(mock_ws)
 
+        import json
+
         mock_ws.accept.assert_called_once()
         mock_registry.get.assert_called_once_with("my-org-my-repo")
         # Should have sent repo_bus history, not the default event_bus
-        assert len(sent_texts) >= 1
-        import json
-
+        assert len(sent_texts) == 1
         assert json.loads(sent_texts[0])["data"]["repo_event"] is True
 
     @pytest.mark.asyncio
@@ -5419,12 +5407,12 @@ class TestWebSocketEndpoint:
 
             await endpoint(mock_ws)
 
+        import json
+
         mock_ws.accept.assert_called_once()
         # Registry.get should NOT have been called (no repo param)
         mock_registry.get.assert_not_called()
-        assert len(sent_texts) >= 1
-        import json
-
+        assert len(sent_texts) == 1
         assert json.loads(sent_texts[0])["data"]["default"] is True
 
     @pytest.mark.asyncio
@@ -5464,11 +5452,11 @@ class TestWebSocketEndpoint:
 
             await endpoint(mock_ws)
 
-        mock_ws.accept.assert_called_once()
-        # Should use default bus (not error) since registry is None
-        assert len(sent_texts) >= 1
         import json
 
+        mock_ws.accept.assert_called_once()
+        # Should use default bus (not error) since registry is None
+        assert len(sent_texts) == 1
         assert json.loads(sent_texts[0])["data"]["default"] is True
 
 
