@@ -33,6 +33,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Superseded |
 | [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Proposed |
 | [0022](0022-integration-test-architecture-cross-phase.md) | Pipeline Integration Harness for Cross-Phase Testing | Proposed |
+| [0023](0023-stats-counter-placement-in-delegating-helpers.md) | Stats Counter Placement in Delegating Helpers | Proposed |
 
 ## Adding a new ADR
 
