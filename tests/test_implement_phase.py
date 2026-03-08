@@ -222,7 +222,7 @@ class TestImplementIncludesPush:
 
         call_order: list[str] = []
 
-        async def fake_push(wt_path: Path, branch: str) -> bool:
+        async def fake_push(wt_path: Path, branch: str, *, force: bool = False) -> bool:
             call_order.append("push")
             return True
 
