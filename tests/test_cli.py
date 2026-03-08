@@ -759,6 +759,15 @@ class TestRunMainSignalHandlers:
         mock_runtime = AsyncMock()
         mock_runtime.run = AsyncMock()
         mock_runtime.stop = AsyncMock()
+        mock_runtime.slug = "test-repo"
+
+        mock_store = MagicMock()
+        mock_store.list.return_value = []
+
+        mock_registry = MagicMock()
+        mock_registry.register = AsyncMock(return_value=mock_runtime)
+        mock_registry.stop_all = AsyncMock()
+        mock_registry.get = MagicMock(return_value=None)
 
         with (
             patch(
@@ -767,6 +776,8 @@ class TestRunMainSignalHandlers:
                 return_value=mock_runtime,
             ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("repo_store.RepoStore", return_value=mock_store),
+            patch("repo_runtime.RepoRuntimeRegistry", return_value=mock_registry),
         ):
             await _run_main(config)
 
@@ -790,6 +801,7 @@ class TestRunMainSignalHandlers:
 
         mock_runtime = AsyncMock()
         mock_runtime.stop = AsyncMock()
+        mock_runtime.slug = "test-repo"
 
         async def fake_run() -> None:
             # Simulate signal arriving during run
@@ -801,6 +813,14 @@ class TestRunMainSignalHandlers:
 
         mock_runtime.run = fake_run
 
+        mock_store = MagicMock()
+        mock_store.list.return_value = []
+
+        mock_registry = MagicMock()
+        mock_registry.register = AsyncMock(return_value=mock_runtime)
+        mock_registry.stop_all = AsyncMock()
+        mock_registry.get = MagicMock(return_value=None)
+
         with (
             patch(
                 "repo_runtime.RepoRuntime.create",
@@ -808,6 +828,8 @@ class TestRunMainSignalHandlers:
                 return_value=mock_runtime,
             ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("repo_store.RepoStore", return_value=mock_store),
+            patch("repo_runtime.RepoRuntimeRegistry", return_value=mock_registry),
         ):
             await _run_main(config)
 

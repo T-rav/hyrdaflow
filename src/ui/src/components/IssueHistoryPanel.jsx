@@ -38,6 +38,7 @@ const OUTCOME_COLORS = {
   failed: { color: theme.red, bg: theme.redSubtle },
   hitl_approved: { color: theme.green, bg: theme.greenSubtle },
   manual_close: { color: theme.textMuted, bg: theme.surfaceInset },
+  pending: { color: theme.textMuted, bg: theme.surfaceInset },
 }
 
 const LINK_KIND_META = {
@@ -319,7 +320,7 @@ export function OutcomesPanel() {
     const issueActualTokens = Number(item.inference?.total_tokens || 0)
     const issueSavedTokens = estimateSavedTokens(item.inference?.pruned_chars_total || 0)
     const issueUnprunedTokens = issueActualTokens + issueSavedTokens
-    const outcomeType = item.outcome?.outcome
+    const outcomeType = item.outcome?.outcome || 'pending'
     const title = item.title || ''
     const outcomeReason = item.outcome?.reason || ''
     const repoSlug = extractRepoSlug(item.issue_url)
@@ -364,9 +365,7 @@ export function OutcomesPanel() {
           </span>
           <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
           <span style={styles.outcomeCell}>
-            {outcomeType
-              ? <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.manual_close}>{outcomeType.replace(/_/g, ' ')}</span>
-              : <span style={styles.dimText}>{'\u2014'}</span>}
+            <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.pending}>{(outcomeType || 'pending').replace(/_/g, ' ')}</span>
           </span>
           <span style={styles.metaCell}>{item.prs?.length || 0}</span>
           <span style={styles.tokenCell} title={`${formatNumber(issueActualTokens)} actual · ${formatNumber(issueSavedTokens)} saved`}>

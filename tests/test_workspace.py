@@ -2646,6 +2646,72 @@ class TestSanitizeRepo:
 
 
 # ---------------------------------------------------------------------------
+# WorkspaceManager.reset_to_main
+# ---------------------------------------------------------------------------
+
+
+class TestResetToMain:
+    """Tests for the reset_to_main method."""
+
+    @pytest.mark.asyncio
+    async def test_reset_runs_fetch_reset_clean(self, tmp_path: Path) -> None:
+        """reset_to_main should fetch, hard-reset, and clean."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        manager = WorkspaceManager(config)
+        wt_path = tmp_path / "worktrees" / "issue-42"
+        wt_path.mkdir(parents=True)
+
+        commands_run: list[list[str]] = []
+
+        async def mock_run_subprocess(*args, cwd=None, gh_token=None):
+            commands_run.append(list(args))
+            return ""
+
+        with patch("workspace.run_subprocess", side_effect=mock_run_subprocess):
+            await manager.reset_to_main(wt_path)
+
+        # Should have run 3 commands: fetch, reset --hard, clean -fd
+        assert len(commands_run) == 3
+        assert commands_run[0][:3] == ["git", "fetch", "origin"]
+        assert "reset" in commands_run[1] and "--hard" in commands_run[1]
+        assert "clean" in commands_run[2] and "-fd" in commands_run[2]
+
+    @pytest.mark.asyncio
+    async def test_reset_uses_configured_main_branch(self, tmp_path: Path) -> None:
+        """reset_to_main should use the configured main branch name."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        # Override main_branch for this test
+        object.__setattr__(config, "main_branch", "develop")
+        manager = WorkspaceManager(config)
+        wt_path = tmp_path / "worktrees" / "issue-42"
+        wt_path.mkdir(parents=True)
+
+        commands_run: list[list[str]] = []
+
+        async def mock_run_subprocess(*args, cwd=None, gh_token=None):
+            commands_run.append(list(args))
+            return ""
+
+        with patch("workspace.run_subprocess", side_effect=mock_run_subprocess):
+            await manager.reset_to_main(wt_path)
+
+        assert "develop" in commands_run[0]  # fetch includes branch
+        assert "origin/develop" in commands_run[1]  # reset target
+
+
+# ---------------------------------------------------------------------------
 # pre_work_check
 # ---------------------------------------------------------------------------
 

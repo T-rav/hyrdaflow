@@ -12,6 +12,7 @@ from review_insights import (
     CATEGORY_DESCRIPTIONS,
     CATEGORY_ESCALATIONS,
     CATEGORY_KEYWORDS,
+    CATEGORY_REMEDIATION,
     ReviewInsightStore,
     ReviewRecord,
     analyze_patterns,
@@ -360,6 +361,68 @@ class TestGetCommonFeedbackSection:
     def test_returns_empty_when_no_categories(self) -> None:
         records = [_make_record(pr_number=1, categories=[])]
         assert get_common_feedback_section(records) == ""
+
+    def test_includes_remediation_hint_for_missing_tests(self) -> None:
+        """Feedback section should include actionable remediation for known categories."""
+        records = [
+            _make_record(pr_number=i, categories=["missing_tests"]) for i in range(3)
+        ]
+        section = get_common_feedback_section(records)
+        assert "Action:" in section
+        assert "failure/error paths" in section
+
+    def test_includes_remediation_hint_for_edge_cases(self) -> None:
+        records = [
+            _make_record(pr_number=i, categories=["edge_cases"]) for i in range(3)
+        ]
+        section = get_common_feedback_section(records)
+        assert "Action:" in section
+        assert "empty inputs" in section
+
+    def test_includes_remediation_hint_for_error_handling(self) -> None:
+        """Feedback section should include actionable remediation for error_handling."""
+        records = [
+            _make_record(pr_number=i, categories=["error_handling"]) for i in range(3)
+        ]
+        section = get_common_feedback_section(records)
+        assert "Action:" in section
+        assert "error-path tests" in section
+
+    def test_no_remediation_hint_for_unknown_category(self) -> None:
+        """Categories without remediation hints should not get an Action line."""
+        records = [_make_record(pr_number=i, categories=["naming"]) for i in range(3)]
+        section = get_common_feedback_section(records)
+        assert "Poor naming" in section
+        assert "Action:" not in section
+
+
+# ---------------------------------------------------------------------------
+# CATEGORY_REMEDIATION
+# ---------------------------------------------------------------------------
+
+
+class TestCategoryRemediation:
+    """Tests for the CATEGORY_REMEDIATION mapping."""
+
+    def test_missing_tests_remediation_exists(self) -> None:
+        assert "missing_tests" in CATEGORY_REMEDIATION
+
+    def test_remediation_keys_are_valid_categories(self) -> None:
+        """Every remediation key must be a valid category."""
+        for key in CATEGORY_REMEDIATION:
+            assert key in CATEGORY_DESCRIPTIONS, f"{key} not in CATEGORY_DESCRIPTIONS"
+
+    def test_missing_tests_remediation_mentions_dead_code(self) -> None:
+        hint = CATEGORY_REMEDIATION["missing_tests"]
+        assert "dead code" in hint
+
+    def test_missing_tests_remediation_mentions_failure_paths(self) -> None:
+        hint = CATEGORY_REMEDIATION["missing_tests"]
+        assert "failure/error paths" in hint
+
+    def test_missing_tests_remediation_mentions_issue_requirements(self) -> None:
+        hint = CATEGORY_REMEDIATION["missing_tests"]
+        assert "issue requirements" in hint
 
 
 # ---------------------------------------------------------------------------

@@ -1062,6 +1062,458 @@ class TestIssueHistoryEndpoint:
         assert issue["crate_title"] == ""
 
 
+class TestIssueHistoryEpicBackfill:
+    """Tests that epic field is backfilled from state's epic tracking."""
+
+    @pytest.mark.asyncio
+    async def test_epic_backfilled_from_epic_state(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When an issue is a child of an epic, the epic title is shown."""
+        import json
+
+        from dashboard_routes import create_router
+        from models import EpicState
+        from pr_manager import PRManager
+
+        # Register the epic with a child issue in state
+        state.upsert_epic_state(
+            EpicState(epic_number=100, title="My Big Epic", child_issues=[42])
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 42, "title": "Child issue"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 42), None)
+        assert issue is not None
+        assert issue["epic"] == "My Big Epic"
+
+    @pytest.mark.asyncio
+    async def test_epic_not_overwritten_when_already_set(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Epic from event labels takes precedence over state backfill."""
+        import json
+
+        from dashboard_routes import create_router
+        from models import EpicState
+        from pr_manager import PRManager
+
+        state.upsert_epic_state(
+            EpicState(epic_number=100, title="State Epic", child_issues=[43])
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={
+                    "issue": 43,
+                    "title": "Child with label",
+                    "labels": ["epic:ui-overhaul"],
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 43), None)
+        assert issue is not None
+        # Label-derived epic takes precedence
+        assert issue["epic"] == "epic:ui-overhaul"
+
+    @pytest.mark.asyncio
+    async def test_epic_empty_when_no_epic(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Issues not belonging to any epic have empty epic field."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 44, "title": "Standalone issue"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 44), None)
+        assert issue is not None
+        assert issue["epic"] == ""
+
+    @pytest.mark.asyncio
+    async def test_epic_fallback_title_when_epic_has_no_title(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When epic state has no title, fallback to 'Epic #N'."""
+        import json
+
+        from dashboard_routes import create_router
+        from models import EpicState
+        from pr_manager import PRManager
+
+        state.upsert_epic_state(EpicState(epic_number=200, title="", child_issues=[45]))
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 45, "title": "Child of untitled epic"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 45), None)
+        assert issue is not None
+        assert issue["epic"] == "Epic #200"
+
+
+class TestIssueHistoryEpicLabelFiltering:
+    """Tests that internal epic labels are filtered out during enrichment."""
+
+    @pytest.mark.asyncio
+    async def test_internal_epic_labels_skipped(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Labels like 'hydraflow-epic-child' should not be used as epic name."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        # Emit event with internal epic label only
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={
+                    "issue": 50,
+                    "title": "Issue with internal label",
+                    "labels": ["hydraflow-epic-child", "bug"],
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 50), None)
+        assert issue is not None
+        # Internal labels should be filtered out, leaving epic empty
+        assert issue["epic"] == ""
+
+    @pytest.mark.asyncio
+    async def test_real_epic_label_kept(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Real epic labels like 'epic:payments' should be used."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={
+                    "issue": 51,
+                    "title": "Issue with real epic label",
+                    "labels": ["hydraflow-epic-child", "epic:payments"],
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 51), None)
+        assert issue is not None
+        assert issue["epic"] == "epic:payments"
+
+
+class TestIssueHistoryOutcomeDerivation:
+    """Tests that outcome is derived from merged PRs when not explicitly recorded."""
+
+    @pytest.mark.asyncio
+    async def test_outcome_derived_from_merged_pr(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Issue with a merged PR but no recorded outcome should derive 'merged'."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        # Create issue and add a merged PR
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 60, "title": "Issue with merged PR"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={"issue": 60, "pr_number": 100, "title": "Fix #60"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                data={"issue": 60, "pr": 100, "status": "merged"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 60), None)
+        assert issue is not None
+        assert issue["outcome"] is not None
+        assert issue["outcome"]["outcome"] == "merged"
+        assert issue["outcome"]["pr_number"] == 100
+
+    @pytest.mark.asyncio
+    async def test_outcome_not_derived_when_already_recorded(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Explicit outcome should not be overwritten by PR-derived one."""
+        import json
+
+        from dashboard_routes import create_router
+        from models import IssueOutcomeType
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 61, "title": "Issue with explicit outcome"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={"issue": 61, "pr_number": 101, "title": "Fix #61"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                data={"issue": 61, "pr": 101, "status": "merged"},
+            )
+        )
+
+        # Record an explicit outcome
+        state.record_outcome(
+            issue_number=61,
+            outcome=IssueOutcomeType.HITL_APPROVED,
+            reason="Approved by human",
+            phase="hitl",
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 61), None)
+        assert issue is not None
+        assert issue["outcome"]["outcome"] == "hitl_approved"
+
+    @pytest.mark.asyncio
+    async def test_outcome_not_derived_without_merged_pr(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Issue with unmerged PR and no outcome should have no outcome."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 62, "title": "Issue with open PR"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={"issue": 62, "pr_number": 102, "title": "Fix #62"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 62), None)
+        assert issue is not None
+        assert issue["outcome"] is None
+
+
 class TestControlStatusImproveLabel:
     """Tests that /api/control/status includes improve_label."""
 
@@ -5581,6 +6033,12 @@ class TestSPAEndpoints:
 class TestWebSocketEndpoint:
     """Tests for WebSocket /ws endpoint."""
 
+    def _make_router(self, config, event_bus, state, tmp_path, *, registry=None):
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=registry
+        )
+        return router
+
     def test_websocket_route_is_registered(
         self, config, event_bus, state, tmp_path
     ) -> None:
@@ -5610,6 +6068,7 @@ class TestWebSocketEndpoint:
 
         # Create a mock WebSocket
         mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {}
         sent_texts: list[str] = []
         mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
 
@@ -5634,6 +6093,189 @@ class TestWebSocketEndpoint:
         mock_ws.accept.assert_called_once()
         # At least one history event should have been sent
         assert len(sent_texts) >= 1
+
+    @pytest.mark.asyncio
+    async def test_websocket_repo_scoped_uses_repo_event_bus(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When ?repo=slug is provided, the WS subscribes to that repo's event bus."""
+        from fastapi import WebSocket
+        from fastapi.websockets import WebSocketDisconnect
+
+        from tests.conftest import EventFactory
+
+        # Create a separate event bus for the repo runtime
+        repo_bus = EventBus()
+        await repo_bus.publish(EventFactory.create(data={"repo_event": True}))
+
+        # Mock the registry
+        mock_runtime = MagicMock()
+        mock_runtime.config = config
+        mock_runtime.state = state
+        mock_runtime.event_bus = repo_bus
+        mock_runtime.orchestrator = None
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {"repo": "my-org-my-repo"}
+        sent_texts: list[str] = []
+        mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
+
+        q: asyncio.Queue = asyncio.Queue()
+        q.get = AsyncMock(side_effect=WebSocketDisconnect)  # type: ignore[method-assign]
+
+        with patch.object(repo_bus, "subscription") as mock_sub:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=q)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_sub.return_value = mock_ctx
+
+            await endpoint(mock_ws)
+
+        import json
+
+        mock_ws.accept.assert_called_once()
+        mock_registry.get.assert_called_once_with("my-org-my-repo")
+        # Should have sent repo_bus history, not the default event_bus
+        assert len(sent_texts) == 1
+        assert json.loads(sent_texts[0])["data"]["repo_event"] is True
+
+    @pytest.mark.asyncio
+    async def test_websocket_unknown_repo_closes_with_1008(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When ?repo=unknown-slug is provided, the WS closes with code 1008."""
+        from fastapi import WebSocket
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None  # unknown slug
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {"repo": "nonexistent-repo"}
+
+        await endpoint(mock_ws)
+
+        mock_ws.accept.assert_called_once()
+        mock_registry.get.assert_called_once_with("nonexistent-repo")
+        mock_ws.close.assert_called_once_with(
+            code=1008, reason="Unknown repo: nonexistent-repo"
+        )
+        # Should NOT have called send_text (no history/events streamed)
+        mock_ws.send_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_websocket_no_repo_param_uses_default_bus(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When no ?repo param is given, the WS uses the default event bus (backward compat)."""
+        from fastapi import WebSocket
+        from fastapi.websockets import WebSocketDisconnect
+
+        from tests.conftest import EventFactory
+
+        await event_bus.publish(EventFactory.create(data={"default": True}))
+
+        mock_registry = MagicMock()
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {}  # no repo param
+        sent_texts: list[str] = []
+        mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
+
+        q: asyncio.Queue = asyncio.Queue()
+        q.get = AsyncMock(side_effect=WebSocketDisconnect)  # type: ignore[method-assign]
+
+        with patch.object(event_bus, "subscription") as mock_sub:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=q)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_sub.return_value = mock_ctx
+
+            await endpoint(mock_ws)
+
+        import json
+
+        mock_ws.accept.assert_called_once()
+        # Registry.get should NOT have been called (no repo param)
+        mock_registry.get.assert_not_called()
+        assert len(sent_texts) == 1
+        assert json.loads(sent_texts[0])["data"]["default"] is True
+
+    @pytest.mark.asyncio
+    async def test_websocket_repo_slug_no_registry_falls_back_to_default(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When ?repo=slug is provided but registry is None, falls back to default bus."""
+        from fastapi import WebSocket
+        from fastapi.websockets import WebSocketDisconnect
+
+        from tests.conftest import EventFactory
+
+        await event_bus.publish(EventFactory.create(data={"default": True}))
+
+        # No registry — single-repo mode
+        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {"repo": "some-org-some-repo"}
+        sent_texts: list[str] = []
+        mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
+
+        q: asyncio.Queue = asyncio.Queue()
+        q.get = AsyncMock(side_effect=WebSocketDisconnect)  # type: ignore[method-assign]
+
+        with patch.object(event_bus, "subscription") as mock_sub:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=q)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_sub.return_value = mock_ctx
+
+            await endpoint(mock_ws)
+
+        import json
+
+        mock_ws.accept.assert_called_once()
+        # Should use default bus (not error) since registry is None
+        assert len(sent_texts) == 1
+        assert json.loads(sent_texts[0])["data"]["default"] is True
 
 
 class TestIssueHistoryCache:

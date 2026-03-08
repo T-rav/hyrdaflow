@@ -299,7 +299,7 @@ class TestRepoRuntimeRegistry:
 
 
 class TestRepoRuntimeRegistryPersistence:
-    """Tests for repos.json persistence in RepoRuntimeRegistry."""
+    """Tests for runtime-repos.json persistence in RepoRuntimeRegistry."""
 
     def test_no_data_root_disables_persistence(self):
         registry = RepoRuntimeRegistry()
@@ -307,7 +307,7 @@ class TestRepoRuntimeRegistryPersistence:
 
     def test_repos_path_with_data_root(self, tmp_path):
         registry = RepoRuntimeRegistry(data_root=tmp_path)
-        assert registry._repos_path == tmp_path / "repos.json"
+        assert registry._repos_path == tmp_path / "runtime-repos.json"
 
     @pytest.mark.asyncio
     async def test_register_saves_repos_json(self, tmp_path):
@@ -320,7 +320,7 @@ class TestRepoRuntimeRegistryPersistence:
         p1, p2, p3, p4 = _runtime_patches()
         with p1, p2, p3, p4:
             await registry.register(config)
-        repos_file = data_dir / "repos.json"
+        repos_file = data_dir / "runtime-repos.json"
         assert repos_file.exists()
         data = json.loads(repos_file.read_text())
         assert "repos" in data
@@ -340,7 +340,7 @@ class TestRepoRuntimeRegistryPersistence:
         with p1, p2, p3, p4:
             await registry.register(config)
         registry.remove("org-myrepo")
-        data = json.loads((data_dir / "repos.json").read_text())
+        data = json.loads((data_dir / "runtime-repos.json").read_text())
         assert data["repos"] == []
 
     def test_load_missing_file_returns_empty(self, tmp_path):
@@ -348,22 +348,24 @@ class TestRepoRuntimeRegistryPersistence:
         assert registry._load() == []
 
     def test_load_malformed_json_returns_empty(self, tmp_path):
-        (tmp_path / "repos.json").write_text("not json{{{")
+        (tmp_path / "runtime-repos.json").write_text("not json{{{")
         registry = RepoRuntimeRegistry(data_root=tmp_path)
         assert registry._load() == []
 
     def test_load_wrong_schema_returns_empty(self, tmp_path):
-        (tmp_path / "repos.json").write_text(json.dumps(["not", "an", "object"]))
+        (tmp_path / "runtime-repos.json").write_text(
+            json.dumps(["not", "an", "object"])
+        )
         registry = RepoRuntimeRegistry(data_root=tmp_path)
         assert registry._load() == []
 
     def test_load_missing_repos_key_returns_empty(self, tmp_path):
-        (tmp_path / "repos.json").write_text(json.dumps({"other": "data"}))
+        (tmp_path / "runtime-repos.json").write_text(json.dumps({"other": "data"}))
         registry = RepoRuntimeRegistry(data_root=tmp_path)
         assert registry._load() == []
 
     def test_load_filters_entries_without_repo_root(self, tmp_path):
-        (tmp_path / "repos.json").write_text(
+        (tmp_path / "runtime-repos.json").write_text(
             json.dumps(
                 {
                     "repos": [
@@ -384,7 +386,7 @@ class TestRepoRuntimeRegistryPersistence:
         data_dir.mkdir()
         repo_root = tmp_path / "savedrepo"
         repo_root.mkdir()
-        (data_dir / "repos.json").write_text(
+        (data_dir / "runtime-repos.json").write_text(
             json.dumps(
                 {
                     "repos": [
@@ -408,7 +410,7 @@ class TestRepoRuntimeRegistryPersistence:
     async def test_load_saved_skips_missing_directories(self, tmp_path):
         data_dir = tmp_path / "data"
         data_dir.mkdir()
-        (data_dir / "repos.json").write_text(
+        (data_dir / "runtime-repos.json").write_text(
             json.dumps(
                 {
                     "repos": [
@@ -444,7 +446,7 @@ class TestRepoRuntimeRegistryPersistence:
 
     @pytest.mark.asyncio
     async def test_load_saved_then_register_preserves_prior_repos(self, tmp_path):
-        """load_saved() before register() keeps all repos in repos.json.
+        """load_saved() before register() keeps all repos in runtime-repos.json.
 
         Regression: if register() is called first it calls _save() with only
         the new repo, discarding previously-persisted repos.
@@ -456,7 +458,7 @@ class TestRepoRuntimeRegistryPersistence:
         repo_c = tmp_path / "repoc"
         repo_c.mkdir()
         # Simulate a prior session that persisted repos B and C.
-        (data_dir / "repos.json").write_text(
+        (data_dir / "runtime-repos.json").write_text(
             json.dumps(
                 {
                     "repos": [
@@ -489,8 +491,8 @@ class TestRepoRuntimeRegistryPersistence:
         assert "org-repoa" in registry
         assert "org-repob" in registry
         assert "org-repoc" in registry
-        # repos.json should now contain all three.
-        saved = json.loads((data_dir / "repos.json").read_text())
+        # runtime-repos.json should now contain all three.
+        saved = json.loads((data_dir / "runtime-repos.json").read_text())
         slugs = {e["slug"] for e in saved["repos"]}
         assert slugs == {"org-repoa", "org-repob", "org-repoc"}
 

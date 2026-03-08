@@ -88,6 +88,11 @@ RepoSlugParam = Annotated[
     Query(description="Repo slug to scope the request"),
 ]
 
+# Internal pipeline labels that must not be treated as epic names in the history panel.
+_EPIC_INTERNAL_LABELS: frozenset[str] = frozenset(
+    {"hydraflow-epic-child", "hydraflow-epic"}
+)
+
 # Backend stage keys → frontend stage names
 _STAGE_NAME_MAP: dict[str, str] = {
     IssueStoreStage.FIND: "triage",
@@ -844,7 +849,11 @@ def create_router(
                 if isinstance(labels, list) and not row.get("epic"):
                     for lbl in labels:
                         s = str(lbl).strip()
-                        if s and "epic" in s.lower():
+                        if (
+                            s
+                            and "epic" in s.lower()
+                            and s.lower() not in _EPIC_INTERNAL_LABELS
+                        ):
                             row["epic"] = s
                             break
                 milestone_num = _coerce_int(event.data.get("milestone_number"))
@@ -998,6 +1007,41 @@ def create_router(
             except Exception:
                 logger.debug("Failed to fetch milestones for crate titles")
 
+        # Backfill epic field from state's epic tracking when not already set.
+        epic_states = state.get_all_epic_states()
+        if epic_states:
+            child_to_epic: dict[int, str] = {}
+            for es in epic_states.values():
+                title = es.title or f"Epic #{es.epic_number}"
+                for child in es.child_issues:
+                    child_to_epic[child] = title
+            if child_to_epic:
+                items = [
+                    i.model_copy(update={"epic": child_to_epic[i.issue_number]})
+                    if not i.epic and i.issue_number in child_to_epic
+                    else i
+                    for i in items
+                ]
+
+        # Derive outcome for issues that completed the pipeline (have a
+        # merged PR) but were never given an explicit record_outcome() call.
+        items = [
+            i.model_copy(
+                update={
+                    "outcome": IssueOutcome(
+                        outcome=IssueOutcomeType.MERGED,
+                        reason="Derived from merged PR",
+                        closed_at=i.last_seen or "",
+                        pr_number=next((p.number for p in i.prs if p.merged), None),
+                        phase="review",
+                    )
+                }
+            )
+            if not i.outcome and any(p.merged for p in i.prs)
+            else i
+            for i in items
+        ]
+
         return items
 
     async def _enrich_issue_history_with_github(
@@ -1022,7 +1066,17 @@ def create_router(
             row["issue_url"] = issue.url or row.get("issue_url", "")
             labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
             if not row.get("epic"):
-                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                # Skip internal pipeline labels (e.g. hydraflow-epic-child);
+                # only keep labels that look like actual epic names.
+                epic = next(
+                    (
+                        lbl
+                        for lbl in labels
+                        if "epic" in lbl.lower()
+                        and lbl.lower() not in _EPIC_INTERNAL_LABELS
+                    ),
+                    "",
+                )
                 row["epic"] = epic
             ms_num = _coerce_int(getattr(issue, "milestone_number", None))
             if ms_num > 0 and not row.get("crate_number"):
@@ -3425,14 +3479,24 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        repo_slug: str | None = ws.query_params.get("repo")
+
+        # Resolve the correct event bus for the requested repo.
+        try:
+            _cfg, _state, bus, _get_orch = _resolve_runtime(repo_slug)
+        except (ValueError, HTTPException):
+            await ws.accept()
+            await ws.close(code=1008, reason=f"Unknown repo: {repo_slug}")
+            return
+
         await ws.accept()
 
         # Snapshot history BEFORE subscribing to avoid duplicates.
         # Events published between snapshot and subscribe are picked
         # up by the live queue, never sent twice.
-        history = event_bus.get_history()
+        history = bus.get_history()
 
-        async with event_bus.subscription() as queue:
+        async with bus.subscription() as queue:
             # Send history on connect
             for event in history:
                 try:
