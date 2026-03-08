@@ -741,61 +741,70 @@ export function HydraFlowProvider({ children }) {
 
   bgWorkersRef.current = state.backgroundWorkers
 
+  const applyRepoParam = useCallback((url) => {
+    const slug = state.selectedRepoSlug
+    if (!slug) return url
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}repo=${encodeURIComponent(slug)}`
+  }, [state.selectedRepoSlug])
+
+  const fetchWithRepo = useCallback((url, options) => fetch(applyRepoParam(url), options), [applyRepoParam])
+
   const fetchLifetimeStats = useCallback(() => {
-    fetch('/api/stats')
+    fetchWithRepo('/api/stats')
       .then(r => r.json())
       .then(data => dispatch({ type: 'LIFETIME_STATS', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchHitlItems = useCallback(() => {
-    fetch('/api/hitl')
+    fetchWithRepo('/api/hitl')
       .then(r => r.json())
       .then(data => dispatch({ type: 'HITL_ITEMS', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchPipeline = useCallback(() => {
-    fetch('/api/pipeline')
+    fetchWithRepo('/api/pipeline')
       .then(r => r.json())
       .then(data => dispatch({ type: 'PIPELINE_SNAPSHOT', data: data.stages || {} }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchPipelineStats = useCallback(() => {
-    fetch('/api/pipeline/stats')
+    fetchWithRepo('/api/pipeline/stats')
       .then(r => r.json())
       .then(data => dispatch({ type: 'PIPELINE_STATS', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchGithubMetrics = useCallback(() => {
-    fetch('/api/metrics/github')
+    fetchWithRepo('/api/metrics/github')
       .then(r => r.json())
       .then(data => dispatch({ type: 'GITHUB_METRICS', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchMetricsHistory = useCallback(() => {
-    fetch('/api/metrics/history')
+    fetchWithRepo('/api/metrics/history')
       .then(r => r.json())
       .then(data => dispatch({ type: 'METRICS_HISTORY', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchEpics = useCallback(() => {
-    fetch('/api/epics')
+    fetchWithRepo('/api/epics')
       .then(r => r.json())
       .then(data => dispatch({ type: 'EPICS', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const fetchSessions = useCallback(() => {
-    fetch('/api/sessions')
+    fetchWithRepo('/api/sessions')
       .then(r => r.json())
       .then(data => dispatch({ type: 'SESSIONS', data }))
       .catch(() => {})
-  }, [])
+  }, [fetchWithRepo])
 
   const selectSession = useCallback((sessionId) => {
     dispatch({ type: 'SELECT_SESSION', data: { sessionId } })
@@ -808,7 +817,7 @@ export function HydraFlowProvider({ children }) {
   const deleteSession = useCallback(async (sessionId) => {
     dispatch({ type: 'DELETE_SESSION', data: { sessionId } })
     try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      const res = await fetch(applyRepoParam(`/api/sessions/${encodeURIComponent(sessionId)}`), {
         method: 'DELETE',
       })
       if (!res.ok) {
@@ -818,7 +827,7 @@ export function HydraFlowProvider({ children }) {
     } catch {
       fetchSessions()
     }
-  }, [fetchSessions])
+  }, [applyRepoParam, fetchSessions])
 
   const fetchRepos = useCallback(async () => {
     try {
@@ -1092,7 +1101,7 @@ export function HydraFlowProvider({ children }) {
   const releaseEpic = useCallback(async (epicNumber) => {
     dispatch({ type: 'EPIC_RELEASING', data: { epic_number: epicNumber, progress: 0, total: 0 } })
     try {
-      const res = await fetch(`/api/epics/${epicNumber}/release`, { method: 'POST' })
+      const res = await fetch(applyRepoParam(`/api/epics/${epicNumber}/release`), { method: 'POST' })
       if (!res.ok) {
         // Revert optimistic update
         fetchEpics()
@@ -1107,7 +1116,7 @@ export function HydraFlowProvider({ children }) {
       fetchEpics()
       return { ok: false, error: err.message }
     }
-  }, [fetchEpics])
+  }, [applyRepoParam, fetchEpics])
 
   const resetSession = useCallback(() => {
     dispatch({ type: 'SESSION_RESET' })
@@ -1168,18 +1177,18 @@ export function HydraFlowProvider({ children }) {
 
   const submitHumanInput = useCallback(async (issueNumber, answer) => {
     try {
-      await fetch(`/api/human-input/${issueNumber}`, {
+      await fetch(applyRepoParam(`/api/human-input/${issueNumber}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answer }),
       })
       dispatch({ type: 'HUMAN_INPUT_SUBMITTED', data: { issueNumber } })
     } catch { /* ignore */ }
-  }, [])
+  }, [applyRepoParam])
 
   const refreshControlStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/control/status')
+      const res = await fetchWithRepo('/api/control/status')
       if (!res.ok) return false
       const data = await res.json()
       dispatch({
@@ -1194,9 +1203,13 @@ export function HydraFlowProvider({ children }) {
     } catch {
       return false
     }
-  }, [])
+  }, [fetchWithRepo])
 
   const startOrchestrator = useCallback(async () => {
+    if (state.selectedRepoSlug) {
+      const result = await startRuntime(state.selectedRepoSlug)
+      return result.ok
+    }
     try {
       const res = await fetch('/api/control/start', { method: 'POST' })
       if (!res.ok) return false
@@ -1205,9 +1218,13 @@ export function HydraFlowProvider({ children }) {
     } catch {
       return false
     }
-  }, [refreshControlStatus])
+  }, [refreshControlStatus, startRuntime, state.selectedRepoSlug])
 
   const stopOrchestrator = useCallback(async () => {
+    if (state.selectedRepoSlug) {
+      const result = await stopRuntime(state.selectedRepoSlug)
+      return result.ok
+    }
     try {
       const res = await fetch('/api/control/stop', { method: 'POST' })
       if (!res.ok) return false
@@ -1216,7 +1233,7 @@ export function HydraFlowProvider({ children }) {
     } catch {
       return false
     }
-  }, [refreshControlStatus])
+  }, [refreshControlStatus, state.selectedRepoSlug, stopRuntime])
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -1225,7 +1242,7 @@ export function HydraFlowProvider({ children }) {
 
     ws.onopen = () => {
       dispatch({ type: 'CONNECTED' })
-      fetch('/api/control/status')
+      fetchWithRepo('/api/control/status')
         .then(r => r.json())
         .then(data => {
           dispatch({
@@ -1239,12 +1256,12 @@ export function HydraFlowProvider({ children }) {
         })
         .catch(() => {})
       fetchLifetimeStats()
-      fetch('/api/prs')
+      fetchWithRepo('/api/prs')
         .then(r => r.json())
         .then(data => dispatch({ type: 'EXISTING_PRS', data }))
         .catch(() => {})
       fetchHitlItems()
-      fetch('/api/system/workers')
+      fetchWithRepo('/api/system/workers')
         .then(r => r.json())
         .then(data => {
           // Sync local toggle overrides to backend
@@ -1264,11 +1281,11 @@ export function HydraFlowProvider({ children }) {
           dispatch({ type: 'BACKGROUND_WORKERS', data: data.workers })
         })
         .catch(() => {})
-      fetch('/api/queue')
+      fetchWithRepo('/api/queue')
         .then(r => r.json())
         .then(data => dispatch({ type: 'QUEUE_STATS', data }))
         .catch(() => {})
-      fetch('/api/metrics')
+      fetchWithRepo('/api/metrics')
         .then(r => r.json())
         .then(data => dispatch({ type: 'METRICS', data }))
         .catch(() => {})
@@ -1320,7 +1337,7 @@ export function HydraFlowProvider({ children }) {
 
         if (event.type === 'metrics_update') {
           fetchLifetimeStats()
-          fetch('/api/metrics').then(r => r.json()).then(data => dispatch({ type: 'METRICS', data })).catch(() => {})
+          fetchWithRepo('/api/metrics').then(r => r.json()).then(data => dispatch({ type: 'METRICS', data })).catch(() => {})
           fetchGithubMetrics()
           fetchMetricsHistory()
         }
@@ -1344,12 +1361,12 @@ export function HydraFlowProvider({ children }) {
 
     ws.onerror = () => ws.close()
     wsRef.current = ws
-  }, [state.selectedRepoSlug, fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes])
+  }, [state.selectedRepoSlug, fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes, fetchWithRepo])
 
   useEffect(() => {
     if (isSeeded) return
     const poll = () => {
-      fetch('/api/human-input')
+      fetchWithRepo('/api/human-input')
         .then(r => r.ok ? r.json() : {})
         .then(data => dispatch({ type: 'HUMAN_INPUT_REQUESTS', data }))
         .catch(() => {})
@@ -1357,7 +1374,7 @@ export function HydraFlowProvider({ children }) {
     poll()
     const interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
-  }, [isSeeded])
+  }, [fetchWithRepo, isSeeded])
 
   // Pipeline polling — interval is editable via system worker controls.
   // When WebSocket is connected and pipeline_stats events are flowing,

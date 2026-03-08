@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { theme } from '../theme'
 import { CRATE_STATUSES } from '../constants'
+import { useHydraFlow } from '../context/HydraFlowContext'
 
 const CRATE_STATE_COLORS = {
   open: { color: theme.accent, bg: theme.accentSubtle },
@@ -134,6 +135,7 @@ export function WorkLogPanel() {
   const [creating, setCreating] = useState(false)
   const cachedCrates = useRef(null)
   const refreshTimer = useRef(null)
+  const { selectedRepoSlug } = useHydraFlow()
 
   const abortRef = useRef(null)
 
@@ -248,7 +250,10 @@ export function WorkLogPanel() {
   const handleToggleAutoCrate = useCallback(async () => {
     const newValue = !(activeCrate?.auto_crate)
     try {
-      const res = await fetch('/api/control/config', {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const res = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ auto_crate: newValue }),
@@ -259,7 +264,7 @@ export function WorkLogPanel() {
     } catch {
       setError('Failed to toggle auto-crate')
     }
-  }, [activeCrate])
+  }, [activeCrate, selectedRepoSlug])
 
   const activeCrateNumber = activeCrate?.crate_number
   const noActiveCrate = activeCrateNumber == null && !activeCrate?.auto_crate

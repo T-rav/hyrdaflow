@@ -18,6 +18,8 @@ from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
 
+logger = logging.getLogger("hydraflow.cli")
+
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
 _SEEDED_DIGEST_PLACEHOLDER = (
@@ -697,26 +699,32 @@ def build_config(args: argparse.Namespace) -> HydraFlowConfig:
 
     config = HydraFlowConfig(**kwargs)
 
-    # 4) Overlay repo-scoped config file (higher priority than shared config,
-    #    lower priority than env vars and CLI args).  After model validation,
-    #    config.config_file may point to a repo-scoped path.
-    _apply_repo_config_overlay(config, cli_explicit)
+    # 4) Overlay shared config (CLI --config-file), then repo-scoped overrides
+    #    from ``<data_root>/config.json`` when available.
+    _apply_repo_config_overlay(config, cli_explicit, path=config.config_file)
+
+    repo_cfg_path = config.repo_data_root / "config.json"
+    object.__setattr__(config, "repo_config_file", repo_cfg_path)
+    _apply_repo_config_overlay(config, cli_explicit, path=repo_cfg_path)
+    object.__setattr__(config, "cli_explicit_fields", frozenset(cli_explicit))
 
     return config
 
 
-def _apply_repo_config_overlay(config: HydraFlowConfig, cli_explicit: set[str]) -> None:
+def _apply_repo_config_overlay(
+    config: HydraFlowConfig,
+    cli_explicit: set[str],
+    path: Path | None = None,
+) -> None:
     """Load the repo-scoped config file and overlay non-CLI values.
 
-    After model validation, ``config.config_file`` may point to a repo-scoped
-    path (``data_root / repo_slug / config.json``).  This function loads that
-    file and applies values that were NOT explicitly provided via CLI args,
-    giving repo-scoped config higher priority than the shared config file but
-    lower priority than env vars and CLI args.
+    ``path`` defaults to ``config.config_file`` when not provided.
+    Values explicitly set via CLI args are never overridden.
     """
-    if config.config_file is None:
+    target = path if path is not None else config.config_file
+    if target is None:
         return
-    repo_cfg = load_config_file(config.config_file)
+    repo_cfg = load_config_file(target)
     if not repo_cfg:
         return
     _known_fields = set(HydraFlowConfig.model_fields.keys())
@@ -1318,38 +1326,150 @@ def _run_replay(config: HydraFlowConfig, issue_number: int, latest_only: bool) -
 
 async def _run_main(config: HydraFlowConfig) -> None:
     """Launch the orchestrator, optionally with the dashboard."""
+    from repo_runtime import RepoRuntime, RepoRuntimeRegistry
+    from repo_store import RepoRecord, RepoStore, clone_config_for_repo
+
+    cli_explicit_fields = set(getattr(config, "cli_explicit_fields", frozenset()))
+    default_slug = config.repo_slug if config.repo else None
+    registry = RepoRuntimeRegistry()
+    repo_store = RepoStore(config.data_root)
+
+    records = repo_store.list()
+    if default_slug and not any(rec.slug == default_slug for rec in records):
+        records.append(
+            RepoRecord(
+                slug=default_slug,
+                repo=config.repo,
+                path=str(config.repo_root),
+                auto_registered=True,
+            )
+        )
+        repo_store.upsert(records[-1])
+
+    def _clone_config_for_repo(record: RepoRecord) -> HydraFlowConfig:
+        repo_path = Path(record.path)
+        clone = clone_config_for_repo(
+            config,
+            repo=record.repo,
+            repo_root=repo_path,
+            overrides=record.overrides or {},
+        )
+        object.__setattr__(clone, "config_file", config.config_file)
+        object.__setattr__(clone, "cli_explicit_fields", config.cli_explicit_fields)
+        repo_cfg_path = clone.repo_data_root / "config.json"
+        object.__setattr__(clone, "repo_config_file", repo_cfg_path)
+        _apply_repo_config_overlay(clone, cli_explicit_fields, path=repo_cfg_path)
+        return clone
+
+    async def _register_record(
+        record: RepoRecord, *, reuse_primary: bool = False
+    ) -> RepoRuntime | None:
+        try:
+            cfg = config if reuse_primary else _clone_config_for_repo(record)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to prepare config for repo %s: %s", record.slug, exc)
+            return None
+        try:
+            runtime = await registry.register(cfg)
+        except ValueError:
+            existing = registry.get(record.slug)
+            if existing is not None:
+                logger.warning(
+                    "Slug %r already registered; reusing existing runtime", record.slug
+                )
+            return existing
+        return runtime
+
+    async def _register_existing_records() -> dict[str, RepoRuntime]:
+        runtimes: dict[str, RepoRuntime] = {}
+        for rec in records:
+            reuse = bool(default_slug and rec.slug == default_slug)
+            runtime = await _register_record(rec, reuse_primary=reuse)
+            if runtime is not None:
+                runtimes[rec.slug] = runtime
+        return runtimes
+
+    runtimes = await _register_existing_records()
+
+    primary_runtime = None
+    if default_slug and default_slug in runtimes:
+        primary_runtime = runtimes[default_slug]
+    elif runtimes:
+        default_slug = next(iter(runtimes.keys()))
+        primary_runtime = runtimes[default_slug]
+
+    async def _register_repo_cb(
+        repo_path: Path, repo_name: str | None
+    ) -> tuple[RepoRecord, HydraFlowConfig]:
+        normalized = repo_path.expanduser().resolve()
+        repo_label = (repo_name or normalized.name or "repo").strip()
+        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", repo_label).strip("-") or "repo"
+        if registry.get(slug):
+            raise ValueError(f"Repo '{slug}' already registered")
+        record = RepoRecord(slug=slug, repo=repo_label, path=str(normalized))
+        record = repo_store.upsert(record)
+        runtime = await _register_record(record)
+        if runtime is None:
+            repo_store.remove(slug)
+            raise ValueError(f"Failed to register repo '{slug}'")
+        return record, runtime.config
+
+    async def _remove_repo_cb(slug: str) -> bool:
+        target = registry.get(slug)
+        if target:
+            if target.running:
+                await target.stop()
+            registry.remove(slug)
+        removed = repo_store.remove(slug)
+        return removed or target is not None
+
+    def _list_repos_cb() -> list[RepoRecord]:
+        return repo_store.list()
+
     if config.dashboard_enabled:
         from dashboard import HydraFlowDashboard
         from events import EventBus, EventLog, EventType, HydraFlowEvent
         from models import Phase
-        from repo_runtime import RepoRuntimeRegistry
         from state import StateTracker
 
-        event_log = EventLog(config.event_log_path)
-        bus = EventBus(event_log=event_log)
-        await bus.rotate_log(
-            config.event_log_max_size_mb * 1024 * 1024,
-            config.event_log_retention_days,
-        )
-        await bus.load_history_from_disk()
-        state = StateTracker(config.state_file)
+        if primary_runtime:
+            bus = primary_runtime.event_bus
+            state = primary_runtime.state
+            dash_config = primary_runtime.config
+            orchestrator = primary_runtime.orchestrator
+        else:
+            event_log = EventLog(config.event_log_path)
+            bus = EventBus(event_log=event_log)
+            await bus.rotate_log(
+                config.event_log_max_size_mb * 1024 * 1024,
+                config.event_log_retention_days,
+            )
+            await bus.load_history_from_disk()
+            state = StateTracker(config.state_file)
+            dash_config = config
+            orchestrator = None
 
-        registry = RepoRuntimeRegistry()
         dashboard = HydraFlowDashboard(
-            config=config,
+            config=dash_config,
             event_bus=bus,
             state=state,
+            orchestrator=orchestrator,
             registry=registry,
+            repo_store=repo_store,
+            register_repo_cb=_register_repo_cb,
+            remove_repo_cb=_remove_repo_cb,
+            list_repos_cb=_list_repos_cb,
+            default_repo_slug=default_slug,
         )
         await dashboard.start()
 
-        # Publish idle phase so the UI shows the Start button
-        await bus.publish(
-            HydraFlowEvent(
-                type=EventType.PHASE_CHANGE,
-                data={"phase": Phase.IDLE.value},
+        if primary_runtime is None:
+            await bus.publish(
+                HydraFlowEvent(
+                    type=EventType.PHASE_CHANGE,
+                    data={"phase": Phase.IDLE.value},
+                )
             )
-        )
 
         stop_event = asyncio.Event()
         loop = asyncio.get_running_loop()
@@ -1364,15 +1484,26 @@ async def _run_main(config: HydraFlowConfig) -> None:
                 await dashboard._orchestrator.stop()
             await dashboard.stop()
     else:
-        from repo_runtime import RepoRuntime
-
-        runtime = await RepoRuntime.create(config)
+        runtime = primary_runtime or await RepoRuntime.create(config)
+        for rt in registry.all:
+            if rt is not runtime:
+                await rt.start()
 
         loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(runtime.stop()))
 
-        await runtime.run()
+        async def _shutdown() -> None:
+            await runtime.stop()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(_shutdown()))
+
+        try:
+            await runtime.run()
+        finally:
+            # Stop secondary runtimes; primary was already stopped by _shutdown().
+            secondary_stops = [rt.stop() for rt in registry.all if rt is not runtime]
+            if secondary_stops:
+                await asyncio.gather(*secondary_stops, return_exceptions=True)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1404,8 +1535,7 @@ def main(argv: list[str] | None = None) -> None:
         _run_replay(config, args.replay, args.replay_latest)
         sys.exit(0)
 
-    _logger = logging.getLogger("hydraflow.cli")
-    _logger.info(
+    logger.info(
         "Loaded worker counts: triagers=%d planners=%d workers=%d reviewers=%d hitl=%d (config_file=%s)",
         config.max_triagers,
         config.max_planners,
