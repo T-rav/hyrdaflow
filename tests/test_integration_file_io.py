@@ -57,15 +57,6 @@ class TestAtomicWrite:
         class BoomError(Exception):
             pass
 
-        class ExplodingStr:
-            """A string-like that explodes mid-write."""
-
-            def __init__(self) -> None:
-                self._calls = 0
-
-            def __str__(self) -> str:
-                return "boom"
-
         import os
         import unittest.mock
 

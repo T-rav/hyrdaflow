@@ -601,64 +601,6 @@ class CIScaffoldResultFactory:
         )
 
 
-# --- Integration Fixtures ---
-
-
-@pytest.fixture
-def integration_repo(tmp_path: Path):
-    """Create a real git repo with an initial commit and a main branch."""
-    import subprocess
-
-    repo = tmp_path / "integration-repo"
-    repo.mkdir()
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Test",
-        "GIT_AUTHOR_EMAIL": "test@test.com",
-        "GIT_COMMITTER_NAME": "Test",
-        "GIT_COMMITTER_EMAIL": "test@test.com",
-    }
-    subprocess.run(
-        ["git", "init", "-b", "main"],
-        cwd=repo,
-        check=True,
-        env=env,
-        capture_output=True,
-    )
-    (repo / "README.md").write_text("# Test\n")
-    subprocess.run(
-        ["git", "add", "."], cwd=repo, check=True, env=env, capture_output=True
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=repo,
-        check=True,
-        env=env,
-        capture_output=True,
-    )
-    return repo
-
-
-@pytest.fixture
-def free_port():
-    """Return a free TCP port by binding to port 0."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def integration_config(tmp_path: Path, integration_repo: Path):
-    """A HydraFlowConfig pointing at a real git repo for integration tests."""
-    return ConfigFactory.create(
-        repo_root=integration_repo,
-        worktree_base=tmp_path / "worktrees",
-        state_file=tmp_path / "state.json",
-    )
-
-
 # --- State Fixture ---
 
 

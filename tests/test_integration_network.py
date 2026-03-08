@@ -347,8 +347,8 @@ class TestSupervisorHelpers:
         from hf_cli.supervisor_service import _find_free_port
 
         ports = {_find_free_port() for _ in range(5)}
-        # At least some should differ (can't guarantee all 5 are unique)
-        assert len(ports) >= 2
+        # Nearly all should differ; allow at most one collision in case of rapid reuse
+        assert len(ports) >= 4
 
     def test_slug_for_log_filename_sanitizes(self) -> None:
         from hf_cli.supervisor_service import _slug_for_log_filename
