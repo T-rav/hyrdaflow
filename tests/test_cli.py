@@ -1179,3 +1179,54 @@ class TestStartupWorkerCountLogging:
         assert "workers=3" in log_output
         assert "reviewers=5" in log_output
         assert "hitl=2" in log_output
+
+
+class TestAutoRegisterCurrentRepo:
+    """Tests for _auto_register_current_repo in cli.py."""
+
+    @pytest.mark.asyncio
+    async def test_registers_when_repo_configured(self, tmp_path):
+        from cli import _auto_register_current_repo
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
+        registry = MagicMock()
+        registry.__contains__ = MagicMock(return_value=False)
+        registry.register = AsyncMock()
+        await _auto_register_current_repo(registry, config)
+        registry.register.assert_awaited_once_with(config)
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_repo(self, tmp_path):
+        from cli import _auto_register_current_repo
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(repo="", repo_root=tmp_path)
+        registry = MagicMock()
+        registry.register = AsyncMock()
+        await _auto_register_current_repo(registry, config)
+        registry.register.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_registered(self, tmp_path):
+        from cli import _auto_register_current_repo
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
+        registry = MagicMock()
+        registry.__contains__ = MagicMock(return_value=True)
+        registry.register = AsyncMock()
+        await _auto_register_current_repo(registry, config)
+        registry.register.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handles_registration_failure(self, tmp_path):
+        from cli import _auto_register_current_repo
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
+        registry = MagicMock()
+        registry.__contains__ = MagicMock(return_value=False)
+        registry.register = AsyncMock(side_effect=RuntimeError("boom"))
+        # Should not raise
+        await _auto_register_current_repo(registry, config)

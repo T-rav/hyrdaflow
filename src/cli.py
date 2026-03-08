@@ -12,11 +12,16 @@ import shutil
 import signal
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
+
+if TYPE_CHECKING:
+    from repo_runtime import RepoRuntimeRegistry
+
+logger = logging.getLogger("hydraflow.cli")
 
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
@@ -1310,6 +1315,33 @@ def _run_replay(config: HydraFlowConfig, issue_number: int, latest_only: bool) -
     print(f"\n{'=' * 60}")  # noqa: T201
 
 
+async def _auto_register_current_repo(
+    registry: RepoRuntimeRegistry,
+    config: HydraFlowConfig,
+) -> None:
+    """Auto-detect the current git repo and register it if not already present.
+
+    When HydraFlow is started inside a git repository with a configured
+    ``repo`` (owner/name), the repo is automatically registered so it
+    appears in the dashboard without manual add.  If the repo is already
+    registered (e.g. restored from ``repos.json``), this is a no-op.
+    """
+    if not config.repo:
+        logger.debug("No repo configured; skipping auto-register")
+        return
+
+    slug = config.repo.replace("/", "-") or config.repo_root.name
+    if slug in registry:
+        logger.debug("Repo %r already registered; skipping auto-register", slug)
+        return
+
+    try:
+        await registry.register(config)
+        logger.info("Auto-registered current repo %r", slug)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to auto-register current repo %r: %s", slug, exc)
+
+
 async def _run_main(config: HydraFlowConfig) -> None:
     """Launch the orchestrator, optionally with the dashboard."""
     if config.dashboard_enabled:
@@ -1328,7 +1360,16 @@ async def _run_main(config: HydraFlowConfig) -> None:
         await bus.load_history_from_disk()
         state = StateTracker(config.state_file)
 
-        registry = RepoRuntimeRegistry()
+        registry = RepoRuntimeRegistry(data_root=config.data_root)
+
+        # Restore previously-registered repos from repos.json
+        loaded = await registry.load_saved(config)
+        if loaded:
+            logger.info("Restored %d saved repo(s) from repos.json", loaded)
+
+        # Auto-register the current repo when started inside a git repo
+        await _auto_register_current_repo(registry, config)
+
         dashboard = HydraFlowDashboard(
             config=config,
             event_bus=bus,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -282,3 +283,213 @@ class TestRepoRuntimeRegistry:
         assert rt_a.orchestrator is not rt_b.orchestrator
         assert rt_a.event_bus is not rt_b.event_bus
         assert len(registry) == 2
+
+
+class TestRepoRuntimeRegistryPersistence:
+    """Tests for repos.json persistence in RepoRuntimeRegistry."""
+
+    def _runtime_patches(self):
+        """Context manager stack for patching RepoRuntime dependencies."""
+
+        def _make_bus(*_a, **_kw):
+            m = MagicMock()
+            m.rotate_log = AsyncMock()
+            m.load_history_from_disk = AsyncMock()
+            return m
+
+        return (
+            patch("repo_runtime.EventLog"),
+            patch("repo_runtime.EventBus", side_effect=_make_bus),
+            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.HydraFlowOrchestrator"),
+        )
+
+    def test_init_with_data_root_sets_repos_file(self, tmp_path):
+        registry = RepoRuntimeRegistry(data_root=tmp_path)
+        assert registry._repos_file == tmp_path / "repos.json"
+
+    def test_init_without_data_root(self):
+        registry = RepoRuntimeRegistry()
+        assert registry._repos_file is None
+
+    @pytest.mark.asyncio
+    async def test_register_saves_repos_json(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+        config = ConfigFactory.create(repo="org/alpha", repo_root=tmp_path / "alpha")
+
+        p1, p2, p3, p4 = self._runtime_patches()
+        with p1, p2, p3, p4:
+            await registry.register(config)
+
+        repos_file = data_dir / "repos.json"
+        assert repos_file.exists()
+        records = json.loads(repos_file.read_text())
+        assert len(records) == 1
+        assert records[0]["slug"] == "org-alpha"
+        assert records[0]["repo"] == "org/alpha"
+
+    @pytest.mark.asyncio
+    async def test_remove_updates_repos_json(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+        config = ConfigFactory.create(repo="org/beta", repo_root=tmp_path / "beta")
+
+        p1, p2, p3, p4 = self._runtime_patches()
+        with p1, p2, p3, p4:
+            await registry.register(config)
+
+        registry.remove("org-beta")
+        records = json.loads((data_dir / "repos.json").read_text())
+        assert len(records) == 0
+
+    def test_load_records_empty_when_no_file(self, tmp_path):
+        registry = RepoRuntimeRegistry(data_root=tmp_path)
+        assert registry._load_records() == []
+
+    def test_load_records_reads_valid_json(self, tmp_path):
+        repos_file = tmp_path / "repos.json"
+        repos_file.write_text(
+            json.dumps(
+                [
+                    {"slug": "org-x", "repo": "org/x", "repo_root": "/tmp/x"},
+                ]
+            )
+        )
+        registry = RepoRuntimeRegistry(data_root=tmp_path)
+        records = registry._load_records()
+        assert len(records) == 1
+        assert records[0]["slug"] == "org-x"
+
+    def test_load_records_handles_corrupt_json(self, tmp_path):
+        repos_file = tmp_path / "repos.json"
+        repos_file.write_text("{invalid json")
+        registry = RepoRuntimeRegistry(data_root=tmp_path)
+        assert registry._load_records() == []
+
+    def test_load_records_skips_non_dict_entries(self, tmp_path):
+        repos_file = tmp_path / "repos.json"
+        repos_file.write_text(
+            json.dumps(
+                [
+                    {"slug": "good", "repo": "org/good", "repo_root": "/tmp/good"},
+                    "not-a-dict",
+                    42,
+                ]
+            )
+        )
+        registry = RepoRuntimeRegistry(data_root=tmp_path)
+        records = registry._load_records()
+        assert len(records) == 1
+
+    def test_load_records_no_data_root(self):
+        registry = RepoRuntimeRegistry()
+        assert registry._load_records() == []
+
+    @pytest.mark.asyncio
+    async def test_load_saved_restores_repos(self, tmp_path):
+        repo_root = tmp_path / "myrepo"
+        repo_root.mkdir()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        repos_file = data_dir / "repos.json"
+        repos_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "slug": "org-myrepo",
+                        "repo": "org/myrepo",
+                        "repo_root": str(repo_root),
+                    },
+                ]
+            )
+        )
+
+        base_config = ConfigFactory.create(repo="org/base", repo_root=tmp_path / "base")
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+
+        p1, p2, p3, p4 = self._runtime_patches()
+        with p1, p2, p3, p4:
+            loaded = await registry.load_saved(base_config)
+
+        assert loaded == 1
+        assert "org-myrepo" in registry
+
+    @pytest.mark.asyncio
+    async def test_load_saved_skips_missing_repo_root(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        repos_file = data_dir / "repos.json"
+        repos_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "slug": "org-gone",
+                        "repo": "org/gone",
+                        "repo_root": "/nonexistent/path",
+                    },
+                ]
+            )
+        )
+        base_config = ConfigFactory.create(repo="org/base", repo_root=tmp_path / "base")
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+        loaded = await registry.load_saved(base_config)
+        assert loaded == 0
+        assert len(registry) == 0
+
+    @pytest.mark.asyncio
+    async def test_load_saved_skips_already_registered(self, tmp_path):
+        repo_root = tmp_path / "dup"
+        repo_root.mkdir()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        repos_file = data_dir / "repos.json"
+        repos_file.write_text(
+            json.dumps(
+                [
+                    {"slug": "org-dup", "repo": "org/dup", "repo_root": str(repo_root)},
+                ]
+            )
+        )
+
+        config = ConfigFactory.create(repo="org/dup", repo_root=repo_root)
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+
+        p1, p2, p3, p4 = self._runtime_patches()
+        with p1, p2, p3, p4:
+            await registry.register(config)
+            loaded = await registry.load_saved(config)
+
+        assert loaded == 0
+        assert len(registry) == 1
+
+    @pytest.mark.asyncio
+    async def test_load_saved_skips_empty_repo_root(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        repos_file = data_dir / "repos.json"
+        repos_file.write_text(
+            json.dumps(
+                [
+                    {"slug": "bad", "repo": "org/bad", "repo_root": ""},
+                ]
+            )
+        )
+        base_config = ConfigFactory.create(repo="org/base", repo_root=tmp_path)
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+        loaded = await registry.load_saved(base_config)
+        assert loaded == 0
+
+    def test_save_without_data_root_is_noop(self):
+        registry = RepoRuntimeRegistry()
+        registry._save()  # should not raise
+
+    def test_save_creates_parent_dirs(self, tmp_path):
+        nested = tmp_path / "a" / "b" / "c"
+        registry = RepoRuntimeRegistry(data_root=nested)
+        registry._save()
+        assert (nested / "repos.json").exists()
