@@ -61,7 +61,6 @@ def _make_loop(
         is_in_pipeline_cb=lambda n: n in in_pipeline,
     )
     loop._issue_has_pipeline_label = AsyncMock(return_value=False)  # type: ignore[method-assign]
-    loop._git_worktree_prune = AsyncMock()  # type: ignore[method-assign]
     loop._collect_orphaned_branches = AsyncMock(return_value=0)  # type: ignore[method-assign]
     return loop, state, deps.stop_event
 
@@ -243,27 +242,6 @@ class TestWorktreeGCOrphanedDirs:
         loop, _s, _e = _make_loop(tmp_path)
         result = await loop._do_work()
         assert result["collected"] == 0
-
-
-class TestWorktreeGCPrune:
-    @pytest.mark.asyncio
-    async def test_git_worktree_prune_called(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path)
-        loop._git_worktree_prune = WorktreeGCLoop._git_worktree_prune.__get__(loop)  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
-            m.return_value = ""
-            await loop._git_worktree_prune()
-        m.assert_awaited_once()
-        assert m.call_args[0][:3] == ("git", "worktree", "prune")
-
-    @pytest.mark.asyncio
-    async def test_git_worktree_prune_failure_handled(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path)
-        loop._git_worktree_prune = WorktreeGCLoop._git_worktree_prune.__get__(loop)  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
-            m.side_effect = RuntimeError("prune failed")
-            await loop._git_worktree_prune()
-        m.assert_awaited_once()
 
 
 class TestWorktreeGCOrphanedBranches:
@@ -460,7 +438,6 @@ class TestWorktreeGCStopEvent:
         loop._get_issue_state = AsyncMock(side_effect=gc_and_stop)
         result = await loop._do_work()
         assert result["collected"] == 1
-        loop._git_worktree_prune.assert_not_awaited()
         loop._collect_orphaned_branches.assert_not_awaited()
 
 
@@ -540,7 +517,6 @@ class TestWorktreeGCStopEventPhase2:
         result = await loop._do_work()
         # Should stop after 2 orphaned dirs due to stop event
         assert result["collected"] <= 3
-        loop._git_worktree_prune.assert_not_awaited()
 
 
 class TestWorktreeGCBranchActiveIssues:

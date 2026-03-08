@@ -12,7 +12,6 @@ import contextlib
 import logging
 import os
 import struct
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -328,10 +327,9 @@ class DockerRunner:
             mounts[repo_str] = {"bind": "/repo", "mode": "ro"}
 
         # NOTE: The host .git directory is NOT mounted.  Workspaces are
-        # converted to standalone clones by prepare_workspace() before the
-        # container starts, giving each container its own .git/ directory.
-        # This prevents Docker containers from corrupting the host repo
-        # (e.g. setting core.bare=true or core.worktree in .git/config).
+        # standalone local clones (created by WorktreeManager), each with
+        # their own .git/ directory.  This prevents Docker containers from
+        # corrupting the host repo.
 
         self._log_dir.mkdir(parents=True, exist_ok=True)
         mounts[str(self._log_dir)] = {"bind": "/logs", "mode": "rw"}
@@ -342,105 +340,6 @@ class DockerRunner:
                 mode = parts[2] if len(parts) > 2 else "ro"
                 mounts[parts[0]] = {"bind": parts[1], "mode": mode}
         return mounts
-
-    def prepare_workspace(self, cwd: str) -> None:
-        """Convert a git worktree into a standalone clone for Docker.
-
-        Git worktrees share the parent repo's ``.git/`` directory via a
-        ``.git`` *file* containing a ``gitdir:`` pointer.  Mounting the
-        parent ``.git`` read-write lets containers corrupt the host config
-        (e.g. setting ``core.bare=true``).
-
-        This method replaces the worktree with a local clone so the
-        container gets its own independent ``.git/`` directory.  The host
-        repo is never exposed to the container.
-
-        Idempotent — if the workspace already has a ``.git/`` directory,
-        this is a no-op.
-        """
-        git_path = Path(cwd) / ".git"
-        if git_path.is_dir():
-            return  # Already a standalone repo
-        if not git_path.is_file():
-            return  # Not a git repo at all
-
-        content = git_path.read_text().strip()
-        if not content.startswith("gitdir:"):
-            return
-
-        # Determine the current branch
-        try:
-            branch: str | None = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
-            if branch == "HEAD":
-                # Detached HEAD — can't use --branch with "HEAD"
-                branch = None
-        except (subprocess.CalledProcessError, OSError):
-            branch = None
-
-        # Clone the repo locally, then swap .git/ into the workspace
-        import shutil  # noqa: PLC0415
-
-        clone_tmp = Path(cwd) / ".git-clone-tmp"
-        try:
-            clone_cmd = [
-                "git",
-                "clone",
-                "--local",
-                "--no-checkout",
-            ]
-            if branch:
-                clone_cmd += ["--branch", branch]
-            clone_cmd += [str(self._repo_root), str(clone_tmp)]
-            subprocess.run(
-                clone_cmd,
-                check=True,
-                capture_output=True,
-            )
-            # Replace the worktree .git file with the clone's .git directory
-            git_path.unlink()
-            (clone_tmp / ".git").rename(git_path)
-
-            # Point origin at the real remote (GitHub), not the local repo.
-            # git clone --local sets origin to the local path, which causes
-            # "branch is currently checked out" errors when pushing.
-            try:
-                real_remote = subprocess.run(
-                    ["git", "remote", "get-url", "origin"],
-                    cwd=str(self._repo_root),
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.strip()
-                subprocess.run(
-                    ["git", "remote", "set-url", "origin", real_remote],
-                    cwd=cwd,
-                    check=True,
-                    capture_output=True,
-                )
-            except (subprocess.CalledProcessError, OSError):
-                logger.warning("Could not update clone remote to real origin")
-
-            # Update the index to match the already-checked-out files
-            subprocess.run(
-                ["git", "reset", "HEAD"],
-                cwd=cwd,
-                check=False,
-                capture_output=True,
-            )
-        except (subprocess.CalledProcessError, OSError) as exc:
-            logger.warning("Failed to convert worktree to standalone clone: %s", exc)
-            if clone_tmp.exists():
-                shutil.rmtree(clone_tmp, ignore_errors=True)
-            raise
-        finally:
-            if clone_tmp.exists():
-                shutil.rmtree(clone_tmp, ignore_errors=True)
 
     def _get_user_tool_mounts(self) -> dict[str, dict[str, str]]:
         """Return cached user-tool mounts, refreshing when env/home selection changes."""
@@ -567,9 +466,6 @@ class DockerRunner:
         """
         await self._enforce_spawn_delay()
 
-        if cwd:
-            self.prepare_workspace(cwd)
-
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
@@ -639,9 +535,6 @@ class DockerRunner:
             msg = "stdin input not supported in Docker mode"
             raise NotImplementedError(msg)
         await self._enforce_spawn_delay()
-
-        if cwd:
-            self.prepare_workspace(cwd)
 
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)

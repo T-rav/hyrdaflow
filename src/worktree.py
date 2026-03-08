@@ -1,4 +1,10 @@
-"""Git worktree lifecycle management for HydraFlow."""
+"""Git workspace lifecycle management for HydraFlow.
+
+Creates isolated workspaces for each issue using ``git clone --local``.
+Local clones use hardlinks for git objects (fast, no extra disk) and give
+each workspace its own independent ``.git/`` directory — no shared state
+with the primary repo.
+"""
 
 from __future__ import annotations
 
@@ -21,10 +27,11 @@ _WORKTREE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
 class WorktreeManager:
-    """Creates, configures, and destroys isolated git worktrees.
+    """Creates, configures, and destroys isolated workspaces via local clones.
 
-    Each worktree gets:
-    - A fresh branch from ``main``
+    Each workspace gets:
+    - A local clone with its own ``.git/`` directory
+    - A fresh branch from ``main`` (or resumed from remote)
     - An independent venv via ``uv sync``
     - ``.env`` and ``node_modules/`` dirs (symlinked in host mode, copied in docker mode)
     - Copied ``.claude/settings.local.json``
@@ -182,33 +189,17 @@ class WorktreeManager:
     async def sanitize_repo(self) -> None:
         """Ensure the repo is in a clean state before any work begins.
 
-        Called once at orchestrator startup.  Prunes stale worktree refs,
-        fetches latest main, ensures HEAD is on main, removes orphan
-        agent branches, and unsets any corrupted ``core.worktree``.
+        Called once at orchestrator startup.  Fetches latest main,
+        ensures HEAD is on main, and removes orphan agent branches.
         """
         repo = self._repo_root
         main = self._config.main_branch
         gh = self._config.gh_token
 
-        # 1. Unset core.worktree if Docker left it behind
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess(
-                "git",
-                "config",
-                "--unset",
-                "core.worktree",
-                cwd=repo,
-                gh_token=gh,
-            )
-
-        # 2. Prune stale worktree refs
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess("git", "worktree", "prune", cwd=repo, gh_token=gh)
-
-        # 3. Fetch latest main
+        # 1. Fetch latest main
         await self._fetch_origin_with_retry(repo, main)
 
-        # 4. Ensure HEAD is on main (not a stray agent branch)
+        # 2. Ensure HEAD is on main (not a stray agent branch)
         try:
             head_ref = await run_subprocess(
                 "git",
@@ -287,26 +278,11 @@ class WorktreeManager:
         logger.info("Repo sanitized — HEAD on %s, worktrees pruned", main)
 
     async def pre_work_check(self) -> None:
-        """Quick validation before creating a worktree.
+        """Quick validation before creating a workspace.
 
-        Prunes stale refs, verifies no ``core.worktree`` corruption,
-        and fetches latest main.
+        Fetches latest main so branches are created from up-to-date state.
         """
-        repo = self._repo_root
-        gh = self._config.gh_token
-
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess("git", "worktree", "prune", cwd=repo, gh_token=gh)
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess(
-                "git",
-                "config",
-                "--unset",
-                "core.worktree",
-                cwd=repo,
-                gh_token=gh,
-            )
-        await self._fetch_origin_with_retry(repo, self._config.main_branch)
+        await self._fetch_origin_with_retry(self._repo_root, self._config.main_branch)
 
     async def _salvage_uncommitted(self, issue_number: int) -> None:
         """Commit and push any uncommitted changes in the worktree before destroying it.
@@ -381,46 +357,39 @@ class WorktreeManager:
     async def post_work_cleanup(self, issue_number: int) -> None:
         """Clean up after an issue is done (PR created/merged/failed).
 
-        Salvages any uncommitted changes, then removes the worktree,
-        deletes the local branch, prunes refs, and unsets
-        ``core.worktree`` if corrupted.
+        Salvages any uncommitted changes, then removes the workspace.
         """
-        repo = self._repo_root
-        gh = self._config.gh_token
-
         # Salvage any uncommitted work before destroying
         with contextlib.suppress(Exception):
             await self._salvage_uncommitted(issue_number)
 
-        # Destroy worktree + branch
+        # Destroy workspace
         with contextlib.suppress(RuntimeError):
             await self.destroy(issue_number)
 
-        # Prune any leftover refs
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess("git", "worktree", "prune", cwd=repo, gh_token=gh)
-
-        # Fix core.worktree if Docker corrupted it
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess(
-                "git",
-                "config",
-                "--unset",
-                "core.worktree",
-                cwd=repo,
-                gh_token=gh,
-            )
-
         logger.info("Post-work cleanup complete for issue #%d", issue_number)
 
+    async def _get_origin_url(self) -> str:
+        """Return the real origin remote URL from the primary repo."""
+        output = await run_subprocess(
+            "git",
+            "remote",
+            "get-url",
+            "origin",
+            cwd=self._repo_root,
+            gh_token=self._config.gh_token,
+        )
+        return output.strip()
+
     async def create(self, issue_number: int, branch: str) -> Path:
-        """Create a worktree for *issue_number* on *branch*.
+        """Create a workspace for *issue_number* on *branch*.
 
-        If the branch already exists on the remote (previous run), fetches
-        and checks it out so work can resume.  Otherwise creates a fresh
-        branch from main.
+        Uses ``git clone --local`` to create an independent clone with
+        hardlinked objects (fast, no extra disk).  If the branch already
+        exists on the remote (previous run), checks it out so work can
+        resume.  Otherwise creates a fresh branch from main.
 
-        Returns the absolute path to the new worktree.
+        Returns the absolute path to the new workspace.
         """
         async with self._repo_worktree_lock():
             return await self._create_unlocked(issue_number, branch)
@@ -429,17 +398,17 @@ class WorktreeManager:
         """Inner create logic — must be called under ``_repo_worktree_lock``."""
         wt_path = self._config.worktree_path_for_issue(issue_number)
         logger.info(
-            "Creating worktree %s on branch %s",
+            "Creating workspace %s on branch %s",
             wt_path,
             branch,
             extra={"issue": issue_number},
         )
 
         if self._config.dry_run:
-            logger.info("[dry-run] Would create worktree at %s", wt_path)
+            logger.info("[dry-run] Would create workspace at %s", wt_path)
             return wt_path
 
-        # Pre-work hygiene: prune stale refs, fix config, fetch main
+        # Pre-work hygiene: fetch latest main
         await self.pre_work_check()
 
         # Validate origin remote matches configured repo before any mutations
@@ -448,18 +417,39 @@ class WorktreeManager:
         # Ensure repo-scoped base directory exists
         wt_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Clean up any stale local branch (from previous runs) to avoid
-        # fetch conflicts and worktree checkout errors
-        await self._delete_local_branch(branch)
-
-        branch_created = False
-        worktree_created = False
+        # Clean up any stale directory from a previous run
+        if wt_path.exists():
+            shutil.rmtree(wt_path, ignore_errors=True)
 
         try:
-            # Fetch latest main so we branch from the latest state
-            await self._fetch_origin_with_retry(
-                self._repo_root, self._config.main_branch
+            # Get the real origin URL before cloning (clone will point to local path)
+            origin_url = await self._get_origin_url()
+
+            # Clone the repo locally — hardlinks objects, fast, own .git/
+            await run_subprocess(
+                "git",
+                "clone",
+                "--local",
+                "--no-checkout",
+                str(self._repo_root),
+                str(wt_path),
+                cwd=self._repo_root,
+                gh_token=self._config.gh_token,
             )
+
+            # Point origin at the real remote (GitHub), not the local repo
+            await run_subprocess(
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                origin_url,
+                cwd=wt_path,
+                gh_token=self._config.gh_token,
+            )
+
+            # Fetch latest state from real remote
+            await self._fetch_origin_with_retry(wt_path, self._config.main_branch)
 
             # Check if the branch already exists on the remote (resumable work)
             if await self._remote_branch_exists(branch):
@@ -473,69 +463,51 @@ class WorktreeManager:
                     "fetch",
                     "origin",
                     f"+refs/heads/{branch}:refs/heads/{branch}",
-                    cwd=self._repo_root,
+                    cwd=wt_path,
+                    gh_token=self._config.gh_token,
+                )
+                await run_subprocess(
+                    "git",
+                    "checkout",
+                    branch,
+                    cwd=wt_path,
                     gh_token=self._config.gh_token,
                 )
             else:
                 # Create a fresh branch from main
                 await run_subprocess(
                     "git",
-                    "branch",
-                    "-f",
+                    "checkout",
+                    "-b",
                     branch,
                     f"origin/{self._config.main_branch}",
-                    cwd=self._repo_root,
+                    cwd=wt_path,
                     gh_token=self._config.gh_token,
                 )
-            branch_created = True
 
-            # Create the worktree
-            await run_subprocess(
-                "git",
-                "worktree",
-                "add",
-                str(wt_path),
-                branch,
-                cwd=self._repo_root,
-                gh_token=self._config.gh_token,
-            )
-            worktree_created = True
-
-            # Set up the environment inside the worktree
+            # Set up the environment inside the workspace
             self._setup_env(wt_path)
             await self._configure_git_identity(wt_path)
             await self._create_venv(wt_path)
             await self._install_hooks(wt_path)
         except BaseException:
             logger.warning(
-                "Worktree creation failed for issue %d; cleaning up partial state",
+                "Workspace creation failed for issue %d; cleaning up",
                 issue_number,
             )
-            if worktree_created:
-                with contextlib.suppress(Exception):
-                    await run_subprocess(
-                        "git",
-                        "worktree",
-                        "remove",
-                        "--force",
-                        str(wt_path),
-                        cwd=self._repo_root,
-                        gh_token=self._config.gh_token,
-                    )
-            if branch_created:
-                with contextlib.suppress(Exception):
-                    await self._delete_local_branch(branch)
+            if wt_path.exists():
+                shutil.rmtree(wt_path, ignore_errors=True)
             raise
 
         logger.info(
-            "Worktree ready at %s",
+            "Workspace ready at %s",
             wt_path,
             extra={"issue": issue_number},
         )
         return wt_path
 
     async def destroy(self, issue_number: int) -> None:
-        """Remove the worktree for *issue_number*."""
+        """Remove the workspace for *issue_number*."""
         async with self._repo_worktree_lock():
             await self._destroy_unlocked(issue_number)
 
@@ -543,39 +515,19 @@ class WorktreeManager:
         """Inner destroy logic — must be called under ``_repo_worktree_lock``."""
         wt_path = self._config.worktree_path_for_issue(issue_number)
         if self._config.dry_run:
-            logger.info("[dry-run] Would destroy worktree %s", wt_path)
+            logger.info("[dry-run] Would destroy workspace %s", wt_path)
             return
 
         if wt_path.exists():
-            await run_subprocess(
-                "git",
-                "worktree",
-                "remove",
-                str(wt_path),
-                "--force",
-                cwd=self._repo_root,
-                gh_token=self._config.gh_token,
-            )
+            shutil.rmtree(wt_path, ignore_errors=True)
             logger.info(
-                "Destroyed worktree %s",
+                "Destroyed workspace %s",
                 wt_path,
                 extra={"issue": issue_number},
             )
 
-        # Also clean up the branch
-        branch = self._config.branch_for_issue(issue_number)
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess(
-                "git",
-                "branch",
-                "-D",
-                branch,
-                cwd=self._repo_root,
-                gh_token=self._config.gh_token,
-            )
-
     async def destroy_all(self) -> None:
-        """Remove every worktree under this repo's scoped base directory."""
+        """Remove every workspace under this repo's scoped base directory."""
         if not self._base.exists():
             return
         repo_base = self._base / self._config.repo_slug
@@ -590,16 +542,6 @@ class WorktreeManager:
                         await self.destroy(num)
                     except (ValueError, RuntimeError) as exc:
                         logger.warning("Could not destroy %s: %s", child, exc)
-
-        # Final prune
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess(
-                "git",
-                "worktree",
-                "prune",
-                cwd=self._repo_root,
-                gh_token=self._config.gh_token,
-            )
 
     async def _fetch_and_merge_main(self, worktree_path: Path, branch: str) -> bool:
         """Fetch and merge main into *branch* inside *worktree_path*.

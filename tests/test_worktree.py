@@ -25,10 +25,10 @@ class TestCreate:
     """Tests for WorktreeManager.create."""
 
     @pytest.mark.asyncio
-    async def test_create_calls_git_branch_and_worktree_add(
+    async def test_create_calls_git_clone_and_checkout(
         self, config, tmp_path: Path
     ) -> None:
-        """create should clean up stale branch, fetch main, then 'git branch -f' and 'git worktree add'."""
+        """create should fetch main, clone locally, set origin, fetch, then checkout -b."""
         manager = WorktreeManager(config)
 
         # Pre-create the base directory so mkdir doesn't cause issues
@@ -44,28 +44,36 @@ class TestCreate:
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
             patch.object(manager, "pre_work_check", new_callable=AsyncMock),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_create_venv", new_callable=AsyncMock),
             patch.object(manager, "_install_hooks", new_callable=AsyncMock),
         ):
-            # _setup_env, _create_venv, and _install_hooks must not fail; patch them out
             await manager.create(issue_number=7, branch="agent/issue-7")
 
         calls = mock_exec.call_args_list
-        # First call: git fetch origin main
-        assert calls[0].args[:3] == ("git", "fetch", "origin")
-        # Second call: git branch -f
-        assert calls[1].args[:4] == ("git", "branch", "-f", "agent/issue-7")
-        # Third call: git worktree add
-        assert calls[2].args[:3] == ("git", "worktree", "add")
+        # First call: git clone --local --no-checkout
+        assert calls[0].args[:3] == ("git", "clone", "--local")
+        assert "--no-checkout" in calls[0].args
+        # Second call: git remote set-url origin
+        assert calls[1].args[:4] == ("git", "remote", "set-url", "origin")
+        # Third call: git fetch origin main
+        assert calls[2].args[:3] == ("git", "fetch", "origin")
+        # Fourth call: git ls-remote (from _remote_branch_exists mock — skipped)
+        # Fifth call: git checkout -b branch origin/main
+        assert calls[3].args[:3] == ("git", "checkout", "-b")
 
     @pytest.mark.asyncio
     async def test_create_fetches_remote_branch_when_exists(
         self, config, tmp_path: Path
     ) -> None:
-        """create should fetch the remote branch instead of force-creating from main."""
+        """create should fetch the remote branch and checkout instead of creating new."""
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
@@ -79,7 +87,12 @@ class TestCreate:
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
             patch.object(manager, "pre_work_check", new_callable=AsyncMock),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(
                 manager, "_remote_branch_exists", return_value=True
             ) as mock_remote,
@@ -91,22 +104,28 @@ class TestCreate:
 
         mock_remote.assert_awaited_once_with("agent/issue-7")
         calls = mock_exec.call_args_list
-        # First call: git fetch origin main
-        assert calls[0].args[:3] == ("git", "fetch", "origin")
-        # Second call: git fetch with force refspec for the branch
-        assert calls[1].args[:3] == ("git", "fetch", "origin")
-        assert "+refs/heads/agent/issue-7:refs/heads/agent/issue-7" in calls[1].args
-        # Should NOT have git branch -f
+        # First call: git clone --local --no-checkout
+        assert calls[0].args[:3] == ("git", "clone", "--local")
+        # Second call: git remote set-url origin
+        assert calls[1].args[:4] == ("git", "remote", "set-url", "origin")
+        # Third call: git fetch origin main
+        assert calls[2].args[:3] == ("git", "fetch", "origin")
+        # Fourth call: git fetch with force refspec for the branch
+        assert calls[3].args[:3] == ("git", "fetch", "origin")
+        assert "+refs/heads/agent/issue-7:refs/heads/agent/issue-7" in calls[3].args
+        # Fifth call: git checkout branch (not -b)
+        assert calls[4].args[:3] == ("git", "checkout", "agent/issue-7")
+        # Should NOT have git checkout -b (new branch)
         for call in calls:
-            assert call.args[:3] != ("git", "branch", "-f"), (
-                "Should not force-create branch when remote exists"
+            assert call.args[:3] != ("git", "checkout", "-b"), (
+                "Should not create new branch when remote exists"
             )
 
     @pytest.mark.asyncio
     async def test_create_fresh_branch_when_no_remote(
         self, config, tmp_path: Path
     ) -> None:
-        """create should force-create branch from main when no remote branch exists."""
+        """create should checkout -b from origin/main when no remote branch exists."""
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
@@ -120,7 +139,12 @@ class TestCreate:
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
             patch.object(manager, "pre_work_check", new_callable=AsyncMock),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_create_venv", new_callable=AsyncMock),
@@ -129,8 +153,10 @@ class TestCreate:
             await manager.create(issue_number=7, branch="agent/issue-7")
 
         calls = mock_exec.call_args_list
-        # First call: git fetch origin main; second call: git branch -f
-        assert calls[1].args[:4] == ("git", "branch", "-f", "agent/issue-7")
+        # After clone, set-url, and fetch: git checkout -b agent/issue-7 origin/main
+        checkout_calls = [c for c in calls if c.args[:3] == ("git", "checkout", "-b")]
+        assert len(checkout_calls) == 1
+        assert checkout_calls[0].args[3] == "agent/issue-7"
 
     @pytest.mark.asyncio
     async def test_create_calls_setup_env_create_venv_and_install_hooks(
@@ -148,7 +174,6 @@ class TestCreate:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=success_proc),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env", setup_env),
             patch.object(manager, "_create_venv", create_venv),
@@ -171,7 +196,6 @@ class TestCreate:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=success_proc),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_create_venv", new_callable=AsyncMock),
@@ -206,7 +230,6 @@ class TestCreate:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=fail_proc),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             pytest.raises(RuntimeError, match="network error"),
         ):
             await manager.create(issue_number=7, branch="agent/issue-7")
@@ -230,13 +253,16 @@ class TestCreate:
         success_proc = make_proc(returncode=0)
 
         call_count = 0
+        fetch_count = 0
 
         async def fake_exec(*args, **kwargs):
-            nonlocal call_count
+            nonlocal call_count, fetch_count
             call_count += 1
-            # First fetch races; second fetch succeeds; rest succeed.
-            if call_count == 1:
-                return race_proc
+            # Track fetch calls specifically — first fetch races, second succeeds
+            if args[:3] == ("git", "fetch", "origin"):
+                fetch_count += 1
+                if fetch_count == 1:
+                    return race_proc
             return success_proc
 
         with (
@@ -246,7 +272,12 @@ class TestCreate:
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
             patch.object(manager, "pre_work_check", new_callable=AsyncMock),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_create_venv", new_callable=AsyncMock),
@@ -255,7 +286,8 @@ class TestCreate:
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
         assert result == config.worktree_path_for_issue(7)
-        assert call_count >= 4  # fetch (fail), fetch (retry), branch, worktree add
+        # clone, set-url, fetch (fail), fetch (retry), ls-remote, checkout -b
+        assert call_count >= 4
         sleep_mock.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -280,7 +312,6 @@ class TestCreate:
 
         with (
             patch("worktree.run_subprocess", side_effect=fake_run_subprocess),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_create_venv", new_callable=AsyncMock),
@@ -294,31 +325,40 @@ class TestCreate:
         assert max_fetch_in_flight == 1
 
     @pytest.mark.asyncio
-    async def test_create_raises_when_worktree_add_fails_after_branch_created(
+    async def test_create_raises_when_checkout_fails_after_clone(
         self, config, tmp_path: Path
     ) -> None:
-        """create should propagate RuntimeError when 'git worktree add' fails after branch creation."""
+        """create should propagate RuntimeError when 'git checkout -b' fails after clone."""
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
-        fail_proc = make_proc(returncode=1, stderr=b"fatal: worktree add failed")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: checkout failed")
 
         call_count = 0
 
         async def fake_exec(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            # Calls 1-2: fetch + branch -f succeed; call 3: worktree add fails
-            if call_count <= 2:
+            # clone, set-url, fetch succeed; checkout -b fails
+            if call_count <= 3:
                 return success_proc
             return fail_proc
 
         with (
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock),
+            patch.object(
+                manager, "_assert_origin_matches_repo", new_callable=AsyncMock
+            ),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(manager, "_remote_branch_exists", return_value=False),
-            pytest.raises(RuntimeError, match="worktree add failed"),
+            pytest.raises(RuntimeError, match="checkout failed"),
         ):
             await manager.create(issue_number=7, branch="agent/issue-7")
 
@@ -334,7 +374,6 @@ class TestCreate:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=success_proc),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(
                 manager, "_setup_env", side_effect=OSError("Permission denied")
@@ -354,19 +393,13 @@ class TestCreate:
         success_proc = make_proc(returncode=0)
         fail_proc = make_proc(returncode=1, stderr=b"uv sync failed")
 
-        call_count = 0
-
         async def fake_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            # uv sync is the 4th subprocess call (fetch, branch, worktree add, uv sync)
             if args[0:2] == ("uv", "sync"):
                 return fail_proc
             return success_proc
 
         with (
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
         ):
@@ -376,27 +409,29 @@ class TestCreate:
         assert result == config.worktree_path_for_issue(7)
 
     @pytest.mark.asyncio
-    async def test_create_cleans_up_branch_when_worktree_add_fails(
+    async def test_create_cleans_up_on_checkout_failure(
         self, config, tmp_path: Path
     ) -> None:
-        """Cleanup should delete dangling branch when worktree add fails mid-chain."""
+        """Cleanup should remove cloned directory when checkout fails."""
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
-        fail_proc = make_proc(returncode=1, stderr=b"fatal: worktree add failed")
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: checkout failed")
 
         call_count = 0
 
         async def fake_exec(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            # Calls 1-2: fetch + branch -f succeed; call 3: worktree add fails
-            if call_count <= 2:
+            # clone, set-url, fetch succeed; checkout -b fails
+            if call_count <= 3:
                 return success_proc
             return fail_proc
 
-        delete_branch = AsyncMock()
+        wt_path = config.worktree_path_for_issue(7)
+        # Create the directory so cleanup finds it
+        wt_path.mkdir(parents=True, exist_ok=True)
 
         with (
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
@@ -404,35 +439,37 @@ class TestCreate:
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
             patch.object(manager, "pre_work_check", new_callable=AsyncMock),
-            patch.object(manager, "_delete_local_branch", delete_branch),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(manager, "_remote_branch_exists", return_value=False),
-            pytest.raises(RuntimeError, match="worktree add failed"),
+            pytest.raises(RuntimeError, match="checkout failed"),
         ):
             await manager.create(issue_number=7, branch="agent/issue-7")
 
-        # Called once pre-cleanup (stale branch removal) and once during cleanup
-        assert delete_branch.await_count == 2
+        # Cleanup should have removed the cloned directory via shutil.rmtree
+        # (ignore_errors=True means it won't fail even if partially cleaned)
+        assert not wt_path.exists()
 
     @pytest.mark.asyncio
     async def test_create_cleans_up_worktree_when_setup_env_fails(
         self, config, tmp_path: Path
     ) -> None:
-        """Cleanup should remove worktree and branch when post-creation setup fails."""
+        """Cleanup should remove cloned directory when post-creation setup fails."""
         manager = WorktreeManager(config)
         config.worktree_base.mkdir(parents=True, exist_ok=True)
 
+        wt_path = config.worktree_path_for_issue(7)
+        # Pre-create the directory so cleanup finds it
+        wt_path.mkdir(parents=True, exist_ok=True)
+
         success_proc = make_proc(returncode=0)
-        exec_calls: list[tuple[object, ...]] = []
-
-        async def fake_exec(*args, **kwargs):
-            exec_calls.append(args)
-            return success_proc
-
-        delete_branch = AsyncMock()
 
         with (
-            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
-            patch.object(manager, "_delete_local_branch", delete_branch),
+            patch("asyncio.create_subprocess_exec", return_value=success_proc),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(
                 manager, "_setup_env", side_effect=OSError("Permission denied")
@@ -441,16 +478,8 @@ class TestCreate:
         ):
             await manager.create(issue_number=7, branch="agent/issue-7")
 
-        # Cleanup should call git worktree remove --force
-        worktree_remove_calls = [
-            c
-            for c in exec_calls
-            if len(c) >= 2 and c[:2] == ("git", "worktree") and "--force" in c
-        ]
-        assert len(worktree_remove_calls) == 1
-
-        # Cleanup should also delete the branch
-        assert delete_branch.await_count == 2
+        # Cleanup should have removed the cloned directory via shutil.rmtree
+        assert not wt_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -462,26 +491,17 @@ class TestDestroy:
     """Tests for WorktreeManager.destroy."""
 
     @pytest.mark.asyncio
-    async def test_destroy_calls_worktree_remove_and_branch_delete(
-        self, config, tmp_path: Path
-    ) -> None:
-        """destroy should call 'git worktree remove' and 'git branch -D'."""
+    async def test_destroy_removes_directory(self, config, tmp_path: Path) -> None:
+        """destroy should call shutil.rmtree on the workspace directory."""
         manager = WorktreeManager(config)
 
         # Simulate existing worktree path
         wt_path = config.worktree_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        success_proc = make_proc()
+        await manager.destroy(issue_number=7)
 
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=success_proc
-        ) as mock_exec:
-            await manager.destroy(issue_number=7)
-
-        args_list = [c.args for c in mock_exec.call_args_list]
-        assert ("git", "worktree", "remove", str(wt_path), "--force") in args_list
-        assert ("git", "branch", "-D", "agent/issue-7") in args_list
+        assert not wt_path.exists()
 
     @pytest.mark.asyncio
     async def test_destroy_handles_non_existent_worktree_gracefully(
@@ -490,76 +510,48 @@ class TestDestroy:
         """destroy should not crash if the worktree directory does not exist."""
         manager = WorktreeManager(config)
 
-        # wt_path does NOT exist — destroy should not call worktree remove
-        success_proc = make_proc()
-
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=success_proc
-        ) as mock_exec:
-            await manager.destroy(issue_number=999)
-
-        args_list = [c.args for c in mock_exec.call_args_list]
-        # git worktree remove should NOT have been called
-        for args in args_list:
-            assert args[:3] != ("git", "worktree", "remove"), (
-                "Should not attempt worktree remove when path does not exist"
-            )
+        # wt_path does NOT exist — destroy should not raise
+        await manager.destroy(issue_number=999)
 
     @pytest.mark.asyncio
     async def test_destroy_tolerates_missing_branch(
         self, config, tmp_path: Path
     ) -> None:
-        """destroy should swallow RuntimeError from 'git branch -D' gracefully."""
+        """destroy should complete without error even if directory is already gone."""
         manager = WorktreeManager(config)
 
-        wt_path = config.worktree_path_for_issue(7)
-        wt_path.mkdir(parents=True, exist_ok=True)
-
-        remove_proc = make_proc(returncode=0)
-        branch_delete_proc = make_proc(returncode=1, stderr=b"error: branch not found")
-
-        call_count = 0
-
-        async def fake_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return remove_proc  # worktree remove succeeds
-            return branch_delete_proc  # branch -D fails
-
-        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-            # Should NOT raise
-            await manager.destroy(issue_number=7)
+        # Don't create the directory — destroy should handle gracefully
+        await manager.destroy(issue_number=7)
 
     @pytest.mark.asyncio
-    async def test_destroy_raises_when_worktree_remove_force_fails(
+    async def test_destroy_removes_existing_directory(
         self, config, tmp_path: Path
     ) -> None:
-        """destroy should propagate RuntimeError when 'git worktree remove --force' fails."""
+        """destroy should remove the workspace directory via shutil.rmtree."""
         manager = WorktreeManager(config)
 
         wt_path = config.worktree_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
+        (wt_path / "somefile.txt").write_text("content")
 
-        fail_proc = make_proc(returncode=1, stderr=b"fatal: dirty worktree")
+        await manager.destroy(issue_number=7)
 
-        with (
-            patch("asyncio.create_subprocess_exec", return_value=fail_proc),
-            pytest.raises(RuntimeError, match="dirty worktree"),
-        ):
-            await manager.destroy(issue_number=7)
+        assert not wt_path.exists()
 
     @pytest.mark.asyncio
-    async def test_destroy_dry_run_skips_git_commands(
+    async def test_destroy_dry_run_skips_removal(
         self, dry_config, tmp_path: Path
     ) -> None:
-        """In dry-run mode, destroy should not call any subprocesses."""
+        """In dry-run mode, destroy should not remove the directory."""
         manager = WorktreeManager(dry_config)
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
-            await manager.destroy(issue_number=7)
+        wt_path = dry_config.worktree_path_for_issue(7)
+        wt_path.mkdir(parents=True, exist_ok=True)
 
-        mock_exec.assert_not_called()
+        await manager.destroy(issue_number=7)
+
+        # In dry-run mode, the directory should still exist
+        assert wt_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -587,11 +579,7 @@ class TestDestroyAll:
         async def fake_destroy(issue_number: int) -> None:
             destroyed.append(issue_number)
 
-        with (
-            patch.object(manager, "destroy", side_effect=fake_destroy),
-            patch("worktree.run_subprocess", new_callable=AsyncMock),
-        ):
-            # Also patch run_subprocess for the final prune
+        with patch.object(manager, "destroy", side_effect=fake_destroy):
             await manager.destroy_all()
 
         assert sorted(destroyed) == [1, 2]
@@ -623,10 +611,7 @@ class TestDestroyAll:
         async def fake_destroy(issue_number: int) -> None:
             destroyed.append(issue_number)
 
-        with (
-            patch.object(manager, "destroy", side_effect=fake_destroy),
-            patch("worktree.run_subprocess", new_callable=AsyncMock),
-        ):
+        with patch.object(manager, "destroy", side_effect=fake_destroy):
             await manager.destroy_all()
 
         assert destroyed == [5]
@@ -739,10 +724,7 @@ class TestDestroyAllRepoScoped:
         async def fake_destroy(issue_number: int) -> None:
             destroyed.append(issue_number)
 
-        with (
-            patch.object(manager, "destroy", side_effect=fake_destroy),
-            patch("worktree.run_subprocess", new_callable=AsyncMock),
-        ):
+        with patch.object(manager, "destroy", side_effect=fake_destroy):
             await manager.destroy_all()
 
         assert sorted(destroyed) == [1, 2]
@@ -1562,7 +1544,6 @@ class TestConfigureGitIdentity:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=success_proc),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_configure_git_identity", configure_identity),
@@ -2636,8 +2617,6 @@ class TestSanitizeRepo:
             await manager.sanitize_repo()
 
         cmd_strs = [" ".join(c) for c in calls]
-        assert any("config --unset core.worktree" in c for c in cmd_strs)
-        assert any("worktree prune" in c for c in cmd_strs)
         assert any("branch -D agent/issue-99" in c for c in cmd_strs)
         assert any("branch -D agent/issue-100" in c for c in cmd_strs)
 
@@ -2675,24 +2654,15 @@ class TestPreWorkCheck:
     """Tests for WorktreeManager.pre_work_check."""
 
     @pytest.mark.asyncio
-    async def test_pre_work_prunes_and_unsets_worktree(self, config) -> None:
+    async def test_pre_work_fetches_main(self, config) -> None:
         manager = WorktreeManager(config)
 
-        calls: list[tuple[str, ...]] = []
-
-        async def fake_run(*args, cwd=None, gh_token=None):
-            calls.append(args)
-            return ""
-
-        with (
-            patch("worktree.run_subprocess", side_effect=fake_run),
-            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
-        ):
+        with patch.object(
+            manager, "_fetch_origin_with_retry", new_callable=AsyncMock
+        ) as mock_fetch:
             await manager.pre_work_check()
 
-        cmd_strs = [" ".join(c) for c in calls]
-        assert any("worktree prune" in c for c in cmd_strs)
-        assert any("config --unset core.worktree" in c for c in cmd_strs)
+        mock_fetch.assert_awaited_once_with(config.repo_root, config.main_branch)
 
 
 # ---------------------------------------------------------------------------
@@ -2704,25 +2674,13 @@ class TestPostWorkCleanup:
     """Tests for WorktreeManager.post_work_cleanup."""
 
     @pytest.mark.asyncio
-    async def test_post_work_destroys_and_prunes(self, config) -> None:
+    async def test_post_work_destroys(self, config) -> None:
         manager = WorktreeManager(config)
 
-        calls: list[tuple[str, ...]] = []
-
-        async def fake_run(*args, cwd=None, gh_token=None):
-            calls.append(args)
-            return ""
-
-        with (
-            patch("worktree.run_subprocess", side_effect=fake_run),
-            patch.object(manager, "destroy", new_callable=AsyncMock) as mock_destroy,
-        ):
+        with patch.object(manager, "destroy", new_callable=AsyncMock) as mock_destroy:
             await manager.post_work_cleanup(42)
 
         mock_destroy.assert_called_once_with(42)
-        cmd_strs = [" ".join(c) for c in calls]
-        assert any("worktree prune" in c for c in cmd_strs)
-        assert any("config --unset core.worktree" in c for c in cmd_strs)
 
     @pytest.mark.asyncio
     async def test_post_work_salvages_uncommitted_changes(self, config) -> None:
@@ -2779,21 +2737,11 @@ class TestPostWorkCleanup:
     async def test_post_work_continues_if_destroy_fails(self, config) -> None:
         manager = WorktreeManager(config)
 
-        calls: list[tuple[str, ...]] = []
-
-        async def fake_run(*args, cwd=None, gh_token=None):
-            calls.append(args)
-            return ""
-
-        with (
-            patch("worktree.run_subprocess", side_effect=fake_run),
-            patch.object(manager, "destroy", side_effect=RuntimeError("worktree gone")),
+        with patch.object(
+            manager, "destroy", side_effect=RuntimeError("worktree gone")
         ):
+            # Should not raise — destroy failure is suppressed
             await manager.post_work_cleanup(42)
-
-        # Should still prune and unset even if destroy fails
-        cmd_strs = [" ".join(c) for c in calls]
-        assert any("worktree prune" in c for c in cmd_strs)
 
 
 # ---------------------------------------------------------------------------
@@ -2816,7 +2764,12 @@ class TestCreateCallsPreWorkCheck:
             patch.object(
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
-            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(
+                manager,
+                "_get_origin_url",
+                new_callable=AsyncMock,
+                return_value="https://github.com/test/repo.git",
+            ),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
             patch.object(manager, "_create_venv", new_callable=AsyncMock),
