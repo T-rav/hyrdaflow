@@ -33,6 +33,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Superseded |
 | [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Proposed |
 | [0022](0022-integration-test-architecture-cross-phase.md) | Pipeline Integration Harness for Cross-Phase Testing | Proposed |
+| [0023](0023-cli-argparse-config-builder-pattern.md) | CLI Architecture — argparse with Config Builder Pattern | Proposed |
 | [0023](0023-multi-repo-architecture-wiring-pattern.md) | Multi-Repo Architecture Wiring Pattern | Proposed |
 | [0023](0023-implementation-retry-recovery-architecture.md) | Implementation Retry Recovery Architecture | Proposed |
 | [0023](0023-supersession-regex-all-verb-forms.md) | Supersession Regex Must Include All Verb Forms | Proposed |
