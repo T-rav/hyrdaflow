@@ -118,11 +118,14 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "ok"
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_unknown_action(self, tmp_path: Path) -> None:
@@ -138,12 +141,15 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "error"
         assert "unknown action" in response["error"]
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_list_repos_empty(self) -> None:
@@ -163,12 +169,15 @@ class TestSupervisorTCPIntegration:
             writer.write = written_data.extend
             writer.drain = AsyncMock()
             writer.close = MagicMock()
+            writer.wait_closed = AsyncMock()
 
             await _handle(reader, writer)
 
             response = json.loads(written_data.decode().strip())
             assert response["status"] == "ok"
             assert isinstance(response["repos"], list)
+            assert writer.close.called
+            assert writer.wait_closed.called
         finally:
             RUNNERS.clear()
             RUNNERS.update(original)
@@ -187,12 +196,15 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "error"
         assert "Missing path" in response["error"]
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_add_repo_nonexistent_path(self) -> None:
@@ -213,12 +225,15 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "error"
         assert "not found" in response["error"].lower()
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_register_repo(self, tmp_path: Path) -> None:
@@ -237,12 +252,15 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "ok"
         assert "slug" in response
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_remove_repo_missing_params(self) -> None:
@@ -258,11 +276,14 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "error"
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_empty_request_handled_gracefully(self) -> None:
@@ -277,9 +298,12 @@ class TestSupervisorTCPIntegration:
         writer.write = MagicMock()
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
-        # Should not raise
+        # Should not raise; early-return path still cleans up the writer
         await _handle(reader, writer)
+        assert writer.close.called
+        assert writer.wait_closed.called
 
     @pytest.mark.asyncio
     async def test_invalid_json_request(self) -> None:
@@ -295,11 +319,14 @@ class TestSupervisorTCPIntegration:
         writer.write = written_data.extend
         writer.drain = AsyncMock()
         writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
 
         await _handle(reader, writer)
 
         response = json.loads(written_data.decode().strip())
         assert response["status"] == "error"
+        assert writer.close.called
+        assert writer.wait_closed.called
 
 
 # ---------------------------------------------------------------------------
