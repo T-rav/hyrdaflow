@@ -358,6 +358,8 @@ class ConfigFactory:
         adr_review_enabled: bool = False,
         adr_review_auto_triage: bool = False,
         adr_review_model: str = "sonnet",
+        adr_auto_triage: bool = False,
+        adr_pre_review: bool = True,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -579,6 +581,8 @@ class ConfigFactory:
                 adr_review_enabled=adr_review_enabled,
                 adr_review_auto_triage=adr_review_auto_triage,
                 adr_review_model=adr_review_model,
+                adr_auto_triage=adr_auto_triage,
+                adr_pre_review=adr_pre_review,
             )
 
 
