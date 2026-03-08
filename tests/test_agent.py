@@ -42,7 +42,7 @@ class TestAgentRunnerInheritance:
 
 
 # ---------------------------------------------------------------------------
-# issue fixture override — returns Task instead of GitHubIssue
+# agent_task fixture — returns Task instead of GitHubIssue
 # ---------------------------------------------------------------------------
 
 
