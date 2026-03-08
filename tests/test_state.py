@@ -719,6 +719,41 @@ class TestHITLVisualEvidence:
 
 
 # ---------------------------------------------------------------------------
+# HITL summary failure tracking
+# ---------------------------------------------------------------------------
+
+
+class TestHITLSummaryFailure:
+    def test_get_returns_empty_when_nothing_set(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        last_failed_at, error = tracker.get_hitl_summary_failure(42)
+        assert last_failed_at is None
+        assert error == ""
+
+    def test_set_and_get_failure_metadata(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_hitl_summary_failure(7, "LLM timeout")
+        last_failed_at, error = tracker.get_hitl_summary_failure(7)
+        assert last_failed_at is not None
+        assert error == "LLM timeout"
+
+    def test_error_is_truncated_to_300_chars(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        message = "X" * 400
+        tracker.set_hitl_summary_failure(12, message)
+        _, error = tracker.get_hitl_summary_failure(12)
+        assert len(error) == 300
+
+    def test_clear_removes_failure_entry(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.set_hitl_summary_failure(99, "network blip")
+        tracker.clear_hitl_summary_failure(99)
+        last_failed_at, error = tracker.get_hitl_summary_failure(99)
+        assert last_failed_at is None
+        assert error == ""
+
+
+# ---------------------------------------------------------------------------
 # Reset
 # ---------------------------------------------------------------------------
 

@@ -7,6 +7,13 @@ import pytest
 from hf_cli import supervisor_service
 
 
+def _create_repo(tmp_path: Path) -> Path:
+    repo_path = tmp_path / "repo"
+    (repo_path / "src").mkdir(parents=True)
+    (repo_path / "src" / "cli.py").write_text("print('hello world')\n")
+    return repo_path
+
+
 def test_slug_for_repo_replaces_spaces() -> None:
     assert supervisor_service._slug_for_repo(Path("/tmp/my repo")) == "my-repo"
 
@@ -14,6 +21,74 @@ def test_slug_for_repo_replaces_spaces() -> None:
 def test_start_repo_raises_for_missing_path() -> None:
     with pytest.raises(FileNotFoundError, match="Repo path not found"):
         supervisor_service._start_repo("/definitely/missing/path")
+
+
+def test_start_repo_closes_log_file_handle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_path = _create_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(supervisor_service, "STATE_DIR", state_dir)
+    monkeypatch.setattr(supervisor_service, "RUNNERS", {})
+    monkeypatch.setattr(
+        supervisor_service, "SUPERVISOR_PORT_FILE", state_dir / "port-file"
+    )
+    monkeypatch.setattr(supervisor_service, "_wait_for_port", lambda *_a, **_k: None)
+
+    captured: dict[str, object] = {}
+
+    class _Proc:
+        returncode: int | None = None
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            return None
+
+        def wait(self, _timeout: float) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+    def _fake_popen(*_a, **kwargs):
+        captured["stdout"] = kwargs["stdout"]
+        return _Proc()
+
+    monkeypatch.setattr(supervisor_service.subprocess, "Popen", _fake_popen)
+
+    supervisor_service._start_repo(str(repo_path))
+
+    stdout_handle = captured["stdout"]
+    assert getattr(stdout_handle, "closed", False) is True
+
+
+def test_start_repo_closes_log_handle_on_popen_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_path = _create_repo(tmp_path)
+    state_dir = tmp_path / "state"
+    monkeypatch.setattr(supervisor_service, "STATE_DIR", state_dir)
+    monkeypatch.setattr(supervisor_service, "RUNNERS", {})
+    monkeypatch.setattr(
+        supervisor_service, "SUPERVISOR_PORT_FILE", state_dir / "port-file"
+    )
+    monkeypatch.setattr(supervisor_service, "_wait_for_port", lambda *_a, **_k: None)
+
+    captured: dict[str, object] = {}
+
+    def _boom_popen(*_a, **kwargs):
+        captured["stdout"] = kwargs["stdout"]
+        raise OSError("spawn failed")
+
+    monkeypatch.setattr(supervisor_service.subprocess, "Popen", _boom_popen)
+
+    with pytest.raises(OSError):
+        supervisor_service._start_repo(str(repo_path))
+
+    stdout_handle = captured["stdout"]
+    assert getattr(stdout_handle, "closed", False) is True
 
 
 def test_find_free_port_returns_positive_int() -> None:

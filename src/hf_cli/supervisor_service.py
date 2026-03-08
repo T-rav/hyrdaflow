@@ -90,20 +90,24 @@ def _start_repo(path: str, *, slug: str | None = None) -> tuple[int, str, str, s
         else src_path
     )
     env.setdefault("HF_SUPERVISOR_PORT_FILE", str(SUPERVISOR_PORT_FILE))
-    proc = subprocess.Popen(  # noqa: S603
-        [
-            sys.executable,
-            str(repo_path / "src" / "cli.py"),
-            "--dashboard-port",
-            str(port),
-        ],
-        cwd=str(repo_path),
-        stdout=log_file.open("a"),
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        env=env,
-        text=True,
-    )
+    log_handle = log_file.open("a")
+    try:
+        proc = subprocess.Popen(  # noqa: S603
+            [
+                sys.executable,
+                str(repo_path / "src" / "cli.py"),
+                "--dashboard-port",
+                str(port),
+            ],
+            cwd=str(repo_path),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=env,
+            text=True,
+        )
+    finally:
+        log_handle.close()
     RUNNERS[slug] = RepoProcess(slug, proc, port, repo_path)
     try:
         _wait_for_port(port, proc, log_file)

@@ -11,8 +11,9 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 from urllib.parse import quote
 
 from config import HydraFlowConfig
@@ -33,6 +34,8 @@ logger = logging.getLogger("hydraflow.pr_manager")
 
 # Cache TTL for label-count queries (seconds).
 _LABEL_CACHE_TTL: int = 30
+
+_JSONValue = TypeVar("_JSONValue")
 
 
 def _is_missing_label_404(exc: RuntimeError) -> bool:
@@ -121,6 +124,39 @@ class PRManager:
             max_retries=self._max_retries,
         )
 
+    async def _gh_json_query(
+        self,
+        *cmd: str,
+        dry_run_return: _JSONValue,
+        dry_run_log: str | None = None,
+        error_log: str | None = None,
+        error_level: Literal["debug", "info", "warning", "error"] = "warning",
+        loader: Callable[[str], _JSONValue] = json.loads,
+        exceptions: tuple[type[BaseException], ...] | None = None,
+        log_exc_info: bool = False,
+    ) -> _JSONValue:
+        """Run a ``gh`` command that returns JSON with shared dry-run/error handling."""
+        if self._config.dry_run:
+            if dry_run_log:
+                logger.info(dry_run_log)
+            return dry_run_return
+        exc_types = (
+            exceptions
+            if exceptions is not None
+            else (RuntimeError, json.JSONDecodeError)
+        )
+        try:
+            raw = await self._run_gh(*cmd)
+            return loader(raw)
+        except exc_types as exc:
+            log_fn = getattr(logger, error_level, logger.warning)
+            message = error_log or "GitHub JSON query failed"
+            if log_exc_info:
+                log_fn(message, exc_info=True)
+            else:
+                log_fn("%s: %s", message, exc)
+            return dry_run_return
+
     async def ensure_labels_exist(self) -> None:
         """Create all HydraFlow lifecycle labels in the repo if they don't exist.
 
@@ -133,59 +169,40 @@ class PRManager:
         result = await ensure_labels(self._config)
         logger.info(result.summary())
 
-    async def push_branch(self, worktree_path: Path, branch: str) -> bool:
+    async def push_branch(
+        self, worktree_path: Path, branch: str, *, force: bool = False
+    ) -> bool:
         """Push *branch* to origin from *worktree_path*.
 
+        When ``force`` is True the push uses ``--force-with-lease`` for
+        safe history rewrites (fresh-branch rebuilds, etc.).
         Returns *True* on success.
         """
         self._assert_repo()
         if self._config.dry_run:
-            logger.info("[dry-run] Would push branch %s", branch)
+            action = "force-push" if force else "push"
+            logger.info("[dry-run] Would %s branch %s", action, branch)
             return True
+
+        cmd = [
+            "git",
+            "push",
+            "--no-verify",
+        ]
+        if force:
+            cmd.append("--force-with-lease")
+        cmd += ["-u", "origin", branch]
 
         try:
             await run_subprocess(
-                "git",
-                "push",
-                "--no-verify",
-                "-u",
-                "origin",
-                branch,
+                *cmd,
                 cwd=worktree_path,
                 gh_token=self._config.gh_token,
             )
             return True
         except RuntimeError as exc:
-            logger.error("Push failed for %s: %s", branch, exc)
-            return False
-
-    async def force_push_branch(self, worktree_path: Path, branch: str) -> bool:
-        """Force-push *branch* to origin using ``--force-with-lease``.
-
-        Safer than ``--force`` — prevents clobbering concurrent pushes.
-        Used after fresh-branch rebuilds where branch history is rewritten.
-        Returns *True* on success.
-        """
-        self._assert_repo()
-        if self._config.dry_run:
-            logger.info("[dry-run] Would force-push branch %s", branch)
-            return True
-
-        try:
-            await run_subprocess(
-                "git",
-                "push",
-                "--no-verify",
-                "--force-with-lease",
-                "-u",
-                "origin",
-                branch,
-                cwd=worktree_path,
-                gh_token=self._config.gh_token,
-            )
-            return True
-        except RuntimeError as exc:
-            logger.error("Force-push failed for %s: %s", branch, exc)
+            action = "Force-push" if force else "Push"
+            logger.error("%s failed for %s: %s", action, branch, exc)
             return False
 
     async def create_pr(
@@ -781,7 +798,6 @@ class PRManager:
             return ""
 
         fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-screenshot-")
-        fallback_svg_path: str | None = None
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(png_bytes)
@@ -795,51 +811,13 @@ class PRManager:
                 gist_args.append("--public")
             gist_args += ["--filename", "screenshot.png", tmp_path]
 
-            try:
-                output = await self._run_gh(*gist_args)
-                return self._gist_raw_url(output, "screenshot.png")
-            except RuntimeError as exc:
-                if "binary file not supported" not in str(exc).lower():
-                    raise
-                logger.info(
-                    "Binary gist upload not supported; falling back to SVG wrapper"
-                )
-
-                width, height = self._png_dimensions(png_bytes)
-                svg_payload = (
-                    f'<svg xmlns="http://www.w3.org/2000/svg" '
-                    f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
-                    f'<image href="data:image/png;base64,{png_base64}" '
-                    f'width="{width}" height="{height}"/></svg>'
-                )
-                svg_fd, fallback_svg_path = tempfile.mkstemp(
-                    suffix=".svg",
-                    prefix="hydraflow-screenshot-",
-                )
-                with os.fdopen(svg_fd, "w", encoding="utf-8") as f:
-                    f.write(svg_payload)
-
-                fallback_args = [
-                    "gh",
-                    "gist",
-                    "create",
-                ]
-                if self._config.screenshot_gist_public:
-                    fallback_args.append("--public")
-                fallback_args += [
-                    "--filename",
-                    "screenshot.svg",
-                    fallback_svg_path,
-                ]
-                output = await self._run_gh(*fallback_args)
-                return self._gist_raw_url(output, "screenshot.svg")
+            output = await self._run_gh(*gist_args)
+            return self._gist_raw_url(output, "screenshot.png")
         except Exception:
             logger.exception("Screenshot gist upload failed")
             return ""
         finally:
             Path(tmp_path).unlink(missing_ok=True)
-            if fallback_svg_path:
-                Path(fallback_svg_path).unlink(missing_ok=True)
 
     @staticmethod
     def _gist_raw_url(gist_output: str, filename: str) -> str:
@@ -852,21 +830,6 @@ class PRManager:
             gist_url.replace("gist.github.com", "gist.githubusercontent.com")
             + f"/raw/{filename}"
         )
-
-    @staticmethod
-    def _png_dimensions(png_bytes: bytes) -> tuple[int, int]:
-        """Return PNG dimensions, or a safe default when parsing fails."""
-        # PNG signature (8 bytes) + IHDR length/type (8 bytes) + width/height (8 bytes)
-        if (
-            len(png_bytes) >= 24
-            and png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
-            and png_bytes[12:16] == b"IHDR"
-        ):
-            width = int.from_bytes(png_bytes[16:20], "big")
-            height = int.from_bytes(png_bytes[20:24], "big")
-            if width > 0 and height > 0:
-                return width, height
-        return (1280, 720)
 
     async def get_pr_diff(self, pr_number: int) -> str:
         """Fetch the diff for *pr_number*."""
@@ -954,25 +917,19 @@ class PRManager:
         Returns a list of dicts with ``name`` and ``state`` keys.
         Returns an empty list on failure or in dry-run mode.
         """
-        if self._config.dry_run:
-            logger.info("[dry-run] Would fetch CI checks for PR #%d", pr_number)
-            return []
-
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "pr",
-                "checks",
-                str(pr_number),
-                "--repo",
-                self._repo,
-                "--json",
-                "name,state",
-            )
-            return json.loads(raw)  # type: ignore[no-any-return]
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("Could not fetch CI checks for PR #%d: %s", pr_number, exc)
-            return []
+        return await self._gh_json_query(
+            "gh",
+            "pr",
+            "checks",
+            str(pr_number),
+            "--repo",
+            self._repo,
+            "--json",
+            "name,state",
+            dry_run_return=[],
+            dry_run_log=f"[dry-run] Would fetch CI checks for PR #{pr_number}",
+            error_log=f"Could not fetch CI checks for PR #{pr_number}",
+        )
 
     _RUN_ID_PATTERN = re.compile(r"/actions/runs/(\d+)")
 
@@ -1200,26 +1157,22 @@ class PRManager:
 
         Returns the SHA string, or empty string on failure or in dry-run mode.
         """
-        if self._config.dry_run:
-            logger.info("[dry-run] Would fetch HEAD SHA for PR #%d", pr_number)
-            return ""
-
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "pr",
-                "view",
-                str(pr_number),
-                "--repo",
-                self._repo,
-                "--json",
-                "headRefOid",
-            )
-            data = json.loads(raw)
+        data = await self._gh_json_query(
+            "gh",
+            "pr",
+            "view",
+            str(pr_number),
+            "--repo",
+            self._repo,
+            "--json",
+            "headRefOid",
+            dry_run_return={},
+            dry_run_log=f"[dry-run] Would fetch HEAD SHA for PR #{pr_number}",
+            error_log=f"Could not fetch HEAD SHA for PR #{pr_number}",
+        )
+        if isinstance(data, dict):
             return data.get("headRefOid", "")
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("Could not fetch HEAD SHA for PR #%d: %s", pr_number, exc)
-            return ""
+        return ""
 
     async def get_pr_reviews(self, pr_number: int) -> list[dict[str, str]]:
         """Fetch reviews for *pr_number* with author info.
@@ -1227,22 +1180,16 @@ class PRManager:
         Returns a list of dicts with ``author``, ``state``, ``submitted_at``,
         and ``commit_id`` keys.  Returns ``[]`` on failure or in dry-run mode.
         """
-        if self._config.dry_run:
-            logger.info("[dry-run] Would fetch reviews for PR #%d", pr_number)
-            return []
-
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "api",
-                f"repos/{self._repo}/pulls/{pr_number}/reviews",
-                "--jq",
-                "[.[] | {author: .user.login, state: .state, submitted_at: .submitted_at, commit_id: .commit_id}]",
-            )
-            return json.loads(raw)  # type: ignore[no-any-return]
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("Could not fetch reviews for PR #%d: %s", pr_number, exc)
-            return []
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/pulls/{pr_number}/reviews",
+            "--jq",
+            "[.[] | {author: .user.login, state: .state, submitted_at: .submitted_at, commit_id: .commit_id}]",
+            dry_run_return=[],
+            dry_run_log=f"[dry-run] Would fetch reviews for PR #{pr_number}",
+            error_log=f"Could not fetch reviews for PR #{pr_number}",
+        )
 
     async def get_pr_mergeable(self, pr_number: int) -> bool | None:
         """Return whether *pr_number* is mergeable (no conflicts).
@@ -1277,22 +1224,16 @@ class PRManager:
         Returns a list of dicts with ``author`` and ``created_at`` keys.
         Returns ``[]`` on failure or in dry-run mode.
         """
-        if self._config.dry_run:
-            logger.info("[dry-run] Would fetch comments for PR #%d", pr_number)
-            return []
-
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "api",
-                f"repos/{self._repo}/issues/{pr_number}/comments",
-                "--jq",
-                "[.[] | {author: .user.login, created_at: .created_at}]",
-            )
-            return json.loads(raw)  # type: ignore[no-any-return]
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("Could not fetch comments for PR #%d: %s", pr_number, exc)
-            return []
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/issues/{pr_number}/comments",
+            "--jq",
+            "[.[] | {author: .user.login, created_at: .created_at}]",
+            dry_run_return=[],
+            dry_run_log=f"[dry-run] Would fetch comments for PR #{pr_number}",
+            error_log=f"Could not fetch comments for PR #{pr_number}",
+        )
 
     # --- Changelog query helpers ---
 
@@ -1301,26 +1242,22 @@ class PRManager:
 
         Returns ``("", "")`` on failure or in dry-run mode.
         """
-        if self._config.dry_run:
-            logger.info("[dry-run] Would fetch title/body for PR #%d", pr_number)
-            return ("", "")
-
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "pr",
-                "view",
-                str(pr_number),
-                "--repo",
-                self._repo,
-                "--json",
-                "title,body",
-            )
-            data = json.loads(raw)
+        data = await self._gh_json_query(
+            "gh",
+            "pr",
+            "view",
+            str(pr_number),
+            "--repo",
+            self._repo,
+            "--json",
+            "title,body",
+            dry_run_return={},
+            dry_run_log=f"[dry-run] Would fetch title/body for PR #{pr_number}",
+            error_log=f"Could not fetch title/body for PR #{pr_number}",
+        )
+        if isinstance(data, dict):
             return (data.get("title", ""), data.get("body", ""))
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("Could not fetch title/body for PR #%d: %s", pr_number, exc)
-            return ("", "")
+        return ("", "")
 
     async def get_pr_for_issue(self, issue_number: int) -> int:
         """Find the merged (or open) PR number for *issue_number*.
@@ -1337,38 +1274,36 @@ class PRManager:
 
         # Search merged PRs first, then open
         for pr_state in ("closed", "open"):
-            try:
-                raw = await self._run_gh(
-                    "gh",
-                    "api",
-                    f"repos/{self._repo}/pulls",
-                    "--method",
-                    "GET",
-                    "--field",
-                    f"state={pr_state}",
-                    "--field",
-                    f"head={head_filter}",
-                    "--field",
-                    "per_page=1",
-                    "--jq",
-                    "[.[] | {number}]",
-                )
-                prs = json.loads(raw)
-                if prs:
-                    return int(prs[0]["number"])
-            except (
-                RuntimeError,
-                ValueError,
-                KeyError,
-                TypeError,
-                json.JSONDecodeError,
-            ):
-                logger.debug(
-                    "Could not resolve PR for issue #%d (state=%s)",
-                    issue_number,
-                    pr_state,
-                    exc_info=True,
-                )
+            prs = await self._gh_json_query(
+                "gh",
+                "api",
+                f"repos/{self._repo}/pulls",
+                "--method",
+                "GET",
+                "--field",
+                f"state={pr_state}",
+                "--field",
+                f"head={head_filter}",
+                "--field",
+                "per_page=1",
+                "--jq",
+                "[.[] | {number}]",
+                dry_run_return=[],
+                error_log=(
+                    f"Could not resolve PR for issue #{issue_number} (state={pr_state})"
+                ),
+                error_level="debug",
+                exceptions=(
+                    RuntimeError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    json.JSONDecodeError,
+                ),
+                log_exc_info=True,
+            )
+            if prs:
+                return int(prs[0]["number"])
 
         return 0
 
@@ -1621,6 +1556,27 @@ class PRManager:
         )
         return int(raw.strip() or "0")
 
+    async def _sum_label_counts(
+        self,
+        labels: list[str],
+        query_builder: Callable[[str], str],
+        *,
+        log_context: str,
+    ) -> int:
+        """Helper to sum ``search/issues`` counts for each *label*."""
+        total = 0
+        for label in labels:
+            try:
+                total += await self._search_github_count(query_builder(label))
+            except (RuntimeError, ValueError):
+                logger.debug(
+                    "Could not %s for label %r",
+                    log_context,
+                    label,
+                    exc_info=True,
+                )
+        return total
+
     async def _count_open_issues_by_label(
         self, label_map: dict[str, list[str]]
     ) -> dict[str, int]:
@@ -1631,19 +1587,11 @@ class PRManager:
         """
         open_by_label: dict[str, int] = {}
         for display_key, label_names in label_map.items():
-            count = 0
-            for label in label_names:
-                try:
-                    count += await self._search_github_count(
-                        f'repo:{self._repo} is:issue is:open label:"{label}"'
-                    )
-                except (RuntimeError, ValueError):
-                    logger.debug(
-                        "Could not count open issues for label %r",
-                        label,
-                        exc_info=True,
-                    )
-            open_by_label[display_key] = count
+            open_by_label[display_key] = await self._sum_label_counts(
+                label_names,
+                lambda label: f'repo:{self._repo} is:issue is:open label:"{label}"',
+                log_context="count open issues",
+            )
         return open_by_label
 
     async def _count_closed_issues(self, labels: list[str]) -> int:
@@ -1652,19 +1600,11 @@ class PRManager:
         Uses the GitHub Search API (``search/issues``) which returns
         ``total_count`` directly — no pagination, scales to 10k+ issues.
         """
-        total = 0
-        for label in labels:
-            try:
-                total += await self._search_github_count(
-                    f'repo:{self._repo} is:issue is:closed label:"{label}"'
-                )
-            except (RuntimeError, ValueError):
-                logger.debug(
-                    "Could not count closed issues for label %r",
-                    label,
-                    exc_info=True,
-                )
-        return total
+        return await self._sum_label_counts(
+            labels,
+            lambda label: f'repo:{self._repo} is:issue is:closed label:"{label}"',
+            log_context="count closed issues",
+        )
 
     async def _count_merged_prs(self, label: str) -> int:
         """Count merged PRs with the given *label*.

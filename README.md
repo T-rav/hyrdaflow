@@ -188,6 +188,60 @@ make quality-lite
 make quality
 ```
 
+## Docker Execution Mode
+
+HydraFlow can run agents inside Docker containers for isolation. This requires building the agent image and configuring authentication.
+
+### 1. Build the agent image
+
+```bash
+docker build -f Dockerfile.agent -t ghcr.io/t-rav/hydraflow-agent:latest .
+```
+
+### 2. Enable Docker mode
+
+Add to your `.env`:
+
+```env
+HYDRAFLOW_EXECUTION_MODE=docker
+```
+
+### 3. Configure agent authentication
+
+Agents running inside containers cannot access your host's OAuth session or macOS keychain. You must provide API credentials via environment variables.
+
+**Claude (subscription via Claude Max/Pro):**
+
+```bash
+# Generate a headless auth token
+claude setup-token
+
+# Add the token to .env
+CLAUDE_CODE_OAUTH_TOKEN=<token-from-setup-token>
+```
+
+**Claude (API key):**
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Codex:**
+
+Codex credentials are mounted automatically from `~/.codex/` on your host. No extra `.env` configuration is needed.
+
+**Other supported providers** (set in `.env` as needed):
+
+`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `GROQ_API_KEY`
+
+### 4. Verify
+
+```bash
+make run
+# Create a test issue — check logs for successful agent output instead of
+# "authentication_failed" or empty transcripts.
+```
+
 ## Contributing
 
 - Fork it.

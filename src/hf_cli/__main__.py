@@ -96,6 +96,7 @@ def _handle_update() -> None:
     tool_upgrade = subprocess.run(  # noqa: S603
         ["uv", "tool", "upgrade", "hydraflow"],
         check=False,
+        timeout=120,
     )
     if tool_upgrade.returncode == 0:
         print("Update complete via `uv tool upgrade hydraflow`.")
@@ -105,6 +106,7 @@ def _handle_update() -> None:
     pip_upgrade = subprocess.run(  # noqa: S603
         ["uv", "pip", "install", "-U", "hydraflow"],
         check=False,
+        timeout=120,
     )
     if pip_upgrade.returncode == 0:
         print("Update complete via `uv pip install -U hydraflow`.")

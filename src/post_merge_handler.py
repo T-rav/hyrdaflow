@@ -23,6 +23,7 @@ from models import (
     IssueOutcomeType,
     JudgeResult,
     JudgeVerdict,
+    MergeConflictFixFn,
     PRInfo,
     PublishFn,
     ReviewResult,
@@ -145,6 +146,7 @@ class PostMergeHandler:
         code_scanning_alerts: list[dict] | None = None,
         visual_gate_fn: VisualGateFn | None = None,
         visual_decision: VisualValidationDecision | None = None,
+        merge_conflict_fix_fn: MergeConflictFixFn | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate).
 
@@ -205,6 +207,20 @@ class PostMergeHandler:
 
         await publish_fn(pr, worker_id, "merging")
         success = await self._prs.merge_pr(pr.number)
+        mergeable: bool | None = None
+        if not success:
+            mergeable = await self._prs.get_pr_mergeable(pr.number)
+            if mergeable is False and merge_conflict_fix_fn is not None:
+                logger.info(
+                    "PR #%d merge failed due to conflict — attempting standard review auto-fix",
+                    pr.number,
+                )
+                await publish_fn(pr, worker_id, "merge_fix")
+                recovered = await merge_conflict_fix_fn(pr, issue, worker_id)
+                if recovered:
+                    await publish_fn(pr, worker_id, "merging")
+                    success = await self._prs.merge_pr(pr.number)
+
         if success:
             result.merged = True
             self._state.mark_issue(pr.issue_number, "merged")
@@ -264,15 +280,27 @@ class PostMergeHandler:
         else:
             logger.warning("PR #%d merge failed — escalating to HITL", pr.number)
             await publish_fn(pr, worker_id, "escalating")
+            if mergeable is None:
+                mergeable = await self._prs.get_pr_mergeable(pr.number)
+            cause = "PR merge failed on GitHub"
+            comment = (
+                "**Merge failed** — PR could not be merged. Escalating to human review."
+            )
+            if mergeable is False:
+                cause = "PR merge failed on GitHub: merge conflict"
+                comment = (
+                    "**Merge failed** — PR has merge conflicts on GitHub. "
+                    "Escalating to human review."
+                )
+            elif mergeable is True:
+                cause = "PR merge failed on GitHub: merge blocked (non-conflict)"
+
             await escalate_fn(
                 pr.issue_number,
                 pr.number,
-                cause="PR merge failed on GitHub",
+                cause=cause,
                 origin_label=self._config.review_label[0],
-                comment=(
-                    "**Merge failed** — PR could not be merged. "
-                    "Escalating to human review."
-                ),
+                comment=comment,
                 event_cause="merge_failed",
                 task=issue,
             )

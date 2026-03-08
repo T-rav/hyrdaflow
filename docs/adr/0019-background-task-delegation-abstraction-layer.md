@@ -1,6 +1,6 @@
 # ADR-0019: Background Task Delegation — Call the Right Abstraction Layer
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context

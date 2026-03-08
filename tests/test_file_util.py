@@ -1,4 +1,4 @@
-"""Tests for file_util.atomic_write."""
+"""Tests for file_util helpers: atomic_write, append_jsonl, file_lock."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from file_util import atomic_write, file_lock
+from file_util import append_jsonl, atomic_write, file_lock
 
 
 class TestAtomicWrite:
@@ -98,6 +98,28 @@ class TestAtomicWrite:
         atomic_write(target, "")
         assert target.exists()
         assert target.read_text() == ""
+
+
+class TestAppendJsonl:
+    """Tests for the append_jsonl() utility."""
+
+    def test_appends_line_with_newline(self, tmp_path: Path) -> None:
+        target = tmp_path / "log.jsonl"
+        append_jsonl(target, '{"a":1}')
+        append_jsonl(target, '{"b":2}')
+        lines = target.read_text().splitlines()
+        assert lines == ['{"a":1}', '{"b":2}']
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        target = tmp_path / "deep" / "nested" / "log.jsonl"
+        append_jsonl(target, '{"x":1}')
+        assert target.read_text() == '{"x":1}\n'
+
+    def test_calls_fsync(self, tmp_path: Path) -> None:
+        target = tmp_path / "log.jsonl"
+        with patch("file_util.os.fsync", wraps=os.fsync) as mock_fsync:
+            append_jsonl(target, '{"synced":true}')
+            mock_fsync.assert_called_once()
 
 
 class TestFileLock:

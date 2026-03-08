@@ -478,13 +478,17 @@ class TestPlanIssuesMixedEpicAndStandalone:
     @pytest.mark.asyncio
     async def test_plans_both_groups(self, config: HydraFlowConfig) -> None:
         """plan_issues should handle both standalone and epic children."""
+        object.__setattr__(config, "epic_group_planning", True)
         phase, planners, prs, store, _stop = _make_phase(config)
 
         standalone = _make_task(id=1, tags=["hydraflow-plan"])
         child_a = _make_epic_child(id=2, epic_number=100)
         child_b = _make_epic_child(id=3, epic_number=100)
 
-        store.get_plannable = lambda _max_count: [standalone, child_a, child_b]
+        # First call: epic batch drain gets all 3 (standalone re-queued internally)
+        # Second call: standalone pool picks up the re-queued standalone
+        _calls = [[standalone, child_a, child_b], [standalone], []]
+        store.get_plannable = lambda _max_count: _calls.pop(0) if _calls else []
 
         planners.plan = AsyncMock(
             side_effect=lambda task, worker_id=0: PlanResult(
@@ -523,14 +527,15 @@ class TestPlanIssuesMixedEpicAndStandalone:
             worktree_base=config.worktree_base,
             state_file=config.state_file,
         )
-        object.__setattr__(cfg, "epic_group_planning", False)
+        # epic_group_planning defaults to False in ConfigFactory
 
         phase, planners, prs, store, _stop = _make_phase(cfg)
 
         child_a = _make_epic_child(id=2, epic_number=100)
         child_b = _make_epic_child(id=3, epic_number=100)
 
-        store.get_plannable = lambda _max_count: [child_a, child_b]
+        _items = [[child_a], [child_b], []]
+        store.get_plannable = lambda _max_count: _items.pop(0) if _items else []
 
         planners.plan = AsyncMock(
             side_effect=lambda task, worker_id=0: PlanResult(

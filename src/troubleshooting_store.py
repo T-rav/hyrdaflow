@@ -135,10 +135,14 @@ class TroubleshootingPatternStore:
 
     def _write_all(self, patterns: list[TroubleshootingPattern]) -> None:
         try:
+            import os  # noqa: PLC0415
+
             self._memory_dir.mkdir(parents=True, exist_ok=True)
             with self._path.open("w") as f:
                 for p in patterns:
                     f.write(p.model_dump_json() + "\n")
+                f.flush()
+                os.fsync(f.fileno())
         except OSError:
             logger.warning(
                 "Could not write troubleshooting patterns to %s",

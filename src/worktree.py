@@ -175,6 +175,244 @@ class WorktreeManager:
         except RuntimeError:
             return False
 
+    # ------------------------------------------------------------------
+    # Git hygiene — startup, pre-work, and post-work cleanup
+    # ------------------------------------------------------------------
+
+    async def sanitize_repo(self) -> None:
+        """Ensure the repo is in a clean state before any work begins.
+
+        Called once at orchestrator startup.  Prunes stale worktree refs,
+        fetches latest main, ensures HEAD is on main, removes orphan
+        agent branches, and unsets any corrupted ``core.worktree``.
+        """
+        repo = self._repo_root
+        main = self._config.main_branch
+        gh = self._config.gh_token
+
+        # 1. Unset core.worktree if Docker left it behind
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess(
+                "git",
+                "config",
+                "--unset",
+                "core.worktree",
+                cwd=repo,
+                gh_token=gh,
+            )
+
+        # 2. Prune stale worktree refs
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess("git", "worktree", "prune", cwd=repo, gh_token=gh)
+
+        # 3. Fetch latest main
+        await self._fetch_origin_with_retry(repo, main)
+
+        # 4. Ensure HEAD is on main (not a stray agent branch)
+        try:
+            head_ref = await run_subprocess(
+                "git",
+                "symbolic-ref",
+                "--short",
+                "HEAD",
+                cwd=repo,
+                gh_token=gh,
+            )
+            if head_ref.strip() != main:
+                logger.warning(
+                    "Repo HEAD on %s instead of %s — checking out %s",
+                    head_ref.strip(),
+                    main,
+                    main,
+                )
+                await run_subprocess(
+                    "git",
+                    "checkout",
+                    "-f",
+                    main,
+                    cwd=repo,
+                    gh_token=gh,
+                )
+        except RuntimeError:
+            logger.warning(
+                "Could not verify HEAD branch — forcing checkout of %s", main
+            )
+            with contextlib.suppress(RuntimeError):
+                await run_subprocess(
+                    "git",
+                    "checkout",
+                    "-f",
+                    main,
+                    cwd=repo,
+                    gh_token=gh,
+                )
+
+        # 5. Reset main to match remote
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess(
+                "git",
+                "reset",
+                "--hard",
+                f"origin/{main}",
+                cwd=repo,
+                gh_token=gh,
+            )
+
+        # 6. Delete orphan agent/* branches that aren't tied to active worktrees
+        try:
+            branches_output = await run_subprocess(
+                "git",
+                "branch",
+                "--list",
+                "agent/*",
+                cwd=repo,
+                gh_token=gh,
+            )
+            for line in branches_output.strip().splitlines():
+                branch_name = line.strip().lstrip("* ")
+                if branch_name:
+                    with contextlib.suppress(RuntimeError):
+                        await run_subprocess(
+                            "git",
+                            "branch",
+                            "-D",
+                            branch_name,
+                            cwd=repo,
+                            gh_token=gh,
+                        )
+                        logger.info("Pruned orphan branch %s", branch_name)
+        except RuntimeError:
+            logger.debug("Could not list agent branches for cleanup", exc_info=True)
+
+        logger.info("Repo sanitized — HEAD on %s, worktrees pruned", main)
+
+    async def pre_work_check(self) -> None:
+        """Quick validation before creating a worktree.
+
+        Prunes stale refs, verifies no ``core.worktree`` corruption,
+        and fetches latest main.
+        """
+        repo = self._repo_root
+        gh = self._config.gh_token
+
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess("git", "worktree", "prune", cwd=repo, gh_token=gh)
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess(
+                "git",
+                "config",
+                "--unset",
+                "core.worktree",
+                cwd=repo,
+                gh_token=gh,
+            )
+        await self._fetch_origin_with_retry(repo, self._config.main_branch)
+
+    async def _salvage_uncommitted(self, issue_number: int) -> None:
+        """Commit and push any uncommitted changes in the worktree before destroying it.
+
+        Prevents work loss when a worktree is cleaned up after a crash or
+        timeout that left uncommitted changes behind.
+        """
+        wt_path = self._config.worktree_path_for_issue(issue_number)
+        if not wt_path.exists():
+            return
+
+        gh = self._config.gh_token
+        branch = self._config.branch_for_issue(issue_number)
+
+        # Check for uncommitted changes
+        try:
+            status = await run_subprocess(
+                "git",
+                "status",
+                "--porcelain",
+                cwd=wt_path,
+                gh_token=gh,
+            )
+        except RuntimeError:
+            return
+
+        if not status.strip():
+            return
+
+        logger.info(
+            "Salvaging uncommitted changes in worktree for issue #%d",
+            issue_number,
+        )
+
+        try:
+            await run_subprocess(
+                "git",
+                "add",
+                "-A",
+                cwd=wt_path,
+                gh_token=gh,
+            )
+            await run_subprocess(
+                "git",
+                "commit",
+                "-m",
+                f"chore: salvage uncommitted changes for issue #{issue_number}",
+                "--no-verify",
+                cwd=wt_path,
+                gh_token=gh,
+            )
+            await run_subprocess(
+                "git",
+                "push",
+                "--no-verify",
+                "-u",
+                "origin",
+                branch,
+                cwd=wt_path,
+                gh_token=gh,
+            )
+            logger.info(
+                "Salvaged and pushed uncommitted work for issue #%d", issue_number
+            )
+        except RuntimeError as exc:
+            logger.warning(
+                "Could not salvage uncommitted changes for issue #%d: %s",
+                issue_number,
+                exc,
+            )
+
+    async def post_work_cleanup(self, issue_number: int) -> None:
+        """Clean up after an issue is done (PR created/merged/failed).
+
+        Salvages any uncommitted changes, then removes the worktree,
+        deletes the local branch, prunes refs, and unsets
+        ``core.worktree`` if corrupted.
+        """
+        repo = self._repo_root
+        gh = self._config.gh_token
+
+        # Salvage any uncommitted work before destroying
+        with contextlib.suppress(Exception):
+            await self._salvage_uncommitted(issue_number)
+
+        # Destroy worktree + branch
+        with contextlib.suppress(RuntimeError):
+            await self.destroy(issue_number)
+
+        # Prune any leftover refs
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess("git", "worktree", "prune", cwd=repo, gh_token=gh)
+
+        # Fix core.worktree if Docker corrupted it
+        with contextlib.suppress(RuntimeError):
+            await run_subprocess(
+                "git",
+                "config",
+                "--unset",
+                "core.worktree",
+                cwd=repo,
+                gh_token=gh,
+            )
+
+        logger.info("Post-work cleanup complete for issue #%d", issue_number)
+
     async def create(self, issue_number: int, branch: str) -> Path:
         """Create a worktree for *issue_number* on *branch*.
 
@@ -200,6 +438,9 @@ class WorktreeManager:
         if self._config.dry_run:
             logger.info("[dry-run] Would create worktree at %s", wt_path)
             return wt_path
+
+        # Pre-work hygiene: prune stale refs, fix config, fetch main
+        await self.pre_work_check()
 
         # Validate origin remote matches configured repo before any mutations
         await self._assert_origin_matches_repo()

@@ -43,6 +43,7 @@ class TestCreate:
             patch.object(
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock),
             patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
@@ -77,6 +78,7 @@ class TestCreate:
             patch.object(
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock),
             patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(
                 manager, "_remote_branch_exists", return_value=True
@@ -117,6 +119,7 @@ class TestCreate:
             patch.object(
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock),
             patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
@@ -242,6 +245,7 @@ class TestCreate:
             patch.object(
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock),
             patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             patch.object(manager, "_setup_env"),
@@ -399,6 +403,7 @@ class TestCreate:
             patch.object(
                 manager, "_assert_origin_matches_repo", new_callable=AsyncMock
             ),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock),
             patch.object(manager, "_delete_local_branch", delete_branch),
             patch.object(manager, "_remote_branch_exists", return_value=False),
             pytest.raises(RuntimeError, match="worktree add failed"),
@@ -1404,6 +1409,18 @@ class TestSetupNodeModules:
 class TestConfigureGitIdentity:
     """Tests for WorktreeManager._configure_git_identity."""
 
+    @staticmethod
+    def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "HYDRAFLOW_GIT_USER_NAME",
+            "HYDRAFLOW_GIT_USER_EMAIL",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
     @pytest.mark.asyncio
     async def test_sets_user_name_and_email(self, tmp_path: Path) -> None:
         """Should run git config for both user.name and user.email."""
@@ -1434,8 +1451,7 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should not run any git config commands when identity is empty."""
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
 
         from tests.helpers import ConfigFactory
 
@@ -1456,8 +1472,7 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should only set user.name when email is empty."""
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
 
         from tests.helpers import ConfigFactory
 
@@ -1485,8 +1500,7 @@ class TestConfigureGitIdentity:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Should only set user.email when name is empty."""
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
-        monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
+        self._clear_git_identity_env(monkeypatch)
 
         from tests.helpers import ConfigFactory
 
@@ -2591,6 +2605,227 @@ class TestDetectUiDirs:
         manager = WorktreeManager(cfg)
 
         assert manager._ui_dirs == ["webapp"]
+
+
+# ---------------------------------------------------------------------------
+# sanitize_repo
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeRepo:
+    """Tests for WorktreeManager.sanitize_repo."""
+
+    @pytest.mark.asyncio
+    async def test_sanitize_prunes_and_checks_out_main(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "symbolic-ref", "--short", "HEAD"):
+                return "main\n"
+            if args == ("git", "branch", "--list", "agent/*"):
+                return "  agent/issue-99\n  agent/issue-100\n"
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
+        ):
+            await manager.sanitize_repo()
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("config --unset core.worktree" in c for c in cmd_strs)
+        assert any("worktree prune" in c for c in cmd_strs)
+        assert any("branch -D agent/issue-99" in c for c in cmd_strs)
+        assert any("branch -D agent/issue-100" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_sanitize_forces_checkout_when_on_wrong_branch(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "symbolic-ref", "--short", "HEAD"):
+                return "agent/issue-42\n"
+            if args == ("git", "branch", "--list", "agent/*"):
+                return ""
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
+        ):
+            await manager.sanitize_repo()
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("checkout -f main" in c for c in cmd_strs)
+        assert any("reset --hard origin/main" in c for c in cmd_strs)
+
+
+# ---------------------------------------------------------------------------
+# pre_work_check
+# ---------------------------------------------------------------------------
+
+
+class TestPreWorkCheck:
+    """Tests for WorktreeManager.pre_work_check."""
+
+    @pytest.mark.asyncio
+    async def test_pre_work_prunes_and_unsets_worktree(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
+        ):
+            await manager.pre_work_check()
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("worktree prune" in c for c in cmd_strs)
+        assert any("config --unset core.worktree" in c for c in cmd_strs)
+
+
+# ---------------------------------------------------------------------------
+# post_work_cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestPostWorkCleanup:
+    """Tests for WorktreeManager.post_work_cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_post_work_destroys_and_prunes(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "destroy", new_callable=AsyncMock) as mock_destroy,
+        ):
+            await manager.post_work_cleanup(42)
+
+        mock_destroy.assert_called_once_with(42)
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("worktree prune" in c for c in cmd_strs)
+        assert any("config --unset core.worktree" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_post_work_salvages_uncommitted_changes(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        wt_path = config.worktree_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "status", "--porcelain"):
+                return " M src/foo.py\n"
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "destroy", new_callable=AsyncMock),
+        ):
+            await manager.post_work_cleanup(42)
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("git add -A" in c for c in cmd_strs)
+        assert any("git commit" in c for c in cmd_strs)
+        assert any("git push" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_post_work_skips_salvage_when_clean(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        wt_path = config.worktree_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "status", "--porcelain"):
+                return ""
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "destroy", new_callable=AsyncMock),
+        ):
+            await manager.post_work_cleanup(42)
+
+        cmd_strs = [" ".join(c) for c in calls]
+        assert not any("git add -A" in c for c in cmd_strs)
+        assert not any("git commit" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_post_work_continues_if_destroy_fails(self, config) -> None:
+        manager = WorktreeManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            return ""
+
+        with (
+            patch("worktree.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "destroy", side_effect=RuntimeError("worktree gone")),
+        ):
+            await manager.post_work_cleanup(42)
+
+        # Should still prune and unset even if destroy fails
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("worktree prune" in c for c in cmd_strs)
+
+
+# ---------------------------------------------------------------------------
+# Wiring: pre_work_check called from create
+# ---------------------------------------------------------------------------
+
+
+class TestCreateCallsPreWorkCheck:
+    """Verify WorktreeManager.create calls pre_work_check before creating."""
+
+    @pytest.mark.asyncio
+    async def test_create_calls_pre_work_check(self, config) -> None:
+        manager = WorktreeManager(config)
+        config.worktree_base.mkdir(parents=True, exist_ok=True)
+
+        success_proc = make_proc(returncode=0)
+
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=success_proc),
+            patch.object(
+                manager, "_assert_origin_matches_repo", new_callable=AsyncMock
+            ),
+            patch.object(manager, "_delete_local_branch", new_callable=AsyncMock),
+            patch.object(manager, "_remote_branch_exists", return_value=False),
+            patch.object(manager, "_setup_env"),
+            patch.object(manager, "_create_venv", new_callable=AsyncMock),
+            patch.object(manager, "_install_hooks", new_callable=AsyncMock),
+            patch.object(manager, "pre_work_check", new_callable=AsyncMock) as mock_pre,
+        ):
+            await manager.create(issue_number=7, branch="agent/issue-7")
+
+        mock_pre.assert_awaited_once()
 
 
 # NOTE: Tests for the subprocess helper (stdout parsing, error handling,

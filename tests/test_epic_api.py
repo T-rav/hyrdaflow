@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from events import EventType
-from models import EpicChildInfo, EpicDetail, EpicProgress, EpicReadiness
+from models import EpicChildInfo, EpicDetail, EpicProgress, EpicReadiness, MergeStrategy
 
 
 class TestEpicEventTypes:
@@ -36,7 +36,7 @@ class TestEpicEventTypes:
 class TestEpicReadinessModel:
     """Tests for the EpicReadiness model."""
 
-    def test_defaults(self) -> None:
+    def test_epic_readiness_has_expected_defaults(self) -> None:
         readiness = EpicReadiness()
         assert readiness.all_implemented is False
         assert readiness.all_approved is False
@@ -57,7 +57,7 @@ class TestEpicReadinessModel:
         assert readiness.all_implemented is True
         assert readiness.version == "1.2.0"
 
-    def test_serialization(self) -> None:
+    def test_epic_readiness_roundtrip_via_model_dump(self) -> None:
         readiness = EpicReadiness(all_implemented=True, version="2.0")
         data = readiness.model_dump()
         assert data["all_implemented"] is True
@@ -193,16 +193,16 @@ class TestEpicProgressEnriched:
 
     def test_merge_strategy_default(self) -> None:
         progress = EpicProgress(epic_number=100)
-        assert progress.merge_strategy == "independent"
+        assert progress.merge_strategy == MergeStrategy.INDEPENDENT
 
     def test_merge_strategy_set(self) -> None:
         progress = EpicProgress(epic_number=100, merge_strategy="bundled")
-        assert progress.merge_strategy == "bundled"
+        assert progress.merge_strategy == MergeStrategy.BUNDLED
 
     def test_serialization_includes_merge_strategy(self) -> None:
         progress = EpicProgress(epic_number=100, merge_strategy="ordered")
         data = progress.model_dump()
-        assert data["merge_strategy"] == "ordered"
+        assert data["merge_strategy"] == MergeStrategy.ORDERED
 
 
 class TestWebSocketForwarding:

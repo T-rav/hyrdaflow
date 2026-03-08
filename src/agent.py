@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
+from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
 from models import Task, WorkerResult, WorkerStatus
 from review_insights import (
@@ -20,6 +22,7 @@ from review_insights import (
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
+from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -129,6 +132,36 @@ Run through this checklist before your final commit:
                 telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
+
+            # Force-commit any uncommitted work the agent left behind
+            await self._force_commit_uncommitted(task, worktree_path)
+
+            # Diff sanity check (blocking — agent must fix flagged issues)
+            sanity_ok, sanity_msg = await self._run_diff_sanity_loop(
+                task, worktree_path, branch, worker_id
+            )
+            if not sanity_ok:
+                logger.warning(
+                    "Diff sanity flagged issues for #%d: %s",
+                    task.id,
+                    sanity_msg,
+                )
+                result.success = False
+                result.error = f"Diff sanity check failed: {sanity_msg}"
+                result.commits = await self._count_commits(worktree_path, branch)
+                await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
+                result.duration_seconds = time.monotonic() - start
+                return result
+
+            adequacy_ok, adequacy_msg = await self._run_test_adequacy_loop(
+                task, worktree_path, branch, worker_id
+            )
+            if not adequacy_ok:
+                logger.warning(
+                    "Test adequacy flagged gaps for #%d: %s (non-blocking)",
+                    task.id,
+                    adequacy_msg,
+                )
 
             # Mandatory pre-quality self-review/correction loop
             (
@@ -474,10 +507,12 @@ Run through this checklist before your final commit:
 ## Instructions
 
 1. Understand the issue and relevant code paths.
-2. Write/adjust tests first, then implement.
-3. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
-4. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality`; fix and rerun.
-5. Commit with: "Fixes #{issue.id}: <concise summary>"
+2. Implement the solution — write the code changes first.
+3. Write tests to ensure functionality, prevent regressions, and catch bugs.
+4. Diff Sanity Check and Test Adequacy Check run automatically after your implementation.
+5. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
+6. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality-lite`; fix and rerun.
+7. Commit with: "Fixes #{issue.id}: <concise summary>"
 {feedback_section}{escalation_section}
 {self._build_self_check_checklist(escalations)}
 ## UI Guidelines
@@ -493,8 +528,12 @@ Run through this checklist before your final commit:
 - Write tests for all new code — tests are mandatory.
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
-- Ensure `make quality` passes before committing.
-- If you encounter issues, commit what works with a descriptive message.
+- Run `make quality-lite` (lint + typecheck + security, no tests) as a sense check.
+  CI runs the full test suite — you do not need to run `make quality` or `make test`.
+- ALWAYS commit your work with `git add <file>` and `git commit`.
+  The system runs its own quality gate after you finish — your job is to produce commits.
+- NEVER use interactive git commands (`git add -i`, `git add -p`, `git rebase -i`).
+  There is no TTY — interactive commands will hang. Use `git add <file>` or `git add -A`.
 - NEVER conclude that the issue is "already satisfied" or that no work is needed.
   The planner already verified this issue requires implementation. Your job is to
   write the code, not to second-guess the plan. Always produce commits.
@@ -552,7 +591,7 @@ Run through this checklist before your final commit:
 1. Read the failing output above carefully.
 2. Fix ALL lint, type-check, security, and test issues.
 3. Do NOT skip or disable tests, type checks, or lint rules.
-4. Run `make quality` to verify your fixes pass the full pipeline.
+4. Run `make quality-lite` to verify your fixes pass lint, typecheck, and security.
 5. Commit your fixes with message: "quality-fix: <description> (#{issue.id})"
 
 Focus on fixing the root causes, not suppressing warnings.
@@ -573,12 +612,30 @@ Focus on fixing the root causes, not suppressing warnings.
 
 Attempt: {attempt}
 
-Scope:
-- review current branch changes for correctness and plan adherence
-- add/fix tests for missing coverage and edge cases
-- verify all new functions have type hints and all imports are correct
+Review the current branch changes thoroughly for bugs, gaps, and test coverage.
+
+Bug check:
+- look for logic errors, off-by-one mistakes, wrong comparisons, swapped arguments
+- check None/null handling: are optional values dereferenced without guards?
+- verify error paths: do exceptions propagate correctly? are resources cleaned up?
+- check concurrency issues: race conditions, missing awaits, unprotected shared state
+
+Gap check:
+- compare implementation against the plan/issue description — is anything missing?
 - check edge cases: empty inputs, None values, missing keys, boundary conditions
-- apply code fixes directly in this working tree{escalation_guidance}
+- verify all new functions have type hints and all imports are correct
+- ensure no debug code, print statements, or hardcoded test values remain
+
+Test coverage check:
+- every new public function/method must have at least one test
+- verify tests cover both success and failure/error paths
+- check that edge cases (empty, None, boundary) have dedicated tests
+- ensure tests actually assert on behavior, not just that code runs without error
+- add missing tests directly in this working tree
+
+Apply fixes:
+- fix any bugs, gaps, or missing tests found above directly in this working tree
+- keep edits scoped to issue intent{escalation_guidance}
 
 Constraints:
 - Do not push or open PRs
@@ -602,7 +659,7 @@ Attempt: {attempt}
 Run these commands in order and fix failures:
 1. `make lint`
 2. `{test_cmd}`
-3. `make quality`
+3. `make quality-lite`
 
 Rules:
 - If a command fails, fix root causes and rerun from command 1
@@ -665,6 +722,7 @@ SUMMARY: <one-line summary>
                 worktree_path,
                 {"issue": issue.id, "source": "implementer"},
             )
+            await self._force_commit_uncommitted(issue, worktree_path)
             review_ok, review_summary = self._parse_skill_result(
                 review_transcript, "PRE_QUALITY_REVIEW_RESULT"
             )
@@ -677,6 +735,7 @@ SUMMARY: <one-line summary>
                 worktree_path,
                 {"issue": issue.id, "source": "implementer"},
             )
+            await self._force_commit_uncommitted(issue, worktree_path)
             run_tool_ok, run_tool_summary = self._parse_skill_result(
                 run_tool_transcript, "RUN_TOOL_RESULT"
             )
@@ -696,6 +755,132 @@ SUMMARY: <one-line summary>
                 )
 
         return False, "Pre-quality review loop failed", max_attempts
+
+    async def _get_branch_diff(self, worktree_path: Path, branch: str) -> str:
+        """Return the combined diff of *branch* against main."""
+        try:
+            result = await self._runner.run_simple(
+                [
+                    "git",
+                    "diff",
+                    f"origin/{self._config.main_branch}...{branch}",
+                ],
+                cwd=str(worktree_path),
+                timeout=self._config.git_command_timeout,
+            )
+            return result.stdout or ""
+        except (TimeoutError, FileNotFoundError):
+            return ""
+
+    async def _run_diff_sanity_loop(
+        self,
+        issue: Task,
+        worktree_path: Path,
+        branch: str,
+        worker_id: int,
+    ) -> tuple[bool, str]:
+        """Run the diff sanity check skill.
+
+        Returns ``(passed, summary)``.  Non-blocking — failures are logged
+        as warnings but do not stop the pipeline.
+        """
+        max_attempts = self._config.max_diff_sanity_attempts
+        if max_attempts <= 0:
+            return True, "Diff sanity check disabled"
+
+        commits = await self._count_commits(worktree_path, branch)
+        if commits == 0:
+            return True, "No commits to check"
+
+        diff = await self._get_branch_diff(worktree_path, branch)
+        if not diff.strip():
+            return True, "Empty diff"
+
+        max_diff = self._config.max_review_diff_chars
+        if len(diff) > max_diff:
+            diff = diff[:max_diff] + f"\n[Diff truncated at {max_diff:,} chars]"
+
+        prompt = build_diff_sanity_prompt(
+            issue_number=issue.id,
+            issue_title=issue.title,
+            diff=diff,
+        )
+        cmd = self._build_pre_quality_review_command()
+        summary = ""
+
+        for _attempt in range(max_attempts):
+            transcript = await self._execute(
+                cmd,
+                prompt,
+                worktree_path,
+                {"issue": issue.id, "source": "implementer"},
+            )
+            passed, summary, findings = parse_diff_sanity_result(transcript)
+            if passed:
+                return True, summary
+            if findings:
+                logger.info(
+                    "Diff sanity findings for #%d: %s",
+                    issue.id,
+                    "; ".join(findings[:5]),
+                )
+
+        return False, summary
+
+    async def _run_test_adequacy_loop(
+        self,
+        issue: Task,
+        worktree_path: Path,
+        branch: str,
+        worker_id: int,
+    ) -> tuple[bool, str]:
+        """Run the test adequacy check skill.
+
+        Returns ``(passed, summary)``.  Non-blocking — failures are logged
+        as warnings but do not stop the pipeline.
+        """
+        max_attempts = self._config.max_test_adequacy_attempts
+        if max_attempts <= 0:
+            return True, "Test adequacy check disabled"
+
+        commits = await self._count_commits(worktree_path, branch)
+        if commits == 0:
+            return True, "No commits to check"
+
+        diff = await self._get_branch_diff(worktree_path, branch)
+        if not diff.strip():
+            return True, "Empty diff"
+
+        max_diff = self._config.max_review_diff_chars
+        if len(diff) > max_diff:
+            diff = diff[:max_diff] + f"\n[Diff truncated at {max_diff:,} chars]"
+
+        prompt = build_test_adequacy_prompt(
+            issue_number=issue.id,
+            issue_title=issue.title,
+            diff=diff,
+        )
+        cmd = self._build_pre_quality_review_command()
+        summary = ""
+
+        for _attempt in range(max_attempts):
+            transcript = await self._execute(
+                cmd,
+                prompt,
+                worktree_path,
+                {"issue": issue.id, "source": "implementer"},
+            )
+            passed, summary, gaps = parse_test_adequacy_result(transcript)
+            if passed:
+                return True, summary
+            if gaps:
+                logger.info(
+                    "Test adequacy gaps for #%d: %s",
+                    issue.id,
+                    "; ".join(gaps[:5]),
+                )
+
+        return False, summary
 
     async def _run_quality_fix_loop(
         self,
@@ -729,6 +914,7 @@ SUMMARY: <one-line summary>
                 worktree_path,
                 {"issue": issue.id, "source": "implementer"},
             )
+            await self._force_commit_uncommitted(issue, worktree_path)
 
             success, verify_msg = await self._verify_result(worktree_path, branch)
             if success:
@@ -737,6 +923,74 @@ SUMMARY: <one-line summary>
             last_error = verify_msg
 
         return False, last_error, max_attempts
+
+    async def _force_commit_uncommitted(self, task: Task, worktree_path: Path) -> bool:
+        """Stage and commit any uncommitted changes the agent left behind.
+
+        Always runs on the **host** (not inside Docker) since the worktree
+        is bind-mounted — file edits from the container are already on disk.
+
+        Docker containers set ``core.worktree=/workspace`` in the worktree's
+        git config, which breaks host-side git (it looks for files at
+        ``/workspace`` instead of the actual worktree path).  We fix this
+        by unsetting ``core.worktree`` before checking status.
+
+        Returns ``True`` if a salvage commit was created, ``False`` otherwise.
+        """
+        from execution import get_default_runner
+
+        host = get_default_runner()
+        timeout = self._config.git_command_timeout
+        cwd = str(worktree_path)
+        # Fix Docker-corrupted core.worktree before any git operation
+        with contextlib.suppress(TimeoutError, FileNotFoundError, OSError):
+            await host.run_simple(
+                ["git", "config", "--unset", "core.worktree"],
+                cwd=cwd,
+                timeout=timeout,
+            )
+
+        try:
+            status = await host.run_simple(
+                ["git", "status", "--porcelain"],
+                cwd=cwd,
+                timeout=timeout,
+            )
+            if not status.stdout.strip():
+                return False
+
+            logger.warning(
+                "Issue #%d: agent left uncommitted changes — force-committing",
+                task.id,
+            )
+            await host.run_simple(
+                ["git", "add", "-A"],
+                cwd=cwd,
+                timeout=timeout,
+            )
+            await host.run_simple(
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    f"Fixes #{task.id}: {task.title}\n\n"
+                    "Auto-committed by HydraFlow (agent did not commit)",
+                ],
+                cwd=cwd,
+                timeout=timeout,
+            )
+            logger.info(
+                "Issue #%d: salvage commit created for uncommitted work",
+                task.id,
+            )
+            return True
+        except (TimeoutError, FileNotFoundError, OSError) as exc:
+            logger.warning(
+                "Issue #%d: force-commit failed: %s",
+                task.id,
+                exc,
+            )
+            return False
 
     async def _count_commits(self, worktree_path: Path, branch: str) -> int:
         """Count commits on *branch* ahead of main."""

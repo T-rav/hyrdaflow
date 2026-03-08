@@ -205,9 +205,9 @@ class RetrospectiveCollector:
     def _append_entry(self, entry: RetrospectiveEntry) -> None:
         """Append a JSON line to the retrospective log."""
         try:
-            self._retro_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._retro_path.open("a") as f:
-                f.write(entry.model_dump_json() + "\n")
+            from file_util import append_jsonl  # noqa: PLC0415
+
+            append_jsonl(self._retro_path, entry.model_dump_json())
         except OSError:
             logger.warning(
                 "Could not append to retrospective log %s",

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from base_runner import BaseRunner
 from events import EventBus
+from runner_utils import AuthenticationRetryError
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing (BaseRunner has abstract _log ClassVar)
@@ -189,6 +190,56 @@ class TestExecute:
         call_kwargs = mock.call_args[1]
         assert call_kwargs["on_output"] is callback
 
+    @pytest.mark.asyncio
+    async def test_auth_failure_retries_with_backoff(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Auth failures are retried 3 times before raising."""
+        runner = _TestRunner(config, event_bus)
+
+        with (
+            patch(
+                "base_runner.stream_claude_process",
+                new_callable=AsyncMock,
+                side_effect=AuthenticationRetryError("auth failed"),
+            ) as mock,
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock,
+            pytest.raises(AuthenticationRetryError),
+        ):
+            await runner._execute(["claude", "-p"], "prompt", tmp_path, {"issue": 42})
+
+        assert mock.await_count == 3
+        # 2 sleeps: 5s after attempt 1, 10s after attempt 2
+        assert sleep_mock.await_count == 2
+        sleep_mock.assert_any_await(5.0)
+        sleep_mock.assert_any_await(10.0)
+
+    @pytest.mark.asyncio
+    async def test_auth_failure_succeeds_on_retry(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Auth succeeds on second attempt after transient failure."""
+        runner = _TestRunner(config, event_bus)
+
+        with (
+            patch(
+                "base_runner.stream_claude_process",
+                new_callable=AsyncMock,
+                side_effect=[
+                    AuthenticationRetryError("auth failed"),
+                    "transcript output",
+                ],
+            ) as mock,
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock,
+        ):
+            result = await runner._execute(
+                ["claude", "-p"], "prompt", tmp_path, {"issue": 42}
+            )
+
+        assert result == "transcript output"
+        assert mock.await_count == 2
+        assert sleep_mock.await_count == 1
+
 
 # ---------------------------------------------------------------------------
 # _inject_manifest_and_memory
@@ -266,7 +317,9 @@ class TestVerifyQuality:
     """Tests for BaseRunner._verify_quality."""
 
     @pytest.mark.asyncio
-    async def test_success(self, config, event_bus: EventBus, tmp_path: Path) -> None:
+    async def test_verify_quality_returns_true_on_success(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
         mock_runner = MagicMock()
         mock_runner.run_simple = AsyncMock(
             return_value=MagicMock(returncode=0, stdout="OK", stderr="")
@@ -310,7 +363,9 @@ class TestVerifyQuality:
         assert "make not found" in msg
 
     @pytest.mark.asyncio
-    async def test_timeout(self, config, event_bus: EventBus, tmp_path: Path) -> None:
+    async def test_verify_quality_returns_false_on_timeout(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
         mock_runner = MagicMock()
         mock_runner.run_simple = AsyncMock(side_effect=TimeoutError)
         runner = _TestRunner(config, event_bus, runner=mock_runner)

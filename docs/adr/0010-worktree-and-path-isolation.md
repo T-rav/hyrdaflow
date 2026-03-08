@@ -85,7 +85,12 @@ artifacts:
   `<repo_root>/.hydraflow/`) gain an extra directory level with no functional
   benefit, since isolation is already implicit.
 - The metrics cache path becomes triple-nested
-  (`data_root/<slug>/metrics/<slug>/`) which is redundant but harmless.
+  (`data_root/<slug>/metrics/<slug>/`) which is redundant but harmless. This is
+  a known consequence of applying repo-slug scoping at both the `data_root` level
+  (via `_resolve_repo_scoped_paths`) and the metrics level (via
+  `get_metrics_cache_dir`). Fixing this requires changing `get_metrics_cache_dir`
+  to use `data_root` directly instead of `state_file.parent`, but is deferred as
+  the duplication has no functional impact.
 
 ## Alternatives considered
 
@@ -108,6 +113,10 @@ artifacts:
 - Implementation: #1677
 - ADR-0003 — Git Worktrees for Issue Isolation (original worktree decision)
 - ADR-0006 — RepoRuntime Isolation Architecture (broader isolation abstraction)
+- **ADR-0021** — Persistence Architecture and Data Layout. ADR-0021's derived-paths
+  table documents the current flat layout (`log_dir = data_root / "logs"`, etc.).
+  Accepting ADR-0010 requires amending ADR-0021's derived-paths table and layout
+  diagram to reflect repo-scoped paths for `log_dir`, `plans_dir`, and `memory_dir`.
 - `src/config.py:HydraFlowConfig` — `_resolve_paths`, `worktree_path_for_issue`,
   `log_dir`, `plans_dir`, `memory_dir` properties
 - `src/worktree.py:WorktreeManager` — worktree lifecycle and cleanup

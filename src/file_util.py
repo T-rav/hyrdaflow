@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import os
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -35,8 +36,21 @@ def atomic_write(path: Path, data: str) -> None:
         raise
 
 
+def append_jsonl(path: Path, data: str) -> None:
+    """Append *data* as a single line to *path* with crash-safe fsync.
+
+    Creates parent directories if needed.  Calls ``flush`` + ``fsync``
+    to ensure the record reaches stable storage before returning.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        f.write(data + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
 @contextmanager
-def file_lock(path: Path):
+def file_lock(path: Path) -> Iterator[None]:
     """Acquire an exclusive advisory lock for *path* until context exit."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+") as lock_f:

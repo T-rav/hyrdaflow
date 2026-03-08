@@ -13,7 +13,7 @@ from tests.helpers import ConfigFactory
 
 
 class TestRepoRuntimeInfo:
-    def test_defaults(self):
+    def test_runtime_info_has_expected_defaults(self):
         info = RepoRuntimeInfo(slug="owner-repo")
         assert info.slug == "owner-repo"
         assert info.running is False
@@ -133,7 +133,7 @@ class TestRepoRuntime:
         await runtime.stop()
         mock_orch.stop.assert_awaited_once()
 
-    def test_repr(self, tmp_path):
+    def test_repo_runtime_repr_contains_slug(self, tmp_path):
         config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
         with (
             patch("repo_runtime.EventLog"),
@@ -186,7 +186,7 @@ class TestRepoRuntimeRegistry:
                 await registry.register(config)
 
     @pytest.mark.asyncio
-    async def test_remove(self, tmp_path):
+    async def test_remove_deregisters_and_stops_runtime(self, tmp_path):
         config = ConfigFactory.create(repo="org/gamma", repo_root=tmp_path)
         registry = RepoRuntimeRegistry()
         mock_bus = MagicMock()
@@ -248,7 +248,7 @@ class TestRepoRuntimeRegistry:
         registry = RepoRuntimeRegistry()
         assert registry.remove("nonexistent") is None
 
-    def test_repr(self):
+    def test_registry_repr_shows_runtime_count(self):
         registry = RepoRuntimeRegistry()
         assert "runtimes=0" in repr(registry)
 

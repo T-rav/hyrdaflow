@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -205,6 +206,29 @@ class TestDetectTestFrameworks:
         assert "vitest" in frameworks
         assert "jest" not in frameworks
 
+    def test_detect_test_frameworks__logs_pyproject_read_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[tool.pytest.ini_options]")
+        original_read_text = Path.read_text
+
+        def fake_read_text(self: Path, *args, **kwargs):
+            if self == pyproject:
+                raise OSError("boom")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+        with caplog.at_level(logging.WARNING):
+            frameworks = detect_test_frameworks(tmp_path)
+
+        assert "pytest" not in frameworks
+        assert str(pyproject) in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # detect_ci_systems
@@ -257,6 +281,59 @@ class TestDetectSubProjects:
         names = [sp["name"] for sp in result]
         assert "crate-a" in names
         assert "crate-b" in names
+
+    def test_detect_sub_projects__invalid_package_json_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        (tmp_path / "package.json").write_text("{not-json")
+
+        with caplog.at_level(logging.WARNING):
+            result = detect_sub_projects(tmp_path)
+
+        assert result == []
+        assert "package.json" in caplog.text
+
+    def test_detect_sub_projects__cargo_read_error_logged(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        cargo_toml = tmp_path / "Cargo.toml"
+        cargo_toml.write_text('[workspace]\nmembers = ["crate-a"]\n')
+        original_read_text = Path.read_text
+
+        def fake_read_text(self: Path, *args, **kwargs):
+            if self == cargo_toml:
+                raise OSError("boom")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+        with caplog.at_level(logging.WARNING):
+            detect_sub_projects(tmp_path)
+
+        assert "Cargo.toml" in caplog.text
+
+    def test_detect_sub_projects__iterdir_error_logged(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        original_iterdir = Path.iterdir
+
+        def fake_iterdir(self: Path):
+            if self == tmp_path:
+                raise OSError("boom")
+            return original_iterdir(self)
+
+        monkeypatch.setattr(Path, "iterdir", fake_iterdir)
+
+        with caplog.at_level(logging.WARNING):
+            detect_sub_projects(tmp_path)
+
+        assert "Failed to list directories" in caplog.text
 
     def test_detect_sub_projects__python_namespace(self, tmp_path: Path) -> None:
         sub = tmp_path / "my_subpackage"

@@ -381,7 +381,7 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("ci_check_timeout", 600),
     ("ci_poll_interval", 30),
     ("max_ci_fix_attempts", 2),
-    ("max_pre_quality_review_attempts", 1),
+    ("max_pre_quality_review_attempts", 3),
     ("review_label", ["hydraflow-review"]),
     ("hitl_label", ["hydraflow-hitl"]),
     ("fixed_label", ["hydraflow-fixed"]),

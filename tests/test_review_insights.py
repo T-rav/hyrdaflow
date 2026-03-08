@@ -396,14 +396,13 @@ class TestAppendReviewOSError:
     def test_append_review_logs_warning_on_oserror(self, tmp_path, caplog) -> None:
         """When the reviews file can't be written, log warning and don't raise."""
         import logging
-        from pathlib import Path
         from unittest.mock import patch
 
         store = ReviewInsightStore(tmp_path / "memory")
         record = _make_record(categories=["missing_tests"])
 
         with (
-            patch.object(Path, "open", side_effect=OSError("disk full")),
+            patch("file_util.open", side_effect=OSError("disk full")),
             caplog.at_level(logging.WARNING, logger="hydraflow.review_insights"),
         ):
             store.append_review(record)  # should not raise

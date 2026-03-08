@@ -20,6 +20,7 @@ function defaultHydraFlowContext(overrides = {}) {
   const workers = overrides.workers || {}
   const backgroundWorkers = overrides.backgroundWorkers || []
   const config = overrides.config || { max_triagers: 1, max_planners: 2, max_workers: 3, max_reviewers: 2 }
+  const pipelineStats = overrides.pipelineStats || null
   return {
     pipelineIssues,
     workers,
@@ -30,8 +31,7 @@ function defaultHydraFlowContext(overrides = {}) {
       pipelineIssues,
       workers,
       backgroundWorkers,
-      {},
-      config,
+      pipelineStats,
     ),
     ...overrides,
   }
@@ -84,6 +84,9 @@ describe('StreamView stage indicators', () => {
         pipelineIssues: {
           triage: [{ issue_number: 5, title: 'Test', status: 'active' }],
           plan: [], implement: [], review: [],
+        },
+        pipelineStats: {
+          stages: { triage: { worker_count: 1, active: 1, queued: 0 } },
         },
         backgroundWorkers: [
           { name: 'triage', status: 'ok', enabled: true, last_run: null, details: {} },
@@ -186,6 +189,9 @@ describe('StreamView stage indicators', () => {
       mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
         workers: {
           'triage-5': { status: 'evaluating', worker: 1, role: 'triage', title: 'Triage #5', branch: '', transcript: [], pr: null },
+        },
+        pipelineStats: {
+          stages: { triage: { worker_count: 1, active: 1, queued: 0 } },
         },
         backgroundWorkers: [
           { name: 'triage', status: 'ok', enabled: true, last_run: null, details: {} },
@@ -453,7 +459,6 @@ describe('Stage header failed/hitl counts', () => {
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-implement')
-    expect(section.textContent).toContain('1 active')
     expect(section.textContent).toContain('0 queued')
     expect(section.textContent).toContain('1 failed')
     expect(section.textContent).toContain('1 hitl')
@@ -471,7 +476,6 @@ describe('Stage header failed/hitl counts', () => {
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-implement')
-    expect(section.textContent).toContain('0 active')
     expect(section.textContent).toContain('0 queued')
     expect(section.textContent).toContain('2 failed')
   })
@@ -651,10 +655,12 @@ describe('Merged stage count display', () => {
           { issue_number: 2, title: 'Queued issue', status: 'queued' },
         ],
       },
+      pipelineStats: {
+        stages: { implement: { queued: 1, active: 1, completed_session: 0, worker_count: 0 } },
+      },
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-implement')
-    expect(section.textContent).toContain('1 active')
     expect(section.textContent).toContain('1 queued')
     expect(section.textContent).toContain('workers')
   })

@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from adr_reviewer import ADRCouncilReviewer
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
-from tests.helpers import ConfigFactory
+from tests.conftest import TaskFactory
+from tests.helpers import ConfigFactory, make_triage_phase, supply_once
 
 
 def _make_reviewer(
@@ -115,6 +116,40 @@ class TestFindProposedADRs:
         assert len(result) == 1
         assert result[0][0] == 1
 
+    def test_superseded_adr_not_in_proposed(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 1, "Old ADR", "Superseded")
+        _write_adr(adr_dir, 2, "New ADR", "Proposed")
+        reviewer = _make_reviewer(tmp_path)
+
+        proposed = reviewer._find_proposed_adrs(adr_dir)
+        assert len(proposed) == 1
+        assert proposed[0][0] == 2
+
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        assert {entry[0] for entry in all_adrs} == {1, 2}
+
+    def test_old_compound_status_not_treated_as_proposed(self, tmp_path: Path) -> None:
+        """Regression: 'Superseded by #1883' must not match as Proposed."""
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True, exist_ok=True)
+        # Simulate the pre-fix ADR-0020 format with embedded issue reference
+        old_style = adr_dir / "0001-old-style.md"
+        old_style.write_text(
+            "# ADR-0001: Old Style\n\n**Status:** Superseded by #1883\n\n"
+            "## Context\nOld.\n\n## Decision\nDone.\n\n## Consequences\nNone.\n",
+            encoding="utf-8",
+        )
+        reviewer = _make_reviewer(tmp_path)
+        proposed = reviewer._find_proposed_adrs(adr_dir)
+        assert proposed == [], "Old compound status should not be matched as Proposed"
+
+        # Also verify the index context shows 'Superseded' not the compound form
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        index = reviewer._build_index_context(all_adrs)
+        assert "Status: Superseded" in index
+        assert "by #1883" not in index
+
 
 class TestLoadAllADRs:
     """Tests for _load_all_adrs."""
@@ -162,6 +197,14 @@ class TestBuildIndexContext:
         assert "ADR-0002" in result
         assert "Accepted" in result
         assert "Proposed" in result
+
+    def test_build_index_context_shows_superseded_status(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 5, "Superseded ADR", "Superseded")
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = reviewer._load_all_adrs(adr_dir)
+        result = reviewer._build_index_context(all_adrs)
+        assert "Status: Superseded" in result
 
 
 class TestDuplicateDetection:
@@ -453,7 +496,7 @@ class TestVerdictRouting:
         assert stats["accepted"] == 1
 
     @pytest.mark.asyncio
-    async def test_reject_routes_to_hitl(self, tmp_path: Path) -> None:
+    async def test_reject_routes_to_triage_first(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
@@ -462,15 +505,21 @@ class TestVerdictRouting:
         )
         stats = {"accepted": 0, "rejected": 0, "escalated": 0, "duplicates": 0}
 
-        with patch.object(
-            reviewer, "_escalate_to_hitl", new_callable=AsyncMock
-        ) as mock_hitl:
+        with (
+            patch.object(
+                reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=True
+            ) as mock_triage,
+            patch.object(
+                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
+            ) as mock_hitl,
+        ):
             await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
-            mock_hitl.assert_awaited_once_with(result, reason="rejected")
+            mock_triage.assert_awaited_once_with(result, reason="rejected")
+            mock_hitl.assert_not_awaited()
         assert stats["rejected"] == 1
 
     @pytest.mark.asyncio
-    async def test_request_changes_routes_to_hitl(self, tmp_path: Path) -> None:
+    async def test_request_changes_routes_to_triage_first(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
@@ -479,11 +528,24 @@ class TestVerdictRouting:
         )
         stats = {"accepted": 0, "rejected": 0, "escalated": 0, "duplicates": 0}
 
-        with patch.object(
-            reviewer, "_escalate_to_hitl", new_callable=AsyncMock
-        ) as mock_hitl:
+        with (
+            patch.object(
+                reviewer,
+                "_attempt_clerk_amend_and_revote",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_clerk,
+            patch.object(
+                reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=True
+            ) as mock_triage,
+            patch.object(
+                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
+            ) as mock_hitl,
+        ):
             await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
-            mock_hitl.assert_awaited_once_with(result, reason="changes_requested")
+            mock_clerk.assert_awaited_once()
+            mock_triage.assert_awaited_once_with(result, reason="changes_requested")
+            mock_hitl.assert_not_awaited()
         assert stats["escalated"] == 1
 
     @pytest.mark.asyncio
@@ -514,7 +576,7 @@ class TestVerdictRouting:
         assert stats["accepted"] == 0
 
     @pytest.mark.asyncio
-    async def test_no_consensus_routes_to_hitl(self, tmp_path: Path) -> None:
+    async def test_no_consensus_routes_to_triage_first(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
@@ -523,12 +585,82 @@ class TestVerdictRouting:
         )
         stats = {"accepted": 0, "rejected": 0, "escalated": 0, "duplicates": 0}
 
-        with patch.object(
-            reviewer, "_escalate_to_hitl", new_callable=AsyncMock
-        ) as mock_hitl:
+        with (
+            patch.object(
+                reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=True
+            ) as mock_triage,
+            patch.object(
+                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
+            ) as mock_hitl,
+        ):
             await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
-            mock_hitl.assert_awaited_once_with(result, reason="no_consensus")
+            mock_triage.assert_awaited_once_with(result, reason="no_consensus")
+            mock_hitl.assert_not_awaited()
         assert stats["escalated"] == 1
+
+    @pytest.mark.asyncio
+    async def test_triage_route_fallbacks_to_hitl_when_triage_fails(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="REQUEST_CHANGES",
+        )
+        stats = {"accepted": 0, "rejected": 0, "escalated": 0, "duplicates": 0}
+
+        with (
+            patch.object(
+                reviewer,
+                "_attempt_clerk_amend_and_revote",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_clerk,
+            patch.object(
+                reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=False
+            ) as mock_triage,
+            patch.object(
+                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
+            ) as mock_hitl,
+        ):
+            await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
+            mock_clerk.assert_awaited_once()
+            mock_triage.assert_awaited_once_with(result, reason="changes_requested")
+            mock_hitl.assert_awaited_once_with(result, reason="changes_requested")
+        assert stats["escalated"] == 1
+
+    @pytest.mark.asyncio
+    async def test_request_changes_auto_accepts_when_clerk_revote_passes(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="REQUEST_CHANGES",
+        )
+        stats = {"accepted": 0, "rejected": 0, "escalated": 0, "duplicates": 0}
+
+        with (
+            patch.object(
+                reviewer,
+                "_attempt_clerk_amend_and_revote",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_clerk,
+            patch.object(
+                reviewer, "_route_to_triage", new_callable=AsyncMock
+            ) as mock_triage,
+            patch.object(
+                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
+            ) as mock_hitl,
+        ):
+            await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
+            mock_clerk.assert_awaited_once()
+            mock_triage.assert_not_awaited()
+            mock_hitl.assert_not_awaited()
+        assert stats["accepted"] == 1
 
 
 class TestDeliberationRounds:
@@ -755,6 +887,324 @@ class TestEscalateToHITL:
         assert "requests changes" in body.lower() or "changes" in body.lower()
 
 
+class TestRouteToTriage:
+    """Tests for _route_to_triage."""
+
+    @pytest.mark.asyncio
+    async def test_creates_find_labeled_issue(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=5,
+            adr_title="Bad ADR",
+            final_decision="REQUEST_CHANGES",
+            summary="Needs revision",
+            votes=[
+                CouncilVote(
+                    role="architect",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Clarify scope",
+                ),
+            ],
+        )
+        reviewer._prs.create_issue = AsyncMock(return_value=123)
+
+        routed = await reviewer._route_to_triage(result, reason="changes_requested")
+
+        assert routed is True
+        reviewer._prs.create_issue.assert_awaited_once()
+        call_args = reviewer._prs.create_issue.await_args
+        title = call_args.args[0]
+        body = call_args.args[1]
+        labels = call_args.kwargs["labels"]
+        assert "[ADR Follow-up]" in title
+        assert "ADR-0005" in body
+        assert labels == reviewer._config.find_label
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_invalid_issue_number(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        reviewer._prs.create_issue = AsyncMock(return_value=0)
+        result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="Test",
+            final_decision="REJECT",
+        )
+
+        routed = await reviewer._route_to_triage(result, reason="rejected")
+
+        assert routed is False
+
+
+class TestADRTriageIntegration:
+    """Integration-style coverage for ADR council -> triage routing behavior."""
+
+    @pytest.mark.asyncio
+    async def test_request_changes_routes_to_triage_then_plan_when_ready(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=12,
+            adr_title="Rework council handling",
+            final_decision="REQUEST_CHANGES",
+            summary="Needs implementation adjustments",
+            votes=[
+                CouncilVote(
+                    role="architect",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Adjust pipeline routing",
+                ),
+            ],
+        )
+
+        # Step 1: ADR council routes rework into triage queue.
+        reviewer._prs.create_issue = AsyncMock(return_value=321)
+        routed = await reviewer._route_to_triage(result, reason="changes_requested")
+        assert routed is True
+        reviewer._prs.create_issue.assert_awaited_once()
+
+        created_title = reviewer._prs.create_issue.await_args.args[0]
+        created_body = reviewer._prs.create_issue.await_args.args[1]
+        created_labels = reviewer._prs.create_issue.await_args.kwargs["labels"]
+        assert "ADR-0012" in created_title
+        assert "Council Summary" in created_body
+        assert created_labels == reviewer._config.find_label
+
+        # Step 2: triage picks the created issue and sends it to planning.
+        triage_phase, _state, triage_runner, prs, store, _stop = make_triage_phase(
+            reviewer._config
+        )
+        from models import TriageResult
+
+        triage_task = TaskFactory.create(
+            id=321,
+            title=created_title,
+            body=created_body,
+            tags=list(reviewer._config.find_label),
+        )
+        triage_runner.evaluate = AsyncMock(
+            return_value=TriageResult(issue_number=321, ready=True)
+        )
+        store.get_triageable = supply_once([triage_task])
+
+        processed = await triage_phase.triage_issues()
+        assert processed == 1
+        prs.transition.assert_called_once_with(321, "plan")
+        prs.swap_pipeline_labels.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_request_changes_routes_to_hitl_when_triage_not_ready(
+        self, tmp_path: Path
+    ) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        result = ADRCouncilResult(
+            adr_number=22,
+            adr_title="Unclear proposal",
+            final_decision="REQUEST_CHANGES",
+        )
+        reviewer._prs.create_issue = AsyncMock(return_value=654)
+        routed = await reviewer._route_to_triage(result, reason="changes_requested")
+        assert routed is True
+
+        triage_phase, state, triage_runner, prs, store, _stop = make_triage_phase(
+            reviewer._config
+        )
+        from models import TriageResult
+
+        triage_task = TaskFactory.create(
+            id=654,
+            title="[ADR Follow-up] ADR-0022: Council requests changes",
+            body="Needs more details before planning.",
+            tags=list(reviewer._config.find_label),
+        )
+        triage_runner.evaluate = AsyncMock(
+            return_value=TriageResult(
+                issue_number=654,
+                ready=False,
+                reasons=["Missing concrete implementation details"],
+            )
+        )
+        store.get_triageable = supply_once([triage_task])
+
+        processed = await triage_phase.triage_issues()
+        assert processed == 1
+        prs.swap_pipeline_labels.assert_called_once_with(
+            654, reviewer._config.hitl_label[0]
+        )
+        assert state.get_hitl_origin(654) == reviewer._config.find_label[0]
+
+
+class TestClerkAmendment:
+    """Tests for clerk amendment + re-vote behavior."""
+
+    @pytest.mark.asyncio
+    async def test_clerk_revote_accepts_and_commits(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
+        adr_path = _write_adr(adr_dir, 9, "Council Edits", "Proposed")
+        original_result = ADRCouncilResult(
+            adr_number=9,
+            adr_title="Council Edits",
+            final_decision="REQUEST_CHANGES",
+            summary="Needs refinements",
+            votes=[
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Clarify tradeoffs",
+                )
+            ],
+        )
+        rerun_result = ADRCouncilResult(
+            adr_number=9,
+            adr_title="Council Edits",
+            final_decision="ACCEPT",
+            summary="Looks good now",
+            votes=[
+                CouncilVote(
+                    role="architect",
+                    verdict=CouncilVerdict.APPROVE,
+                    reasoning="Accept",
+                ),
+                CouncilVote(
+                    role="pragmatist",
+                    verdict=CouncilVerdict.APPROVE,
+                    reasoning="Accept",
+                ),
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.APPROVE,
+                    reasoning="Accept",
+                ),
+            ],
+        )
+        reviewer._run_council_session = AsyncMock(return_value=rerun_result)
+
+        with patch.object(
+            reviewer, "_accept_adr", new_callable=AsyncMock
+        ) as mock_accept:
+            accepted = await reviewer._attempt_clerk_amend_and_revote(
+                original_result, adr_path, adr_dir
+            )
+            assert accepted is True
+            mock_accept.assert_awaited_once_with(rerun_result, adr_path, adr_dir)
+
+        updated = adr_path.read_text(encoding="utf-8")
+        assert "## Council Amendment Notes" in updated
+        assert "Clarify tradeoffs" in updated
+
+    @pytest.mark.asyncio
+    async def test_clerk_revote_non_accept_falls_back(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
+        adr_path = _write_adr(adr_dir, 10, "Council Edits", "Proposed")
+        original = adr_path.read_text(encoding="utf-8")
+        original_result = ADRCouncilResult(
+            adr_number=10,
+            adr_title="Council Edits",
+            final_decision="REQUEST_CHANGES",
+            votes=[
+                CouncilVote(
+                    role="architect",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Need narrower scope",
+                )
+            ],
+        )
+        reviewer._run_council_session = AsyncMock(
+            return_value=ADRCouncilResult(
+                adr_number=10,
+                adr_title="Council Edits",
+                final_decision="REQUEST_CHANGES",
+            )
+        )
+
+        with patch.object(
+            reviewer, "_accept_adr", new_callable=AsyncMock
+        ) as mock_accept:
+            accepted = await reviewer._attempt_clerk_amend_and_revote(
+                original_result, adr_path, adr_dir
+            )
+            assert accepted is False
+            mock_accept.assert_not_awaited()
+
+        assert adr_path.read_text(encoding="utf-8") == original
+
+    @pytest.mark.asyncio
+    async def test_clerk_self_review_blocks_revote(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = tmp_path / "repo" / "docs" / "adr"
+        adr_path = _write_adr(adr_dir, 11, "Council Edits", "Proposed")
+        result = ADRCouncilResult(
+            adr_number=11,
+            adr_title="Council Edits",
+            final_decision="REQUEST_CHANGES",
+            votes=[
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Clarify migration safety",
+                )
+            ],
+        )
+
+        reviewer._run_council_session = AsyncMock()
+        with patch.object(
+            reviewer,
+            "_clerk_self_review",
+            return_value=(False, "missing feedback items"),
+        ) as mock_self_review:
+            accepted = await reviewer._attempt_clerk_amend_and_revote(
+                result,
+                adr_path,
+                adr_dir,
+            )
+
+        assert accepted is False
+        mock_self_review.assert_called_once()
+        reviewer._run_council_session.assert_not_awaited()
+
+    def test_clerk_self_review_detects_missing_feedback(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        original = (
+            "# ADR-0012: Test\n\n"
+            "**Status:** Proposed\n\n"
+            "## Context\n\nA\n\n"
+            "## Decision\n\nB\n\n"
+            "## Consequences\n\nC\n"
+        )
+        amended = (
+            "# ADR-0012: Test\n\n"
+            "**Status:** Proposed\n\n"
+            "## Context\n\nA\n\n"
+            "## Decision\n\nB\n\n"
+            "## Consequences\n\nC\n\n"
+            "## Council Amendment Notes\n\n"
+            "- Editor: generic note"
+        )
+        result = ADRCouncilResult(
+            adr_number=12,
+            adr_title="Test",
+            final_decision="REQUEST_CHANGES",
+            votes=[
+                CouncilVote(
+                    role="editor",
+                    verdict=CouncilVerdict.REQUEST_CHANGES,
+                    reasoning="Need explicit rollback strategy",
+                )
+            ],
+        )
+
+        ok, note = reviewer._clerk_self_review(
+            original=original,
+            amended=amended,
+            result=result,
+        )
+
+        assert ok is False
+        assert "missing feedback items" in note
+
+
 class TestHandleDuplicate:
     """Tests for _handle_duplicate."""
 
@@ -844,6 +1294,9 @@ class TestExecuteOrchestrator:
         cmd = call_args.args[0]
         assert cmd[0] == "claude"
         assert "-p" in cmd
+        # Prompt must be immediately after -p for the CLI to recognise it.
+        p_idx = cmd.index("-p")
+        assert not cmd[p_idx + 1].startswith("--"), "prompt must follow -p, not a flag"
 
     @pytest.mark.asyncio
     async def test_codex_tool(self, tmp_path: Path) -> None:

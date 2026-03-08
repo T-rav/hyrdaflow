@@ -1,6 +1,6 @@
 # ADR-0007: Dashboard API Architecture for Multi-Repo Scoping
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-28
 
 ## Context
@@ -78,3 +78,12 @@ Extend the dashboard API to support multi-repo scoping through two mechanisms:
 - `src/hf_cli/supervisor_service.py`, `src/hf_cli/supervisor_client.py`
 - `src/ui/src/context/HydraFlowContext.jsx`
 - ADR-0006 (RepoRuntime isolation)
+## Council Amendment Notes
+
+The following amendments were generated from council feedback:
+
+- Architect: The ADR is structurally sound and complementary to ADR-0008 (not superseded by it), but
+- Pragmatist: ADR-0007 defines the API contract layer (query-param scoping, endpoint signatures, WebSocket
+- Editor: The Architect's evidence that ADR-0008 explicitly references ADR-0007 as a prerequisite settles
+
+These notes are intended to be incorporated before final acceptance.

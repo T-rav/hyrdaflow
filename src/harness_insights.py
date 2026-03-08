@@ -144,9 +144,9 @@ class HarnessInsightStore:
     def append_failure(self, record: FailureRecord) -> None:
         """Append *record* as a JSON line to ``harness_failures.jsonl``."""
         try:
-            self._memory_dir.mkdir(parents=True, exist_ok=True)
-            with self._failures_path.open("a") as f:
-                f.write(record.model_dump_json() + "\n")
+            from file_util import append_jsonl  # noqa: PLC0415
+
+            append_jsonl(self._failures_path, record.model_dump_json())
         except OSError:
             logger.warning(
                 "Could not append failure to %s",
@@ -334,7 +334,7 @@ def _generate_suggestion(category: str, subcategory: str, count: int) -> str:
     sub_hints: dict[str, str] = {
         "lint_error": " Add a lint pre-check step or add the lint rule to CLAUDE.md.",
         "type_error": " Add type-checking guidance to the implementation prompt.",
-        "test_failure": " Strengthen TDD requirements in the implementation prompt.",
+        "test_failure": " Strengthen test-writing guidance in the implementation prompt.",
         "import_error": " Improve dependency resolution guidance in the planner.",
         "merge_conflict": " Consider more frequent main-branch merges during implementation.",
         "visual_diff": " Update visual baselines after intentional UI changes to reduce false positives.",

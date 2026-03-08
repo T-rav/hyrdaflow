@@ -17,13 +17,14 @@ from phase_utils import (
     is_adr_issue_title,
     record_harness_failure,
     release_batch_in_flight,
-    run_concurrent_batch,
+    run_refilling_pool,
+    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
-from subprocess_util import AuthenticationError, CreditExhaustedError
+from subprocess_util import AuthenticationError, CreditExhaustedError, run_subprocess
 from task_source import TaskTransitioner
 from worktree import WorktreeManager
 
@@ -74,18 +75,33 @@ class ImplementPhase:
         self,
         issues: list[Task] | None = None,
     ) -> tuple[list[WorkerResult], list[Task]]:
-        """Run implementation agents on *issues* concurrently.
+        """Run implementation agents concurrently using a slot-filling pool.
 
-        If *issues* is ``None``, pulls from the ``IssueStore`` ready queue.
-        Returns ``(worker_results, issues)`` so the caller has access
-        to the issue list for downstream phases.
+        If *issues* is ``None``, pulls from the ``IssueStore`` ready queue
+        continuously as slots free up.  If a fixed list is provided,
+        processes those items then returns.
         """
-        if issues is None:
-            issues = self._store.get_implementable(2 * self._config.max_workers)
-        if not issues:
-            return [], []
+        if issues is not None:
+            # Fixed list mode — process exactly these issues
+            items_iter = iter(issues)
+            exhausted = False
 
-        semaphore = asyncio.Semaphore(self._config.max_workers)
+            def _supply_fixed() -> list[Task]:
+                nonlocal exhausted
+                if exhausted:
+                    return []
+                item = next(items_iter, None)
+                if item is None:
+                    exhausted = True
+                    return []
+                return [item]
+        else:
+            issues = []
+
+            def _supply_fixed() -> list[Task]:
+                batch = self._store.get_implementable(1)
+                issues.extend(batch)
+                return batch
 
         async def _worker(idx: int, issue: Task) -> WorkerResult:
             if self._stop_event.is_set():
@@ -95,57 +111,81 @@ class ImplementPhase:
                     error="stopped",
                 )
 
-            async with semaphore:
-                if self._stop_event.is_set():
+            branch = f"agent/issue-{issue.id}"
+            async with self._active_issues_lock:
+                self._active_issues.add(issue.id)
+                self._state.set_active_issue_numbers(list(self._active_issues))
+            async with store_lifecycle(self._store, issue.id, "implement"):
+                self._state.mark_issue(issue.id, "in_progress")
+                self._state.set_branch(issue.id, branch)
+
+                try:
+                    return await self._worker_inner(idx, issue, branch)
+                except (AuthenticationError, CreditExhaustedError, MemoryError):
+                    raise
+                except Exception:
+                    logger.exception("Worker failed for issue #%d", issue.id)
+                    self._state.mark_issue(issue.id, "failed")
+                    record_harness_failure(
+                        self._harness_insights,
+                        issue.id,
+                        FailureCategory.IMPLEMENTATION_ERROR,
+                        f"Worker exception for issue #{issue.id}",
+                        stage=PipelineStage.IMPLEMENT,
+                    )
                     return WorkerResult(
                         issue_number=issue.id,
-                        branch=f"agent/issue-{issue.id}",
-                        error="stopped",
+                        branch=branch,
+                        error=f"Worker exception for issue #{issue.id}",
                     )
+                finally:
+                    async with self._active_issues_lock:
+                        self._active_issues.discard(issue.id)
+                        self._state.set_active_issue_numbers(list(self._active_issues))
+                    release_batch_in_flight(self._store, {issue.id})
 
-                branch = f"agent/issue-{issue.id}"
-                async with self._active_issues_lock:
-                    self._active_issues.add(issue.id)
-                    self._state.set_active_issue_numbers(list(self._active_issues))
-                async with store_lifecycle(self._store, issue.id, "implement"):
-                    self._state.mark_issue(issue.id, "in_progress")
-                    self._state.set_branch(issue.id, branch)
-
-                    try:
-                        return await self._worker_inner(idx, issue, branch)
-                    except (AuthenticationError, CreditExhaustedError, MemoryError):
-                        raise
-                    except Exception:
-                        logger.exception("Worker failed for issue #%d", issue.id)
-                        self._state.mark_issue(issue.id, "failed")
-                        record_harness_failure(
-                            self._harness_insights,
-                            issue.id,
-                            FailureCategory.IMPLEMENTATION_ERROR,
-                            f"Worker exception for issue #{issue.id}",
-                            stage=PipelineStage.IMPLEMENT,
-                        )
-                        return WorkerResult(
-                            issue_number=issue.id,
-                            branch=branch,
-                            error=f"Worker exception for issue #{issue.id}",
-                        )
-                    finally:
-                        async with self._active_issues_lock:
-                            self._active_issues.discard(issue.id)
-                            self._state.set_active_issue_numbers(
-                                list(self._active_issues)
-                            )
-
-        try:
-            all_results = await run_concurrent_batch(issues, _worker, self._stop_event)
-        finally:
-            release_batch_in_flight(self._store, {i.id for i in issues})
+        all_results = await run_refilling_pool(
+            supply_fn=_supply_fixed,
+            worker_fn=_worker,
+            max_concurrent=self._config.max_workers,
+            stop_event=self._stop_event,
+        )
         return all_results, issues
 
     async def _worker_inner(self, idx: int, issue: Task, branch: str) -> WorkerResult:
         """Core implementation logic — called inside the semaphore."""
         self._prepare_adr_plan(issue)
+
+        # If a non-draft PR already exists and this is NOT a review-feedback
+        # retry, skip implementation and transition directly to review.
+        # This handles issues requeued to hydraflow-ready that already have
+        # completed PRs from a prior run.
+        review_feedback = self._state.get_review_feedback(issue.id) or ""
+        if not review_feedback:
+            existing_pr = await self._prs.find_open_pr_for_branch(
+                branch, issue_number=issue.id
+            )
+            if existing_pr and existing_pr.number > 0 and not existing_pr.draft:
+                logger.info(
+                    "Issue #%d already has open PR #%d — skipping to review",
+                    issue.id,
+                    existing_pr.number,
+                )
+                await self._transitioner.transition(
+                    issue.id,
+                    "review",
+                    pr_number=existing_pr.number,
+                )
+                self._store.enqueue_transition(issue, "review")
+                self._state.increment_session_counter("implemented")
+                self._state.mark_issue(issue.id, "success")
+                return WorkerResult(
+                    issue_number=issue.id,
+                    branch=branch,
+                    success=True,
+                    pr_info=existing_pr,
+                )
+
         cap_result = await self._check_attempt_cap(issue, branch)
         if cap_result is not None:
             return cap_result
@@ -163,7 +203,6 @@ class ImplementPhase:
                 logger.debug("Run recording setup failed", exc_info=True)
                 ctx = None
 
-        review_feedback = self._state.get_review_feedback(issue.id) or ""
         result = await self._run_implementation(issue, branch, idx, review_feedback)
 
         # Finalize the recording
@@ -240,11 +279,38 @@ class ImplementPhase:
             error=f"Implementation attempt cap exceeded ({attempts - 1} attempts)",
         )
 
-    async def _setup_worktree_and_branch(self, issue: Task, branch: str) -> Path:
-        """Ensure worktree exists/resumed and branch is pushed."""
+    async def _setup_worktree_and_branch(
+        self, issue: Task, branch: str, *, reset_to_main: bool = False
+    ) -> Path:
+        """Ensure worktree exists/resumed and branch is pushed.
+
+        When *reset_to_main* is True (review-feedback retry), hard-reset the
+        branch to ``origin/main`` so the agent starts fresh instead of
+        re-implementing on top of previously rejected code.
+        """
         wt_path = self._config.worktree_path_for_issue(issue.id)
         if wt_path.is_dir():
-            logger.info("Resuming existing worktree for issue #%d", issue.id)
+            if reset_to_main:
+                logger.info(
+                    "Resetting worktree for issue #%d to main (review retry)",
+                    issue.id,
+                )
+                await run_subprocess(
+                    "git",
+                    "fetch",
+                    "origin",
+                    "main",
+                    cwd=wt_path,
+                )
+                await run_subprocess(
+                    "git",
+                    "reset",
+                    "--hard",
+                    "origin/main",
+                    cwd=wt_path,
+                )
+            else:
+                logger.info("Resuming existing worktree for issue #%d", issue.id)
         else:
             wt_path = await self._worktrees.create(issue.id, branch)
         self._state.set_worktree(issue.id, str(wt_path))
@@ -293,7 +359,9 @@ class ImplementPhase:
         review_feedback: str,
     ) -> WorkerResult:
         """Set up worktree, push branch, run agent, record metrics."""
-        wt_path = await self._setup_worktree_and_branch(issue, branch)
+        wt_path = await self._setup_worktree_and_branch(
+            issue, branch, reset_to_main=bool(review_feedback)
+        )
 
         result = await self._agents.run(
             issue,
@@ -343,6 +411,15 @@ class ImplementPhase:
                 hitl_label=self._config.hitl_label[0],
             )
             self._store.enqueue_transition(issue, "hitl")
+            if result.transcript:
+                await safe_file_memory_suggestion(
+                    result.transcript,
+                    "implement_zero_commits",
+                    f"issue #{issue.id}",
+                    self._config,
+                    self._prs,
+                    self._state,
+                )
             return result
 
         # Push final commits and create PR
@@ -353,9 +430,8 @@ class ImplementPhase:
             if pushed:
                 pr = None
                 if not is_retry:
-                    draft = not result.success
                     gh_issue = GitHubIssue.from_task(issue)
-                    pr = await self._prs.create_pr(gh_issue, result.branch, draft=draft)
+                    pr = await self._prs.create_pr(gh_issue, result.branch)
                     result.pr_info = pr
                 else:
                     pr = await self._prs.find_open_pr_for_branch(
@@ -392,6 +468,15 @@ class ImplementPhase:
                             hitl_label=self._config.hitl_label[0],
                         )
                         self._store.enqueue_transition(issue, "hitl")
+                        if result.transcript:
+                            await safe_file_memory_suggestion(
+                                result.transcript,
+                                "implement_zero_diff",
+                                f"issue #{issue.id}",
+                                self._config,
+                                self._prs,
+                                self._state,
+                            )
                         return result
                     logger.warning(
                         "Implementation succeeded for issue #%d but no open PR exists for branch %s",
@@ -455,7 +540,10 @@ class ImplementPhase:
             "`Consequences`) using the issue draft as source material.\n"
             "3. Ensure the ADR content is actionable and concrete enough for "
             "review (explicit decision, tradeoffs, and impact).\n"
-            "4. Add/update references so the ADR links back to this issue.\n\n"
+            "4. Add/update references so the ADR links back to this issue.\n"
+            "5. **Do NOT create tests for ADR markdown content.** ADRs are "
+            "documentation — never add `test_adr_*.py` files that assert on "
+            "headings, status, or prose.\n\n"
             "## ADR Draft From Issue\n\n"
             f"{body}\n"
         )

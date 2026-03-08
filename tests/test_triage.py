@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from base_runner import BaseRunner
 from events import EventBus, EventType
 from models import TriageResult
+from runner_utils import AuthenticationRetryError
 from subprocess_util import CreditExhaustedError
 from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
@@ -191,9 +192,14 @@ class TestLLMEvaluation:
         assert any("parse" in r.lower() for r in result.reasons)
 
     @pytest.mark.asyncio
-    async def test_llm_process_failure(
+    async def test_llm_process_failure_propagates(
         self, runner: TriageRunner, mock_runner: AsyncMock
     ) -> None:
+        """RuntimeError from subprocess should propagate (not silently become ready=False).
+
+        This ensures infrastructure failures don't incorrectly escalate issues
+        to HITL — the caller can catch and retry instead.
+        """
         issue = TaskFactory.create(
             id=4,
             title="Implement feature X for module Y",
@@ -205,9 +211,93 @@ class TestLLMEvaluation:
             side_effect=RuntimeError("Process crashed")
         )
 
+        with pytest.raises(RuntimeError, match="Process crashed"):
+            await runner.evaluate(issue)
+
+    @pytest.mark.asyncio
+    async def test_llm_empty_transcript_raises(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        """Empty LLM transcript should raise RuntimeError, not return ready=False."""
+        issue = TaskFactory.create(
+            id=4,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+            tags=[],
+            source_url="",
+        )
+        mock_runner.create_streaming_process = make_streaming_proc(stdout="")
+
+        with pytest.raises(RuntimeError, match="empty response"):
+            await runner.evaluate(issue)
+
+    @pytest.mark.asyncio
+    async def test_non_runtime_error_still_returns_not_ready(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        """Non-RuntimeError exceptions should still produce ready=False result."""
+        issue = TaskFactory.create(
+            id=4,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+            tags=[],
+            source_url="",
+        )
+        mock_runner.create_streaming_process = AsyncMock(
+            side_effect=OSError("Connection reset")
+        )
+
         result = await runner.evaluate(issue)
         assert result.ready is False
         assert any("error" in r.lower() for r in result.reasons)
+
+    @pytest.mark.asyncio
+    async def test_auth_failure_retries_then_raises(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        """Auth failures retry 3 times with backoff, then raise."""
+        issue = TaskFactory.create(
+            id=4,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+            tags=[],
+            source_url="",
+        )
+        # Simulate the stream-json output when Claude CLI is not authenticated
+        auth_failed = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "Not logged in"}],
+                },
+                "error": "authentication_failed",
+            }
+        )
+        result_event = json.dumps(
+            {
+                "type": "result",
+                "result": "Not logged in",
+                "is_error": True,
+            }
+        )
+        stdout = f"{auth_failed}\n{result_event}"
+        # Each retry needs a fresh proc (AsyncLineIter exhausts after one use)
+        mock_runner.create_streaming_process = AsyncMock(
+            side_effect=[
+                make_streaming_proc(stdout=stdout).return_value,
+                make_streaming_proc(stdout=stdout).return_value,
+                make_streaming_proc(stdout=stdout).return_value,
+            ]
+        )
+
+        with (
+            unittest.mock.patch("asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(AuthenticationRetryError, match="authentication failed"),
+        ):
+            await runner.evaluate(issue)
+        # Should have been called 3 times (initial + 2 retries)
+        assert mock_runner.create_streaming_process.call_count == 3
 
     @pytest.mark.asyncio
     async def test_credit_exhausted_propagates(

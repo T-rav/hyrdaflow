@@ -16,10 +16,11 @@ from typing import TYPE_CHECKING
 
 from models import PlanResult, Task
 from tests.conftest import TaskFactory
-from tests.helpers import make_plan_phase
+from tests.helpers import make_plan_phase, supply_once
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+
 
 # ---------------------------------------------------------------------------
 # Plan phase
@@ -46,7 +47,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -73,7 +74,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -93,7 +94,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -144,7 +145,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -174,7 +175,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -210,7 +211,7 @@ class TestPlanPhase:
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         planners.plan = fake_plan
-        store.get_plannable = lambda _max_count: issues  # type: ignore[method-assign]
+        store.get_plannable = supply_once(issues)
 
         await phase.plan_issues()
 
@@ -236,7 +237,7 @@ class TestPlanPhase:
             )
 
         planners.plan = AsyncMock(side_effect=check_active_plan)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -257,7 +258,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         results = await phase.plan_issues()
 
@@ -289,7 +290,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -320,7 +321,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -351,7 +352,7 @@ class TestPlanPhase:
             )
 
         planners.plan = fake_plan
-        store.get_plannable = lambda _max_count: issues  # type: ignore[method-assign]
+        store.get_plannable = supply_once(issues)
 
         results = await phase.plan_issues()
 
@@ -378,7 +379,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -410,7 +411,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -440,7 +441,7 @@ class TestPlanPhase:
         (repo / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -478,7 +479,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         with mock_patch.object(PlanAnalyzer, "analyze", return_value=pass_result):
             await phase.plan_issues()
@@ -515,7 +516,7 @@ class TestPlanPhase:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         with mock_patch.object(PlanAnalyzer, "analyze", return_value=warn_result):
             await phase.plan_issues()
@@ -552,7 +553,7 @@ class TestPlanPhaseAlreadySatisfied:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -588,7 +589,7 @@ class TestPlanPhaseAlreadySatisfied:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -612,7 +613,7 @@ class TestPlanPhaseAlreadySatisfied:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -653,7 +654,7 @@ class TestPlanPhaseTranscriptSummary:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -685,7 +686,7 @@ class TestPlanPhaseTranscriptSummary:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -714,7 +715,7 @@ class TestPlanPhaseTranscriptSummary:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -743,7 +744,7 @@ class TestPlanPhaseTranscriptSummary:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -775,7 +776,7 @@ class TestPlanPhaseTranscriptSummary:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -799,7 +800,7 @@ class TestPlanPhaseTranscriptSummary:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         # Should not raise
         await phase.plan_issues()
@@ -831,7 +832,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -853,7 +854,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -890,7 +891,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -914,7 +915,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -947,7 +948,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -978,7 +979,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -1006,7 +1007,7 @@ class TestPlanPhaseEvidenceValidation:
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = lambda _max_count: [issue]  # type: ignore[method-assign]
+        store.get_plannable = supply_once([issue])
 
         await phase.plan_issues()
 
@@ -1015,3 +1016,38 @@ class TestPlanPhaseEvidenceValidation:
         assert len(plan_failure_comments) == 1
         assert "after planning attempts" in plan_failure_comments[0]
         assert "after two attempts" not in plan_failure_comments[0]
+
+
+class TestPlanPhaseBatchScaling:
+    """Pool fetches one item at a time; concurrency is managed by max_concurrent."""
+
+    @pytest.mark.asyncio
+    async def test_supply_called_with_one_for_pool(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """get_plannable should be called with 1 (pool fetches one at a time)."""
+        from unittest.mock import MagicMock
+
+        phase, _state, _planners, _prs, store, _stop = make_plan_phase(config)
+        store.get_plannable = MagicMock(return_value=[])  # type: ignore[method-assign]
+
+        config.max_planners = 3  # type: ignore[assignment]
+        await phase.plan_issues()
+
+        store.get_plannable.assert_called_once_with(1)
+
+    @pytest.mark.asyncio
+    async def test_supply_always_called_with_one(self, config: HydraFlowConfig) -> None:
+        """Regardless of max_planners, supply fetches 1 at a time."""
+        from unittest.mock import MagicMock
+
+        phase, _state, _planners, _prs, store, _stop = make_plan_phase(config)
+        store.get_plannable = MagicMock(return_value=[])  # type: ignore[method-assign]
+
+        config.max_planners = 1  # type: ignore[assignment]
+        await phase.plan_issues()
+        store.get_plannable.assert_called_with(1)
+
+        config.max_planners = 5  # type: ignore[assignment]
+        await phase.plan_issues()
+        store.get_plannable.assert_called_with(1)

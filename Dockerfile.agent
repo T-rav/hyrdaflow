@@ -1,6 +1,6 @@
 # Dockerfile.agent — Hydra agent container image
 #
-# Pre-loaded with Claude CLI, git, gh CLI, Python 3.11, Node.js 20,
+# Pre-loaded with Claude CLI, Codex CLI, Pi CLI, git, gh CLI, Python 3.11, Node.js 20,
 # and quality tooling (ruff, pyright, pytest).
 #
 # Build:  docker build -f Dockerfile.agent -t ghcr.io/t-rav/hydraflow-agent:latest .
@@ -13,13 +13,14 @@ FROM python:3.11-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system packages
+# Install system packages (ripgrep is needed by Claude CLI's Grep tool)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         make \
         curl \
         gnupg \
         ca-certificates \
+        ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x via NodeSource
@@ -42,12 +43,12 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && mv /root/.local/bin/uvx /usr/local/bin/uvx
 
 # ---------------------------------------------------------------------------
-# Stage 2: tools — Claude CLI + Python dev dependencies
+# Stage 2: tools — Agent CLIs + Python dev dependencies
 # ---------------------------------------------------------------------------
 FROM base AS tools
 
-# Install Claude CLI globally via npm
-RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit
+# Install agent CLIs globally via npm (Claude, Codex, Pi)
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @mariozechner/pi-coding-agent --no-fund --no-audit
 
 # Pre-install Python quality tools into a venv
 COPY pyproject.toml uv.lock ./
@@ -59,9 +60,11 @@ RUN uv venv /opt/hydraflow-venv \
 # ---------------------------------------------------------------------------
 FROM base AS runtime
 
-# Copy Node.js global packages (Claude CLI)
+# Copy Node.js global packages (Claude, Codex, Pi CLIs)
 COPY --from=tools /usr/lib/node_modules /usr/lib/node_modules
 COPY --from=tools /usr/bin/claude /usr/bin/claude
+RUN ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/bin/codex \
+    && ln -s ../lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js /usr/bin/pi
 
 # Copy Python venv with quality tools
 COPY --from=tools /opt/hydraflow-venv /opt/hydraflow-venv

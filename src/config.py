@@ -22,13 +22,16 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     (
         "max_pre_quality_review_attempts",
         "HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS",
-        1,
+        3,
     ),
+    ("max_diff_sanity_attempts", "HYDRAFLOW_MAX_DIFF_SANITY_ATTEMPTS", 1),
+    ("max_test_adequacy_attempts", "HYDRAFLOW_MAX_TEST_ADEQUACY_ATTEMPTS", 1),
     ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
     ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
     ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
     ("max_review_diff_chars", "HYDRAFLOW_MAX_REVIEW_DIFF_CHARS", 15_000),
     ("gh_max_retries", "HYDRAFLOW_GH_MAX_RETRIES", 3),
+    ("gh_api_concurrency", "HYDRAFLOW_GH_API_CONCURRENCY", 5),
     ("max_issue_attempts", "HYDRAFLOW_MAX_ISSUE_ATTEMPTS", 3),
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
     ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
@@ -193,6 +196,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_REVIEW": ("review_label", ["hydraflow-review"]),
     "HYDRAFLOW_LABEL_HITL": ("hitl_label", ["hydraflow-hitl"]),
     "HYDRAFLOW_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydraflow-hitl-active"]),
+    "HYDRAFLOW_LABEL_HITL_AUTOFIX": ("hitl_autofix_label", ["hydraflow-hitl-autofix"]),
     "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
     "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
     "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
@@ -283,10 +287,22 @@ class HydraFlowConfig(BaseModel):
         description="Max quality fix-and-retry cycles before marking agent as failed",
     )
     max_pre_quality_review_attempts: int = Field(
-        default=1,
+        default=3,
         ge=0,
         le=5,
         description="Max pre-quality review/correction passes before quality verification",
+    )
+    max_diff_sanity_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max diff sanity check passes (0 = disabled)",
+    )
+    max_test_adequacy_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max test adequacy check passes (0 = disabled)",
     )
     max_review_fix_attempts: int = Field(
         default=2,
@@ -324,6 +340,12 @@ class HydraFlowConfig(BaseModel):
         le=10,
         description="Max retry attempts for gh CLI calls",
     )
+    gh_api_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Max concurrent gh/git subprocess calls (prevents API rate limiting)",
+    )
 
     # Task source
     task_source_type: Literal["github"] = Field(
@@ -343,6 +365,10 @@ class HydraFlowConfig(BaseModel):
     hitl_active_label: list[str] = Field(
         default=["hydraflow-hitl-active"],
         description="Labels for HITL items being actively processed (OR logic)",
+    )
+    hitl_autofix_label: list[str] = Field(
+        default=["hydraflow-hitl-autofix"],
+        description="Labels for HITL items undergoing automatic fix attempt (OR logic)",
     )
     fixed_label: list[str] = Field(
         default=["hydraflow-fixed"],
@@ -1145,6 +1171,7 @@ class HydraFlowConfig(BaseModel):
         "review_label",
         "hitl_label",
         "hitl_active_label",
+        "hitl_autofix_label",
         "fixed_label",
         "improve_label",
         "memory_label",
@@ -1199,6 +1226,7 @@ class HydraFlowConfig(BaseModel):
             self.review_label,
             self.hitl_label,
             self.hitl_active_label,
+            self.hitl_autofix_label,
             self.fixed_label,
             self.improve_label,
             self.transcript_label,
@@ -1288,7 +1316,8 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_READY       → ready_label  (implement stage)
             HYDRAFLOW_LABEL_REVIEW      → review_label
             HYDRAFLOW_LABEL_HITL        → hitl_label
-            HYDRAFLOW_LABEL_HITL_ACTIVE → hitl_active_label
+            HYDRAFLOW_LABEL_HITL_ACTIVE  → hitl_active_label
+            HYDRAFLOW_LABEL_HITL_AUTOFIX → hitl_autofix_label
             HYDRAFLOW_LABEL_FIXED       → fixed_label
             HYDRAFLOW_LABEL_IMPROVE     → improve_label
             HYDRAFLOW_LABEL_MEMORY      → memory_label
@@ -1822,8 +1851,14 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
         if env_pids is not None:
             try:
                 pids_val = int(env_pids)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.warning(
+                    "HYDRAFLOW_DOCKER_PIDS_LIMIT value '%s' is not an integer; keeping default %d (%s)",
+                    env_pids,
+                    config.docker_pids_limit,
+                    exc,
+                    exc_info=True,
+                )
             else:
                 if not (16 <= pids_val <= 4096):
                     msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"
@@ -1847,30 +1882,35 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 
 def _validate_docker(config: HydraFlowConfig) -> None:
     """Validate Docker availability when execution_mode is 'docker'."""
-    if config.execution_mode == "docker":
-        if shutil.which("docker") is None:
-            msg = (
-                "execution_mode is 'docker' but the 'docker' command "
-                "was not found on PATH"
-            )
-            raise ValueError(msg)
+    if config.execution_mode != "docker":
+        return
 
-        if not config.gh_token:
-            logger.warning(
-                "Docker mode without GH token configured; container actions may use the local gh auth context "
-                "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
-            )
-        if bool(config.git_user_name) ^ bool(config.git_user_email):
-            logger.warning(
-                "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",
-                config.git_user_name,
-                config.git_user_email,
-            )
-        elif not config.git_user_name and not config.git_user_email:
-            logger.warning(
-                "Docker mode git identity not configured; commits may use fallback host/global git identity "
-                "(set HYDRAFLOW_GIT_USER_NAME and HYDRAFLOW_GIT_USER_EMAIL, e.g. in .env)."
-            )
+    if not config.docker_image.strip():
+        # No image configured → fall back to host execution; no Docker validation needed.
+        return
+
+    if shutil.which("docker") is None:
+        msg = (
+            "execution_mode is 'docker' but the 'docker' command was not found on PATH"
+        )
+        raise ValueError(msg)
+
+    if not config.gh_token:
+        logger.warning(
+            "Docker mode without GH token configured; container actions may use the local gh auth context "
+            "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
+        )
+    if bool(config.git_user_name) ^ bool(config.git_user_email):
+        logger.warning(
+            "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",
+            config.git_user_name,
+            config.git_user_email,
+        )
+    elif not config.git_user_name and not config.git_user_email:
+        logger.warning(
+            "Docker mode git identity not configured; commits may use fallback host/global git identity "
+            "(set HYDRAFLOW_GIT_USER_NAME and HYDRAFLOW_GIT_USER_EMAIL, e.g. in .env)."
+        )
 
 
 def _find_repo_root() -> Path:

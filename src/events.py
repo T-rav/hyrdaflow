@@ -115,10 +115,9 @@ class EventLog:
     def _append_sync(self, line: str) -> None:
         """Synchronous append — called via ``asyncio.to_thread``."""
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, "a") as f:
-                f.write(line + "\n")
-                f.flush()
+            from file_util import append_jsonl  # noqa: PLC0415
+
+            append_jsonl(self._path, line)
         except OSError:
             logger.warning(
                 "Could not append to event log %s",
@@ -372,3 +371,6 @@ class EventBus:
         """Remove all history and subscribers."""
         self._history.clear()
         self._subscribers.clear()
+        self._active_session_id = None
+        self._active_repo = ""
+        self._pending_persists.clear()

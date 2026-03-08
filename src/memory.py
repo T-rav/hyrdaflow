@@ -29,7 +29,6 @@ from subprocess_util import make_clean_env
 
 if TYPE_CHECKING:
     from ports import PRPort
-    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.memory")
 _ADR_ARCH_KEYWORDS: tuple[str, ...] = (
@@ -144,7 +143,7 @@ async def file_memory_suggestion(
     source: str,
     reference: str,
     config: HydraFlowConfig,
-    prs: PRManager,
+    prs: PRPort,
     state: StateTracker,
 ) -> None:
     """Parse and file a memory suggestion from an agent transcript.
@@ -405,12 +404,17 @@ class MemorySyncWorker:
 
     async def _route_adr_candidates(self, issues: list[MemoryIssueData]) -> None:
         """Create ADR draft tasks from architecture-shift memory issues."""
+        from phase_utils import load_existing_adr_topics, normalize_adr_topic
+
         if self._prs is None:
             return
 
         seen = self._load_adr_source_ids()
+        existing_topics = load_existing_adr_topics(self._config.repo_root)
+        batch_topics: set[str] = set()
         created = 0
         rejected = 0
+        deduped = 0
         for issue in issues:
             if not self._is_memory_issue(issue):
                 continue
@@ -421,6 +425,17 @@ class MemorySyncWorker:
             body = str(issue.get("body", ""))
             learning = self._extract_learning(body)
             if not self._is_architecture_candidate(title, learning, body):
+                continue
+
+            topic_key = normalize_adr_topic(title)
+            if topic_key in existing_topics or topic_key in batch_topics:
+                deduped += 1
+                seen.add(source_id)
+                logger.info(
+                    "Skipping ADR candidate from memory #%d — duplicate topic %r",
+                    source_id,
+                    topic_key,
+                )
                 continue
 
             adr_title = ""
@@ -450,14 +465,16 @@ class MemorySyncWorker:
             )
             if issue_num:
                 seen.add(source_id)
+                batch_topics.add(topic_key)
                 created += 1
 
-        if created:
+        if created or deduped:
             self._save_adr_source_ids(seen)
         logger.info(
-            "ADR routing summary: created=%d rejected=%d tracked_sources=%d",
+            "ADR routing summary: created=%d rejected=%d deduped=%d tracked_sources=%d",
             created,
             rejected,
+            deduped,
             len(seen),
         )
 
@@ -754,8 +771,8 @@ class MemorySyncWorker:
             ]
             cmd_input = None
         else:
-            cmd = ["claude", "-p", "--model", model]
-            cmd_input = prompt.encode()
+            cmd = ["claude", "-p", prompt, "--model", model]
+            cmd_input = None
         env = make_clean_env(self._config.gh_token)
 
         try:
