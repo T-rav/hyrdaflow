@@ -39,6 +39,7 @@ from subprocess_util import (
 )
 
 if TYPE_CHECKING:
+    from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
@@ -153,6 +154,20 @@ class HydraFlowOrchestrator:
         self._runs_gc_loop = svc.runs_gc_loop
         self._adr_reviewer_loop = svc.adr_reviewer_loop
         self._crate_manager = svc.crate_manager
+
+        # Registry of triggerable background loop instances
+        self._bg_loop_registry: dict[str, BaseBackgroundLoop] = {
+            "memory_sync": self._memory_sync_bg,
+            "metrics": self._metrics_sync_bg,
+            "pr_unsticker": self._pr_unsticker_loop,
+            "manifest_refresh": self._manifest_refresh_loop,
+            "report_issue": self._report_issue_loop,
+            "epic_monitor": self._epic_monitor_loop,
+            "epic_sweeper": self._epic_sweeper_loop,
+            "worktree_gc": self._worktree_gc_loop,
+            "runs_gc": self._runs_gc_loop,
+            "adr_reviewer": self._adr_reviewer_loop,
+        }
 
     @property
     def crate_manager(self) -> CrateManager:
@@ -378,6 +393,18 @@ class HydraFlowOrchestrator:
         for name, state_dict in self._bg_worker_states.items():
             result[name] = {**state_dict, "enabled": self.is_bg_worker_enabled(name)}
         return result
+
+    def trigger_bg_worker(self, name: str) -> bool:
+        """Trigger an immediate execution of a background worker.
+
+        Returns ``True`` if the worker was found and triggered, ``False``
+        if *name* does not correspond to a registered ``BaseBackgroundLoop``.
+        """
+        loop = self._bg_loop_registry.get(name)
+        if loop is None:
+            return False
+        loop.trigger()
+        return True
 
     def set_bg_worker_interval(self, name: str, seconds: int) -> None:
         """Set a dynamic interval override for a background worker."""
