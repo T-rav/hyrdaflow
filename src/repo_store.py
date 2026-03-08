@@ -174,6 +174,7 @@ def clone_config_for_repo(
     *,
     repo: str,
     repo_root: Path,
+    overrides: dict[str, Any] | None = None,
 ) -> HydraFlowConfig:
     """Create a per-repo config by overriding repo identity fields.
 
@@ -181,7 +182,8 @@ def clone_config_for_repo(
     keeping all other settings (worker counts, models, poll intervals,
     etc.) from the base.  Path fields that are derived from ``repo_root``
     (like ``state_file``, ``event_log_path``) are re-resolved by the
-    config model's validators.
+    config model's validators.  Optional *overrides* are applied before
+    constructing the new config object so that they pass through validators.
     """
     from config import HydraFlowConfig  # noqa: PLC0415
 
@@ -190,6 +192,8 @@ def clone_config_for_repo(
     base_dict["repo_root"] = repo_root
     for key in ("state_file", "event_log_path", "config_file"):
         base_dict.pop(key, None)
+    if overrides:
+        base_dict.update(overrides)
     return HydraFlowConfig(**base_dict)
 
 

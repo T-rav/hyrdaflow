@@ -40,6 +40,28 @@ class TestCloneConfigForRepo:
         assert cloned is not base
         assert cloned.repo != base.repo
 
+    def test_applies_overrides(self, tmp_path: Path):
+        base = ConfigFactory.create(
+            repo="org/base", repo_root=tmp_path / "base", max_workers=2
+        )
+        new_root = tmp_path / "override"
+        new_root.mkdir()
+        cloned = clone_config_for_repo(
+            base, repo="org/override", repo_root=new_root, overrides={"max_workers": 8}
+        )
+        assert cloned.max_workers == 8
+
+    def test_none_overrides_is_noop(self, tmp_path: Path):
+        base = ConfigFactory.create(
+            repo="org/base", repo_root=tmp_path / "base", max_workers=3
+        )
+        new_root = tmp_path / "noop"
+        new_root.mkdir()
+        cloned = clone_config_for_repo(
+            base, repo="org/noop", repo_root=new_root, overrides=None
+        )
+        assert cloned.max_workers == 3
+
 
 def test_upsert_adds_record_and_normalizes_path(tmp_path: Path) -> None:
     store = RepoStore(tmp_path)

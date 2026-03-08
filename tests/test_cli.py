@@ -1294,5 +1294,5 @@ class TestRunMainRegistryWiring:
         ):
             await _run_main(config)
 
-        # _run_main creates exactly one registry with data_root for persistence
-        MockRegistry.assert_called_once_with(data_root=config.data_root)
+        # _run_main creates exactly one registry (persistence handled by RepoStore)
+        MockRegistry.assert_called_once_with()

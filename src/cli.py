@@ -1327,11 +1327,11 @@ def _run_replay(config: HydraFlowConfig, issue_number: int, latest_only: bool) -
 async def _run_main(config: HydraFlowConfig) -> None:
     """Launch the orchestrator, optionally with the dashboard."""
     from repo_runtime import RepoRuntime, RepoRuntimeRegistry
-    from repo_store import RepoRecord, RepoStore
+    from repo_store import RepoRecord, RepoStore, clone_config_for_repo
 
     cli_explicit_fields = set(getattr(config, "cli_explicit_fields", frozenset()))
     default_slug = config.repo_slug if config.repo else None
-    registry = RepoRuntimeRegistry(data_root=config.data_root)
+    registry = RepoRuntimeRegistry()
     repo_store = RepoStore(config.data_root)
 
     records = repo_store.list()
@@ -1348,21 +1348,13 @@ async def _run_main(config: HydraFlowConfig) -> None:
 
     def _clone_config_for_repo(record: RepoRecord) -> HydraFlowConfig:
         repo_path = Path(record.path)
-        values = config.model_dump()
-        for key in (
-            "repo_root",
-            "repo",
-            "data_root",
-            "state_file",
-            "event_log_path",
-            "repo_config_file",
-        ):
-            values.pop(key, None)
-        values.update(record.overrides or {})
-        values["repo_root"] = repo_path
-        values["repo"] = record.repo
-        values["config_file"] = config.config_file
-        clone = HydraFlowConfig(**values)
+        clone = clone_config_for_repo(
+            config,
+            repo=record.repo,
+            repo_root=repo_path,
+            overrides=record.overrides or {},
+        )
+        object.__setattr__(clone, "config_file", config.config_file)
         object.__setattr__(clone, "cli_explicit_fields", config.cli_explicit_fields)
         repo_cfg_path = clone.repo_data_root / "config.json"
         object.__setattr__(clone, "repo_config_file", repo_cfg_path)
