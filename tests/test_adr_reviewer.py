@@ -2010,6 +2010,8 @@ class TestAutoTriage:
         call_args = reviewer._prs.create_issue.await_args
         labels_kwarg = call_args.kwargs.get("labels", [])
         assert list(reviewer._config.hitl_label) == labels_kwarg
+        assert stats["escalated"] == 1
+        assert stats["auto_triaged"] == 0
         assert stats["auto_triaged"] == 0
 
 
@@ -2022,9 +2024,11 @@ class TestPreValidationGate:
         reviewer = _make_reviewer(tmp_path)
         adr_dir = Path(reviewer._config.repo_root) / "docs" / "adr"
         adr_dir.mkdir(parents=True)
-        # Write an ADR missing the Status field
+        # Write an ADR with Status: Proposed but missing required ## Context section
         path = adr_dir / "0001-bad-adr.md"
-        path.write_text("# ADR-0001: Bad\n\n## Decision\nfoo\n## Consequences\nbar\n")
+        path.write_text(
+            "# ADR-0001: Bad\n\n**Status:** Proposed\n\n## Decision\nfoo\n## Consequences\nbar\n"
+        )
 
         with (
             patch.object(
@@ -2032,14 +2036,14 @@ class TestPreValidationGate:
             ) as mock_council,
             patch.object(
                 reviewer, "_route_pre_validation_failure", new_callable=AsyncMock
-            ),
+            ) as mock_route,
         ):
             stats = await reviewer.review_proposed_adrs()
             mock_council.assert_not_awaited()
+            mock_route.assert_awaited_once()
 
-        # The ADR has no Status: Proposed, so _find_proposed_adrs won't find it
-        # Let's test by directly injecting a found ADR with validation issues
-        assert stats["reviewed"] == 0
+        assert stats["reviewed"] == 1
+        assert stats["pre_validation_skipped"] == 1
 
     @pytest.mark.asyncio
     async def test_pre_validation_skips_incomplete_adr(self, tmp_path: Path) -> None:

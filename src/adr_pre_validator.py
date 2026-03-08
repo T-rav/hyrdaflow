@@ -75,9 +75,10 @@ class ADRPreValidator:
         self, content: str, result: ADRValidationResult
     ) -> None:
         """Check that all required sections are present."""
-        lowered = content.lower()
         for section in _REQUIRED_SECTIONS:
-            if section.lower() not in lowered:
+            if not re.search(
+                rf"^{re.escape(section)}\s*$", content, re.IGNORECASE | re.MULTILINE
+            ):
                 result.issues.append(
                     ADRValidationIssue(
                         code=f"missing_section_{section.replace('## ', '').lower()}",

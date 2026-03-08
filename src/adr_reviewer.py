@@ -1006,6 +1006,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                     result.adr_number,
                 )
         await self._prs.create_issue(title, body, labels=list(self._config.hitl_label))
+        stats["escalated"] += 1
 
     def _build_council_summary(self, result: ADRCouncilResult) -> str:
         """Format the full deliberation record."""
