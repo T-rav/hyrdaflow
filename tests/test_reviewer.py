@@ -1250,6 +1250,20 @@ def test_build_review_prompt_no_make_test_fast(config, event_bus, pr_info, task)
     assert "make test-fast" not in prompt
 
 
+def test_build_review_prompt_includes_test_coverage_audit(
+    config, event_bus, pr_info, task
+):
+    """Reviewer prompt should include expanded test coverage audit criteria."""
+    runner = _make_runner(config, event_bus)
+    prompt = runner._build_review_prompt(pr_info, task, "diff")
+
+    assert "Test coverage audit" in prompt
+    assert "issue requirements" in prompt
+    assert "dead code" in prompt
+    assert "Failure and error paths" in prompt
+    assert "New branches/conditions" in prompt
+
+
 # ---------------------------------------------------------------------------
 # _get_head_sha — timeout
 # ---------------------------------------------------------------------------

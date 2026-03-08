@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,8 +17,9 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from events import EventBus, EventType, HydraFlowEvent
-from models import HITLItem, PRListItem
+from models import BGWorkerHealth, HITLItem, PRListItem
 from tests.conftest import EventFactory, make_orchestrator_mock, make_state
+from tests.helpers import ConfigFactory
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -156,6 +158,151 @@ class TestIndexRoute:
 
         assert response.status_code == 200
         assert "<h1>" in response.text
+
+
+# ---------------------------------------------------------------------------
+# GET /healthz
+# ---------------------------------------------------------------------------
+
+
+class TestHealthRoute:
+    """Tests for the GET /healthz health-check endpoint."""
+
+    def test_healthz_returns_ok_payload(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock(running=True)
+        started_at = (datetime.now(UTC) - timedelta(minutes=5)).replace(microsecond=0)
+        state.reset_session_counters(started_at.isoformat())
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/healthz")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "ok"
+        assert payload["orchestrator_running"] is True
+        assert payload["dashboard"]["port"] == config.dashboard_port
+        assert payload["dashboard"]["host"] == config.dashboard_host
+        assert payload["ready"] is True
+        assert payload["checks"]["orchestrator"]["status"] == "running"
+        assert payload["checks"]["workers"]["status"] in {"ok", "disabled"}
+        assert payload["checks"]["dashboard"]["public"] is False
+        assert payload["session_started_at"] == started_at.isoformat()
+        assert isinstance(payload["uptime_seconds"], int)
+        assert payload["uptime_seconds"] >= 300
+
+    def test_healthz_reports_worker_errors(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock(running=True)
+        state.set_worker_heartbeat(
+            "memory_sync",
+            {
+                "status": BGWorkerHealth.ERROR,
+                "last_run": None,
+                "details": {"error": "boom"},
+            },
+        )
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/healthz")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "degraded"
+        assert payload["worker_errors"] == ["memory_sync"]
+        assert payload["ready"] is False
+        assert payload["checks"]["workers"]["status"] == "degraded"
+        assert payload["checks"]["workers"]["errors"] == ["memory_sync"]
+
+    def test_healthz_handles_missing_session_start(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock(running=True)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["session_started_at"] is None
+        assert payload["uptime_seconds"] is None
+
+    def test_healthz_marks_dashboard_binding_public_flag(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        public_config = ConfigFactory.create(
+            dashboard_host="0.0.0.0",
+            dashboard_port=config.dashboard_port,
+        )
+        orch = make_orchestrator_mock(running=True)
+        dashboard = HydraFlowDashboard(
+            public_config, event_bus, state, orchestrator=orch
+        )
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["checks"]["dashboard"]["public"] is True
+        assert payload["ready"] is True
+
+    def test_healthz_handles_invalid_session_start(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        state.reset_session_counters("not-a-date")
+        orch = make_orchestrator_mock(running=True)
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["session_started_at"] is None
+        assert payload["uptime_seconds"] is None
+
+    def test_healthz_reports_starting_when_orchestrator_missing(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["status"] == "starting"
+        assert payload["orchestrator_running"] is False
+        assert payload["ready"] is False
+        assert payload["checks"]["orchestrator"]["status"] == "missing"
 
 
 # ---------------------------------------------------------------------------
@@ -796,6 +943,31 @@ class TestStartStop:
 
         assert dashboard._server_task is not None
         assert isinstance(dashboard._server_task, asyncio.Task)
+
+        if dashboard._server_task and not dashboard._server_task.done():
+            dashboard._server_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await dashboard._server_task
+
+    @pytest.mark.asyncio
+    async def test_start_uses_configured_host(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from dashboard import HydraFlowDashboard
+
+        config.dashboard_host = "0.0.0.0"
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+
+        mock_server = AsyncMock()
+        mock_server.serve = AsyncMock(return_value=None)
+
+        with (
+            patch("uvicorn.Config") as mock_config,
+            patch("uvicorn.Server", return_value=mock_server),
+        ):
+            await dashboard.start()
+
+        assert mock_config.call_args.kwargs["host"] == "0.0.0.0"
 
         if dashboard._server_task and not dashboard._server_task.done():
             dashboard._server_task.cancel()

@@ -239,6 +239,7 @@ class ConfigFactory:
         git_user_email: str = "",
         dashboard_enabled: bool = False,
         dashboard_port: int = 15555,
+        dashboard_host: str = "127.0.0.1",
         review_insight_window: int = 10,
         review_pattern_threshold: int = 3,
         subskill_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -447,6 +448,7 @@ class ConfigFactory:
                 git_user_email=git_user_email,
                 dashboard_enabled=dashboard_enabled,
                 dashboard_port=dashboard_port,
+                dashboard_host=dashboard_host,
                 ac_model=ac_model,
                 ac_tool=ac_tool,
                 verification_judge_tool=verification_judge_tool,
@@ -1027,6 +1029,7 @@ def make_implement_phase(
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,

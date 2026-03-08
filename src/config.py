@@ -86,6 +86,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
+    ("dashboard_host", "HYDRAFLOW_DASHBOARD_HOST", "127.0.0.1"),
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
     ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
@@ -941,6 +942,11 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Dashboard
+    dashboard_host: str = Field(
+        default="127.0.0.1",
+        min_length=1,
+        description="Interface/IP to bind the dashboard web server to",
+    )
     dashboard_port: int = Field(
         default=5555, ge=1024, le=65535, description="Dashboard web UI port"
     )

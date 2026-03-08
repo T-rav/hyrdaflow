@@ -221,6 +221,9 @@ src/ui/e2e/results/
 jolly-sea-65a9/
 .DS_Store
 
+# HydraFlow hook cache (generated artifacts, machine-specific)
+.hydraflow-hook-cache/
+
 # Claude Code
 .claude/plans/
 .claude/state/
