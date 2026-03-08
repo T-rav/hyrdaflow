@@ -233,6 +233,10 @@ class TestExtractRepoSlugEquivalence:
     def test_slug_query_param_wins_over_body(self) -> None:
         assert self._call_slug(req={"slug": "body"}, slug_query="query") == "query"
 
+    def test_slug_query_param_wins_over_json_req_query(self) -> None:
+        q = json.dumps({"slug": "from-json"})
+        assert self._call_slug(req_query=q, slug_query="from-qp") == "from-qp"
+
 
 class TestExtractRepoPathEquivalence:
     """Verify _extract_field_from_sources reproduces _extract_repo_path behavior."""

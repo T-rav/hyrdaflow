@@ -1470,11 +1470,10 @@ class GitIdentityEnvMixin:
 class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
     """Tests for git_user_name/git_user_email fields and env var resolution."""
 
-    @pytest.fixture(autouse=True)
-    def _auto_clear_git_identity_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_git_user_name_default_is_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         self._clear_git_identity_env(monkeypatch)
-
-    def test_git_user_name_default_is_empty(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1482,7 +1481,10 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         )
         assert cfg.git_user_name == ""
 
-    def test_git_user_email_default_is_empty(self, tmp_path: Path) -> None:
+    def test_git_user_email_default_is_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
@@ -1558,7 +1560,10 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         )
         assert cfg.git_user_email == "explicit@example.com"
 
-    def test_git_identity_picks_up_dotenv_fallback(self, tmp_path: Path) -> None:
+    def test_git_identity_picks_up_dotenv_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         (tmp_path / ".env").write_text(
             "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot\n"
             "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com\n"
@@ -1571,7 +1576,10 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         assert cfg.git_user_name == "Dotenv Bot"
         assert cfg.git_user_email == "dotenv-bot@example.com"
 
-    def test_git_identity_dotenv_ignores_inline_comment(self, tmp_path: Path) -> None:
+    def test_git_identity_dotenv_ignores_inline_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         (tmp_path / ".env").write_text(
             "HYDRAFLOW_GIT_USER_NAME=Dotenv Bot # preferred\n"
             "HYDRAFLOW_GIT_USER_EMAIL=dotenv-bot@example.com # notifications\n"
