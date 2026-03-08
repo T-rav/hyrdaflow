@@ -377,6 +377,82 @@ def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] |
     return result
 
 
+def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
+    """Best-effort parse of legacy query/body JSON object payloads."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_field_from_sources(
+    field_names: tuple[str, str],
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    query_params: tuple[str | None, str | None],
+    *,
+    query_params_first: bool = False,
+) -> str:
+    """Extract a value from query params, body dict, and JSON query.
+
+    Args:
+        field_names: Pair of field name keys to look up (primary, alias).
+        req: Parsed request body dict.
+        req_query: Raw ``req`` query parameter (may be JSON).
+        query_params: Dedicated query-parameter values (primary, alias).
+        query_params_first: When True, check query params before body;
+            otherwise check body before query params.
+    """
+    candidates: list[str] = []
+
+    def _push(value: Any) -> None:
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed:
+                candidates.append(trimmed)
+
+    def _push_from_dict(src: dict[str, Any]) -> None:
+        for name in field_names:
+            _push(src.get(name))
+        nested = src.get("req")
+        if isinstance(nested, dict):
+            for name in field_names:
+                _push(nested.get(name))
+
+    def _push_query_params() -> None:
+        for qp in query_params:
+            _push(qp)
+
+    def _push_body() -> None:
+        if isinstance(req, dict):
+            _push_from_dict(req)
+
+    # Ordering: query_params_first controls whether dedicated query
+    # params are checked before or after the body dict.
+    if query_params_first:
+        _push_query_params()
+        _push_body()
+    else:
+        _push_body()
+
+    parsed_query = _parse_compat_json_object(req_query)
+    if parsed_query:
+        _push_from_dict(parsed_query)
+    else:
+        _push(req_query)
+
+    if not query_params_first:
+        _push_query_params()
+
+    return candidates[0] if candidates else ""
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -401,19 +477,6 @@ def create_router(
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
 
-    def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
-        """Best-effort parse of legacy query/body JSON object payloads."""
-        if not isinstance(raw, str):
-            return None
-        text = raw.strip()
-        if not text:
-            return None
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
-
     def _extract_repo_slug(
         req: dict[str, Any] | None,
         req_query: str | None,
@@ -421,37 +484,13 @@ def create_router(
         repo_query: str | None,
     ) -> str:
         """Extract repo slug from supported request shapes."""
-        candidates: list[str] = []
-
-        def _push(value: Any) -> None:
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed:
-                    candidates.append(trimmed)
-
-        _push(slug_query)
-        _push(repo_query)
-
-        if isinstance(req, dict):
-            _push(req.get("slug"))
-            _push(req.get("repo"))
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("slug"))
-                _push(nested.get("repo"))
-
-        parsed_query = _parse_compat_json_object(req_query)
-        if parsed_query:
-            _push(parsed_query.get("slug"))
-            _push(parsed_query.get("repo"))
-            nested = parsed_query.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("slug"))
-                _push(nested.get("repo"))
-        else:
-            _push(req_query)
-
-        return candidates[0] if candidates else ""
+        return _extract_field_from_sources(
+            ("slug", "repo"),
+            req,
+            req_query,
+            (slug_query, repo_query),
+            query_params_first=True,
+        )
 
     def _extract_repo_path(
         req: dict[str, Any] | None,
@@ -460,37 +499,13 @@ def create_router(
         repo_path_query: str | None,
     ) -> str:
         """Extract repo path from supported body/query payload shapes."""
-        candidates: list[str] = []
-
-        def _push(value: Any) -> None:
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed:
-                    candidates.append(trimmed)
-
-        if isinstance(req, dict):
-            _push(req.get("path"))
-            _push(req.get("repo_path"))
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("path"))
-                _push(nested.get("repo_path"))
-
-        parsed_query = _parse_compat_json_object(req_query)
-        if parsed_query:
-            _push(parsed_query.get("path"))
-            _push(parsed_query.get("repo_path"))
-            nested = parsed_query.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("path"))
-                _push(nested.get("repo_path"))
-        else:
-            _push(req_query)
-
-        _push(path_query)
-        _push(repo_path_query)
-
-        return candidates[0] if candidates else ""
+        return _extract_field_from_sources(
+            ("path", "repo_path"),
+            req,
+            req_query,
+            (path_query, repo_path_query),
+            query_params_first=False,
+        )
 
     def _resolve_runtime(
         slug: str | None,
