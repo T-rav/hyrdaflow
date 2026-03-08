@@ -13,15 +13,11 @@ UV := VIRTUAL_ENV=$(VENV) UV_CACHE_DIR=$(PROJECT_ROOT)/.uv-cache uv run --active
 # Stamp file to track when deps were last synced
 DEPS_STAMP := $(VENV)/.deps-synced
 
-# CLI argument passthrough
-READY_LABEL ?= hydraflow-ready
+# Runtime overrides (used by `make hot`)
 WORKERS ?= 3
 MODEL ?= opus
 REVIEW_MODEL ?= sonnet
-IMPLEMENTATION_TOOL ?= claude
 BATCH_SIZE ?= 15
-PLANNER_LABEL ?= hydraflow-plan
-PLANNER_MODEL ?= opus
 REVIEWERS ?= 5
 HITL_WORKERS ?= 1
 PORT ?= 5555

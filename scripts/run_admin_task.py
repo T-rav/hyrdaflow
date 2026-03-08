@@ -6,6 +6,7 @@ Usage:
 Tasks:
     clean           Remove all worktrees and reset state
     prep            Sync labels, run repo audit, seed context assets
+    scaffold        Generate baseline tests and CI configuration
     ensure-labels   Sync HydraFlow lifecycle labels only
 """
 
@@ -17,12 +18,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from admin_tasks import run_clean, run_ensure_labels, run_prep  # noqa: E402
+from admin_tasks import (  # noqa: E402
+    run_clean,
+    run_ensure_labels,
+    run_prep,
+    run_scaffold,
+)
 from config import HydraFlowConfig  # noqa: E402
 
 _TASKS = {
     "clean": run_clean,
     "prep": run_prep,
+    "scaffold": run_scaffold,
     "ensure-labels": run_ensure_labels,
 }
 
