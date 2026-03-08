@@ -5342,7 +5342,9 @@ class TestWebSocketEndpoint:
         mock_registry.get.assert_called_once_with("my-org-my-repo")
         # Should have sent repo_bus history, not the default event_bus
         assert len(sent_texts) >= 1
-        assert "repo_event" in sent_texts[0]
+        import json
+
+        assert json.loads(sent_texts[0])["data"]["repo_event"] is True
 
     @pytest.mark.asyncio
     async def test_websocket_unknown_repo_closes_with_1008(
@@ -5421,7 +5423,9 @@ class TestWebSocketEndpoint:
         # Registry.get should NOT have been called (no repo param)
         mock_registry.get.assert_not_called()
         assert len(sent_texts) >= 1
-        assert "default" in sent_texts[0]
+        import json
+
+        assert json.loads(sent_texts[0])["data"]["default"] is True
 
     @pytest.mark.asyncio
     async def test_websocket_repo_slug_no_registry_falls_back_to_default(
@@ -5463,7 +5467,9 @@ class TestWebSocketEndpoint:
         mock_ws.accept.assert_called_once()
         # Should use default bus (not error) since registry is None
         assert len(sent_texts) >= 1
-        assert "default" in sent_texts[0]
+        import json
+
+        assert json.loads(sent_texts[0])["data"]["default"] is True
 
 
 class TestIssueHistoryCache:
