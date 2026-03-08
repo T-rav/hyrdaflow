@@ -5,17 +5,25 @@ export function TranscriptPreview({ transcript, maxCollapsedLines = 3, maxHeight
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const scrollRef = useRef(null)
+  const copyTimeoutRef = useRef(null)
 
   const handleCopy = async () => {
     try {
       const text = transcript.join('\n')
       await navigator.clipboard.writeText(text)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 1500)
     } catch {
       // Clipboard API not available
     }
   }
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (expanded && scrollRef.current) {

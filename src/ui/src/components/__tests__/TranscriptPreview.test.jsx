@@ -200,6 +200,19 @@ describe('TranscriptPreview', () => {
       // Should not crash, button should still show "Copy"
       expect(screen.getByTestId('transcript-copy')).toHaveTextContent('Copy')
     })
+
+    it('clears timeout on unmount to prevent stale state update', async () => {
+      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+      const { unmount } = render(<TranscriptPreview transcript={['hello']} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      unmount()
+      expect(clearTimeoutSpy).toHaveBeenCalled()
+      clearTimeoutSpy.mockRestore()
+    })
   })
 
 })
