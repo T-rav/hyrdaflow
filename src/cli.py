@@ -1405,6 +1405,7 @@ async def _run_main(config: HydraFlowConfig) -> None:
         record = repo_store.upsert(record)
         runtime = await _register_record(record)
         if runtime is None:
+            repo_store.remove(slug)
             raise ValueError(f"Failed to register repo '{slug}'")
         return record, runtime.config
 
@@ -1415,7 +1416,7 @@ async def _run_main(config: HydraFlowConfig) -> None:
                 await target.stop()
             registry.remove(slug)
         removed = repo_store.remove(slug)
-        return removed
+        return removed or target is not None
 
     def _list_repos_cb() -> list[RepoRecord]:
         return repo_store.list()
