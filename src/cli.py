@@ -18,6 +18,8 @@ from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
 
+logger = logging.getLogger("hydraflow.cli")
+
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
 _SEEDED_DIGEST_PLACEHOLDER = (
@@ -1328,7 +1330,21 @@ async def _run_main(config: HydraFlowConfig) -> None:
         await bus.load_history_from_disk()
         state = StateTracker(config.state_file)
 
-        registry = RepoRuntimeRegistry()
+        registry = RepoRuntimeRegistry(data_root=config.data_root)
+
+        # Auto-register the current repo if we're inside a git repo
+        if config.repo or config.repo_root.joinpath(".git").is_dir():
+            try:
+                await registry.register(config)
+                logger.info("Auto-registered current repo as %r", config.repo_slug)
+            except ValueError:
+                logger.debug("Current repo already registered")
+
+        # Re-register any previously persisted repos
+        restored = await registry.load_saved()
+        if restored:
+            logger.info("Restored %d saved repo(s)", len(restored))
+
         dashboard = HydraFlowDashboard(
             config=config,
             event_bus=bus,

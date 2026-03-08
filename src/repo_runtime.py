@@ -8,7 +8,9 @@ repository: config, event bus, state tracker, and orchestrator.  The
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 
 from config import HydraFlowConfig
 from events import EventBus, EventLog
@@ -116,11 +118,109 @@ class RepoRuntime:
 class RepoRuntimeRegistry:
     """Manages multiple :class:`RepoRuntime` instances by slug.
 
-    Provides lookup, lifecycle management, and graceful shutdown ordering.
+    Provides lookup, lifecycle management, persistence, and graceful
+    shutdown ordering.
+
+    Parameters
+    ----------
+    data_root:
+        Directory where ``repos.json`` is stored for persistence across
+        restarts.  When ``None``, persistence is disabled (in-memory only).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, data_root: Path | None = None) -> None:
         self._runtimes: dict[str, RepoRuntime] = {}
+        self._data_root = data_root
+
+    @property
+    def _repos_path(self) -> Path | None:
+        """Path to the ``repos.json`` persistence file, or ``None``."""
+        if self._data_root is None:
+            return None
+        return self._data_root / "repos.json"
+
+    # --- Persistence ---
+
+    def _save(self) -> None:
+        """Persist the current set of registered repos to ``repos.json``."""
+        path = self._repos_path
+        if path is None:
+            return
+        entries = []
+        for rt in self._runtimes.values():
+            entries.append(
+                {
+                    "slug": rt.slug,
+                    "repo": rt.config.repo,
+                    "repo_root": str(rt.config.repo_root),
+                }
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"repos": entries}, indent=2) + "\n")
+        tmp.replace(path)
+        logger.debug("Saved %d repo(s) to %s", len(entries), path)
+
+    def _load(self) -> list[dict[str, str]]:
+        """Load saved repo entries from ``repos.json``.
+
+        Returns a list of dicts with ``slug``, ``repo``, and ``repo_root``
+        keys.  Returns an empty list when the file is missing or malformed.
+        """
+        path = self._repos_path
+        if path is None or not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to read %s: %s", path, exc)
+            return []
+        if not isinstance(data, dict):
+            logger.warning("Invalid repos.json format (expected object)")
+            return []
+        repos = data.get("repos")
+        if not isinstance(repos, list):
+            logger.warning("Invalid repos.json: missing 'repos' list")
+            return []
+        return [e for e in repos if isinstance(e, dict) and "repo_root" in e]
+
+    async def load_saved(self) -> list[RepoRuntime]:
+        """Re-register repos persisted in ``repos.json``.
+
+        Skips entries whose ``repo_root`` no longer exists or that are
+        already registered.  Returns the list of newly registered runtimes.
+        """
+        entries = self._load()
+        registered: list[RepoRuntime] = []
+        for entry in entries:
+            repo_root = Path(entry["repo_root"])
+            if not repo_root.is_dir():
+                logger.warning(
+                    "Skipping saved repo %s: directory %s not found",
+                    entry.get("slug", "?"),
+                    repo_root,
+                )
+                continue
+            slug = entry.get("slug", "")
+            if slug and slug in self._runtimes:
+                logger.debug("Skipping already-registered repo %s", slug)
+                continue
+            try:
+                cfg = HydraFlowConfig(
+                    repo_root=repo_root,
+                    repo=entry.get("repo", ""),
+                )
+                rt = await self.register(cfg)
+                registered.append(rt)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to re-register saved repo %s",
+                    entry.get("slug", "?"),
+                    exc_info=True,
+                )
+        return registered
+
+    # --- Registration ---
 
     async def register(self, config: HydraFlowConfig) -> RepoRuntime:
         """Create and register a runtime for the given config.
@@ -133,6 +233,7 @@ class RepoRuntimeRegistry:
             raise ValueError(msg)
         self._runtimes[runtime.slug] = runtime
         logger.info("Registered runtime %r", runtime.slug)
+        self._save()
         return runtime
 
     def get(self, slug: str) -> RepoRuntime | None:
@@ -141,7 +242,10 @@ class RepoRuntimeRegistry:
 
     def remove(self, slug: str) -> RepoRuntime | None:
         """Remove and return a runtime (does not stop it)."""
-        return self._runtimes.pop(slug, None)
+        rt = self._runtimes.pop(slug, None)
+        if rt is not None:
+            self._save()
+        return rt
 
     @property
     def slugs(self) -> list[str]:
