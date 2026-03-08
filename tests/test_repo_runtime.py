@@ -443,6 +443,58 @@ class TestRepoRuntimeRegistryPersistence:
         assert len(registry) == 1
 
     @pytest.mark.asyncio
+    async def test_load_saved_then_register_preserves_prior_repos(self, tmp_path):
+        """load_saved() before register() keeps all repos in repos.json.
+
+        Regression: if register() is called first it calls _save() with only
+        the new repo, discarding previously-persisted repos.
+        """
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        repo_b = tmp_path / "repob"
+        repo_b.mkdir()
+        repo_c = tmp_path / "repoc"
+        repo_c.mkdir()
+        # Simulate a prior session that persisted repos B and C.
+        (data_dir / "repos.json").write_text(
+            json.dumps(
+                {
+                    "repos": [
+                        {
+                            "slug": "org-repob",
+                            "repo": "org/repob",
+                            "repo_root": str(repo_b),
+                        },
+                        {
+                            "slug": "org-repoc",
+                            "repo": "org/repoc",
+                            "repo_root": str(repo_c),
+                        },
+                    ]
+                }
+            )
+        )
+        repo_a = tmp_path / "repoa"
+        repo_a.mkdir()
+        config_a = ConfigFactory.create(repo="org/repoa", repo_root=repo_a)
+        registry = RepoRuntimeRegistry(data_root=data_dir)
+        p1, p2, p3, p4 = _runtime_patches()
+        with p1, p2, p3, p4:
+            # Correct order: load saved first, then register current repo.
+            restored = await registry.load_saved()
+            await registry.register(config_a)
+        # All three repos must be present after the sequence.
+        assert len(restored) == 2
+        assert len(registry) == 3
+        assert "org-repoa" in registry
+        assert "org-repob" in registry
+        assert "org-repoc" in registry
+        # repos.json should now contain all three.
+        saved = json.loads((data_dir / "repos.json").read_text())
+        slugs = {e["slug"] for e in saved["repos"]}
+        assert slugs == {"org-repoa", "org-repob", "org-repoc"}
+
+    @pytest.mark.asyncio
     async def test_save_without_data_root_is_noop(self, tmp_path):
         """Registering without data_root should not crash."""
         config = ConfigFactory.create(repo="org/nopersist", repo_root=tmp_path)

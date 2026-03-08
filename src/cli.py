@@ -1332,6 +1332,12 @@ async def _run_main(config: HydraFlowConfig) -> None:
 
         registry = RepoRuntimeRegistry(data_root=config.data_root)
 
+        # Re-register any previously persisted repos first so that _save()
+        # inside register() below captures the full set (not just the current repo).
+        restored = await registry.load_saved()
+        if restored:
+            logger.info("Restored %d saved repo(s)", len(restored))
+
         # Auto-register the current repo if we're inside a git repo
         if config.repo or config.repo_root.joinpath(".git").is_dir():
             try:
@@ -1339,11 +1345,6 @@ async def _run_main(config: HydraFlowConfig) -> None:
                 logger.info("Auto-registered current repo as %r", config.repo_slug)
             except ValueError:
                 logger.debug("Current repo already registered")
-
-        # Re-register any previously persisted repos
-        restored = await registry.load_saved()
-        if restored:
-            logger.info("Restored %d saved repo(s)", len(restored))
 
         dashboard = HydraFlowDashboard(
             config=config,
@@ -1414,8 +1415,7 @@ def main(argv: list[str] | None = None) -> None:
         _run_replay(config, args.replay, args.replay_latest)
         sys.exit(0)
 
-    _logger = logging.getLogger("hydraflow.cli")
-    _logger.info(
+    logger.info(
         "Loaded worker counts: triagers=%d planners=%d workers=%d reviewers=%d hitl=%d (config_file=%s)",
         config.max_triagers,
         config.max_planners,
