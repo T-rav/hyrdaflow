@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
-import importlib
 import json
 import logging
 import os
@@ -18,7 +17,15 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Body, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Body,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
@@ -561,8 +568,7 @@ def create_router(
         if slug and registry is not None:
             rt: RepoRuntime | None = registry.get(slug)
             if rt is None:
-                msg = f"Unknown repo: {slug}"
-                raise ValueError(msg)
+                raise HTTPException(status_code=404, detail="Unknown repo")
             return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
         return config, state, event_bus, get_orchestrator
 
@@ -573,7 +579,7 @@ def create_router(
     ) -> JSONResponse:
         try:
             runtime_config, _, _, _ = _resolve_runtime(slug)
-        except ValueError:
+        except HTTPException:
             return JSONResponse({"error": "Unknown repo"}, status_code=404)
         try:
             result = await task_fn(runtime_config)
@@ -587,14 +593,10 @@ def create_router(
             status_code = 500
         return JSONResponse(payload, status_code=status_code)
 
-    try:
-        supervisor_client = importlib.import_module("hf_cli.supervisor_client")
-    except ImportError:  # pragma: no cover - env missing CLI
-        supervisor_client = None  # type: ignore[assignment]
-    try:
-        supervisor_manager = importlib.import_module("hf_cli.supervisor_manager")
-    except ImportError:  # pragma: no cover - env missing CLI
-        supervisor_manager = None  # type: ignore[assignment]
+    # Supervisor client/manager removed with hf_cli package (issue #2205).
+    # Supervisor endpoints now return graceful "unavailable" responses.
+    supervisor_client = None
+    supervisor_manager = None
     issue_fetcher = IssueFetcher(config)
     hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
     hitl_summary_inflight: set[int] = set()

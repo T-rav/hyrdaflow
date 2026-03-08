@@ -12,7 +12,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from admin_tasks import TaskResult
-from dashboard_routes import _SUPERVISOR_UNAVAILABLE_MESSAGE
 from events import EventBus, EventType, HydraFlowEvent
 from models import HITLItem, SessionStatus
 from tests.helpers import find_endpoint, make_dashboard_router
@@ -3683,6 +3682,31 @@ class TestRunsEndpoints:
 # ---------------------------------------------------------------------------
 
 
+class TestResolveRuntimeUnknownRepo:
+    """Verify _resolve_runtime raises HTTPException (not ValueError) for unknown repos."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_repo_raises_http_exception(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from fastapi import HTTPException
+
+        registry = MagicMock()
+        registry.get.return_value = None
+
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=registry
+        )
+        endpoint = find_endpoint(router, "/api/state")
+        assert endpoint is not None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await endpoint(repo="evil/<script>alert(1)</script>")
+        assert exc_info.value.status_code == 404
+        # Ensure user input is NOT in the detail to prevent info leakage
+        assert "<script>" not in str(exc_info.value.detail)
+
+
 class TestGetStateEndpoint:
     """Tests for GET /api/state."""
 
@@ -3899,111 +3923,26 @@ class TestGetPRsEndpoint:
 
 
 class TestListSupervisedReposEndpoint:
-    """Tests for GET /api/repos supervisor error logging behavior."""
-
-    def _make_router(self, config, event_bus, state, tmp_path, supervisor_module):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        with patch(
-            "dashboard_routes.importlib.import_module", return_value=supervisor_module
-        ):
-            return create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
+    """Tests for GET /api/repos (supervisor removed with hf_cli)."""
 
     @pytest.mark.asyncio
-    async def test_expected_supervisor_down_error_not_warned(
+    async def test_returns_empty_list_without_supervisor(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
-        from types import SimpleNamespace
 
-        def _raise_down():
-            raise RuntimeError(_SUPERVISOR_UNAVAILABLE_MESSAGE)
-
-        router = self._make_router(
-            config,
-            event_bus,
-            state,
-            tmp_path,
-            SimpleNamespace(list_repos=_raise_down),
-        )
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/repos")
         assert endpoint is not None
 
-        with patch("dashboard_routes.logger") as mock_logger:
-            response = await endpoint()
-
+        response = await endpoint()
         data = json.loads(response.body)
-        assert response.status_code == 503
-        assert data["error"] == "Supervisor unavailable"
-        mock_logger.warning.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_unexpected_supervisor_error_is_warned(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-        from types import SimpleNamespace
-
-        def _raise_other():
-            raise RuntimeError("Supervisor connection failed: [Errno 61] refused")
-
-        router = self._make_router(
-            config,
-            event_bus,
-            state,
-            tmp_path,
-            SimpleNamespace(list_repos=_raise_other),
-        )
-        endpoint = find_endpoint(router, "/api/repos")
-        assert endpoint is not None
-
-        with patch("dashboard_routes.logger") as mock_logger:
-            response = await endpoint()
-
-        data = json.loads(response.body)
-        assert response.status_code == 503
-        assert data["error"] == "Supervisor unavailable"
-        mock_logger.warning.assert_called_once()
+        assert response.status_code == 200
+        assert data["repos"] == []
 
 
-class TestEnsureRepoCompatibilityEndpoint:
-    """Compatibility tests for POST /api/repos request shapes."""
-
-    def _make_router(self, config, event_bus, state, tmp_path, supervisor_module):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        with patch.dict(
-            "sys.modules",
-            {
-                "hf_cli.supervisor_client": supervisor_module,
-                "hf_cli.supervisor_manager": MagicMock(),
-            },
-        ):
-            return create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
+class TestEnsureRepoEndpointWithoutSupervisor:
+    """POST /api/repos returns 503 after hf_cli supervisor removal."""
 
     def _find_post_endpoint(self, router, path):
         for route in router.routes:
@@ -4018,64 +3957,24 @@ class TestEnsureRepoCompatibilityEndpoint:
         return None
 
     @pytest.mark.asyncio
-    async def test_accepts_req_query_plain_slug(
+    async def test_returns_503_without_supervisor(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
-        from types import SimpleNamespace
 
-        supervisor = SimpleNamespace(
-            list_repos=lambda: [
-                {
-                    "slug": "8thlight/insightmesh",
-                    "path": str(tmp_path / "insightmesh"),
-                }
-            ],
-            add_repo=lambda _path, _slug: {"status": "ok", "slug": _slug},
-        )
-        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = self._find_post_endpoint(router, "/api/repos")
         assert endpoint is not None
 
         resp = await endpoint(
             req=None,
-            req_query="8thlight/insightmesh",
+            req_query="owner/repo",
             slug=None,
             repo=None,
         )
         data = json.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
-
-    @pytest.mark.asyncio
-    async def test_accepts_req_query_json_slug(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-        from types import SimpleNamespace
-
-        supervisor = SimpleNamespace(
-            list_repos=lambda: [
-                {
-                    "slug": "8thlight/insightmesh",
-                    "path": str(tmp_path / "insightmesh"),
-                }
-            ],
-            add_repo=lambda _path, _slug: {"status": "ok", "slug": _slug},
-        )
-        router = self._make_router(config, event_bus, state, tmp_path, supervisor)
-        endpoint = self._find_post_endpoint(router, "/api/repos")
-        assert endpoint is not None
-
-        resp = await endpoint(
-            req=None,
-            req_query='{"slug":"8thlight/insightmesh"}',
-            slug=None,
-            repo=None,
-        )
-        data = json.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
+        assert resp.status_code == 503
+        assert "supervisor unavailable" in data["error"].lower()
 
 
 class TestAdminTaskEndpoints:
@@ -5667,15 +5566,18 @@ class TestResolveRuntime:
     async def test_state_endpoint_with_unknown_repo_raises(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """GET /api/state?repo=unknown should raise ValueError."""
+        """GET /api/state?repo=unknown should raise HTTPException."""
+        from fastapi import HTTPException
+
         mock_registry = MagicMock()
         mock_registry.get.return_value = None  # Unknown repo
         router, _pr = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
         ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/state")
-        with pytest.raises(ValueError, match="Unknown repo"):
+        with pytest.raises(HTTPException) as exc_info:
             await ep.endpoint(repo="unknown-slug")
+        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_state_endpoint_with_valid_repo_uses_runtime(
@@ -6718,221 +6620,30 @@ class TestAddRepoByPath:
         assert "inside your home directory or temp directory" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_valid_path_registers_repo(
+    async def test_valid_git_repo_returns_503_without_supervisor(
         self,
         config,
         event_bus: EventBus,
         state,
         tmp_path: Path,
     ) -> None:
-        """Valid git repo path is registered with supervisor."""
+        """Valid git repo path returns 503 since supervisor was removed with hf_cli."""
         import json as json_mod
 
         repo_dir = tmp_path / "my-repo"
         repo_dir.mkdir()
 
-        mock_supervisor = MagicMock()
-        mock_supervisor.register_repo = MagicMock(
-            return_value={"status": "ok", "slug": "testrepo", "path": str(repo_dir)},
-        )
-        with patch.dict("sys.modules", {"hf_cli.supervisor_client": mock_supervisor}):
-            from dashboard_routes import create_router
-            from pr_manager import PRManager
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = self._get_endpoint(router)
 
-            pr_mgr = PRManager(config, event_bus)
-            router = create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
-            endpoint = self._get_endpoint(router)
-
-            with (
-                self._mock_git_validation(
-                    repo_dir, remote_url="https://github.com/testowner/testrepo.git"
-                ),
-                patch("prep.ensure_labels", new_callable=AsyncMock),
-            ):
-                resp = await endpoint({"path": str(repo_dir)})
-
-        data = json_mod.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
-        assert data["path"] == str(repo_dir.resolve())
-
-    @pytest.mark.asyncio
-    async def test_label_creation_failure_still_registers(
-        self,
-        config,
-        event_bus: EventBus,
-        state,
-        tmp_path: Path,
-    ) -> None:
-        """Labels fail but repo is still registered with a warning."""
-        import json as json_mod
-
-        repo_dir = tmp_path / "label-fail-repo"
-        repo_dir.mkdir()
-
-        mock_supervisor = MagicMock()
-        mock_supervisor.register_repo = MagicMock(
-            return_value={"status": "ok", "slug": "labeltest", "path": str(repo_dir)},
-        )
-        with patch.dict("sys.modules", {"hf_cli.supervisor_client": mock_supervisor}):
-            from dashboard_routes import create_router
-            from pr_manager import PRManager
-
-            pr_mgr = PRManager(config, event_bus)
-            router = create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
-            endpoint = self._get_endpoint(router)
-
-            with (
-                self._mock_git_validation(
-                    repo_dir, remote_url="https://github.com/org/labeltest.git"
-                ),
-                patch(
-                    "prep.ensure_labels",
-                    new_callable=AsyncMock,
-                    side_effect=RuntimeError("gh not found"),
-                ),
-            ):
-                resp = await endpoint({"path": str(repo_dir)})
-
-        data = json_mod.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
-        assert data["labels_created"] is False
-
-    @pytest.mark.asyncio
-    async def test_supervisor_not_running_returns_503(
-        self,
-        config,
-        event_bus: EventBus,
-        state,
-        tmp_path: Path,
-    ) -> None:
-        import json as json_mod
-
-        repo_dir = tmp_path / "supervisor-down-repo"
-        repo_dir.mkdir()
-
-        mock_supervisor = MagicMock()
-        mock_supervisor.register_repo = MagicMock(
-            side_effect=RuntimeError(_SUPERVISOR_UNAVAILABLE_MESSAGE)
-        )
-        mock_supervisor_manager = MagicMock()
-        mock_supervisor_manager.ensure_running = MagicMock(return_value=None)
-        with patch.dict(
-            "sys.modules",
-            {
-                "hf_cli.supervisor_client": mock_supervisor,
-                "hf_cli.supervisor_manager": mock_supervisor_manager,
-            },
+        with self._mock_git_validation(
+            repo_dir, remote_url="https://github.com/testowner/testrepo.git"
         ):
-            from dashboard_routes import create_router
-            from pr_manager import PRManager
-
-            pr_mgr = PRManager(config, event_bus)
-            router = create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
-            endpoint = self._get_endpoint(router)
-            with (
-                self._mock_git_validation(
-                    repo_dir, remote_url="https://github.com/org/down.git"
-                ),
-                patch("prep.ensure_labels", new_callable=AsyncMock) as ensure_labels,
-            ):
-                resp = await endpoint({"path": str(repo_dir)})
+            resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
         assert resp.status_code == 503
-        assert data["error"] == _SUPERVISOR_UNAVAILABLE_MESSAGE
-        mock_supervisor_manager.ensure_running.assert_called_once()
-        ensure_labels.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_supervisor_autostart_then_register_succeeds(
-        self,
-        config,
-        event_bus: EventBus,
-        state,
-        tmp_path: Path,
-    ) -> None:
-        import json as json_mod
-
-        repo_dir = tmp_path / "supervisor-autostart-repo"
-        repo_dir.mkdir()
-
-        mock_supervisor = MagicMock()
-        mock_supervisor.register_repo = MagicMock(
-            side_effect=[
-                RuntimeError(_SUPERVISOR_UNAVAILABLE_MESSAGE),
-                {"status": "ok"},
-            ]
-        )
-        mock_supervisor_manager = MagicMock()
-        mock_supervisor_manager.ensure_running = MagicMock(return_value=None)
-        with patch.dict(
-            "sys.modules",
-            {
-                "hf_cli.supervisor_client": mock_supervisor,
-                "hf_cli.supervisor_manager": mock_supervisor_manager,
-            },
-        ):
-            from dashboard_routes import create_router
-            from pr_manager import PRManager
-
-            pr_mgr = PRManager(config, event_bus)
-            router = create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            )
-            endpoint = self._get_endpoint(router)
-            with (
-                self._mock_git_validation(
-                    repo_dir, remote_url="https://github.com/org/autostart.git"
-                ),
-                patch("prep.ensure_labels", new_callable=AsyncMock),
-            ):
-                resp = await endpoint({"path": str(repo_dir)})
-
-        data = json_mod.loads(resp.body)
-        assert resp.status_code == 200
-        assert data["status"] == "ok"
-        assert mock_supervisor.register_repo.call_count == 2
-        mock_supervisor_manager.ensure_running.assert_called_once()
+        assert "supervisor" in data["error"].lower()
 
     @pytest.mark.asyncio
     async def test_req_query_plain_path_is_accepted(
