@@ -1276,6 +1276,83 @@ def create_router(
         )
         return JSONResponse({"status": "ok"})
 
+    # ------------------------------------------------------------------
+    # HITL helpers
+    # ------------------------------------------------------------------
+
+    def _clear_hitl_state(
+        orch: HydraFlowOrchestrator | None,
+        issue_number: int,
+    ) -> None:
+        """Clear all HITL tracking state for an issue.
+
+        Consolidates the repeated skip + remove pattern used by every
+        HITL resolution endpoint.
+        """
+        if orch:
+            orch.skip_hitl_issue(issue_number)
+        state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
+
+    async def _resolve_hitl_item(
+        issue_number: int,
+        orch: HydraFlowOrchestrator,
+        *,
+        action: str,
+        comment_heading: str,
+        comment_body: str,
+        outcome_type: IssueOutcomeType,
+        reason: str,
+    ) -> JSONResponse:
+        """Clear HITL state, record outcome, post comment, and publish event.
+
+        Shared implementation for hitl_skip, hitl_close, and
+        hitl_approve_process which all follow the same
+        cleanup → outcome → comment → event → response pattern.
+
+        ``orch`` must be the already-fetched, non-None orchestrator from the
+        caller so that state cleanup is always paired with the side effects the
+        caller already performed (label swaps, issue close, etc.).
+        """
+        _clear_hitl_state(orch, issue_number)
+        state.record_outcome(
+            issue_number,
+            outcome_type,
+            reason=reason,
+            phase="hitl",
+        )
+
+        try:
+            await pr_manager.post_comment(
+                issue_number,
+                f"**{comment_heading}** — {comment_body}\n\n---\n*HydraFlow Dashboard*",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to post %s comment for issue #%d",
+                action,
+                issue_number,
+                exc_info=True,
+            )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "resolved",
+                    "action": action,
+                    "reason": reason,
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
+    # ------------------------------------------------------------------
+    # HITL route handlers
+    # ------------------------------------------------------------------
+
     @router.post("/api/hitl/{issue_number}/skip")
     async def hitl_skip(issue_number: int, body: HITLSkipRequest) -> JSONResponse:
         """Remove a HITL issue from the queue without action (reason required)."""
@@ -1286,17 +1363,6 @@ def create_router(
         # Read origin before clearing state
         origin = state.get_hitl_origin(issue_number)
 
-        orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-        state.record_outcome(
-            issue_number,
-            IssueOutcomeType.HITL_SKIPPED,
-            reason=body.reason,
-            phase="hitl",
-        )
-
         # If this was an improve issue, transition to triage for implementation
         if origin and origin in config.improve_label and config.find_label:
             await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
@@ -1305,33 +1371,15 @@ def create_router(
             for lbl in config.all_pipeline_labels:
                 await pr_manager.remove_label(issue_number, lbl)
 
-        # Post reason as comment (best-effort, after skip succeeds)
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**HITL Skip** — Operator skipped this issue.\n\n"
-                f"**Reason:** {body.reason}\n\n"
-                f"---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post skip comment for issue #%d",
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "skip",
-                    "reason": body.reason,
-                },
-            )
+        return await _resolve_hitl_item(
+            issue_number,
+            orch,
+            action="skip",
+            comment_heading="HITL Skip",
+            comment_body=f"Operator skipped this issue.\n\n**Reason:** {body.reason}",
+            outcome_type=IssueOutcomeType.HITL_SKIPPED,
+            reason=body.reason,
         )
-        return JSONResponse({"status": "ok"})
 
     @router.post("/api/hitl/{issue_number}/close")
     async def hitl_close(issue_number: int, body: HITLCloseRequest) -> JSONResponse:
@@ -1339,46 +1387,17 @@ def create_router(
         orch = get_orchestrator()
         if not orch:
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
-
-        orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-        state.record_outcome(
-            issue_number,
-            IssueOutcomeType.HITL_CLOSED,
-            reason=body.reason,
-            phase="hitl",
-        )
         await pr_manager.close_issue(issue_number)
 
-        # Post reason as comment (best-effort, after close succeeds)
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**HITL Close** — Operator closed this issue.\n\n"
-                f"**Reason:** {body.reason}\n\n"
-                f"---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post close comment for issue #%d",
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "close",
-                    "reason": body.reason,
-                },
-            )
+        return await _resolve_hitl_item(
+            issue_number,
+            orch,
+            action="close",
+            comment_heading="HITL Close",
+            comment_body=f"Operator closed this issue.\n\n**Reason:** {body.reason}",
+            outcome_type=IssueOutcomeType.HITL_CLOSED,
+            reason=body.reason,
         )
-        return JSONResponse({"status": "ok"})
 
     @router.post("/api/hitl/{issue_number}/approve-memory")
     async def hitl_approve_memory(issue_number: int) -> JSONResponse:
@@ -1387,12 +1406,7 @@ def create_router(
         for lbl in config.all_pipeline_labels:
             await pr_manager.remove_label(issue_number, lbl)
         await pr_manager.add_labels(issue_number, config.memory_label)
-        orch = get_orchestrator()
-        if orch:
-            orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
+        _clear_hitl_state(get_orchestrator(), issue_number)
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
@@ -1420,43 +1434,18 @@ def create_router(
 
         await pr_manager.swap_pipeline_labels(issue_number, target_label)
 
-        # Clear HITL state after label swap succeeds
-        orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-        state.record_outcome(
+        return await _resolve_hitl_item(
             issue_number,
-            IssueOutcomeType.HITL_APPROVED,
+            orch,
+            action="approved_for_processing",
+            comment_heading="Approved for processing",
+            comment_body=(
+                f"Operator approved this issue.\n\n"
+                f"Routing to **{target_stage}** (`{target_label}`)."
+            ),
+            outcome_type=IssueOutcomeType.HITL_APPROVED,
             reason=f"Operator approved issue type for processing ({target_stage})",
-            phase="hitl",
         )
-
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**Approved for processing** — Operator approved this issue.\n\n"
-                f"Routing to **{target_stage}** (`{target_label}`).\n\n"
-                "---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post approval comment for #%d",
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "approved_for_processing",
-                },
-            )
-        )
-        return JSONResponse({"status": "ok"})
 
     @router.get("/api/human-input")
     async def get_human_input_requests() -> JSONResponse:
