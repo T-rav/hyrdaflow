@@ -920,6 +920,106 @@ class TestMemorySyncWorkerSync:
         assert prs.create_issue.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_sync_adr_deduplicates_by_topic_content(self, tmp_path: Path) -> None:
+        """Two memory issues about the same topic should only create one ADR issue."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=101)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 10,
+                "title": "[Memory] ADR test policy — only structural tests allowed",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Learning:** Architecture decision: ADR tests structural only.\n"
+                ),
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+            {
+                "number": 11,
+                "title": "[Memory] ADR test policy — only structural tests allowed",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Learning:** Architecture decision: ADR tests structural only.\n"
+                ),
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        await worker.sync(issues)
+
+        assert prs.create_issue.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_sync_adr_skips_topic_covered_by_existing_adr_file(
+        self, tmp_path: Path
+    ) -> None:
+        """ADR candidate should be skipped if docs/adr/ already has that topic."""
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0001-worker-topology.md").write_text("# ADR\n")
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.close_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=101)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 20,
+                "title": "[Memory] Worker topology",
+                "body": (
+                    "## Memory Suggestion\n\n"
+                    "**Learning:** Architecture decision about worker topology.\n"
+                ),
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        await worker.sync(issues)
+
+        prs.create_issue.assert_not_called()
+
+    def test_normalize_adr_topic_strips_prefixes(self) -> None:
+        from phase_utils import normalize_adr_topic
+
+        assert (
+            normalize_adr_topic("[Memory] ADR test policy — only structural tests")
+            == "adr test policy only structural tests"
+        )
+        assert (
+            normalize_adr_topic(
+                "[ADR] Draft decision from memory #123: Worker topology shift"
+            )
+            == "worker topology shift"
+        )
+
+    def test_load_existing_adr_topics_reads_docs_adr(self, tmp_path: Path) -> None:
+        from phase_utils import load_existing_adr_topics
+
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0001-five-concurrent-loops.md").write_text("# ADR\n")
+        (adr_dir / "0002-labels-state-machine.md").write_text("# ADR\n")
+        (adr_dir / "README.md").write_text("# Index\n")
+
+        topics = load_existing_adr_topics(tmp_path)
+        assert "five concurrent loops" in topics
+        assert "labels state machine" in topics
+        assert len(topics) == 2  # README excluded
+
+    @pytest.mark.asyncio
     async def test_sync_auto_closes_transcript_summary_issues(
         self, tmp_path: Path
     ) -> None:

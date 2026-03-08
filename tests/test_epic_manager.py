@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import epic  # noqa: E402
 from events import EventBus, EventType
 from models import EpicState
 from state import StateTracker
@@ -987,6 +988,40 @@ class TestExecuteRelease:
 
         assert len(released) == 1
         assert released[0].data["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_release_failure_exception_has_structured_cause(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        mgr, state, _, prs, fetcher = _make_manager(
+            tmp_path, epic_merge_strategy="bundled"
+        )
+        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
+        await mgr.register_epic(100, "v1.0 Epic", [10])
+        self._approve_children_directly(state, 100, [10])
+
+        prs.find_pr_for_issue = AsyncMock(return_value=42)
+        prs.merge_pr = AsyncMock(return_value=False)
+
+        captured: list[BaseException] = []
+        original_warning = epic.logger.warning
+
+        def _capture_warning(*args, **kwargs):
+            if kwargs.get("exc_info"):
+                exc = sys.exc_info()[1]
+                if exc is not None:
+                    captured.append(exc)
+            return original_warning(*args, **kwargs)
+
+        monkeypatch.setattr(epic.logger, "warning", _capture_warning)
+
+        await mgr._execute_release(100, "test-job-cause")
+
+        assert captured, "Expected failure to log an exception"
+        exc = captured[0]
+        assert isinstance(exc, epic.ReleaseEpicResultError)
+        assert exc.epic_number == 100
+        assert exc.result.get("error")
 
     @pytest.mark.asyncio
     async def test_cleans_up_job_id(self, tmp_path: Path) -> None:

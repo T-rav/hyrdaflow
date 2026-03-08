@@ -98,10 +98,9 @@ function EpicContainer({ epicNumber, issues, children }) {
   )
 }
 
-function StageSection({ stage, issues, workerCount, workerCap, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
+function StageSection({ stage, issues, workerCount, workerCap, queuedCount, intentMap, onRequestChanges, open, onToggle, enabled, dotColor, workers, prs }) {
   const failedCount = issues.filter(i => i.overallStatus === 'failed').length
   const hitlCount = issues.filter(i => i.overallStatus === 'hitl').length
-  const queuedCount = issues.filter(i => i.overallStatus === 'queued').length
   const hasRole = !!stage.role
 
   return (
@@ -492,6 +491,7 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
             issues={stageIssues}
             workerCount={workerCount}
             workerCap={workerCap}
+            queuedCount={status.queuedCount || 0}
             intentMap={intentMap}
             onRequestChanges={stage.role ? onRequestChanges : undefined}
             open={!!expandedStages[stage.key]}

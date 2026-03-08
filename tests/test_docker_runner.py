@@ -930,6 +930,12 @@ class TestCheckDockerAvailable:
 class TestGetDockerRunner:
     """Tests for get_docker_runner factory."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_docker_on_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import shutil
+
+        monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
+
     def test_returns_subprocess_runner_protocol_when_disabled(self) -> None:
         """get_docker_runner returns a SubprocessRunner when execution_mode='host'."""
         from tests.helpers import ConfigFactory
@@ -946,17 +952,21 @@ class TestGetDockerRunner:
         assert isinstance(runner, HostRunner)
 
     def test_returns_host_when_no_image(self) -> None:
+        import shutil
+
         from tests.helpers import ConfigFactory
 
-        with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch.object(shutil, "which", return_value="/usr/bin/docker"):
             config = ConfigFactory.create(execution_mode="docker", docker_image="")
         runner = get_docker_runner(config)
         assert isinstance(runner, HostRunner)
 
     def test_returns_host_when_docker_unavailable(self) -> None:
+        import shutil
+
         from tests.helpers import ConfigFactory
 
-        with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch.object(shutil, "which", return_value="/usr/bin/docker"):
             config = ConfigFactory.create(
                 execution_mode="docker", docker_image="hydra:latest"
             )
@@ -965,9 +975,11 @@ class TestGetDockerRunner:
         assert isinstance(runner, HostRunner)
 
     def test_returns_docker_runner_when_available(self) -> None:
+        import shutil
+
         from tests.helpers import ConfigFactory
 
-        with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch.object(shutil, "which", return_value="/usr/bin/docker"):
             config = ConfigFactory.create(
                 execution_mode="docker",
                 docker_image="hydra:latest",
@@ -984,9 +996,11 @@ class TestGetDockerRunner:
         assert isinstance(runner, SubprocessRunner)
 
     def test_logs_warning_when_no_image(self, caplog: pytest.LogCaptureFixture) -> None:
+        import shutil
+
         from tests.helpers import ConfigFactory
 
-        with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch.object(shutil, "which", return_value="/usr/bin/docker"):
             config = ConfigFactory.create(execution_mode="docker", docker_image="")
         with caplog.at_level("WARNING"):
             get_docker_runner(config)
@@ -995,9 +1009,11 @@ class TestGetDockerRunner:
     def test_logs_warning_when_docker_unavailable(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
+        import shutil
+
         from tests.helpers import ConfigFactory
 
-        with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch.object(shutil, "which", return_value="/usr/bin/docker"):
             config = ConfigFactory.create(
                 execution_mode="docker", docker_image="hydra:latest"
             )
@@ -1025,10 +1041,13 @@ class TestGetDockerRunner:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.delenv("HYDRAFLOW_GIT_USER_NAME", raising=False)
         monkeypatch.delenv("HYDRAFLOW_GIT_USER_EMAIL", raising=False)
-        monkeypatch.delenv("GIT_AUTHOR_NAME", raising=False)
-        monkeypatch.delenv("GIT_COMMITTER_NAME", raising=False)
-        monkeypatch.delenv("GIT_AUTHOR_EMAIL", raising=False)
-        monkeypatch.delenv("GIT_COMMITTER_EMAIL", raising=False)
+        for var in (
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
 
         import shutil
 
@@ -1144,6 +1163,22 @@ class TestDockerProcessKillSuppression:
 # ---------------------------------------------------------------------------
 
 
+class TestBuildContainerKwargs:
+    """Tests for build_container_kwargs."""
+
+    def test_tmpfs_includes_writable_home(self) -> None:
+        from docker_runner import build_container_kwargs
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(execution_mode="docker")
+        kwargs = build_container_kwargs(config)
+        tmpfs = kwargs["tmpfs"]
+        assert "/tmp" in tmpfs
+        assert "/home/hydraflow" in tmpfs
+        assert "uid=1000" in tmpfs["/home/hydraflow"]
+        assert "gid=1000" in tmpfs["/home/hydraflow"]
+
+
 class TestBuildMounts:
     """Tests for DockerRunner._build_mounts."""
 
@@ -1156,6 +1191,21 @@ class TestBuildMounts:
         assert "/tmp/worktree" in mounts
         assert mounts["/tmp/worktree"]["bind"] == "/workspace"
         assert mounts["/tmp/worktree"]["mode"] == "rw"
+
+    def test_cwd_equals_repo_root_does_not_clobber_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        repo = tmp_path / "repo"
+        runner, _ = _make_runner(repo_root=repo, log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        # When cwd matches repo_root, /workspace must survive — /repo is skipped
+        mounts = runner._build_mounts(str(repo))
+
+        assert str(repo) in mounts
+        assert mounts[str(repo)]["bind"] == "/workspace"
+        assert mounts[str(repo)]["mode"] == "rw"
+        assert "/repo" not in [v["bind"] for v in mounts.values()]
 
     def test_no_workspace_when_cwd_is_none(self, tmp_path: Path) -> None:
         runner, _ = _make_runner(log_dir=tmp_path / "logs")
@@ -1327,67 +1377,10 @@ class TestBuildMounts:
         assert str(home / ".claude.json") not in mounts
 
 
-# ---------------------------------------------------------------------------
-# Worktree detection and command wrapping
-# ---------------------------------------------------------------------------
+class TestBuildMountsNoGitDir:
+    """Tests verifying .git is NOT mounted into Docker containers."""
 
-
-class TestDetectWorktree:
-    """Tests for DockerRunner._detect_worktree."""
-
-    def test_returns_name_for_valid_worktree(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").write_text("gitdir: /repo/.git/worktrees/issue-42\n")
-        assert DockerRunner._detect_worktree(str(tmp_path)) == "issue-42"
-
-    def test_returns_none_for_git_directory(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
-        assert DockerRunner._detect_worktree(str(tmp_path)) is None
-
-    def test_returns_none_when_no_git(self, tmp_path: Path) -> None:
-        assert DockerRunner._detect_worktree(str(tmp_path)) is None
-
-    def test_returns_none_for_malformed_gitdir(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").write_text("not a gitdir line\n")
-        assert DockerRunner._detect_worktree(str(tmp_path)) is None
-
-
-class TestWrapCmdForWorktree:
-    """Tests for DockerRunner._wrap_cmd_for_worktree."""
-
-    def test_wraps_command_for_worktree(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").write_text("gitdir: /repo/.git/worktrees/issue-99\n")
-        runner, _ = _make_runner(log_dir=tmp_path / "logs")
-        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
-
-        result = runner._wrap_cmd_for_worktree(["claude", "-p", "hello"], str(tmp_path))
-
-        assert result[0] == "sh"
-        assert result[1] == "-c"
-        assert "/dot-git/worktrees/issue-99" in result[2]
-        assert "claude" in result[2]
-
-    def test_no_wrap_for_non_worktree(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
-        runner, _ = _make_runner(log_dir=tmp_path / "logs")
-        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
-
-        cmd = ["claude", "-p", "hello"]
-        result = runner._wrap_cmd_for_worktree(cmd, str(tmp_path))
-        assert list(result) == cmd
-
-    def test_no_wrap_when_cwd_none(self, tmp_path: Path) -> None:
-        runner, _ = _make_runner(log_dir=tmp_path / "logs")
-        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
-
-        cmd = ["claude", "-p", "hello"]
-        result = runner._wrap_cmd_for_worktree(cmd, None)
-        assert list(result) == cmd
-
-
-class TestBuildMountsGitDir:
-    """Tests for .git directory mounting for worktree support."""
-
-    def test_mounts_git_dir_when_exists(self, tmp_path: Path) -> None:
+    def test_git_dir_not_mounted(self, tmp_path: Path) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
@@ -1396,14 +1389,11 @@ class TestBuildMountsGitDir:
 
         mounts = runner._build_mounts(str(tmp_path / "workspace"))
 
-        assert str(repo / ".git") in mounts
-        assert mounts[str(repo / ".git")]["bind"] == "/dot-git"
-        assert mounts[str(repo / ".git")]["mode"] == "rw"
+        assert not any(v["bind"] == "/dot-git" for v in mounts.values())
 
     def test_no_git_mount_when_missing(self, tmp_path: Path) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
-        # No .git directory
         runner, _ = _make_runner(repo_root=repo, log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
 

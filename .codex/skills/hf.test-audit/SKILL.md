@@ -944,7 +944,7 @@ Create structured report:
 ### P1 - High Priority (Fix ASAP)
 - **Critical violations** - Tests that don't work correctly, brittle tests, false positives/negatives
 - **Warning violations** - Test quality issues that impact maintainability, readability, and developer productivity
-- **Impact:** Blocks effective testing, slows TDD workflow, reduces confidence in test suite
+- **Impact:** Blocks effective testing, slows development workflow, reduces confidence in test suite
 - **Timeline:** Address immediately in current sprint/iteration
 
 **Examples:**

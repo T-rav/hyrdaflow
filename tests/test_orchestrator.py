@@ -50,6 +50,8 @@ def _mock_fetcher_noop(orch: HydraFlowOrchestrator) -> None:
     orch._store.get_active_issues = lambda: {}  # type: ignore[method-assign]
     orch._fetcher.fetch_issue_by_number = AsyncMock(return_value=None)  # type: ignore[method-assign]
     orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+    orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+    orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
 
 def make_worker_result(
@@ -105,10 +107,10 @@ class TestInit:
         assert isinstance(orch._state, StateTracker)
 
     def test_creates_worktree_manager(self, config: HydraFlowConfig) -> None:
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._worktrees, WorktreeManager)
+        assert isinstance(orch._worktrees, WorkspaceManager)
 
     def test_creates_agent_runner(self, config: HydraFlowConfig) -> None:
         from agent import AgentRunner
@@ -380,6 +382,33 @@ class TestRunLoop:
 # ---------------------------------------------------------------------------
 # run() finally block — subprocess cleanup
 # ---------------------------------------------------------------------------
+
+
+class TestRunCallsSanitizeRepo:
+    """Verify run() calls sanitize_repo at startup and shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_sanitize_repo_called_on_startup(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        _mock_fetcher_noop(orch)
+
+        async def plan_and_stop() -> list[PlanResult]:
+            orch._stop_event.set()
+            return []
+
+        orch._planner_phase.plan_issues = plan_and_stop  # type: ignore[method-assign]
+        orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        with patch.object(
+            orch._worktrees, "sanitize_repo", new_callable=AsyncMock
+        ) as mock_sanitize:
+            await orch.run()
+
+        # Called at startup + shutdown = at least 2 times
+        assert mock_sanitize.await_count >= 2
 
 
 class TestRunFinallyTerminatesRunners:
@@ -1305,6 +1334,39 @@ class TestLoopExceptionIsolation:
         assert call_count == 2
 
     @pytest.mark.asyncio
+    async def test_review_loop_no_hot_spin_on_requeued_issues(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When reviewable issues are re-queued (PR not visible), the loop should
+        break out of _do_review_work instead of spinning hot."""
+        orch = HydraFlowOrchestrator(config)
+        fetch_count = 0
+
+        requeued_task = Task(id=99, title="Test issue", body="")
+
+        def fake_get_reviewable(max_count: int) -> list[Task]:
+            nonlocal fetch_count
+            fetch_count += 1
+            if fetch_count == 1:
+                return [requeued_task]
+            # On second call the re-queued item would appear again,
+            # but the loop should have broken out before getting here.
+            return [requeued_task]
+
+        async def fake_review_single(issue: Task) -> bool:
+            # Simulate PR not visible — returns False (re-queued)
+            return False
+
+        orch._store.get_reviewable = fake_get_reviewable  # type: ignore[method-assign]
+        orch._review_single_issue = fake_review_single  # type: ignore[method-assign]
+
+        await orch._do_review_work()
+
+        # Should have fetched once, reviewed once, then broken out —
+        # NOT looped back to fetch the re-queued item again.
+        assert fetch_count == 1
+
+    @pytest.mark.asyncio
     async def test_error_event_published_on_triage_exception(
         self, config: HydraFlowConfig
     ) -> None:
@@ -1427,6 +1489,8 @@ class TestSupervisorLoops:
         """If one loop crashes despite try/except, others should keep running."""
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         implement_calls = 0
 
@@ -1708,6 +1772,8 @@ class TestAuthFailure:
         """An AuthenticationError in any loop should stop the orchestrator."""
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_triage() -> None:
             raise AuthenticationError("401 Unauthorized")
@@ -1734,6 +1800,8 @@ class TestAuthFailure:
         """Auth failure should publish a SYSTEM_ALERT event."""
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_plan() -> list[PlanResult]:
             raise AuthenticationError("401 Unauthorized")
@@ -1764,6 +1832,8 @@ class TestAuthFailure:
         """Auth failure should set the _auth_failed flag."""
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             raise AuthenticationError("401 Unauthorized")
@@ -3002,6 +3072,61 @@ class TestMemoryErrorPropagation:
         # Should not raise — RuntimeError is caught
         await orch._polling_loop("test", failing_then_stop, 10)
         assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_polling_loop_emits_ok_heartbeat(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_polling_loop should call update_bg_worker_status('ok') after work."""
+        orch = HydraFlowOrchestrator(config)
+
+        async def work_then_stop() -> bool:
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("implement", work_then_stop, 10)
+        states = orch.get_bg_worker_states()
+        assert "implement" in states
+        assert states["implement"]["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_polling_loop_emits_error_heartbeat(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_polling_loop should call update_bg_worker_status('error') on exception."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+        status_calls: list[tuple[str, str]] = []
+        _orig_update = orch.update_bg_worker_status
+
+        def tracking_update(name: str, status: str) -> None:
+            status_calls.append((name, status))
+            _orig_update(name, status)
+
+        orch.update_bg_worker_status = tracking_update  # type: ignore[method-assign]
+
+        async def fail_then_stop() -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("boom")
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("triage", fail_then_stop, 10)
+        # Error heartbeat must be emitted on the exception iteration
+        assert ("triage", "error") in status_calls
+        # Final heartbeat should be "ok" from the second (successful) call
+        states = orch.get_bg_worker_states()
+        assert states["triage"]["status"] == "ok"
 
 
 # --- Background Worker Enabled ---

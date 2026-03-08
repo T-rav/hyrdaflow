@@ -30,6 +30,7 @@ class IssueFetcher:
         self._rate_limit_lock = asyncio.Lock()
         self._collaborators: set[str] | None = None
         self._collaborators_fetched_at: datetime | None = None
+        self._api_cache_ttl = f"{config.data_poll_interval}s"
 
     @staticmethod
     def _normalize_issue_payload(item: dict) -> dict:
@@ -153,6 +154,8 @@ class IssueFetcher:
                     f"repos/{self._config.repo}/issues",
                     "--method",
                     "GET",
+                    "--cache",
+                    self._api_cache_ttl,
                     "--field",
                     "state=open",
                     "--field",

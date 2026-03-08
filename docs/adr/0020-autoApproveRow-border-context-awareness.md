@@ -1,6 +1,6 @@
 # ADR-0020: autoApproveRow borderTop Context Awareness When Extracting Embedded Components
 
-**Status:** Superseded by #1883
+**Status:** Superseded
 **Date:** 2026-03-01
 
 ## Context
@@ -78,6 +78,7 @@ guidelines for future component extraction:
 
 ## Related
 
+- Superseded by: #1883
 - Source memory: #1805
 - Issue: #1818
 - `src/ui/src/components/SystemPanel.jsx` (`autoApproveRow` style, `ProcessToggles`, `ToggleRow`, `MemoryAutoApproveToggle`)

@@ -13,13 +13,14 @@ FROM python:3.11-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system packages
+# Install system packages (ripgrep is needed by Claude CLI's Grep tool)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         make \
         curl \
         gnupg \
         ca-certificates \
+        ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x via NodeSource
@@ -81,8 +82,15 @@ RUN groupadd --gid 1000 hydraflow \
 ENV PATH="/opt/hydraflow-venv/bin:${PATH}"
 ENV VIRTUAL_ENV=/opt/hydraflow-venv
 
-# Configure git safe directory for mounted worktrees
+# Configure git safe directory for mounted workspaces
 RUN git config --system --add safe.directory /workspace
+
+# Symlink system ripgrep to where Claude CLI expects its bundled binary.
+# Claude CLI looks for rg at /usr/bin/vendor/ripgrep/<arch>-linux/rg but
+# the apt-installed ripgrep lives at /usr/bin/rg.
+RUN ARCH=$(dpkg --print-architecture) \
+    && mkdir -p /usr/bin/vendor/ripgrep/${ARCH}-linux \
+    && ln -s /usr/bin/rg /usr/bin/vendor/ripgrep/${ARCH}-linux/rg
 
 WORKDIR /workspace
 USER hydraflow

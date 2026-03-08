@@ -109,7 +109,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
         svc.store.clear_active = MagicMock()
 
         # Other services we need
-        svc.worktrees = MagicMock()
+        svc.worktrees = AsyncMock()
         svc.subprocess_runner = MagicMock()
         svc.prs = AsyncMock()
         svc.prs.ensure_labels_exist = AsyncMock()
@@ -460,8 +460,8 @@ class TestWorktreePreservation:
 
         await phase.review_prs([pr], [issue])
 
-        # Worktree destroy should NOT be called — review was interrupted (not merged)
-        phase._worktrees.destroy.assert_not_awaited()
+        # Worktree cleanup should NOT be called — review was interrupted (not merged)
+        phase._worktrees.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_review_phase_cleans_worktree_for_merged_pr_with_stop(
@@ -503,8 +503,8 @@ class TestWorktreePreservation:
 
         await phase.review_prs([pr], [issue])
 
-        # Worktree SHOULD be destroyed — merge completed, nothing to resume
-        phase._worktrees.destroy.assert_awaited_once_with(42)
+        # Worktree SHOULD be cleaned up — merge completed, nothing to resume
+        phase._worktrees.post_work_cleanup.assert_awaited_once_with(42)
 
     @pytest.mark.asyncio
     async def test_review_phase_cleans_worktree_when_not_stopped(self, config) -> None:
@@ -534,8 +534,8 @@ class TestWorktreePreservation:
         # Stop event is NOT set
         await phase.review_prs([pr], [issue])
 
-        # Worktree destroy should be called normally
-        phase._worktrees.destroy.assert_awaited_once_with(42)
+        # Worktree cleanup should be called normally
+        phase._worktrees.post_work_cleanup.assert_awaited_once_with(42)
 
 
 # ---------------------------------------------------------------------------

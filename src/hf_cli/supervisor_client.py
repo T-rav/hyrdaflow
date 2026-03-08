@@ -6,7 +6,7 @@ import json
 import os
 import socket
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from .config import DEFAULT_SUPERVISOR_PORT, SUPERVISOR_PORT_FILE
 
@@ -17,6 +17,21 @@ _READ_TIMEOUT_BY_ACTION_SECONDS: dict[str, float] = {
     # and waits for the health-check port to come up.
     "add_repo": 25.0,
 }
+
+
+class SupervisorResponseError(RuntimeError):
+    """Structured error for supervisor responses with ``status != \"ok\"``."""
+
+    def __init__(self, action: str, response: dict[str, Any]) -> None:
+        self.action = action
+        self.response = response
+        message = response.get("error", "unknown error")
+        super().__init__(f"{action} failed: {message}" if action else message)
+
+
+def _raise_response_error(action: str, response: dict[str, Any]) -> NoReturn:
+    """Raise a SupervisorResponseError for a failed supervisor response."""
+    raise SupervisorResponseError(action, response)
 
 
 def _read_port() -> int:
@@ -67,9 +82,9 @@ def ping() -> bool:
 
 def list_repos() -> list[dict[str, Any]]:
     resp = _send({"action": "list_repos"})
-    if resp.get("status") == "ok":
-        return list(resp.get("repos", []))
-    raise RuntimeError(resp.get("error", "unknown error"))
+    if resp.get("status") != "ok":
+        _raise_response_error("list_repos", resp)
+    return list(resp.get("repos", []))
 
 
 def add_repo(path: Path, repo_slug: str | None = None) -> dict[str, Any]:
@@ -81,7 +96,7 @@ def add_repo(path: Path, repo_slug: str | None = None) -> dict[str, Any]:
         payload["repo_slug"] = repo_slug
     resp = _send(payload)
     if resp.get("status") != "ok":
-        raise RuntimeError(resp.get("error", "unknown error"))
+        _raise_response_error("add_repo", resp)
     return resp
 
 
@@ -95,7 +110,7 @@ def register_repo(path: Path, repo_slug: str | None = None) -> dict[str, Any]:
         payload["repo_slug"] = repo_slug
     resp = _send(payload)
     if resp.get("status") != "ok":
-        raise RuntimeError(resp.get("error", "unknown error"))
+        _raise_response_error("register_repo", resp)
     return resp
 
 
@@ -107,4 +122,4 @@ def remove_repo(path: Path | None = None, slug: str | None = None) -> None:
         payload["slug"] = slug
     resp = _send(payload)
     if resp.get("status") != "ok":
-        raise RuntimeError(resp.get("error", "unknown error"))
+        _raise_response_error("remove_repo", resp)

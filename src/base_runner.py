@@ -18,7 +18,11 @@ from manifest import load_project_manifest
 from memory import load_memory_digest
 from models import TranscriptEventData
 from prompt_telemetry import PromptTelemetry, parse_command_tool_model
-from runner_utils import stream_claude_process, terminate_processes
+from runner_utils import (
+    AuthenticationRetryError,
+    stream_claude_process,
+    terminate_processes,
+)
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
@@ -53,6 +57,9 @@ class BaseRunner:
         """Kill all active subprocesses."""
         terminate_processes(self._active_procs)
 
+    _AUTH_RETRY_MAX = 3
+    _AUTH_RETRY_BASE_DELAY = 5.0  # seconds
+
     async def _execute(
         self,
         cmd: list[str],
@@ -63,28 +70,54 @@ class BaseRunner:
         on_output: Callable[[str], bool] | None = None,
         telemetry_stats: Mapping[str, object] | None = None,
     ) -> str:
-        """Run a claude subprocess and stream its output."""
+        """Run a claude subprocess and stream its output.
+
+        Retries up to ``_AUTH_RETRY_MAX`` times on transient authentication
+        failures (OAuth token refresh blips) with exponential backoff.
+        """
         start = time.monotonic()
         transcript = ""
         succeeded = False
         usage_stats: dict[str, object] = {}
         try:
-            transcript = await stream_claude_process(
-                cmd=cmd,
-                prompt=prompt,
-                cwd=cwd,
-                active_procs=self._active_procs,
-                event_bus=self._bus,
-                event_data=event_data,
-                logger=self._log,
-                on_output=on_output,
-                timeout=self._config.agent_timeout,
-                runner=self._runner,
-                usage_stats=usage_stats,
-                gh_token=self._config.gh_token,
-            )
-            succeeded = True
-            return transcript
+            last_auth_error: AuthenticationRetryError | None = None
+            for attempt in range(1, self._AUTH_RETRY_MAX + 1):
+                try:
+                    transcript = await stream_claude_process(
+                        cmd=cmd,
+                        prompt=prompt,
+                        cwd=cwd,
+                        active_procs=self._active_procs,
+                        event_bus=self._bus,
+                        event_data=event_data,
+                        logger=self._log,
+                        on_output=on_output,
+                        timeout=self._config.agent_timeout,
+                        runner=self._runner,
+                        usage_stats=usage_stats,
+                        gh_token=self._config.gh_token,
+                    )
+                    succeeded = True
+                    return transcript
+                except AuthenticationRetryError as exc:
+                    last_auth_error = exc
+                    if attempt < self._AUTH_RETRY_MAX:
+                        delay = self._AUTH_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                        self._log.warning(
+                            "Auth failed (attempt %d/%d), retrying in %.0fs: %s",
+                            attempt,
+                            self._AUTH_RETRY_MAX,
+                            delay,
+                            exc,
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        self._log.error(
+                            "Auth failed after %d attempts: %s",
+                            self._AUTH_RETRY_MAX,
+                            exc,
+                        )
+            raise last_auth_error  # type: ignore[misc]
         finally:
             duration = time.monotonic() - start
             source = str(event_data.get("source", "unknown"))
