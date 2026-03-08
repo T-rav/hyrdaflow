@@ -1158,8 +1158,6 @@ def create_router(
             for name, heartbeat in worker_states.items()
             if _normalise_worker_health(heartbeat.get("status")) == BGWorkerHealth.ERROR
         )
-        if orchestrator is None:
-            orchestrator_running = False
         orchestrator_status = "missing"
         if orchestrator is not None and orchestrator_running:
             orchestrator_status = "running"
@@ -1180,7 +1178,7 @@ def create_router(
 
         def _is_loopback_host(host: str) -> bool:
             host_lower = (host or "").lower()
-            return host_lower == "localhost" or host_lower.startswith("127.")
+            return host_lower in {"localhost", "::1"} or host_lower.startswith("127.")
 
         dashboard_binding = {
             "host": config.dashboard_host,

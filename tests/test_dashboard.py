@@ -955,8 +955,11 @@ class TestStartStop:
     ) -> None:
         from dashboard import HydraFlowDashboard
 
-        config.dashboard_host = "0.0.0.0"
-        dashboard = HydraFlowDashboard(config, event_bus, state)
+        host_config = ConfigFactory.create(
+            dashboard_host="0.0.0.0",
+            dashboard_port=config.dashboard_port,
+        )
+        dashboard = HydraFlowDashboard(host_config, event_bus, state)
 
         mock_server = AsyncMock()
         mock_server.serve = AsyncMock(return_value=None)

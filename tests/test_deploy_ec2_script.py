@@ -56,9 +56,10 @@ def _prepare_doctor_environment(
     return env
 
 
-def _write_fake_curl(response: str) -> Path:
-    """Create a fake curl binary under the repo root so it can execute."""
-    fd, path = tempfile.mkstemp(prefix="fake-curl-", suffix=".sh", dir=REPO_ROOT)
+def _write_fake_curl(response: str, tmp_dir: Path | None = None) -> Path:
+    """Create a fake curl binary in tmp_dir (or a system temp dir)."""
+    target_dir = tmp_dir if tmp_dir is not None else Path(tempfile.gettempdir())
+    fd, path = tempfile.mkstemp(prefix="fake-curl-", suffix=".sh", dir=target_dir)
     fake = Path(path)
     with os.fdopen(fd, "w") as fh:
         fh.write(
@@ -82,7 +83,7 @@ def _write_sequence_curl(
     responses_file = tmp_path / "curl-responses.txt"
     responses_file.write_text("\n".join(responses))
     counter_file = tmp_path / "curl-counter.txt"
-    fd, path = tempfile.mkstemp(prefix="fake-seq-curl-", suffix=".sh", dir=REPO_ROOT)
+    fd, path = tempfile.mkstemp(prefix="fake-seq-curl-", suffix=".sh", dir=tmp_path)
     os.close(fd)
     script_path = Path(path)
     script_path.write_text(
@@ -176,7 +177,7 @@ def test_install_action_invokes_systemctl_when_allowed(tmp_path):
 
 def test_health_command_uses_curl_and_prints_payload(tmp_path: Path) -> None:
     """`health` should hit the configured URL and surface the JSON payload."""
-    fake_curl = _write_fake_curl('{"ready": true, "status": "ok"}')
+    fake_curl = _write_fake_curl('{"ready": true, "status": "ok"}', tmp_path)
     log_file = tmp_path / "curl.log"
     env = os.environ.copy()
     env.update(
@@ -187,17 +188,14 @@ def test_health_command_uses_curl_and_prints_payload(tmp_path: Path) -> None:
         }
     )
 
-    try:
-        result = subprocess.run(
-            ["bash", str(SCRIPT_PATH), "health"],
-            cwd=REPO_ROOT,
-            env=env,
-            check=True,
-            text=True,
-            capture_output=True,
-        )
-    finally:
-        fake_curl.unlink(missing_ok=True)
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "health"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
 
     assert '"ready": true' in result.stdout
     assert "ready=true" in result.stdout
@@ -206,7 +204,7 @@ def test_health_command_uses_curl_and_prints_payload(tmp_path: Path) -> None:
 
 def test_health_command_can_fail_when_not_ready(tmp_path: Path) -> None:
     """When readiness is enforced, non-ready payloads should exit non-zero."""
-    fake_curl = _write_fake_curl('{"ready": false, "status": "degraded"}')
+    fake_curl = _write_fake_curl('{"ready": false, "status": "degraded"}', tmp_path)
     env = os.environ.copy()
     env.update(
         {
@@ -216,17 +214,14 @@ def test_health_command_can_fail_when_not_ready(tmp_path: Path) -> None:
         }
     )
 
-    try:
-        result = subprocess.run(
-            ["bash", str(SCRIPT_PATH), "health"],
-            cwd=REPO_ROOT,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-    finally:
-        fake_curl.unlink(missing_ok=True)
+    result = subprocess.run(
+        ["bash", str(SCRIPT_PATH), "health"],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
     assert result.returncode != 0
     assert "Service is not ready" in result.stdout
