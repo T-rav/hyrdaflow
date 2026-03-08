@@ -3549,6 +3549,43 @@ class TestPollingLoopExceptionClassification:
         assert alert_events[0].data["consecutive_failures"] == max_failures
 
     @pytest.mark.asyncio
+    async def test_circuit_breaker_fires_exactly_once_beyond_threshold(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """SYSTEM_ALERT fires exactly once (at threshold), not on every subsequent failure."""
+        orch = HydraFlowOrchestrator(config)
+        published: list[HydraFlowEvent] = []
+        original_publish = orch._bus.publish
+
+        async def capture_publish(event: HydraFlowEvent) -> None:
+            published.append(event)
+            await original_publish(event)
+
+        orch._bus.publish = capture_publish  # type: ignore[method-assign]
+        call_count = 0
+        max_failures = 2
+
+        async def always_fail() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count > max_failures + 2:
+                orch._stop_event.set()
+                return
+            raise RuntimeError("always fails")
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop(
+            "test", always_fail, 10, max_consecutive_failures=max_failures
+        )
+
+        # Should fire exactly once despite 4 total failures beyond threshold
+        alert_events = [e for e in published if e.type == EventType.SYSTEM_ALERT]
+        assert len(alert_events) == 1
+
+    @pytest.mark.asyncio
     async def test_success_resets_failure_counter(
         self, config: HydraFlowConfig
     ) -> None:

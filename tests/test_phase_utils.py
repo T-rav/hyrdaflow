@@ -648,7 +648,7 @@ class TestIsLikelyBug:
             OSError("disk full"),
             TimeoutError("timed out"),
             ConnectionError("lost"),
-            OSError("io fail"),
+            PermissionError("access denied"),
         ],
     )
     def test_transient_exceptions_not_bugs(self, exc: BaseException) -> None:

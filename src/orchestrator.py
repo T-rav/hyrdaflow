@@ -1006,7 +1006,8 @@ class HydraFlowOrchestrator:
                     last_exc_type = exc_type
 
                 # Use higher severity for likely-bug exceptions
-                if is_likely_bug(exc):
+                exc_is_bug = is_likely_bug(exc)
+                if exc_is_bug:
                     logger.critical(
                         "%s loop hit likely bug (%s) — will retry but "
                         "this probably needs a code fix",
@@ -1024,7 +1025,7 @@ class HydraFlowOrchestrator:
                     "message": f"{display} loop error",
                     "source": name,
                     "exception_type": exc_type.__name__,
-                    "is_likely_bug": is_likely_bug(exc),
+                    "is_likely_bug": exc_is_bug,
                     "consecutive_failures": consecutive_failures,
                 }
                 await self._bus.publish(
@@ -1034,8 +1035,8 @@ class HydraFlowOrchestrator:
                     )
                 )
 
-                # Circuit breaker: escalate after N consecutive same-type failures
-                if consecutive_failures >= max_consecutive_failures:
+                # Circuit breaker: escalate exactly once when threshold is crossed
+                if consecutive_failures == max_consecutive_failures:
                     logger.critical(
                         "%s loop has failed %d consecutive times with %s "
                         "— escalating via SYSTEM_ALERT",
@@ -1167,11 +1168,19 @@ class HydraFlowOrchestrator:
                     duration_seconds=duration_seconds,
                     log_file=log_file,
                 )
-            except Exception:
-                logger.exception(
-                    "Failed to post transcript summary for issue #%d",
-                    issue_number,
-                )
+            except Exception as exc:
+                if is_likely_bug(exc):
+                    logger.critical(
+                        "Failed to post transcript summary for issue #%d — likely bug (%s)",
+                        issue_number,
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception(
+                        "Failed to post transcript summary for issue #%d",
+                        issue_number,
+                    )
 
     def _log_reference(self, filename: str) -> str:
         """Return a repo- or data-relative log reference for display."""
