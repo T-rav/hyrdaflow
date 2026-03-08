@@ -94,9 +94,9 @@ dry-run:
 	@echo "$(GREEN)Dry run session exited$(RESET)"
 
 clean:
-	@echo "$(YELLOW)Requesting cleanup via HydraFlow API...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/call_api.py --port $(PORT) POST /api/admin/clean
-	@echo "$(GREEN)Cleanup request finished$(RESET)"
+	@echo "$(YELLOW)Cleaning up all HydraFlow worktrees and state...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py clean
+	@echo "$(GREEN)Cleanup finished$(RESET)"
 
 status:
 	@echo "$(BLUE)HydraFlow State:$(RESET)"
@@ -293,6 +293,7 @@ setup: deps
 	fi
 	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels || echo "$(YELLOW)  Label sync skipped (check gh auth and repo access)$(RESET)"
 	@echo "$(BLUE)Detecting local agent assets (Claude/Codex/Pi)...$(RESET)"
 	@if [ -d "$(PROJECT_ROOT)/.claude/hooks" ]; then \
 		for HOOK in "$(PROJECT_ROOT)"/.claude/hooks/*.sh; do \
@@ -380,13 +381,13 @@ prep: deps
 	@echo "$(BLUE)Ensuring target repo has latest agent assets first...$(RESET)"
 	@$(MAKE) setup TARGET_REPO_ROOT="$(TARGET_REPO_ROOT)"
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/call_api.py --port $(PORT) POST /api/admin/prep
-	@echo "$(GREEN)Prep task triggered via API$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py prep
+	@echo "$(GREEN)Prep complete$(RESET)"
 
 ensure-labels: deps
 	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/call_api.py --port $(PORT) POST /api/admin/prep
-	@echo "$(GREEN)Label sync requested via API$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels
+	@echo "$(GREEN)Label sync complete$(RESET)"
 
 hot:
 	@echo "$(BLUE)Sending config update to running HydraFlow instance on :$(PORT)...$(RESET)"

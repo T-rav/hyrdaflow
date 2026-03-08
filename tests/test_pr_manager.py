@@ -1972,8 +1972,8 @@ async def test_ensure_labels_exist_handles_individual_failures(event_bus, tmp_pa
     assert create_count == len(PRManager._HYDRAFLOW_LABELS)
 
 
-def test_makefile_ensure_labels_calls_admin_prep() -> None:
-    """Makefile ensure-labels target should invoke the admin prep API."""
+def test_makefile_ensure_labels_calls_dedicated_task() -> None:
+    """Makefile ensure-labels target should invoke the label-only admin task directly."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1984,13 +1984,16 @@ def test_makefile_ensure_labels_calls_admin_prep() -> None:
     match = re.search(r"^ensure-labels:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "ensure-labels target block not found in Makefile"
     block = match.group(1)
-    assert "scripts/call_api.py" in block and "/api/admin/prep" in block, (
-        "ensure-labels target must call the admin prep endpoint via call_api.py"
+    assert "run_admin_task.py" in block and "ensure-labels" in block, (
+        "ensure-labels target must invoke scripts/run_admin_task.py ensure-labels directly"
+    )
+    assert "/api/admin/prep" not in block, (
+        "ensure-labels must not call the full /api/admin/prep endpoint"
     )
 
 
 def test_makefile_prep_runs_cli_scaffold() -> None:
-    """Makefile prep target should call ``cli.py --prep``."""
+    """Makefile prep target should run setup then invoke the prep task directly."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -2003,9 +2006,9 @@ def test_makefile_prep_runs_cli_scaffold() -> None:
     assert "$(MAKE) setup" in match.group(1), (
         "prep target must run setup first to bootstrap agent assets"
     )
-    assert "scripts/call_api.py --port $(PORT) POST /api/admin/prep" in match.group(
-        1
-    ), "prep target must call admin prep API"
+    assert "run_admin_task.py" in match.group(1) and "prep" in match.group(1), (
+        "prep target must invoke scripts/run_admin_task.py prep directly (no server required)"
+    )
 
 
 def test_makefile_setup_runs_label_bootstrap() -> None:

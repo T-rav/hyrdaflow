@@ -21,7 +21,7 @@ from fastapi import APIRouter, Body, Query, Response, WebSocket, WebSocketDiscon
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
-from admin_tasks import TaskResult, run_clean, run_prep, run_scaffold
+from admin_tasks import TaskResult, run_clean, run_ensure_labels, run_prep, run_scaffold
 from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
@@ -1619,6 +1619,12 @@ def create_router(
         repo: str | None = Query(default=None, description="Repo slug to target"),
     ) -> JSONResponse:
         return await _execute_admin_task("clean", run_clean, repo)
+
+    @router.post("/api/admin/ensure-labels")
+    async def admin_ensure_labels(
+        repo: str | None = Query(default=None, description="Repo slug to target"),
+    ) -> JSONResponse:
+        return await _execute_admin_task("ensure-labels", run_ensure_labels, repo)
 
     # Mutable fields that can be changed at runtime via PATCH
     _MUTABLE_FIELDS = {

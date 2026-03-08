@@ -21,6 +21,7 @@ from admin_tasks import (
     _project_has_test_signal,
     _save_prep_coverage_floor,
     run_clean,
+    run_ensure_labels,
     run_prep,
     run_scaffold,
 )
@@ -368,3 +369,77 @@ class TestRunCleanTask:
         assert result.success is True
         assert worktrees and worktrees[0].destroy_calls == 1
         assert states and states[0].reset_called is True
+
+
+class TestRunEnsureLabels:
+    """Tests for the async run_ensure_labels helper."""
+
+    @pytest.mark.asyncio
+    async def test_run_ensure_labels_success(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = ConfigFactory.create()
+
+        class FakePrepResult:
+            failed = False
+
+            def summary(self) -> str:
+                return "Labels synced"
+
+        monkeypatch.setattr(
+            "prep.ensure_labels", AsyncMock(return_value=FakePrepResult())
+        )
+
+        result = await run_ensure_labels(config)
+
+        assert result.success is True
+        assert any("label sync complete" in line for line in result.log)
+        assert result.warnings == []
+
+    @pytest.mark.asyncio
+    async def test_run_ensure_labels_failure_records_warning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = ConfigFactory.create()
+
+        class FakePrepResult:
+            failed = True
+
+            def summary(self) -> str:
+                return "Label sync failed"
+
+        monkeypatch.setattr(
+            "prep.ensure_labels", AsyncMock(return_value=FakePrepResult())
+        )
+
+        result = await run_ensure_labels(config)
+
+        assert result.success is False
+        assert "Label sync completed with failures." in result.warnings
+
+    @pytest.mark.asyncio
+    async def test_run_ensure_labels_does_not_run_audit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ensure-labels must not invoke RepoAuditor or seed context assets."""
+        config = ConfigFactory.create()
+
+        class FakePrepResult:
+            failed = False
+
+            def summary(self) -> str:
+                return "Labels synced"
+
+        monkeypatch.setattr(
+            "prep.ensure_labels", AsyncMock(return_value=FakePrepResult())
+        )
+        audit_called = []
+        monkeypatch.setattr(
+            "admin_tasks._seed_context_assets",
+            lambda _c: audit_called.append(True) or [],
+            raising=False,
+        )
+
+        await run_ensure_labels(config)
+
+        assert not audit_called, "run_ensure_labels must not seed context assets"

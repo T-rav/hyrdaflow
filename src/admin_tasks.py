@@ -611,6 +611,28 @@ async def run_scaffold(config: HydraFlowConfig) -> TaskResult:
     return TaskResult(success=True, log=log, warnings=warnings)
 
 
+async def run_ensure_labels(config: HydraFlowConfig) -> TaskResult:
+    """Sync HydraFlow lifecycle labels only (no repo audit or context seeding)."""
+    from prep import ensure_labels  # noqa: PLC0415
+
+    log: list[str] = []
+    warnings: list[str] = []
+
+    log.append(_prep_stage_line("labels", "syncing lifecycle labels", "start"))
+    result = await ensure_labels(config)
+    summary = result.summary()
+    log.append(f"[dry-run] {summary}" if config.dry_run else summary)
+    if result.failed:
+        warnings.append("Label sync completed with failures.")
+        log.append(
+            _prep_stage_line("labels", "label sync completed with failures", "fail")
+        )
+    else:
+        log.append(_prep_stage_line("labels", "label sync complete", "ok"))
+
+    return TaskResult(success=not result.failed, log=log, warnings=warnings)
+
+
 async def run_clean(config: HydraFlowConfig) -> TaskResult:
     """Remove all worktrees and reset state."""
     from state import StateTracker  # noqa: PLC0415
@@ -631,6 +653,7 @@ async def run_clean(config: HydraFlowConfig) -> TaskResult:
 __all__ = [
     "TaskResult",
     "run_clean",
+    "run_ensure_labels",
     "run_prep",
     "run_scaffold",
 ]
