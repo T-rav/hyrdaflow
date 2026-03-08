@@ -20,7 +20,6 @@ from review_insights import (
     extract_categories,
     get_common_feedback_section,
     get_escalation_data,
-    get_recurring_feedback_alerts,
 )
 
 # ---------------------------------------------------------------------------
@@ -386,34 +385,6 @@ class TestGetCommonFeedbackSection:
         section = get_common_feedback_section(records)
         assert "naming" in section.lower() or "Poor naming" in section
         assert "Action:" not in section
-
-
-class TestGetRecurringFeedbackAlerts:
-    """Tests for get_recurring_feedback_alerts()."""
-
-    def test_returns_section_when_threshold_met(self) -> None:
-        records = [
-            _make_record(pr_number=i, categories=["missing_tests"]) for i in range(3)
-        ]
-        section = get_recurring_feedback_alerts(records, threshold=3)
-        assert "## Recurring Review Insights" in section
-        assert "Missing or insufficient test coverage" in section
-        assert "flagged in 3 of the last 3" in section
-
-    def test_includes_action_hint(self) -> None:
-        records = [
-            _make_record(pr_number=i, categories=["missing_tests"]) for i in range(3)
-        ]
-        section = get_recurring_feedback_alerts(records, threshold=3)
-        assert "Action:" in section
-        assert "failure/error paths" in section
-
-    def test_returns_empty_when_below_threshold(self) -> None:
-        records = [
-            _make_record(pr_number=i, categories=["missing_tests"]) for i in range(2)
-        ]
-        section = get_recurring_feedback_alerts(records, threshold=3)
-        assert section == ""
 
 
 # ---------------------------------------------------------------------------

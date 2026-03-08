@@ -328,10 +328,10 @@ class TestBuildPrompt:
         assert "## Common Review Feedback" in prompt
         assert "Missing or insufficient test coverage" in prompt
 
-    def test_prompt_includes_recurring_insights_when_threshold_met(
+    def test_prompt_includes_escalation_block_when_threshold_met(
         self, config, event_bus: EventBus, issue
     ) -> None:
-        """Prompt should include Recurring Review Insights when patterns exceed threshold."""
+        """Prompt should include mandatory escalation block when patterns exceed threshold."""
         from review_insights import ReviewInsightStore, ReviewRecord
 
         store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
@@ -353,7 +353,7 @@ class TestBuildPrompt:
         assert "Mandatory Requirements: Test Coverage" in prompt
         assert "missing or insufficient test coverage" in prompt
 
-    def test_prompt_omits_recurring_insights_below_threshold(
+    def test_prompt_omits_escalation_below_threshold(
         self, config, event_bus: EventBus, issue
     ) -> None:
         from review_insights import ReviewInsightStore, ReviewRecord
@@ -375,7 +375,7 @@ class TestBuildPrompt:
 
         runner = AgentRunner(config, event_bus)
         prompt = runner._build_prompt(issue)
-        assert "## Recurring Review Insights" not in prompt
+        assert "Mandatory Requirements" not in prompt
 
     def test_prompt_works_without_review_data(
         self, config, event_bus: EventBus, issue

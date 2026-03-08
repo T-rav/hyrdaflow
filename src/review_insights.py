@@ -364,46 +364,6 @@ def get_common_feedback_section(
     return "\n".join(lines)
 
 
-def get_recurring_feedback_alerts(
-    records: list[ReviewRecord],
-    threshold: int = 3,
-    top_n: int = 3,
-) -> str:
-    """Build a high-priority alert section for recurring review insights.
-
-    Highlights feedback categories that met or exceeded *threshold* frequency
-    within the recent non-APPROVE reviews. Returns an empty string when no
-    recurring patterns are detected.
-    """
-
-    patterns = analyze_patterns(records, threshold)
-    if not patterns:
-        return ""
-
-    non_approve_total = len([r for r in records if r.verdict != ReviewVerdict.APPROVE])
-    if non_approve_total == 0:
-        return ""
-
-    lines = [
-        "\n## Recurring Review Insights",
-        "These categories triggered improvement issues. Treat them as blocking risks:",
-    ]
-
-    for category, count, _evidence in patterns[:top_n]:
-        desc = CATEGORY_DESCRIPTIONS.get(category, category)
-        hint = CATEGORY_REMEDIATION.get(category, "")
-        lines.append(
-            "- Pay special attention to **"
-            + desc
-            + "**. This has been flagged in "
-            + f"{count} of the last {non_approve_total} non-APPROVE reviews."
-        )
-        if hint:
-            lines.append(f"  Action: {hint}")
-
-    return "\n".join(lines)
-
-
 def get_escalation_data(
     records: list[ReviewRecord],
     top_n: int = 3,
