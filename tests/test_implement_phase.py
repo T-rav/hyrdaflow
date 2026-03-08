@@ -477,6 +477,31 @@ class TestWorktreeCreationFailure:
         mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
 
     @pytest.mark.asyncio
+    async def test_review_feedback_resets_worktree_to_main(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When review feedback exists (no prior error), worktree should still reset."""
+        from state import StateTracker
+
+        issue = TaskFactory.create(id=99)
+        state = StateTracker(config.state_file)
+        # Set review feedback with no prior error (successful attempt, rejected by reviewer)
+        state.set_review_feedback(99, "Please fix the scope creep")
+        state.set_worker_result_meta(99, {"error": None, "commits": 3})
+        state.increment_issue_attempts(99)
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+
+        wt_path = config.worktree_path_for_issue(99)
+        wt_path.mkdir(parents=True, exist_ok=True)
+        phase._state = state
+
+        results, _ = await phase.run_batch()
+
+        # Verify workspace manager's reset_to_main was called even with no prior error
+        mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
+
+    @pytest.mark.asyncio
     async def test_stop_event_cancels_remaining_workers(
         self, config: HydraFlowConfig
     ) -> None:

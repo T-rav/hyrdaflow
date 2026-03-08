@@ -35,7 +35,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("gh_max_retries", "HYDRAFLOW_GH_MAX_RETRIES", 3),
     ("gh_api_concurrency", "HYDRAFLOW_GH_API_CONCURRENCY", 5),
     ("max_issue_attempts", "HYDRAFLOW_MAX_ISSUE_ATTEMPTS", 3),
-    ("max_tdd_red_attempts", "HYDRAFLOW_MAX_TDD_RED_ATTEMPTS", 2),
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
     ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
     ("max_merge_conflict_fix_attempts", "HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", 3),
@@ -331,12 +330,6 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=5,
         description="Max fix attempts for CI timeout (hanging test) failures",
-    )
-    max_tdd_red_attempts: int = Field(
-        default=2,
-        ge=1,
-        le=5,
-        description="Max TDD red phase internal retry attempts before hard-failing",
     )
     max_issue_attempts: int = Field(
         default=3,

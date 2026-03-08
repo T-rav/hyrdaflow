@@ -310,7 +310,7 @@ class ImplementPhase:
                 )
                 try:
                     await self._worktrees.reset_to_main(wt_path)
-                except RuntimeError:
+                except Exception:
                     logger.warning(
                         "Worktree reset failed for issue #%d — continuing with existing state",
                         issue.id,
@@ -369,7 +369,9 @@ class ImplementPhase:
         # Retrieve prior failure context for retry feedback
         last_meta = self._state.get_worker_result_meta(issue.id)
         prior_failure = ""
-        reset_for_retry = False
+        reset_for_retry = bool(
+            review_feedback
+        )  # always reset for review-feedback retries
         if last_meta:
             prior_error = last_meta.get("error") or ""
             if prior_error:
