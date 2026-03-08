@@ -18,7 +18,7 @@ class EventRepository:
     def append(self, event_type: str, payload: dict) -> None:
         """Insert a new event."""
         self.db.execute(
-            "INSERT INTO events (event_type, payload_json) VALUES (%s, %s)",
+            "INSERT INTO events (event_type, data_json) VALUES (%s, %s)",
             (event_type, json.dumps(payload)),
         )
 
@@ -28,17 +28,35 @@ class EventRepository:
         """Return recent events, optionally filtered by type."""
         if event_type:
             rows = self.db.fetchall(
-                "SELECT id, event_type, payload_json, created_at "
+                "SELECT id, event_type, data_json, timestamp "
                 "FROM events WHERE event_type = %s "
                 "ORDER BY id DESC LIMIT %s",
                 (event_type, limit),
             )
         else:
             rows = self.db.fetchall(
-                "SELECT id, event_type, payload_json, created_at "
+                "SELECT id, event_type, data_json, timestamp "
                 "FROM events ORDER BY id DESC LIMIT %s",
                 (limit,),
             )
+        return [
+            {
+                "id": r[0],
+                "event_type": r[1],
+                "payload": json.loads(r[2]) if r[2] else {},
+                "created_at": r[3],
+            }
+            for r in rows
+        ]
+
+    def query_since(self, since_iso: str, limit: int = 5000) -> list[dict[str, Any]]:
+        """Return events since *since_iso* timestamp."""
+        rows = self.db.fetchall(
+            "SELECT id, event_type, data_json, timestamp "
+            "FROM events WHERE timestamp >= %s "
+            "ORDER BY id ASC LIMIT %s",
+            (since_iso, limit),
+        )
         return [
             {
                 "id": r[0],

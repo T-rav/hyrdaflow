@@ -92,19 +92,27 @@ class DoltConnection:
     # Low-level SQL execution
     # ------------------------------------------------------------------
 
-    def _exec_sql(self, query: str, params: tuple[Any, ...] | None = None) -> str:
+    def _exec_sql(
+        self, query: str, params: tuple[Any, ...] | None = None, *, timeout: int = 30
+    ) -> str:
         """Execute SQL via ``dolt sql -q`` and return raw stdout.
 
         Parameters are interpolated safely using Python string formatting
         with proper escaping for SQL values.
         """
         final_query = self._interpolate(query, params) if params else query
-        result = subprocess.run(
-            ["dolt", "sql", "-q", final_query, "-r", "json"],
-            check=False, cwd=self.dolt_dir,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["dolt", "sql", "-q", final_query, "-r", "json"],
+                check=False, cwd=self.dolt_dir,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"dolt sql timed out after {timeout}s\nQuery: {final_query}"
+            ) from exc
         if result.returncode != 0:
             stderr = result.stderr.strip()
             # Ignore "nothing to commit" errors
@@ -211,6 +219,7 @@ class DoltConnection:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
+            logger.warning("Failed to parse Dolt JSON output: %s", raw[:200])
             return []
         # dolt sql -r json returns {"rows": [...]} for SELECT queries
         if isinstance(data, dict) and "rows" in data:

@@ -18,14 +18,14 @@ class ReviewRecordRepository:
     def append(self, record: dict) -> None:
         """Insert a new review record."""
         self.db.execute(
-            "INSERT INTO review_records (record_json) VALUES (%s)",
+            "INSERT INTO review_records (data_json) VALUES (%s)",
             (json.dumps(record),),
         )
 
     def query(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return recent review records."""
         rows = self.db.fetchall(
-            "SELECT id, record_json, created_at "
+            "SELECT id, data_json, timestamp "
             "FROM review_records ORDER BY id DESC LIMIT %s",
             (limit,),
         )
@@ -48,14 +48,14 @@ class HarnessFailureRepository:
     def append(self, failure: dict) -> None:
         """Insert a new harness failure record."""
         self.db.execute(
-            "INSERT INTO harness_failures (failure_json) VALUES (%s)",
+            "INSERT INTO harness_failures (data_json) VALUES (%s)",
             (json.dumps(failure),),
         )
 
     def query(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return recent harness failures."""
         rows = self.db.fetchall(
-            "SELECT id, failure_json, created_at "
+            "SELECT id, data_json, timestamp "
             "FROM harness_failures ORDER BY id DESC LIMIT %s",
             (limit,),
         )
@@ -78,14 +78,14 @@ class RetrospectiveRepository:
     def append(self, retrospective: dict) -> None:
         """Insert a new retrospective."""
         self.db.execute(
-            "INSERT INTO retrospectives (retrospective_json) VALUES (%s)",
+            "INSERT INTO retrospectives (data_json) VALUES (%s)",
             (json.dumps(retrospective),),
         )
 
     def query(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return recent retrospectives."""
         rows = self.db.fetchall(
-            "SELECT id, retrospective_json, created_at "
+            "SELECT id, data_json, timestamp "
             "FROM retrospectives ORDER BY id DESC LIMIT %s",
             (limit,),
         )

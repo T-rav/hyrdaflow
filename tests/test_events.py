@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -464,78 +462,78 @@ class TestEventBusClear:
 
 
 # ---------------------------------------------------------------------------
-# Slow subscriber (queue full -> drop oldest)
+# Subscriber never loses events (unbounded queues)
 # ---------------------------------------------------------------------------
 
 
-class TestEventBusSlowSubscriber:
+class TestEventBusSubscriberNeverLosesEvents:
     @pytest.mark.asyncio
-    async def test_full_queue_does_not_block_publish(self) -> None:
-        """Publishing to a full subscriber queue should not raise or block."""
+    async def test_default_subscriber_receives_all_events(self) -> None:
+        """Default (unbounded) subscriber queue never drops events."""
         bus = EventBus()
-        queue = bus.subscribe(max_queue=2)
+        queue = bus.subscribe()
 
-        # Fill the queue
-        for i in range(5):
+        for i in range(100):
             await bus.publish(
                 EventFactory.create(type=EventType.TRANSCRIPT_LINE, data={"i": i})
             )
 
-        # Queue should still have exactly max_queue items
-        assert queue.qsize() == 2
+        assert queue.qsize() == 100
 
     @pytest.mark.asyncio
-    async def test_full_queue_drops_oldest_and_keeps_newest(self) -> None:
-        """When a subscriber's queue is full, the oldest event is dropped."""
+    async def test_subscriber_queue_unbounded_by_default(self) -> None:
+        """Default subscribe() creates an unbounded queue (maxsize=0)."""
         bus = EventBus()
-        queue = bus.subscribe(max_queue=2)
-
-        events = [
-            EventFactory.create(type=EventType.WORKER_UPDATE, data={"n": i})
-            for i in range(4)
-        ]
-        for event in events:
-            await bus.publish(event)
-
-        # We published 4 events into a queue of size 2.
-        # The bus drops the oldest to make room for the newest, so we expect
-        # the two most-recently delivered events.
-        items = [queue.get_nowait(), queue.get_nowait()]
-        assert len(items) == 2
-        # The last event published must be present
-        assert events[-1] in items
+        queue = bus.subscribe()
+        assert queue.maxsize == 0
 
     @pytest.mark.asyncio
-    async def test_slow_subscriber_does_not_affect_other_subscribers(self) -> None:
-        """A full slow subscriber must not prevent a normal subscriber from receiving."""
+    async def test_all_subscribers_receive_all_events(self) -> None:
+        """Multiple subscribers all receive every event without loss."""
         bus = EventBus()
-        bus.subscribe(max_queue=1)
-        fast_queue = bus.subscribe(max_queue=100)
+        q1 = bus.subscribe()
+        q2 = bus.subscribe()
+        q3 = bus.subscribe()
 
-        # Overflow the slow queue
         events = [
             EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": i})
-            for i in range(5)
+            for i in range(50)
         ]
         for event in events:
             await bus.publish(event)
 
-        # Fast queue should have received all 5 events
-        assert fast_queue.qsize() == 5
+        assert q1.qsize() == 50
+        assert q2.qsize() == 50
+        assert q3.qsize() == 50
 
     @pytest.mark.asyncio
-    async def test_history_unaffected_by_slow_subscriber(self) -> None:
-        """Dropped events in a subscriber queue do not affect the history."""
+    async def test_history_unaffected_by_subscriber_count(self) -> None:
+        """History records all events regardless of subscriber count."""
         bus = EventBus()
-        bus.subscribe(max_queue=1)  # tiny queue - will drop
+        bus.subscribe()
+        bus.subscribe()
 
         for i in range(10):
             await bus.publish(
                 EventFactory.create(type=EventType.TRANSCRIPT_LINE, data={"i": i})
             )
 
-        # History should contain all 10, regardless of subscriber drops
         assert len(bus.get_history()) == 10
+
+    @pytest.mark.asyncio
+    async def test_large_queue_depth_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """When subscriber queue depth hits 1000, a warning is logged."""
+        bus = EventBus()
+        queue = bus.subscribe()
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+            for i in range(1001):
+                await bus.publish(
+                    EventFactory.create(type=EventType.TRANSCRIPT_LINE, data={"i": i})
+                )
+
+        assert queue.qsize() == 1001
+        assert "queue depth 1000" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -624,3 +622,89 @@ class TestCounterAdvance:
         second = next(counter)
         assert first == 10
         assert second == 11
+
+
+# ---------------------------------------------------------------------------
+# Dolt event persistence
+# ---------------------------------------------------------------------------
+
+
+class TestEventBusDoltPersistence:
+    @pytest.mark.asyncio
+    async def test_publish_calls_append_event_on_state(self) -> None:
+        """Events are written to Dolt via state.append_event."""
+
+        class FakeState:
+            def __init__(self) -> None:
+                self.events: list[dict] = []
+
+            def append_event(self, event: dict) -> None:
+                self.events.append(event)
+
+        state = FakeState()
+        bus = EventBus(state=state)
+        event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
+        await bus.publish(event)
+
+        assert len(state.events) == 1
+        assert state.events[0]["type"] == "phase_change"
+
+    @pytest.mark.asyncio
+    async def test_publish_tolerates_state_without_append_event(self) -> None:
+        """If state doesn't have append_event, publish still works."""
+
+        class BareState:
+            pass
+
+        bus = EventBus(state=BareState())
+        event = EventFactory.create(type=EventType.ERROR)
+        await bus.publish(event)  # should not raise
+        assert len(bus.get_history()) == 1
+
+    @pytest.mark.asyncio
+    async def test_publish_tolerates_append_event_exception(self) -> None:
+        """If state.append_event raises, publish still delivers to subscribers."""
+
+        class FailState:
+            def append_event(self, event: dict) -> None:
+                raise RuntimeError("DB down")
+
+        bus = EventBus(state=FailState())
+        queue = bus.subscribe()
+        event = EventFactory.create(type=EventType.PHASE_CHANGE)
+        await bus.publish(event)
+
+        assert queue.get_nowait() is event
+
+    @pytest.mark.asyncio
+    async def test_load_history_from_dolt_populates_history(self) -> None:
+        """load_history_from_dolt replays events into in-memory history."""
+
+        class FakeState:
+            def load_recent_events(self, limit: int) -> list[dict]:
+                return [
+                    {"id": 1, "type": "phase_change", "data": {"n": 1}, "timestamp": "2024-01-01T00:00:00+00:00"},
+                    {"id": 2, "type": "error", "data": {"n": 2}, "timestamp": "2024-01-01T00:01:00+00:00"},
+                ]
+
+        bus = EventBus(state=FakeState())
+        await bus.load_history_from_dolt()
+        history = bus.get_history()
+        assert len(history) == 2
+        assert history[0].type == EventType.PHASE_CHANGE
+        assert history[1].type == EventType.ERROR
+
+    @pytest.mark.asyncio
+    async def test_load_history_advances_counter(self) -> None:
+        """After loading, new event IDs exceed historical max."""
+
+        class FakeState:
+            def load_recent_events(self, limit: int) -> list[dict]:
+                return [
+                    {"id": 500, "type": "error", "data": {}, "timestamp": "2024-01-01T00:00:00+00:00"},
+                ]
+
+        bus = EventBus(state=FakeState())
+        await bus.load_history_from_dolt()
+        new_event = HydraFlowEvent(type=EventType.PHASE_CHANGE)
+        assert new_event.id >= 501

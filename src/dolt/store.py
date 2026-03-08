@@ -1731,22 +1731,62 @@ class DoltStore:
         )
 
     # ------------------------------------------------------------------
+    # Review records
+    # ------------------------------------------------------------------
+
+    def append_review_record(self, record: dict[str, Any]) -> None:
+        """Append a review record."""
+        self._review_records.append(record)
+
+    def load_recent_review_records(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return recent review records, newest first."""
+        rows = self._review_records.query(limit)
+        return [r.get("record", r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Harness failures
+    # ------------------------------------------------------------------
+
+    def append_harness_failure(self, record: dict[str, Any]) -> None:
+        """Append a harness failure record."""
+        self._harness_failures.append(record)
+
+    def load_recent_harness_failures(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return recent harness failure records, newest first."""
+        rows = self._harness_failures.query(limit)
+        return [r.get("failure", r) for r in rows]
+
+    # ------------------------------------------------------------------
     # Retrospectives
     # ------------------------------------------------------------------
 
+    def append_retrospective(self, record: dict[str, Any]) -> None:
+        """Append a retrospective record."""
+        self._retrospectives.append(record)
+
     def load_recent_retrospectives(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return recent retrospective records, newest first."""
-        rows = self.db.fetchall(
-            "SELECT data_json, timestamp FROM retrospectives ORDER BY id DESC LIMIT %s",
-            (limit,),
-        )
-        result = []
-        for data_json, ts in rows:
-            parsed = self._json_loads(data_json)
-            if parsed:
-                parsed["_timestamp"] = str(ts) if ts else None
-                result.append(parsed)
-        return result
+        rows = self._retrospectives.query(limit)
+        return [r.get("retrospective", r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Events (for EventBus persistence)
+    # ------------------------------------------------------------------
+
+    def append_event(self, event: dict[str, Any]) -> None:
+        """Append an event for EventBus persistence."""
+        event_type = event.get("type", "unknown")
+        self._events.append(event_type, event)
+
+    def load_recent_events(self, limit: int = 5000) -> list[dict[str, Any]]:
+        """Return recent events for EventBus history replay."""
+        rows = self._events.query(limit=limit)
+        return [r.get("payload", r) for r in rows]
+
+    def load_events_since(self, since_iso: str) -> list[dict[str, Any]]:
+        """Return events since *since_iso* timestamp."""
+        rows = self._events.query_since(since_iso)
+        return [r.get("payload", r) for r in rows]
 
     # ------------------------------------------------------------------
     # Troubleshooting patterns

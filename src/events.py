@@ -123,7 +123,11 @@ class EventBus:
         return self._active_session_id
 
     async def publish(self, event: HydraFlowEvent) -> None:
-        """Publish *event* to all subscribers and append to history."""
+        """Publish *event* to all subscribers and append to history.
+
+        Events are never dropped — subscribers use unbounded queues so
+        no event is removed before the consumer has processed it.
+        """
         if event.session_id is None and getattr(self, "_active_session_id", None):
             event.session_id = self._active_session_id
         if (
@@ -136,13 +140,12 @@ class EventBus:
         if len(self._history) > self._max_history:
             self._history = self._history[-self._max_history :]
         for queue in list(self._subscribers):
-            try:
-                queue.put_nowait(event)
-            except asyncio.QueueFull:
-                # Drop oldest if subscriber is slow
-                with contextlib.suppress(asyncio.QueueEmpty):
-                    queue.get_nowait()
-                queue.put_nowait(event)
+            queue.put_nowait(event)
+            qsize = queue.qsize()
+            if qsize > 0 and qsize % 1000 == 0:
+                logger.warning(
+                    "Subscriber queue depth %d — consumer may be stuck", qsize
+                )
 
         # Write to Dolt
         if self._state and hasattr(self._state, "append_event"):
@@ -180,8 +183,13 @@ class EventBus:
             logger.warning("Failed to load events from Dolt", exc_info=True)
             return None
 
-    def subscribe(self, max_queue: int = 500) -> asyncio.Queue[HydraFlowEvent]:
-        """Return a new queue that will receive future events."""
+    def subscribe(self, max_queue: int = 0) -> asyncio.Queue[HydraFlowEvent]:
+        """Return a new unbounded queue that will receive future events.
+
+        Events are never dropped from subscriber queues — consumers
+        must drain their queue to acknowledge receipt.  *max_queue* is
+        accepted for API compatibility but defaults to 0 (unbounded).
+        """
         queue: asyncio.Queue[HydraFlowEvent] = asyncio.Queue(maxsize=max_queue)
         self._subscribers.append(queue)
         return queue
@@ -193,7 +201,7 @@ class EventBus:
 
     @contextlib.asynccontextmanager
     async def subscription(
-        self, max_queue: int = 500
+        self, max_queue: int = 0
     ) -> AsyncIterator[asyncio.Queue[HydraFlowEvent]]:
         """Async context manager that auto-unsubscribes on exit."""
         queue = self.subscribe(max_queue)
