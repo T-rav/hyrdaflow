@@ -1261,6 +1261,7 @@ def test_build_review_prompt_includes_test_coverage_audit(
     assert "issue requirements" in prompt
     assert "dead code" in prompt
     assert "Failure and error paths" in prompt
+    assert "New branches/conditions" in prompt
 
 
 # ---------------------------------------------------------------------------

@@ -379,6 +379,15 @@ class TestGetCommonFeedbackSection:
         assert "Action:" in section
         assert "empty inputs" in section
 
+    def test_includes_remediation_hint_for_error_handling(self) -> None:
+        """Feedback section should include actionable remediation for error_handling."""
+        records = [
+            _make_record(pr_number=i, categories=["error_handling"]) for i in range(3)
+        ]
+        section = get_common_feedback_section(records)
+        assert "Action:" in section
+        assert "error-path tests" in section
+
     def test_no_remediation_hint_for_unknown_category(self) -> None:
         """Categories without remediation hints should not get an Action line."""
         records = [_make_record(pr_number=i, categories=["naming"]) for i in range(3)]
