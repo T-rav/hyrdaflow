@@ -1372,7 +1372,12 @@ async def _run_main(config: HydraFlowConfig) -> None:
         try:
             runtime = await registry.register(cfg)
         except ValueError:
-            return registry.get(record.slug)
+            existing = registry.get(record.slug)
+            if existing is not None:
+                logger.warning(
+                    "Slug %r already registered; reusing existing runtime", record.slug
+                )
+            return existing
         return runtime
 
     async def _register_existing_records() -> dict[str, RepoRuntime]:
@@ -1495,7 +1500,10 @@ async def _run_main(config: HydraFlowConfig) -> None:
         try:
             await runtime.run()
         finally:
-            await registry.stop_all()
+            # Stop secondary runtimes; primary was already stopped by _shutdown().
+            secondary_stops = [rt.stop() for rt in registry.all if rt is not runtime]
+            if secondary_stops:
+                await asyncio.gather(*secondary_stops, return_exceptions=True)
 
 
 def main(argv: list[str] | None = None) -> None:

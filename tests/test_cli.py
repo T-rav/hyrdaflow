@@ -840,9 +840,9 @@ class TestRunMainSignalHandlers:
         ):
             await _run_main(config)
 
-        # stop() may be called more than once: once by the signal handler
-        # and once by registry.stop_all() in the finally block.
-        assert mock_runtime.stop.call_count >= 1
+        # Primary runtime stop() is called exactly once by the signal handler;
+        # the finally block only stops secondary runtimes.
+        assert mock_runtime.stop.call_count == 1
 
     @pytest.mark.asyncio
     async def test_dashboard_registers_signal_handlers(self) -> None:
