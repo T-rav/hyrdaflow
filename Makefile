@@ -34,7 +34,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-test deps screenshot screenshot-update check-node-ui
+.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-test deps integration soak screenshot screenshot-update check-node-ui
 
 check-node-ui:
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh --version >/dev/null
@@ -43,8 +43,8 @@ help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
 	@echo ""
 	@echo "$(GREEN)Commands:$(RESET)"
-	@echo "  make dev            Start backend + Vite frontend dev server"
-	@echo "  make run            Run HydraFlow (processes issues with agents)"
+	@echo "  make run            Start HydraFlow (backend + Vite frontend dev server)"
+	@echo "  make dev            Alias for make run"
 	@echo "  make dry-run        Dry run (log actions without executing)"
 	@echo "  make clean          Remove all worktrees and state"
 	@echo "  make status         Show current HydraFlow state"
@@ -74,6 +74,7 @@ help:
 	@echo "$(GREEN)Options (make run):$(RESET)"
 	@echo "  PORT             Dashboard port (default: 5555)"
 	@echo "  LOG_DIR          Log directory (default: .hydraflow/logs)"
+	@echo "  WORKERS/MODEL/etc: set via .env or HYDRAFLOW_* env vars; use 'make hot' to update a live instance"
 	@echo ""
 	@echo "$(GREEN)Options (make hot — live config update):$(RESET)"
 	@echo "  WORKERS          Max concurrent agents (default: 3)"
