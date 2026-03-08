@@ -51,11 +51,8 @@ from phase_utils import (
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
 from review_insights import (
-    CATEGORY_DESCRIPTIONS,
     ReviewInsightStore,
     ReviewRecord,
-    analyze_patterns,
-    build_insight_issue_body,
     extract_categories,
 )
 from reviewer import ReviewRunner
@@ -1344,19 +1341,10 @@ class ReviewPhase:
             )
             self._insights.append_review(record)
 
-            recent = self._insights.load_recent(self._config.review_insight_window)
-            patterns = analyze_patterns(recent, self._config.review_pattern_threshold)
-            proposed = self._insights.get_proposed_categories()
-
-            for category, count, evidence in patterns:
-                if category in proposed:
-                    continue
-                body = build_insight_issue_body(category, count, len(recent), evidence)
-                desc = CATEGORY_DESCRIPTIONS.get(category, category)
-                title = f"[Review Insight] Recurring feedback: {desc}"
-                labels = self._config.improve_label[:1]
-                await self._transitioner.create_task(title, body, labels)
-                self._insights.mark_category_proposed(category)
+            await self._bus.publish(HydraFlowEvent(
+                type=EventType.REVIEW_INSIGHT_RECORDED,
+                data=record.model_dump(),
+            ))
         except Exception:  # noqa: BLE001
             status = "error"
             details["error"] = "review insight recording failed"

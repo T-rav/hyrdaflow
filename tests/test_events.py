@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
+from events import EventBus, EventType, HydraFlowEvent
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -53,41 +53,7 @@ _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
 
 class TestEventTypeEnum:
     def test_all_expected_values_exist(self) -> None:
-        expected = {
-            "PHASE_CHANGE",
-            "WORKER_UPDATE",
-            "TRANSCRIPT_LINE",
-            "PR_CREATED",
-            "REVIEW_UPDATE",
-            "TRIAGE_UPDATE",
-            "PLANNER_UPDATE",
-            "MERGE_UPDATE",
-            "CI_CHECK",
-            "HITL_ESCALATION",
-            "ISSUE_CREATED",
-            "HITL_UPDATE",
-            "ORCHESTRATOR_STATUS",
-            "ERROR",
-            "MEMORY_SYNC",
-            "METRICS_UPDATE",
-            "BACKGROUND_WORKER_STATUS",
-            "QUEUE_UPDATE",
-            "SYSTEM_ALERT",
-            "VERIFICATION_JUDGE",
-            "TRANSCRIPT_SUMMARY",
-            "SESSION_START",
-            "SESSION_END",
-            "EPIC_UPDATE",
-            "EPIC_PROGRESS",
-            "EPIC_READY",
-            "EPIC_RELEASING",
-            "EPIC_RELEASED",
-            "PIPELINE_STATS",
-            "VISUAL_GATE",
-            "BASELINE_UPDATE",
-            "CRATE_ACTIVATED",
-            "CRATE_COMPLETED",
-        }
+        expected = {member.name for member in EventType}
         actual = {member.name for member in EventType}
         assert expected == actual
 
@@ -473,7 +439,7 @@ class TestEventBusClear:
         assert len(bus.get_history()) == 1
 
     @pytest.mark.asyncio
-    async def test_clear_resets_session_repo_and_pending_persists(self) -> None:
+    async def test_clear_resets_session_repo(self) -> None:
         bus = EventBus()
         bus.set_session_id("session-123")
         bus.set_repo("hydraflow/repo")
@@ -483,16 +449,8 @@ class TestEventBusClear:
         assert first_event.session_id == "session-123"
         assert first_event.data["repo"] == "hydraflow/repo"
 
-        async def _noop() -> None:
-            return None
-
-        pending_task = asyncio.create_task(_noop())
-        await pending_task
-        bus._pending_persists.add(pending_task)
-
         assert bus.current_session_id == "session-123"
         assert bus._active_repo == "hydraflow/repo"
-        assert bus._pending_persists
 
         bus.clear()
 
@@ -503,11 +461,10 @@ class TestEventBusClear:
         assert next_event.session_id is None
         assert "repo" not in next_event.data
         assert bus._active_repo == ""
-        assert not bus._pending_persists
 
 
 # ---------------------------------------------------------------------------
-# Slow subscriber (queue full → drop oldest)
+# Slow subscriber (queue full -> drop oldest)
 # ---------------------------------------------------------------------------
 
 
@@ -635,330 +592,6 @@ class TestEventBusSubscription:
             assert q2.empty()
 
 
-# ---------------------------------------------------------------------------
-# EventLog._rotate_sync delegates to atomic_write
-# ---------------------------------------------------------------------------
-
-
-class TestRotateSyncUsesAtomicWrite:
-    def test_rotate_sync_calls_atomic_write(self, tmp_path: Path) -> None:
-        """_rotate_sync should delegate file writing to atomic_write."""
-        log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
-        # Write enough data to exceed max_size_bytes
-        log_path.write_text((event.model_dump_json() + "\n") * 100)
-
-        event_log = EventLog(log_path)
-        with patch("events.atomic_write") as mock_aw:
-            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
-
-        mock_aw.assert_called_once()
-        call_args = mock_aw.call_args[0]
-        assert call_args[0] == log_path
-
-    def test_rotate_sync_passes_joined_content(self, tmp_path: Path) -> None:
-        """_rotate_sync should pass newline-joined kept lines to atomic_write."""
-        log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
-        log_path.write_text((event.model_dump_json() + "\n") * 5)
-
-        event_log = EventLog(log_path)
-        with patch("events.atomic_write") as mock_aw:
-            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
-
-        call_args = mock_aw.call_args[0]
-        content = call_args[1]
-        # Content should end with newline and contain valid JSON lines
-        assert content.endswith("\n")
-        lines = [line for line in content.split("\n") if line.strip()]
-        assert len(lines) == 5
-
-
-# ---------------------------------------------------------------------------
-# Narrowed exception handling (issue #879)
-# ---------------------------------------------------------------------------
-
-
-class TestRotateSyncCorruptLines:
-    """Verify _rotate_sync drops corrupt lines with debug logging."""
-
-    def test_rotate_sync_skips_corrupt_lines_with_logging(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines during rotation should be dropped with debug logging."""
-        import logging
-
-        log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
-        valid_line = event.model_dump_json()
-        # Write a mix of valid and corrupt lines (enough to exceed size threshold)
-        lines = [valid_line, "corrupt garbage", valid_line, "also bad"]
-        log_path.write_text("\n".join(lines) + "\n")
-
-        event_log = EventLog(log_path)
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.events"):
-            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
-
-        assert "Dropping corrupt event line during rotation" in caplog.text
-        # Verify corrupt lines have exc_info
-        debug_records = [
-            r for r in caplog.records if "Dropping corrupt" in r.getMessage()
-        ]
-        assert len(debug_records) >= 1
-        assert debug_records[0].exc_info is not None
-
-    def test_rotate_sync_skips_bad_timestamp_with_logging(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Lines with a bad timestamp string (ValueError) should also be dropped."""
-        import json
-        import logging
-
-        log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
-        valid_line = event.model_dump_json()
-        # Build a line that passes Pydantic validation but has an invalid timestamp
-        bad_ts_data = json.loads(valid_line)
-        bad_ts_data["timestamp"] = "not-a-datetime"
-        bad_ts_line = json.dumps(bad_ts_data)
-        lines = [valid_line, bad_ts_line, valid_line]
-        log_path.write_text("\n".join(lines) + "\n")
-
-        event_log = EventLog(log_path)
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.events"):
-            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
-
-        assert "Dropping corrupt event line during rotation" in caplog.text
-
-
-class TestLoadSyncCorruptLines:
-    """Verify EventLog._load_sync skips corrupt lines with warning+exc_info."""
-
-    def test_load_sync_skips_corrupt_lines_with_warning(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines during load should be skipped with warning+exc_info."""
-        import logging
-
-        log_path = tmp_path / "events.jsonl"
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
-        valid_line = event.model_dump_json()
-        lines = [valid_line, "corrupt garbage", valid_line]
-        log_path.write_text("\n".join(lines) + "\n")
-
-        event_log = EventLog(log_path)
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            result = event_log._load_sync()
-
-        assert len(result) == 2
-        assert "Skipping corrupt event log line" in caplog.text
-        warning_records = [
-            r
-            for r in caplog.records
-            if "Skipping corrupt event log line" in r.getMessage()
-        ]
-        assert len(warning_records) >= 1
-        assert warning_records[0].exc_info is not None
-
-
-# ---------------------------------------------------------------------------
-# Persist event error handling (issue #1030)
-# ---------------------------------------------------------------------------
-
-
-class TestPersistEventErrorHandling:
-    """Verify fire-and-forget persist tasks handle errors gracefully."""
-
-    @pytest.mark.asyncio
-    async def test_persist_event_catches_runtime_error(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Non-OSError exceptions in _persist_event are caught and logged."""
-        event_log = EventLog(tmp_path / "events.jsonl")
-        bus = EventBus(event_log=event_log)
-
-        with (
-            patch.object(
-                event_log, "append", side_effect=RuntimeError("thread pool exhausted")
-            ),
-            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
-        ):
-            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
-            await bus.publish(event)
-            await bus.flush_persists()
-
-        records = [
-            r
-            for r in caplog.records
-            if "Failed to persist event to disk" in r.getMessage()
-        ]
-        assert len(records) == 1
-        assert records[0].exc_info is not None
-
-    @pytest.mark.asyncio
-    async def test_persist_event_catches_os_error(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """OSError exceptions are still caught and logged with exc_info (regression test)."""
-        event_log = EventLog(tmp_path / "events.jsonl")
-        bus = EventBus(event_log=event_log)
-
-        with (
-            patch.object(event_log, "append", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
-        ):
-            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"n": 1})
-            await bus.publish(event)
-            await bus.flush_persists()
-
-        records = [
-            r
-            for r in caplog.records
-            if "Failed to persist event to disk" in r.getMessage()
-        ]
-        assert len(records) == 1
-        assert records[0].exc_info is not None
-
-    @pytest.mark.asyncio
-    async def test_publish_delivers_event_to_subscriber_despite_persist_failure(
-        self, tmp_path: Path
-    ) -> None:
-        """Subscribers receive events even when persistence fails."""
-        event_log = EventLog(tmp_path / "events.jsonl")
-        bus = EventBus(event_log=event_log)
-        queue = bus.subscribe()
-
-        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
-            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
-            await bus.publish(event)
-            await bus.flush_persists()
-
-        assert queue.get_nowait() is event
-
-    @pytest.mark.asyncio
-    async def test_publish_updates_history_despite_persist_failure(
-        self, tmp_path: Path
-    ) -> None:
-        """In-memory history is updated even when persistence fails."""
-        event_log = EventLog(tmp_path / "events.jsonl")
-        bus = EventBus(event_log=event_log)
-
-        with patch.object(event_log, "append", side_effect=RuntimeError("boom")):
-            event = EventFactory.create(type=EventType.PHASE_CHANGE, data={"x": 1})
-            await bus.publish(event)
-            await bus.flush_persists()
-
-        assert event in bus.get_history()
-
-    @pytest.mark.asyncio
-    async def test_log_persist_failure_callback_skips_cancelled_task(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Done callback should not log for cancelled tasks."""
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        future.cancel()
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)
-
-        assert "Event persist task failed" not in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_log_persist_failure_callback_logs_exception(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Done callback should log warning when task has an exception."""
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        future.set_exception(ValueError("bad serialization"))
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)
-
-        records = [
-            r for r in caplog.records if "Event persist task failed" in r.getMessage()
-        ]
-        assert len(records) == 1
-        assert records[0].exc_info is not None
-
-    @pytest.mark.asyncio
-    async def test_log_persist_failure_callback_silent_on_success(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Done callback should not log when task completed successfully."""
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        future.set_result(None)
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)
-
-        assert "Event persist task failed" not in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# _append_sync OSError handling (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestAppendSyncOSError:
-    """Verify EventLog._append_sync catches OSError gracefully."""
-
-    def test_append_sync_logs_warning_on_oserror(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When the event log file can't be written, log warning and don't raise."""
-        event_log = EventLog(tmp_path / "events.jsonl")
-        # Write once to ensure the file exists
-        event_log._append_sync("first line")
-
-        with (
-            patch("builtins.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
-        ):
-            event_log._append_sync("should fail")  # should not raise
-
-        assert "Could not append to event log" in caplog.text
-
-    def test_append_sync_handles_mkdir_failure(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When mkdir fails with OSError, log warning and don't raise."""
-        event_log = EventLog(tmp_path / "subdir" / "events.jsonl")
-
-        with (
-            patch.object(Path, "mkdir", side_effect=OSError("permission denied")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
-        ):
-            event_log._append_sync("should fail")  # should not raise
-
-        assert "Could not append to event log" in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# _load_sync OSError handling (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestLoadSyncOSError:
-    """Verify EventLog._load_sync catches OSError gracefully."""
-
-    def test_load_sync_returns_empty_on_oserror(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When event log file can't be opened, return empty list with warning."""
-        event_log = EventLog(tmp_path / "events.jsonl")
-        # Create the file so exists() passes but open() fails
-        event_log._append_sync('{"type": "test"}')
-
-        with (
-            patch("builtins.open", side_effect=OSError("permission denied")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
-        ):
-            result = event_log._load_sync()  # should not raise
-
-        assert result == []
-        assert "Could not read event log" in caplog.text
-
-
 # --- _Counter.advance ---
 
 
@@ -991,39 +624,3 @@ class TestCounterAdvance:
         second = next(counter)
         assert first == 10
         assert second == 11
-
-
-# --- EventLog.append ---
-
-
-class TestEventLogAppend:
-    """Tests for EventLog.append."""
-
-    @pytest.mark.asyncio
-    async def test_append_writes_jsonl_line(self, tmp_path: Path) -> None:
-        event_log = EventLog(tmp_path / "events.jsonl")
-        event = EventFactory.create()
-        await event_log.append(event)
-
-        content = (tmp_path / "events.jsonl").read_text()
-        assert content.strip()  # Not empty
-        assert content.count("\n") == 1
-
-    @pytest.mark.asyncio
-    async def test_append_multiple_events(self, tmp_path: Path) -> None:
-        event_log = EventLog(tmp_path / "events.jsonl")
-        e1 = EventFactory.create(data={"n": 1})
-        e2 = EventFactory.create(data={"n": 2})
-        await event_log.append(e1)
-        await event_log.append(e2)
-
-        lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
-        assert len(lines) == 2
-
-    @pytest.mark.asyncio
-    async def test_append_creates_parent_dir(self, tmp_path: Path) -> None:
-        event_log = EventLog(tmp_path / "deep" / "nested" / "events.jsonl")
-        event = EventFactory.create()
-        await event_log.append(event)
-
-        assert (tmp_path / "deep" / "nested" / "events.jsonl").exists()

@@ -82,29 +82,15 @@ class MetricsManager:
             except Exception:  # noqa: BLE001
                 logger.debug("Dolt metrics snapshot write failed", exc_info=True)
 
-        if self._config.dry_run:
-            logger.info("[dry-run] Would post metrics snapshot")
-            self._state.update_metrics_state(snapshot_hash)
-            return {
-                "status": "dry_run",
-                "snapshot_hash": snapshot_hash,
-                "timestamp": snapshot.timestamp,
-            }
-
-        # Ensure the metrics issue exists
-        issue_number = await self._ensure_metrics_issue()
-        if issue_number == 0:
-            logger.warning("Could not find or create metrics issue — skipping post")
-            # Still update state since local cache was written
-            self._state.update_metrics_state(snapshot_hash)
-            return {"status": "cached_locally", "reason": "no_metrics_issue"}
-
-        # Post snapshot as comment
-        comment_body = self._format_snapshot_comment(snapshot)
-        await self._prs.post_comment(issue_number, comment_body)
-
-        # Update state and publish event
+        # Update state and publish events
         self._state.update_metrics_state(snapshot_hash)
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.METRICS_SNAPSHOT_RECORDED,
+                data=snapshot.model_dump(),
+            )
+        )
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.METRICS_UPDATE,
@@ -113,13 +99,11 @@ class MetricsManager:
         )
 
         logger.info(
-            "Metrics snapshot posted to issue #%d (hash=%s)",
-            issue_number,
+            "Metrics snapshot recorded (hash=%s)",
             snapshot_hash,
         )
         return {
-            "status": "posted",
-            "issue_number": issue_number,
+            "status": "recorded",
             "snapshot_hash": snapshot_hash,
             "timestamp": snapshot.timestamp,
         }

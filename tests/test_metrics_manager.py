@@ -151,103 +151,66 @@ class TestBuildSnapshot:
 
 class TestSync:
     @pytest.mark.asyncio
-    async def test_first_run_creates_issue_and_posts(self, state, event_bus) -> None:
-        """First sync creates the metrics issue and posts a snapshot comment."""
+    async def test_first_run_records_snapshot(self, state, event_bus) -> None:
+        """First sync writes to Dolt and publishes events."""
         mgr, state, prs, bus = make_manager(state, event_bus)
         state.record_issue_completed()
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            result = await mgr.sync()
+        result = await mgr.sync()
 
-        assert result["status"] == "posted"
-        assert result["issue_number"] == 42
+        assert result["status"] == "recorded"
         assert result["snapshot_hash"]
-        prs.post_comment.assert_called_once()
+        # No GitHub issue posting — events only
+        prs.post_comment.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_unchanged_skips_post(self, state, event_bus) -> None:
-        """When snapshot hash matches, no comment is posted."""
+    async def test_unchanged_skips_publish(self, state, event_bus) -> None:
+        """When snapshot hash matches, no events are published."""
         mgr, state, prs, _ = make_manager(state, event_bus)
 
         # Fix the timestamp so the hash is stable between calls
         fixed_snapshot = MetricsSnapshot(timestamp="2025-01-01T00:00:00")
-        with (
-            patch.object(
-                mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-            ),
-            patch.object(
-                mgr,
-                "_build_snapshot",
-                new_callable=AsyncMock,
-                return_value=fixed_snapshot,
-            ),
+        with patch.object(
+            mgr,
+            "_build_snapshot",
+            new_callable=AsyncMock,
+            return_value=fixed_snapshot,
         ):
             result1 = await mgr.sync()
-            assert result1["status"] == "posted"
+            assert result1["status"] == "recorded"
 
             result2 = await mgr.sync()
             assert result2["status"] == "unchanged"
 
-        # Only one comment posted (first call)
-        prs.post_comment.assert_called_once()
-
     @pytest.mark.asyncio
-    async def test_detects_change_and_posts(self, state, event_bus) -> None:
-        """When data changes between syncs, a new comment is posted."""
+    async def test_detects_change_and_records(self, state, event_bus) -> None:
+        """When data changes between syncs, a new snapshot is recorded."""
         mgr, state, prs, _ = make_manager(state, event_bus)
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
-            state.record_issue_completed()
-            result = await mgr.sync()
+        await mgr.sync()
+        state.record_issue_completed()
+        result = await mgr.sync()
 
-        assert result["status"] == "posted"
-        assert prs.post_comment.call_count == 2
+        assert result["status"] == "recorded"
 
     @pytest.mark.asyncio
-    async def test_publishes_metrics_update_event(self, state, event_bus) -> None:
-        """A METRICS_UPDATE event is published on successful post."""
+    async def test_publishes_metrics_events(self, state, event_bus) -> None:
+        """Both METRICS_SNAPSHOT_RECORDED and METRICS_UPDATE events are published."""
         mgr, state, _, bus = make_manager(state, event_bus)
         published_events: list = []
         bus.publish = AsyncMock(side_effect=published_events.append)
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
+        await mgr.sync()
 
-        metrics_events = [
+        snapshot_events = [
+            e for e in published_events
+            if e.type == EventType.METRICS_SNAPSHOT_RECORDED
+        ]
+        update_events = [
             e for e in published_events if e.type == EventType.METRICS_UPDATE
         ]
-        assert len(metrics_events) == 1
-
-    @pytest.mark.asyncio
-    async def test_dry_run_skips_post(self, state, event_bus) -> None:
-        """In dry-run mode, no comment is posted."""
-        mgr, state, prs, _ = make_manager(state, event_bus, dry_run=True)
-        result = await mgr.sync()
-        assert result["status"] == "dry_run"
-        prs.post_comment.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_no_metrics_issue_returns_cached_locally(
-        self, state, event_bus
-    ) -> None:
-        """When metrics issue cannot be created, returns cached_locally status."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-        state.record_issue_completed()
-
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=0
-        ):
-            result = await mgr.sync()
-
-        assert result["status"] == "cached_locally"
-        assert result["reason"] == "no_metrics_issue"
+        assert len(snapshot_events) == 1
+        assert len(update_events) == 1
 
     @pytest.mark.asyncio
     async def test_stores_latest_snapshot(self, state, event_bus) -> None:
@@ -255,10 +218,7 @@ class TestSync:
         mgr, _, _, _ = make_manager(state, event_bus)
         assert mgr.latest_snapshot is None
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
+        await mgr.sync()
 
         assert mgr.latest_snapshot is not None
         assert isinstance(mgr.latest_snapshot, MetricsSnapshot)
@@ -599,16 +559,13 @@ class TestLocalCache:
 
     @pytest.mark.asyncio
     async def test_sync_writes_to_local_cache(self, state, event_bus, tmp_path) -> None:
-        """sync() writes snapshot to local cache before posting to GitHub."""
+        """sync() writes snapshot to local cache."""
         mgr, state, _, _ = make_manager(
             state, event_bus, dolt_path=tmp_path / "dolt_db"
         )
         state.record_issue_completed()
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
+        await mgr.sync()
 
         cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
         assert cache_file.exists()

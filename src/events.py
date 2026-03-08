@@ -1,4 +1,4 @@
-"""In-process event bus for broadcasting state changes to the dashboard."""
+"""Dolt-backed event bus for broadcasting state changes to the dashboard."""
 
 from __future__ import annotations
 
@@ -7,14 +7,11 @@ import contextlib
 import itertools
 import logging
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
-
-from file_util import atomic_write
 
 
 class _Counter:
@@ -39,15 +36,6 @@ class _Counter:
 _event_counter = _Counter()
 
 logger = logging.getLogger("hydraflow.events")
-
-
-def _log_persist_failure(task: asyncio.Future[None]) -> None:
-    """Log unhandled exceptions from fire-and-forget persist tasks."""
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.warning("Event persist task failed: %s", exc, exc_info=exc)
 
 
 class EventType(StrEnum):
@@ -86,6 +74,10 @@ class EventType(StrEnum):
     BASELINE_UPDATE = "baseline_update"
     CRATE_ACTIVATED = "crate_activated"
     CRATE_COMPLETED = "crate_completed"
+    REVIEW_INSIGHT_RECORDED = "review_insight_recorded"
+    HARNESS_FAILURE_RECORDED = "harness_failure_recorded"
+    RETROSPECTIVE_RECORDED = "retrospective_recorded"
+    METRICS_SNAPSHOT_RECORDED = "metrics_snapshot_recorded"
 
 
 class HydraFlowEvent(BaseModel):
@@ -98,140 +90,6 @@ class HydraFlowEvent(BaseModel):
     session_id: str | None = None
 
 
-class EventLog:
-    """Append-only JSONL file for persisting events to disk.
-
-    Each event is serialized as a single JSON line. Corrupt lines
-    are skipped during loading (logged as warnings, never crash).
-    """
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    def _append_sync(self, line: str) -> None:
-        """Synchronous append — called via ``asyncio.to_thread``."""
-        try:
-            from file_util import append_jsonl  # noqa: PLC0415
-
-            append_jsonl(self._path, line)
-        except OSError:
-            logger.warning(
-                "Could not append to event log %s",
-                self._path,
-                exc_info=True,
-            )
-
-    async def append(self, event: HydraFlowEvent) -> None:
-        """Serialize *event* to JSON and append a line to the log file."""
-        line = event.model_dump_json()
-        await asyncio.to_thread(self._append_sync, line)
-
-    def _load_sync(
-        self,
-        since: datetime | None = None,
-        max_events: int = 5000,
-    ) -> list[HydraFlowEvent]:
-        """Synchronous load — called via ``asyncio.to_thread``."""
-        if not self._path.exists():
-            return []
-
-        events: list[HydraFlowEvent] = []
-        try:
-            with open(self._path) as f:
-                for line_num, raw_line in enumerate(f, 1):
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        event = HydraFlowEvent.model_validate_json(stripped)
-                    except ValidationError:
-                        logger.warning(
-                            "Skipping corrupt event log line %d in %s",
-                            line_num,
-                            self._path,
-                            exc_info=True,
-                        )
-                        continue
-
-                    if since is not None:
-                        try:
-                            ts = datetime.fromisoformat(event.timestamp)
-                            if ts < since:
-                                continue
-                        except (ValueError, TypeError):
-                            pass  # Keep events with unparseable timestamps
-
-                    events.append(event)
-        except OSError:
-            logger.warning(
-                "Could not read event log %s",
-                self._path,
-                exc_info=True,
-            )
-            return []
-
-        # Return only the last max_events
-        if len(events) > max_events:
-            events = events[-max_events:]
-        return events
-
-    async def load(
-        self,
-        since: datetime | None = None,
-        max_events: int = 5000,
-    ) -> list[HydraFlowEvent]:
-        """Read events from the JSONL file, optionally filtered by timestamp."""
-        return await asyncio.to_thread(self._load_sync, since, max_events)
-
-    def _rotate_sync(self, max_size_bytes: int, max_age_days: int) -> None:
-        """Synchronous rotation — called via ``asyncio.to_thread``."""
-        if not self._path.exists():
-            return
-
-        try:
-            file_size = self._path.stat().st_size
-        except OSError:
-            return
-
-        if file_size <= max_size_bytes:
-            return
-
-        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
-        kept_lines: list[str] = []
-
-        with open(self._path) as f:
-            for raw_line in f:
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    event = HydraFlowEvent.model_validate_json(stripped)
-                    ts = datetime.fromisoformat(event.timestamp)
-                    if ts >= cutoff:
-                        kept_lines.append(stripped)
-                except (ValidationError, ValueError):
-                    logger.debug(
-                        "Dropping corrupt event line during rotation",
-                        exc_info=True,
-                    )
-                    continue
-
-        content = "\n".join(kept_lines) + "\n" if kept_lines else ""
-        atomic_write(self._path, content)
-
-    async def rotate(self, max_size_bytes: int, max_age_days: int) -> None:
-        """Rotate the log file if it exceeds *max_size_bytes*.
-
-        Keeps only events within *max_age_days*. Uses atomic write
-        (temp file + ``os.replace``) following the ``StateTracker`` pattern.
-        """
-        await asyncio.to_thread(self._rotate_sync, max_size_bytes, max_age_days)
-
-
 class EventBus:
     """Async pub/sub bus with history replay.
 
@@ -242,16 +100,13 @@ class EventBus:
     def __init__(
         self,
         max_history: int = 5000,
-        event_log: EventLog | None = None,
         state: Any | None = None,
     ) -> None:
         self._subscribers: list[asyncio.Queue[HydraFlowEvent]] = []
         self._history: list[HydraFlowEvent] = []
         self._max_history = max_history
-        self._event_log = event_log
         self._active_session_id: str | None = None
         self._active_repo: str = ""
-        self._pending_persists: set[asyncio.Task[None]] = set()
         self._state = state
 
     def set_session_id(self, session_id: str | None) -> None:
@@ -289,12 +144,6 @@ class EventBus:
                     queue.get_nowait()
                 queue.put_nowait(event)
 
-        if self._event_log is not None:
-            task = asyncio.create_task(self._persist_event(event))
-            self._pending_persists.add(task)
-            task.add_done_callback(self._pending_persists.discard)
-            task.add_done_callback(_log_persist_failure)
-
         # Write to Dolt
         if self._state and hasattr(self._state, "append_event"):
             try:
@@ -302,53 +151,34 @@ class EventBus:
             except Exception:  # noqa: BLE001
                 logger.debug("Dolt event write failed", exc_info=True)
 
-    async def _persist_event(self, event: HydraFlowEvent) -> None:
-        """Write event to disk, logging any errors without crashing."""
+    async def load_history_from_dolt(self) -> None:
+        """Populate in-memory history from Dolt events table."""
+        if not self._state or not hasattr(self._state, "load_recent_events"):
+            return
         try:
-            assert self._event_log is not None  # noqa: S101
-            await self._event_log.append(event)
-        except Exception:
-            logger.warning("Failed to persist event to disk", exc_info=True)
+            events_data = self._state.load_recent_events(self._max_history)
+            self._history = []
+            for row in events_data:
+                try:
+                    self._history.append(HydraFlowEvent.model_validate(row))
+                except ValidationError:
+                    logger.debug("Skipping invalid event from Dolt")
+            if self._history:
+                max_id = max(e.id for e in self._history)
+                _event_counter.advance(max_id + 1)
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to load event history from Dolt", exc_info=True)
 
-    async def flush_persists(self) -> None:
-        """Await all in-flight persist tasks, suppressing exceptions.
-
-        Use in tests instead of ``asyncio.sleep(0)`` to reliably drain
-        fire-and-forget persist tasks without timing assumptions.
-        """
-        if self._pending_persists:
-            await asyncio.gather(*self._pending_persists, return_exceptions=True)
-
-    async def load_history_from_disk(self) -> None:
-        """Populate in-memory history from the on-disk event log.
-
-        After loading, advances the global event counter past the highest
-        historical ID so that new events are never mistaken for duplicates
-        by the frontend's deduplication logic.
-        """
-        if self._event_log is None:
-            return
-        events = await self._event_log.load(max_events=self._max_history)
-        self._history = events
-        if events:
-            max_id = max(e.id for e in events)
-            _event_counter.advance(max_id + 1)
-
-    async def load_events_since(self, since: datetime) -> list[HydraFlowEvent] | None:
-        """Load persisted events from disk since *since*.
-
-        Returns ``None`` when no event log is configured (caller should
-        fall back to in-memory history).
-        """
-        if self._event_log is None:
+    async def load_events_since_dolt(self, since: datetime) -> list[HydraFlowEvent] | None:
+        """Load events from Dolt since the given timestamp."""
+        if not self._state or not hasattr(self._state, "load_events_since"):
             return None
-        return await self._event_log.load(since=since)
-
-    async def rotate_log(self, max_size_bytes: int, max_age_days: int) -> None:
-        """Rotate the on-disk event log if it exceeds *max_size_bytes*."""
-        if self._event_log is None:
-            return
-        await self._event_log.rotate(max_size_bytes, max_age_days)
+        try:
+            rows = self._state.load_events_since(since.isoformat())
+            return [HydraFlowEvent.model_validate(r) for r in rows]
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to load events from Dolt", exc_info=True)
+            return None
 
     def subscribe(self, max_queue: int = 500) -> asyncio.Queue[HydraFlowEvent]:
         """Return a new queue that will receive future events."""
@@ -382,4 +212,3 @@ class EventBus:
         self._subscribers.clear()
         self._active_session_id = None
         self._active_repo = ""
-        self._pending_persists.clear()

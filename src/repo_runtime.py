@@ -12,7 +12,7 @@ import logging
 
 from config import HydraFlowConfig
 from dolt.store import DoltStore
-from events import EventBus, EventLog
+from events import EventBus
 from orchestrator import HydraFlowOrchestrator
 
 logger = logging.getLogger("hydraflow.repo_runtime")
@@ -29,8 +29,7 @@ class RepoRuntime:
     def __init__(self, config: HydraFlowConfig) -> None:
         self._config = config
         self._slug = config.repo.replace("/", "-") or config.repo_root.name
-        event_log = EventLog(config.event_log_path)
-        self._event_bus = EventBus(event_log=event_log)
+        self._event_bus = EventBus()
         self._state = DoltStore(config.dolt_path, port=config.dolt_port)
         self._orchestrator = HydraFlowOrchestrator(
             config,
@@ -41,18 +40,8 @@ class RepoRuntime:
 
     @classmethod
     async def create(cls, config: HydraFlowConfig) -> RepoRuntime:
-        """Construct a runtime and perform async initialization.
-
-        Rotates the event log and loads persisted event history before
-        returning the ready-to-start runtime.
-        """
-        runtime = cls(config)
-        await runtime._event_bus.rotate_log(
-            config.event_log_max_size_mb * 1024 * 1024,
-            config.event_log_retention_days,
-        )
-        await runtime._event_bus.load_history_from_disk()
-        return runtime
+        """Construct a runtime and perform async initialization."""
+        return cls(config)
 
     # --- Properties ---
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from tests.helpers import InMemoryState
 from troubleshooting_store import (
     TroubleshootingPattern,
     TroubleshootingPatternStore,
@@ -45,8 +46,9 @@ class TestTroubleshootingPattern:
 
 
 class TestTroubleshootingPatternStore:
-    def test_append_creates_file(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+    def test_append_writes_to_state(self, tmp_path: Path) -> None:
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         p = TroubleshootingPattern(
             language="python",
             pattern_name="test_pattern",
@@ -55,10 +57,11 @@ class TestTroubleshootingPatternStore:
             source_issues=[42],
         )
         store.append_pattern(p)
-        assert (tmp_path / "memory" / "troubleshooting_patterns.jsonl").exists()
+        assert len(state._troubleshooting) == 1
 
     def test_store_roundtrip_preserves_data(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         p = TroubleshootingPattern(
             language="python",
             pattern_name="truthy_asyncmock",
@@ -75,7 +78,8 @@ class TestTroubleshootingPatternStore:
         assert loaded[0].source_issues == [42]
 
     def test_dedup_increments_frequency(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         p1 = TroubleshootingPattern(
             language="python",
             pattern_name="truthy_asyncmock",
@@ -98,7 +102,8 @@ class TestTroubleshootingPatternStore:
         assert loaded[0].frequency == 2
 
     def test_dedup_merges_source_issues(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         p1 = TroubleshootingPattern(
             language="python",
             pattern_name="hang",
@@ -120,7 +125,8 @@ class TestTroubleshootingPatternStore:
         assert loaded[0].source_issues == [10, 20, 30]
 
     def test_filter_by_language(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         store.append_pattern(
             TroubleshootingPattern(
                 language="python",
@@ -144,7 +150,8 @@ class TestTroubleshootingPatternStore:
         assert "node_pattern" not in names
 
     def test_includes_general_patterns(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         store.append_pattern(
             TroubleshootingPattern(
                 language="general",
@@ -168,7 +175,8 @@ class TestTroubleshootingPatternStore:
         assert "py_hang" in names
 
     def test_sort_by_frequency(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         store.append_pattern(
             TroubleshootingPattern(
                 language="python",
@@ -193,7 +201,8 @@ class TestTroubleshootingPatternStore:
         assert loaded[1].pattern_name == "rare"
 
     def test_respects_limit(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         for i in range(5):
             store.append_pattern(
                 TroubleshootingPattern(
@@ -208,7 +217,8 @@ class TestTroubleshootingPatternStore:
         assert len(loaded) == 2
 
     def test_increment_frequency(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         store.append_pattern(
             TroubleshootingPattern(
                 language="python",
@@ -222,22 +232,18 @@ class TestTroubleshootingPatternStore:
         loaded = store.load_patterns()
         assert loaded[0].frequency == 2
 
-    def test_empty_file_returns_empty(self, tmp_path: Path) -> None:
+    def test_empty_state_returns_empty(self, tmp_path: Path) -> None:
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
+        assert store.load_patterns() == []
+
+    def test_no_state_returns_empty(self, tmp_path: Path) -> None:
         store = TroubleshootingPatternStore(tmp_path / "memory")
         assert store.load_patterns() == []
 
-    def test_malformed_line_skipped(self, tmp_path: Path) -> None:
-        mem_dir = tmp_path / "memory"
-        mem_dir.mkdir(parents=True)
-        jsonl = mem_dir / "troubleshooting_patterns.jsonl"
-        jsonl.write_text("not valid json\n")
-
-        store = TroubleshootingPatternStore(mem_dir)
-        loaded = store.load_patterns()
-        assert loaded == []
-
     def test_dedup_case_insensitive(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        state = InMemoryState()
+        store = TroubleshootingPatternStore(tmp_path / "memory", state=state)
         store.append_pattern(
             TroubleshootingPattern(
                 language="Python",

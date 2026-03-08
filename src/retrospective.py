@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-from collections import Counter
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
+from events import EventBus, EventType, HydraFlowEvent
 from models import IsoTimestamp, PlanAccuracyResult, ReviewVerdict
 
 if TYPE_CHECKING:
@@ -48,11 +47,12 @@ class RetrospectiveCollector:
         config: HydraFlowConfig,
         state: StateTracker,
         prs: PRManager,
+        bus: EventBus | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._prs = prs
-        self._filed_patterns_path = config.data_path("memory", "filed_patterns.json")
+        self._bus = bus or EventBus()
 
     async def record(
         self,
@@ -68,8 +68,11 @@ class RetrospectiveCollector:
         try:
             entry = await self._collect(issue_number, pr_number, review_result)
             self._append_entry(entry)
-            recent = self._load_recent(self._config.retrospective_window)
-            await self._detect_patterns(recent)
+
+            await self._bus.publish(HydraFlowEvent(
+                type=EventType.RETROSPECTIVE_RECORDED,
+                data=entry.model_dump(),
+            ))
         except Exception:
             logger.warning(
                 "Retrospective failed for issue #%d — continuing",
@@ -225,121 +228,3 @@ class RetrospectiveCollector:
                 logger.warning("Could not load retrospectives from Dolt", exc_info=True)
         return []
 
-    async def _detect_patterns(self, entries: list[RetrospectiveEntry]) -> None:
-        """Scan recent entries for patterns and file improvement proposals."""
-        if len(entries) < 3:
-            return
-
-        filed = self._load_filed_patterns()
-        n = len(entries)
-
-        # Quality fix pattern: >50% needed quality fixes
-        quality_fix_count = sum(1 for e in entries if e.quality_fix_rounds > 0)
-        if quality_fix_count / n > 0.5:
-            key = "quality_fix"
-            if key not in filed:
-                await self._file_improvement_issue(
-                    title="Pattern: Frequent quality fix rounds needed",
-                    body=(
-                        f"**{quality_fix_count} of {n}** recent issues needed "
-                        "quality fix rounds during implementation.\n\n"
-                        "Consider strengthening the implementation prompt to "
-                        "emphasize running `make quality` before finishing.\n\n"
-                        "---\n*Auto-detected by HydraFlow Retrospective*"
-                    ),
-                )
-                filed.add(key)
-                self._save_filed_patterns(filed)
-                return  # Cap at 1 per run
-
-        # Plan accuracy pattern: average < 70%
-        avg_accuracy = sum(e.plan_accuracy_pct for e in entries) / n
-        if avg_accuracy < 70:
-            key = "plan_accuracy"
-            if key not in filed:
-                await self._file_improvement_issue(
-                    title="Pattern: Low plan accuracy across recent issues",
-                    body=(
-                        f"Average plan accuracy is **{avg_accuracy:.1f}%** "
-                        f"across the last {n} issues.\n\n"
-                        "The planner is consistently missing files that need "
-                        "changes. Consider improving the planner prompt to "
-                        "better analyze dependencies.\n\n"
-                        "---\n*Auto-detected by HydraFlow Retrospective*"
-                    ),
-                )
-                filed.add(key)
-                self._save_filed_patterns(filed)
-                return
-
-        # Reviewer fix pattern: >40% needed reviewer fixes
-        reviewer_fix_count = sum(1 for e in entries if e.reviewer_fixes_made)
-        if reviewer_fix_count / n > 0.4:
-            key = "reviewer_fixes"
-            if key not in filed:
-                await self._file_improvement_issue(
-                    title="Pattern: Reviewer frequently fixing implementation",
-                    body=(
-                        f"**{reviewer_fix_count} of {n}** recent reviews "
-                        "required the reviewer to make fixes.\n\n"
-                        "The implementation prompt likely needs strengthening "
-                        "to produce higher-quality first drafts.\n\n"
-                        "---\n*Auto-detected by HydraFlow Retrospective*"
-                    ),
-                )
-                filed.add(key)
-                self._save_filed_patterns(filed)
-                return
-
-        # Unplanned file pattern: same file appears in >30% of entries
-        unplanned_counter: Counter[str] = Counter()
-        for e in entries:
-            for f in e.unplanned_files:
-                unplanned_counter[f] += 1
-        threshold = n * 0.3
-        for file_path, count in unplanned_counter.most_common():
-            if count > threshold:
-                key = f"unplanned_file:{file_path}"
-                if key not in filed:
-                    await self._file_improvement_issue(
-                        title=f"Pattern: {file_path} frequently unplanned",
-                        body=(
-                            f"`{file_path}` appeared as an unplanned file in "
-                            f"**{count} of {n}** recent issues.\n\n"
-                            "The planner should be made aware that this file "
-                            "commonly needs changes.\n\n"
-                            "---\n*Auto-detected by HydraFlow Retrospective*"
-                        ),
-                    )
-                    filed.add(key)
-                    self._save_filed_patterns(filed)
-                    return
-                break
-
-    async def _file_improvement_issue(self, title: str, body: str) -> None:
-        """File a memory-routed retrospective proposal for automatic ingestion."""
-        labels = self._config.improve_label[:1] + self._config.memory_label[:1]
-        memory_title = title if title.startswith("[Memory]") else f"[Memory] {title}"
-        await self._prs.create_issue(memory_title, body, labels)
-
-    def _load_filed_patterns(self) -> set[str]:
-        """Load the set of already-filed pattern keys."""
-        if not self._filed_patterns_path.exists():
-            return set()
-        try:
-            data = json.loads(self._filed_patterns_path.read_text())
-            return set(data) if isinstance(data, list) else set()
-        except (OSError, json.JSONDecodeError):
-            return set()
-
-    def _save_filed_patterns(self, patterns: set[str]) -> None:
-        """Persist the set of filed pattern keys."""
-        try:
-            self._filed_patterns_path.parent.mkdir(parents=True, exist_ok=True)
-            self._filed_patterns_path.write_text(json.dumps(sorted(patterns)))
-        except OSError:
-            logger.warning(
-                "Could not save filed patterns to %s",
-                self._filed_patterns_path,
-                exc_info=True,
-            )

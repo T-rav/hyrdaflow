@@ -2489,13 +2489,6 @@ class TestHydraFlowConfigMaxReviewDiffChars:
 class TestResolveDefaults:
     """Tests for the resolve_defaults model validator."""
 
-    def test_resolve_defaults_sets_event_log_path(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/my-repo")
-        assert (
-            cfg.event_log_path
-            == tmp_path / ".hydraflow" / "org-my-repo" / "events.jsonl"
-        )
-
     def test_resolve_defaults_repo_from_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -4800,12 +4793,6 @@ class TestNamespaceRepoPaths:
         expected = tmp_path / ".hydraflow" / "acme-widgets" / "dolt"
         assert cfg.dolt_path == expected
 
-    def test_event_log_namespaced_by_repo_slug(self, tmp_path: Path) -> None:
-        """Default event_log_path should be under data_root/<slug>/."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        expected = tmp_path / ".hydraflow" / "acme-widgets" / "events.jsonl"
-        assert cfg.event_log_path == expected
-
     def test_explicit_config_file_not_namespaced(self, tmp_path: Path) -> None:
         """Explicitly-set config_file should not be repo-scoped."""
         data_root = tmp_path / ".hydraflow"
@@ -4827,14 +4814,6 @@ class TestNamespaceRepoPaths:
         )
         assert cfg.dolt_path == custom.resolve()
 
-    def test_explicit_event_log_not_namespaced(self, tmp_path: Path) -> None:
-        """Explicitly-set event_log_path should not be repo-scoped."""
-        custom = tmp_path / "custom" / "events.jsonl"
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path, repo="acme/widgets", event_log_path=custom
-        )
-        assert cfg.event_log_path == custom.resolve()
-
     def test_repo_data_root_property(self, tmp_path: Path) -> None:
         """repo_data_root should return data_root / repo_slug."""
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
@@ -4848,21 +4827,6 @@ class TestNamespaceRepoPaths:
         assert "org-alpha" in str(cfg_a.dolt_path)
         assert "org-beta" in str(cfg_b.dolt_path)
 
-    def test_no_migration_when_scoped_event_log_already_exists(
-        self, tmp_path: Path
-    ) -> None:
-        """If scoped events.jsonl already exists, legacy file should not overwrite it."""
-        data_root = tmp_path / ".hydraflow"
-        data_root.mkdir()
-        legacy_events = data_root / "events.jsonl"
-        legacy_events.write_text('{"event":"old"}\n')
-        scoped_dir = data_root / "acme-widgets"
-        scoped_dir.mkdir(parents=True)
-        (scoped_dir / "events.jsonl").write_text('{"event":"new"}\n')
-
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        assert cfg.event_log_path.read_text() == '{"event":"new"}\n'
-
 
 # ---------------------------------------------------------------------------
 # Two-phase path resolution order (base paths → repo → repo-scoped paths)
@@ -4874,7 +4838,7 @@ class TestTwoPhasePathResolution:
 
     The resolve_defaults validator must resolve base paths (repo_root, worktree_base,
     data_root) before resolving the repo slug, and resolve the repo slug before
-    computing repo-scoped paths (dolt_path, event_log_path).
+    computing repo-scoped paths (dolt_path).
     """
 
     def test_dolt_path_never_flat_when_repo_available(self, tmp_path: Path) -> None:
@@ -4883,13 +4847,6 @@ class TestTwoPhasePathResolution:
         flat_default = cfg.data_root / "dolt"
         assert cfg.dolt_path != flat_default
         assert cfg.repo_slug in str(cfg.dolt_path)
-
-    def test_event_log_never_flat_when_repo_available(self, tmp_path: Path) -> None:
-        """event_log_path must be repo-scoped, never flat data_root/events.jsonl."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        flat_default = cfg.data_root / "events.jsonl"
-        assert cfg.event_log_path != flat_default
-        assert cfg.repo_slug in str(cfg.event_log_path)
 
     def test_base_paths_resolved_before_repo_detection(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4918,47 +4875,15 @@ class TestTwoPhasePathResolution:
     def test_env_detected_repo_scopes_paths(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Repo detected from env var should scope dolt_path and event_log_path."""
+        """Repo detected from env var should scope dolt_path."""
         monkeypatch.setenv("HYDRAFLOW_GITHUB_REPO", "env-org/env-repo")
         cfg = HydraFlowConfig(repo_root=tmp_path)
         assert "env-org-env-repo" in str(cfg.dolt_path)
-        assert "env-org-env-repo" in str(cfg.event_log_path)
 
     def test_config_file_stays_none_when_not_explicit(self, tmp_path: Path) -> None:
         """config_file should remain None when not explicitly provided."""
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
         assert cfg.config_file is None
-
-    def test_legacy_event_log_migrated(self, tmp_path: Path) -> None:
-        """If legacy flat events.jsonl exists, it should be copied to scoped path."""
-        data_root = tmp_path / ".hydraflow"
-        data_root.mkdir()
-        legacy_events = data_root / "events.jsonl"
-        legacy_events.write_text('{"event":"deploy"}\n')
-
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        assert cfg.event_log_path.exists()
-        assert cfg.event_log_path.read_text() == '{"event":"deploy"}\n'
-        assert "acme-widgets" in str(cfg.event_log_path)
-
-    def test_event_log_migration_copy_failure_does_not_raise(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A shutil.copy2 failure migrating events.jsonl should log, not raise."""
-        import shutil
-
-        data_root = tmp_path / ".hydraflow"
-        data_root.mkdir()
-        (data_root / "events.jsonl").write_text('{"event":"deploy"}\n')
-
-        def fail_copy(src: object, dst: object, **kw: object) -> None:
-            raise OSError("disk full")
-
-        monkeypatch.setattr(shutil, "copy2", fail_copy)
-
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        assert cfg.event_log_path == data_root / "acme-widgets" / "events.jsonl"
-        assert not cfg.event_log_path.exists()
 
     def test_hydraflow_home_env_scopes_paths(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

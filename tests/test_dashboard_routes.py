@@ -6286,7 +6286,7 @@ class TestReviewInsightsEndpoint:
         from review_insights import ReviewInsightStore, ReviewRecord
 
         memory_dir = config.data_path("memory")
-        store = ReviewInsightStore(memory_dir)
+        store = ReviewInsightStore(memory_dir, state=state)
         store.append_review(
             ReviewRecord(
                 pr_number=1,

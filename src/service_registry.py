@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
+from proposal_worker import ProposalWorker
 from adr_reviewer import ADRCouncilReviewer
 from adr_reviewer_loop import ADRReviewerLoop
 from agent import AgentRunner
@@ -106,6 +107,7 @@ class ServiceRegistry:
     worktree_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
+    proposal_worker: ProposalWorker
 
 
 @dataclass
@@ -243,7 +245,7 @@ def build_services(
         prs=prs,
         manifest_syncer=manifest_syncer,
     )
-    retrospective = RetrospectiveCollector(config, state, prs)
+    retrospective = RetrospectiveCollector(config, state, prs, bus=event_bus)
     ac_generator = AcceptanceCriteriaGenerator(
         config, prs, event_bus, runner=subprocess_runner
     )
@@ -389,6 +391,14 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
+    proposal_worker = ProposalWorker(
+        bus=event_bus,
+        state=state,
+        prs=prs,
+        improve_label=config.improve_label,
+        stop_event=stop_event,
+    )
+
     return ServiceRegistry(
         worktrees=worktrees,
         subprocess_runner=subprocess_runner,
@@ -425,4 +435,5 @@ def build_services(
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
+        proposal_worker=proposal_worker,
     )

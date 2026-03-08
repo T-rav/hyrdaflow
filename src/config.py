@@ -904,23 +904,7 @@ class HydraFlowConfig(BaseModel):
     )
     dolt_port: int = Field(default=3307, description="Port for Dolt SQL server")
 
-    # Event persistence
-    event_log_path: Path = Field(
-        default=Path("."),
-        description="Path to event log JSONL file",
-    )
-    event_log_max_size_mb: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Max event log file size in MB before rotation",
-    )
-    event_log_retention_days: int = Field(
-        default=7,
-        ge=1,
-        le=90,
-        description="Days of event history to retain during rotation",
-    )
+    # Event persistence is handled by Dolt (no separate event log file)
 
     # Config file persistence
     config_file: Path | None = Field(
@@ -1309,7 +1293,7 @@ class HydraFlowConfig(BaseModel):
         Resolution order (two-phase path resolution):
           1. ``_resolve_base_paths`` — repo_root, worktree_base, data_root
           2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
-          3. ``_resolve_repo_scoped_paths`` — dolt_path, event_log_path, config_file
+          3. ``_resolve_repo_scoped_paths`` — dolt_path, config_file
 
         Base paths are resolved first because repo detection depends on repo_root,
         and repo-scoped paths depend on both data_root and the repo slug.
@@ -1511,7 +1495,7 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
 
 
 def _resolve_repo_scoped_paths(config: HydraFlowConfig) -> None:
-    """Resolve dolt_path, event_log_path, and config_file under repo-scoped dirs.
+    """Resolve dolt_path and config_file under repo-scoped dirs.
 
     Called after both ``_resolve_base_paths`` (which provides ``data_root``) and
     ``_resolve_repo_and_identity`` (which provides the repo slug).  Default paths
@@ -1532,23 +1516,6 @@ def _resolve_repo_scoped_paths(config: HydraFlowConfig) -> None:
     # data_root` branch below and the `if slug` migration guards are only
     # reached when repo_root is the filesystem root ("/").
     repo_dir = data_root / slug if slug else data_root
-
-    # --- event_log_path ---
-    if "event_log_path" not in explicit:
-        target = repo_dir / "events.jsonl"
-        if slug:
-            flat = data_root / "events.jsonl"
-            if not target.exists() and flat.exists():
-                try:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(flat, target)
-                except OSError as exc:
-                    logger.warning("Failed to migrate %s → %s: %s", flat, target, exc)
-        object.__setattr__(config, "event_log_path", target)
-    else:
-        object.__setattr__(
-            config, "event_log_path", config.event_log_path.expanduser().resolve()
-        )
 
     # --- dolt_path ---
     if "dolt_path" not in explicit:

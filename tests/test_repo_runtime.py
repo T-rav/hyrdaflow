@@ -32,13 +32,21 @@ class TestRepoRuntimeInfo:
         assert info.session_id == "sess-1"
 
 
+def _runtime_patches():
+    """Return context managers that patch RepoRuntime dependencies."""
+    return (
+        patch("repo_runtime.EventBus"),
+        patch("repo_runtime.DoltStore"),
+        patch("repo_runtime.HydraFlowOrchestrator"),
+    )
+
+
 class TestRepoRuntime:
     def test_slug_from_repo(self, tmp_path):
         config = ConfigFactory.create(repo="acme/widgets", repo_root=tmp_path)
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = RepoRuntime(config)
@@ -47,9 +55,8 @@ class TestRepoRuntime:
     def test_slug_fallback_to_dir_name(self, tmp_path):
         config = ConfigFactory.create(repo="", repo_root=tmp_path)
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = RepoRuntime(config)
@@ -58,9 +65,8 @@ class TestRepoRuntime:
     def test_properties_expose_internals(self, tmp_path):
         config = ConfigFactory.create(repo_root=tmp_path)
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus") as mock_bus_cls,
-            patch("repo_runtime.StateTracker") as mock_state_cls,
+            patch("repo_runtime.DoltStore") as mock_state_cls,
             patch("repo_runtime.HydraFlowOrchestrator") as mock_orch_cls,
         ):
             runtime = RepoRuntime(config)
@@ -72,9 +78,8 @@ class TestRepoRuntime:
     def test_running_delegates_to_orchestrator(self, tmp_path):
         config = ConfigFactory.create(repo_root=tmp_path)
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator") as mock_orch_cls,
         ):
             mock_orch_cls.return_value.running = True
@@ -82,20 +87,14 @@ class TestRepoRuntime:
         assert runtime.running is True
 
     @pytest.mark.asyncio
-    async def test_create_initializes_event_log(self, tmp_path):
+    async def test_create_returns_runtime(self, tmp_path):
         config = ConfigFactory.create(repo_root=tmp_path)
-        mock_bus = MagicMock()
-        mock_bus.rotate_log = AsyncMock()
-        mock_bus.load_history_from_disk = AsyncMock()
         with (
-            patch("repo_runtime.EventLog"),
-            patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = await RepoRuntime.create(config)
-        mock_bus.rotate_log.assert_awaited_once()
-        mock_bus.load_history_from_disk.assert_awaited_once()
         assert runtime.slug
 
     @pytest.mark.asyncio
@@ -105,9 +104,8 @@ class TestRepoRuntime:
         mock_orch.run = AsyncMock()
         mock_orch.running = False
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator", return_value=mock_orch),
         ):
             runtime = RepoRuntime(config)
@@ -124,9 +122,8 @@ class TestRepoRuntime:
         mock_orch.stop = AsyncMock()
         mock_orch.running = False
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator", return_value=mock_orch),
         ):
             runtime = RepoRuntime(config)
@@ -136,9 +133,8 @@ class TestRepoRuntime:
     def test_repo_runtime_repr_contains_slug(self, tmp_path):
         config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
         with (
-            patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator") as mock_orch_cls,
         ):
             mock_orch_cls.return_value.running = False
@@ -153,13 +149,9 @@ class TestRepoRuntimeRegistry:
     async def test_register_and_get(self, tmp_path):
         config = ConfigFactory.create(repo="org/alpha", repo_root=tmp_path)
         registry = RepoRuntimeRegistry()
-        mock_bus = MagicMock()
-        mock_bus.rotate_log = AsyncMock()
-        mock_bus.load_history_from_disk = AsyncMock()
         with (
-            patch("repo_runtime.EventLog"),
-            patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = await registry.register(config)
@@ -172,13 +164,9 @@ class TestRepoRuntimeRegistry:
     async def test_register_duplicate_raises(self, tmp_path):
         config = ConfigFactory.create(repo="org/beta", repo_root=tmp_path)
         registry = RepoRuntimeRegistry()
-        mock_bus = MagicMock()
-        mock_bus.rotate_log = AsyncMock()
-        mock_bus.load_history_from_disk = AsyncMock()
         with (
-            patch("repo_runtime.EventLog"),
-            patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             await registry.register(config)
@@ -189,13 +177,9 @@ class TestRepoRuntimeRegistry:
     async def test_remove_deregisters_and_stops_runtime(self, tmp_path):
         config = ConfigFactory.create(repo="org/gamma", repo_root=tmp_path)
         registry = RepoRuntimeRegistry()
-        mock_bus = MagicMock()
-        mock_bus.rotate_log = AsyncMock()
-        mock_bus.load_history_from_disk = AsyncMock()
         with (
-            patch("repo_runtime.EventLog"),
-            patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             await registry.register(config)
@@ -221,16 +205,9 @@ class TestRepoRuntimeRegistry:
             m.running = False
             return m
 
-        def _make_bus(*_a, **_kw):
-            m = MagicMock()
-            m.rotate_log = AsyncMock()
-            m.load_history_from_disk = AsyncMock()
-            return m
-
         with (
-            patch("repo_runtime.EventLog"),
-            patch("repo_runtime.EventBus", side_effect=_make_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.DoltStore"),
             patch("repo_runtime.HydraFlowOrchestrator", side_effect=_make_orch),
         ):
             for c in configs:
@@ -261,16 +238,9 @@ class TestRepoRuntimeRegistry:
         config_a.repo_root.mkdir(parents=True, exist_ok=True)
         config_b.repo_root.mkdir(parents=True, exist_ok=True)
 
-        def _make_bus(*_a, **_kw):
-            m = MagicMock()
-            m.rotate_log = AsyncMock()
-            m.load_history_from_disk = AsyncMock()
-            return m
-
         with (
-            patch("repo_runtime.EventLog"),
-            patch("repo_runtime.EventBus", side_effect=_make_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.EventBus", side_effect=lambda *a, **kw: MagicMock()),
+            patch("repo_runtime.DoltStore"),
             patch(
                 "repo_runtime.HydraFlowOrchestrator",
                 side_effect=lambda *a, **kw: MagicMock(),

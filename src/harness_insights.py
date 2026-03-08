@@ -12,15 +12,12 @@ from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from models import IsoTimestamp, PipelineStage
 
-if TYPE_CHECKING:
-    from pr_manager import PRManager
-    from state import StateTracker
 
 logger = logging.getLogger("hydraflow.harness_insights")
 
@@ -404,61 +401,3 @@ def generate_suggestions(
     return suggestions
 
 
-# ---------------------------------------------------------------------------
-# Issue filing
-# ---------------------------------------------------------------------------
-
-
-async def file_harness_suggestions(
-    suggestions: list[ImprovementSuggestion],
-    store: HarnessInsightStore,
-    prs: PRManager,
-    state: StateTracker,
-    improve_label: list[str],
-    hitl_label: list[str],
-    memory_label: list[str] | None = None,
-    *,
-    max_per_cycle: int = 1,
-) -> int:
-    """File improvement issues for suggestions, returning the number filed.
-
-    Caps filing at *max_per_cycle* issues per invocation to avoid spam.
-    Marks each filed suggestion as proposed in the store.
-    """
-    filed = 0
-    for suggestion in suggestions:
-        if filed >= max_per_cycle:
-            break
-
-        key = (
-            f"subcategory:{suggestion.subcategory}"
-            if suggestion.subcategory
-            else f"category:{suggestion.category}"
-        )
-
-        desc = suggestion.description
-        title = f"[Harness Insight] Recurring pattern: {desc}"
-        body = build_harness_issue_body(
-            suggestion.category,
-            suggestion.occurrence_count,
-            suggestion.window_size,
-            suggestion.evidence,
-            subcategory=suggestion.subcategory,
-        )
-        use_memory_flow = bool(memory_label)
-        labels = (
-            improve_label[:1] + memory_label[:1]
-            if use_memory_flow
-            else improve_label[:1] + hitl_label[:1]
-        )
-        issue_title = f"[Memory] {title}" if use_memory_flow else title
-        issue_num = await prs.create_issue(issue_title, body, labels)
-        if issue_num:
-            if improve_label and not use_memory_flow:
-                state.set_hitl_origin(issue_num, improve_label[0])
-            if not use_memory_flow:
-                state.set_hitl_cause(issue_num, f"Harness pattern detected: {desc}")
-            store.mark_pattern_proposed(key)
-            filed += 1
-
-    return filed

@@ -190,12 +190,16 @@ def record_harness_failure(
     *,
     stage: PipelineStage,
     pr_number: int = 0,
+    bus: EventBus | None = None,
 ) -> None:
     """Record a failure to the harness insight store (non-blocking).
 
     Shared across plan, implement, and review phases.  Silently skips
     when *harness_insights* is ``None`` and suppresses exceptions so
     insight recording never interrupts the pipeline.
+
+    If *bus* is provided, publishes a ``HARNESS_FAILURE_RECORDED`` event
+    after writing to Dolt.
     """
     if harness_insights is None:
         return
@@ -211,6 +215,16 @@ def record_harness_failure(
             stage=stage,
         )
         harness_insights.append_failure(record)
+
+        if bus:
+            import asyncio  # noqa: PLC0415
+
+            asyncio.ensure_future(
+                bus.publish(HydraFlowEvent(
+                    type=EventType.HARNESS_FAILURE_RECORDED,
+                    data=record.model_dump(),
+                ))
+            )
     except Exception:  # noqa: BLE001
         logger.warning(
             "Failed to record harness failure for issue #%d",

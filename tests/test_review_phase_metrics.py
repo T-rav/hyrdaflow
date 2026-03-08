@@ -382,9 +382,8 @@ class TestReviewInsightIntegration:
         pr = PRInfoFactory.create()
 
         # Pre-populate the insight store with records near threshold
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
         for i in range(3):
-            store.append_review(
+            phase._insights.append_review(
                 ReviewRecord(
                     pr_number=90 + i,
                     issue_number=30 + i,
@@ -437,9 +436,8 @@ class TestReviewInsightIntegration:
         pr = PRInfoFactory.create()
 
         # Pre-populate and mark as proposed
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
         for i in range(4):
-            store.append_review(
+            phase._insights.append_review(
                 ReviewRecord(
                     pr_number=90 + i,
                     issue_number=30 + i,
@@ -450,7 +448,7 @@ class TestReviewInsightIntegration:
                     categories=["missing_tests"],
                 )
             )
-        store.mark_category_proposed("missing_tests")
+        phase._insights.mark_category_proposed("missing_tests")
 
         phase._prs.create_issue = AsyncMock(return_value=999)
 
@@ -1462,90 +1460,35 @@ class TestRecordReviewInsight:
         )
 
         mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = []
-        mock_insights.get_proposed_categories.return_value = set()
         phase._insights = mock_insights
 
-        with patch("review_phase.analyze_patterns", return_value=[]):
-            await phase._record_review_insight(result)
+        await phase._record_review_insight(result)
 
         mock_insights.append_review.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_creates_issue_when_pattern_detected(
+    async def test_publishes_review_insight_recorded_event(
         self, config: HydraFlowConfig
     ) -> None:
-        """When a recurring pattern is detected, a GitHub improvement issue is created."""
+        """After appending, should publish a REVIEW_INSIGHT_RECORDED event."""
+        from events import EventType
+
         phase = make_review_phase(config)
         result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
-        phase._prs.create_task = AsyncMock(return_value=123)
 
         mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = [MagicMock()] * 5
-        mock_insights.get_proposed_categories.return_value = set()
         phase._insights = mock_insights
 
-        from review_insights import ReviewRecord
+        phase._bus.publish = AsyncMock()
 
-        mock_evidence = [
-            ReviewRecord(
-                pr_number=101,
-                issue_number=42,
-                timestamp="2026-01-01T00:00:00",
-                verdict="request-changes",
-                summary="Missing tests",
-                fixes_made=False,
-                categories=["test_coverage"],
-            ),
-            ReviewRecord(
-                pr_number=102,
-                issue_number=43,
-                timestamp="2026-01-02T00:00:00",
-                verdict="request-changes",
-                summary="Missing tests again",
-                fixes_made=False,
-                categories=["test_coverage"],
-            ),
-        ]
-        with patch(
-            "review_phase.analyze_patterns",
-            return_value=[("test_coverage", 4, mock_evidence)],
-        ):
-            await phase._record_review_insight(result)
+        await phase._record_review_insight(result)
 
-        phase._prs.create_task.assert_awaited_once()
-        call_title, _call_body, call_labels = phase._prs.create_task.call_args[0]
-        assert (
-            "test_coverage" in call_title.lower() or "Recurring feedback" in call_title
-        )
-        assert config.improve_label[0] in call_labels
-        mock_insights.mark_category_proposed.assert_called_once_with("test_coverage")
-
-    @pytest.mark.asyncio
-    async def test_skips_already_proposed_category(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Should not create a duplicate issue for an already-proposed category."""
-        phase = make_review_phase(config)
-        result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
-        phase._prs.create_task = AsyncMock(return_value=None)
-
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = [MagicMock()] * 5
-        mock_insights.get_proposed_categories.return_value = {"test_coverage"}
-        phase._insights = mock_insights
-
-        mock_evidence = [
-            MagicMock(pr_number=1, issue_number=10, summary="needs tests"),
-            MagicMock(pr_number=2, issue_number=20, summary="missing coverage"),
-        ]
-        with patch(
-            "review_phase.analyze_patterns",
-            return_value=[("test_coverage", 4, mock_evidence)],
-        ):
-            await phase._record_review_insight(result)
-
-        phase._prs.create_task.assert_not_awaited()
+        mock_insights.append_review.assert_called_once()
+        # Verify event was published on the bus
+        phase._bus.publish.assert_awaited_once()
+        event = phase._bus.publish.call_args[0][0]
+        assert event.type == EventType.REVIEW_INSIGHT_RECORDED
+        assert event.data["pr_number"] == result.pr_number
 
     @pytest.mark.asyncio
     async def test_exception_does_not_propagate(self, config: HydraFlowConfig) -> None:
@@ -1569,12 +1512,9 @@ class TestRecordReviewInsight:
         phase._update_bg_worker_status = status_cb
 
         mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = []
-        mock_insights.get_proposed_categories.return_value = set()
         phase._insights = mock_insights
 
-        with patch("review_phase.analyze_patterns", return_value=[]):
-            await phase._record_review_insight(result)
+        await phase._record_review_insight(result)
 
         status_cb.assert_called_with(
             "review_insights",
@@ -1617,11 +1557,8 @@ class TestRecordReviewInsight:
         phase._update_bg_worker_status = status_cb
 
         mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = []
-        mock_insights.get_proposed_categories.return_value = set()
         phase._insights = mock_insights
 
-        with patch("review_phase.analyze_patterns", return_value=[]):
-            await phase._record_review_insight(result)
+        await phase._record_review_insight(result)
 
         mock_insights.append_review.assert_called_once()

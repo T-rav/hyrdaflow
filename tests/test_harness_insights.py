@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -20,11 +19,9 @@ from harness_insights import (
     analyze_subcategory_patterns,
     build_harness_issue_body,
     extract_subcategories,
-    file_harness_suggestions,
     generate_suggestions,
 )
 from models import PipelineStage
-from state import StateTracker
 from tests.conftest import ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -543,218 +540,6 @@ class TestGenerateSuggestions:
         assert suggestions[0].evidence
         assert len(suggestions[0].evidence) == 3
 
-
-# ---------------------------------------------------------------------------
-# file_harness_suggestions
-# ---------------------------------------------------------------------------
-
-
-class TestFileHarnessSuggestions:
-    """Tests for file_harness_suggestions()."""
-
-    @pytest.mark.asyncio
-    async def test_files_issue_and_marks_proposed(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=99)
-        state = StateTracker(tmp_path / "state.json")
-
-        suggestion = ImprovementSuggestion(
-            category=FailureCategory.QUALITY_GATE,
-            occurrence_count=5,
-            window_size=20,
-            description="Quality gate failure",
-            suggestion="Improve lint checks",
-            evidence=[_make_record()],
-        )
-
-        filed = await file_harness_suggestions(
-            [suggestion],
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-        )
-
-        assert filed == 1
-        mock_prs.create_issue.assert_called_once()
-        call_args = mock_prs.create_issue.call_args
-        assert "[Harness Insight]" in call_args[0][0]
-        assert "category:quality_gate" in store.get_proposed_patterns()
-
-    @pytest.mark.asyncio
-    async def test_caps_at_max_per_cycle(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=99)
-        state = StateTracker(tmp_path / "state.json")
-
-        suggestions = [
-            ImprovementSuggestion(
-                category=FailureCategory.QUALITY_GATE,
-                occurrence_count=5,
-                window_size=20,
-                description="Quality gate failure",
-                suggestion="Fix it",
-            ),
-            ImprovementSuggestion(
-                category=FailureCategory.CI_FAILURE,
-                occurrence_count=3,
-                window_size=20,
-                description="CI failure",
-                suggestion="Fix CI",
-            ),
-        ]
-
-        filed = await file_harness_suggestions(
-            suggestions,
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-            max_per_cycle=1,
-        )
-
-        assert filed == 1
-        assert mock_prs.create_issue.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_sets_hitl_origin_and_cause(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=88)
-        state = StateTracker(tmp_path / "state.json")
-
-        suggestion = ImprovementSuggestion(
-            category=FailureCategory.REVIEW_REJECTION,
-            occurrence_count=4,
-            window_size=20,
-            description="Review rejection",
-            suggestion="Improve prompts",
-        )
-
-        await file_harness_suggestions(
-            [suggestion],
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-        )
-
-        assert state.get_hitl_origin(88) == "hydraflow-improve"
-        assert "Harness pattern detected" in (state.get_hitl_cause(88) or "")
-
-    @pytest.mark.asyncio
-    async def test_subcategory_key_used_when_present(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=77)
-        state = StateTracker(tmp_path / "state.json")
-
-        suggestion = ImprovementSuggestion(
-            category=FailureCategory.QUALITY_GATE,
-            subcategory="lint_error",
-            occurrence_count=4,
-            window_size=20,
-            description="Recurring lint_error failures",
-            suggestion="Add lint step",
-        )
-
-        await file_harness_suggestions(
-            [suggestion],
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-        )
-
-        assert "subcategory:lint_error" in store.get_proposed_patterns()
-
-    @pytest.mark.asyncio
-    async def test_no_suggestions_files_nothing(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        state = StateTracker(tmp_path / "state.json")
-
-        filed = await file_harness_suggestions(
-            [],
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-        )
-
-        assert filed == 0
-        mock_prs.create_issue.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_memory_label_route_prefixes_memory_and_skips_hitl(
-        self, tmp_path: Path
-    ) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=101)
-        state = StateTracker(tmp_path / "state.json")
-
-        suggestion = ImprovementSuggestion(
-            category=FailureCategory.QUALITY_GATE,
-            occurrence_count=5,
-            window_size=20,
-            description="Quality gate failure",
-            suggestion="Improve lint checks",
-        )
-
-        filed = await file_harness_suggestions(
-            [suggestion],
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-            memory_label=["hydraflow-memory"],
-        )
-
-        assert filed == 1
-        call_args = mock_prs.create_issue.call_args
-        assert call_args[0][0].startswith("[Memory] [Harness Insight]")
-        assert call_args[0][2] == ["hydraflow-improve", "hydraflow-memory"]
-        assert state.get_hitl_origin(101) is None
-        assert state.get_hitl_cause(101) is None
-
-    @pytest.mark.asyncio
-    async def test_create_issue_failure_does_not_mark_proposed(
-        self, tmp_path: Path
-    ) -> None:
-        """If create_issue returns None, the pattern must not be marked proposed."""
-        store = HarnessInsightStore(tmp_path / "memory")
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=None)
-        state = StateTracker(tmp_path / "state.json")
-
-        suggestion = ImprovementSuggestion(
-            category=FailureCategory.QUALITY_GATE,
-            occurrence_count=5,
-            window_size=20,
-            description="Quality gate failure",
-            suggestion="Improve lint checks",
-        )
-
-        filed = await file_harness_suggestions(
-            [suggestion],
-            store,
-            mock_prs,
-            state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-        )
-
-        assert filed == 0
-        assert store.get_proposed_patterns() == set()
 
 
 # ---------------------------------------------------------------------------

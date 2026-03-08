@@ -48,6 +48,7 @@ from dolt.pipeline import (
 from dolt.telemetry import InferenceRepository, ModelPricingRepository
 from dolt.troubleshooting import TroubleshootingPatternRepository
 from dolt.workers import WorkerRepository
+from models import LifetimeStats
 
 logger = logging.getLogger("hydraflow.dolt.store")
 
@@ -940,8 +941,8 @@ class DoltStore:
         current = self._lifetime._get("total_review_seconds") or 0.0  # noqa: SLF001
         self._lifetime._set("total_review_seconds", current + seconds)  # noqa: SLF001
 
-    def get_lifetime_stats(self) -> dict[str, Any]:
-        """Return a copy of the lifetime stats counters."""
+    def get_lifetime_stats(self) -> LifetimeStats:
+        """Return lifetime stats as a ``LifetimeStats`` Pydantic model."""
         lt = self._lifetime.get_all()
         lt.pop("id", None)
         for json_field in ("merge_durations", "retries_per_stage", "fired_thresholds"):
@@ -950,7 +951,7 @@ class DoltStore:
                 lt[json_field] = self._json_loads(val) or (
                     [] if json_field != "retries_per_stage" else {}
                 )
-        return lt
+        return LifetimeStats.model_validate(lt)
 
     # ------------------------------------------------------------------
     # Active crate
@@ -1432,18 +1433,18 @@ class DoltStore:
     ) -> list[dict[str, Any]]:
         """Check metrics against thresholds, return crossed thresholds."""
         stats = self.get_lifetime_stats()
-        total_issues = stats.get("issues_completed", 0)
+        total_issues = stats.issues_completed
         total_reviews = (
-            stats.get("total_review_approvals", 0)
-            + stats.get("total_review_request_changes", 0)
+            stats.total_review_approvals
+            + stats.total_review_request_changes
         )
-        fired = stats.get("fired_thresholds", [])
+        fired = getattr(stats, "fired_thresholds", []) or []
 
         defs: list[tuple[str, str, float, float, int, bool, str]] = [
             (
                 "quality_fix_rate",
                 "quality fix rate",
-                (stats.get("total_quality_fix_rounds", 0) / total_issues
+                (stats.total_quality_fix_rounds / total_issues
                  if total_issues else 0.0),
                 quality_fix_rate_threshold,
                 total_issues,
@@ -1453,7 +1454,7 @@ class DoltStore:
             (
                 "approval_rate",
                 "first-pass approval rate",
-                (stats.get("total_review_approvals", 0) / total_reviews
+                (stats.total_review_approvals / total_reviews
                  if total_reviews else 1.0),
                 approval_rate_threshold,
                 total_reviews,
@@ -1463,7 +1464,7 @@ class DoltStore:
             (
                 "hitl_rate",
                 "HITL escalation rate",
-                (stats.get("total_hitl_escalations", 0) / total_issues
+                (stats.total_hitl_escalations / total_issues
                  if total_issues else 0.0),
                 hitl_rate_threshold,
                 total_issues,

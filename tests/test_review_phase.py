@@ -2521,9 +2521,8 @@ class TestReviewInsightIntegration:
         pr = PRInfoFactory.create()
 
         # Pre-populate the insight store with records near threshold
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
         for i in range(3):
-            store.append_review(
+            phase._insights.append_review(
                 ReviewRecord(
                     pr_number=90 + i,
                     issue_number=30 + i,
@@ -2573,9 +2572,8 @@ class TestReviewInsightIntegration:
         pr = PRInfoFactory.create()
 
         # Pre-populate and mark as proposed
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
         for i in range(4):
-            store.append_review(
+            phase._insights.append_review(
                 ReviewRecord(
                     pr_number=90 + i,
                     issue_number=30 + i,
@@ -2586,7 +2584,7 @@ class TestReviewInsightIntegration:
                     categories=["missing_tests"],
                 )
             )
-        store.mark_category_proposed("missing_tests")
+        phase._insights.mark_category_proposed("missing_tests")
 
         review_result = ReviewResult(
             pr_number=101,

@@ -1315,17 +1315,12 @@ async def _run_main(config: HydraFlowConfig) -> None:
     if config.dashboard_enabled:
         from dashboard import HydraFlowDashboard
         from dolt.store import DoltStore
-        from events import EventBus, EventLog, EventType, HydraFlowEvent
+        from events import EventBus, EventType, HydraFlowEvent
         from models import Phase
 
-        event_log = EventLog(config.event_log_path)
-        bus = EventBus(event_log=event_log)
-        await bus.rotate_log(
-            config.event_log_max_size_mb * 1024 * 1024,
-            config.event_log_retention_days,
-        )
-        await bus.load_history_from_disk()
         state = DoltStore(config.dolt_path, port=config.dolt_port)
+        bus = EventBus(state=state)
+        await bus.load_history_from_dolt()
 
         dashboard = HydraFlowDashboard(
             config=config,

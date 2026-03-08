@@ -27,7 +27,6 @@ from events import EventBus, EventType, HydraFlowEvent
 from hf_cli.update_check import load_cached_update_result
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStoreStage
-from metrics_manager import get_metrics_cache_dir
 from models import (
     BackgroundWorkersResponse,
     BackgroundWorkerState,
@@ -565,33 +564,15 @@ def create_router(
     def _load_local_metrics_cache(
         limit: int = 100,
     ) -> list[MetricsSnapshot]:
-        """Load metrics snapshots from local disk cache without requiring the orchestrator."""
-        cache_file = get_metrics_cache_dir(config) / "snapshots.jsonl"
-        if not cache_file.exists():
+        """Load metrics snapshots from Dolt."""
+        if state is None:
             return []
-        snapshots: list[MetricsSnapshot] = []
         try:
-            with open(cache_file) as f:
-                for raw_line in f:
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                    except ValidationError:
-                        logger.debug(
-                            "Skipping corrupt metrics snapshot line",
-                            exc_info=True,
-                        )
-                        continue
-        except OSError:
-            logger.warning(
-                "Could not read metrics cache %s",
-                cache_file,
-                exc_info=True,
-            )
+            rows = state.get_metrics_history(limit)
+            return [MetricsSnapshot.model_validate(r) for r in rows]
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to load metrics from Dolt", exc_info=True)
             return []
-        return snapshots[-limit:]
 
     def _build_history_links(
         raw: dict[int, dict[str, Any]] | Iterable[Any],
