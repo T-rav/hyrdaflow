@@ -15,6 +15,7 @@ _REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 sys.path.insert(0, str(_REPO_ROOT))
 
+import subprocess_util  # noqa: E402
 from tests.helpers import ConfigFactory  # noqa: E402
 
 if TYPE_CHECKING:
@@ -59,6 +60,14 @@ def setup_test_environment():
             yield
     finally:
         os.environ.update(hydra_keys)
+
+
+@pytest.fixture(autouse=True)
+def _reset_gh_semaphore():
+    """Reset the global gh semaphore between tests to avoid event-loop binding issues."""
+    subprocess_util._gh_semaphore = None
+    yield
+    subprocess_util._gh_semaphore = None
 
 
 # --- Config Fixtures ---
