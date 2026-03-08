@@ -12,14 +12,11 @@ import shutil
 import signal
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from config import HydraFlowConfig, load_config_file
 from file_util import atomic_write
 from log import setup_logging
-
-if TYPE_CHECKING:
-    from repo_runtime import RepoRuntimeRegistry
 
 logger = logging.getLogger("hydraflow.cli")
 
@@ -1321,33 +1318,6 @@ def _run_replay(config: HydraFlowConfig, issue_number: int, latest_only: bool) -
     print(f"\n{'=' * 60}")  # noqa: T201
 
 
-async def _auto_register_current_repo(
-    registry: RepoRuntimeRegistry,
-    config: HydraFlowConfig,
-) -> None:
-    """Auto-detect the current git repo and register it if not already present.
-
-    When HydraFlow is started inside a git repository with a configured
-    ``repo`` (owner/name), the repo is automatically registered so it
-    appears in the dashboard without manual add.  If the repo is already
-    registered (e.g. restored from ``repos.json``), this is a no-op.
-    """
-    if not config.repo:
-        logger.debug("No repo configured; skipping auto-register")
-        return
-
-    slug = config.repo.replace("/", "-")
-    if slug in registry:
-        logger.debug("Repo %r already registered; skipping auto-register", slug)
-        return
-
-    try:
-        await registry.register(config)
-        logger.info("Auto-registered current repo %r", slug)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to auto-register current repo %r: %s", slug, exc)
-
-
 async def _run_main(config: HydraFlowConfig) -> None:
     """Launch the orchestrator, optionally with the dashboard."""
     from repo_runtime import RepoRuntime, RepoRuntimeRegistry
@@ -1356,9 +1326,7 @@ async def _run_main(config: HydraFlowConfig) -> None:
     logger = logging.getLogger("hydraflow.cli")
     cli_explicit_fields = set(getattr(config, "cli_explicit_fields", frozenset()))
     default_slug = config.repo_slug if config.repo else None
-    registry = RepoRuntimeRegistry(
-        data_root=config.data_root if config.dashboard_enabled else None,
-    )
+    registry = RepoRuntimeRegistry()
     repo_store = RepoStore(config.data_root)
 
     records = repo_store.list()

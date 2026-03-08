@@ -840,7 +840,6 @@ class TestRunMainSignalHandlers:
         with (
             patch.object(real_loop, "add_signal_handler", side_effect=tracking_add),
             patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
-            patch("cli._auto_register_current_repo", new_callable=AsyncMock),
         ):
             await _run_main(config)
 
@@ -872,7 +871,6 @@ class TestRunMainSignalHandlers:
         with (
             patch.object(real_loop, "add_signal_handler", side_effect=trigger_stop),
             patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
-            patch("cli._auto_register_current_repo", new_callable=AsyncMock),
         ):
             await _run_main(config)
 
@@ -1185,65 +1183,12 @@ class TestStartupWorkerCountLogging:
         assert "hitl=2" in log_output
 
 
-class TestAutoRegisterCurrentRepo:
-    """Tests for _auto_register_current_repo in cli.py."""
-
-    @pytest.mark.asyncio
-    async def test_registers_when_repo_configured(self, tmp_path):
-        from cli import _auto_register_current_repo
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
-        registry = MagicMock()
-        registry.__contains__ = MagicMock(return_value=False)
-        registry.register = AsyncMock()
-        await _auto_register_current_repo(registry, config)
-        registry.register.assert_awaited_once_with(config)
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_repo(self, tmp_path):
-        from cli import _auto_register_current_repo
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo="", repo_root=tmp_path)
-        registry = MagicMock()
-        registry.register = AsyncMock()
-        await _auto_register_current_repo(registry, config)
-        registry.register.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_skips_when_already_registered(self, tmp_path):
-        from cli import _auto_register_current_repo
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
-        registry = MagicMock()
-        registry.__contains__ = MagicMock(return_value=True)
-        registry.register = AsyncMock()
-        await _auto_register_current_repo(registry, config)
-        registry.register.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_handles_registration_failure(self, tmp_path):
-        from cli import _auto_register_current_repo
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo="org/proj", repo_root=tmp_path)
-        registry = MagicMock()
-        registry.__contains__ = MagicMock(return_value=False)
-        registry.register = AsyncMock(side_effect=RuntimeError("boom"))
-        # Should not raise
-        await _auto_register_current_repo(registry, config)
-
-
 class TestRunMainRegistryWiring:
     """Tests that _run_main wires RepoRuntimeRegistry correctly."""
 
     @pytest.mark.asyncio
-    async def test_dashboard_passes_data_root_and_calls_load_saved(
-        self, tmp_path
-    ) -> None:
-        """_run_main creates registry with data_root and calls load_saved."""
+    async def test_dashboard_creates_registry_and_repo_store(self, tmp_path) -> None:
+        """_run_main creates a RepoRuntimeRegistry (no data_root) and a RepoStore."""
         from tests.helpers import ConfigFactory
 
         config = ConfigFactory.create(dashboard_enabled=True, repo_root=tmp_path)
@@ -1256,7 +1201,6 @@ class TestRunMainRegistryWiring:
         mock_dashboard.stop = AsyncMock()
 
         mock_registry = MagicMock()
-        mock_registry.load_saved = AsyncMock(return_value=0)
         mock_registry.stop_all = AsyncMock()
         mock_registry.register = AsyncMock(return_value=MagicMock())
         mock_registry.__contains__ = MagicMock(return_value=False)
@@ -1268,11 +1212,10 @@ class TestRunMainRegistryWiring:
         with (
             patch.object(real_loop, "add_signal_handler", side_effect=trigger_stop),
             patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
-            patch("cli._auto_register_current_repo", new_callable=AsyncMock),
             patch(
                 "repo_runtime.RepoRuntimeRegistry", return_value=mock_registry
             ) as MockRegistry,
         ):
             await _run_main(config)
 
-        MockRegistry.assert_called_once_with(data_root=config.data_root)
+        MockRegistry.assert_called_once_with()
