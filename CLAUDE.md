@@ -104,7 +104,8 @@ make security       # Run Bandit security scan
 make quality        # Lint + typecheck + security + test (parallel)
 make quality-lite   # Lint + typecheck + security (no tests)
 make setup          # Install hooks, CLI, config, labels
-make prep           # Scan + scaffold CI/tests for target repo
+make prep           # Sync agent assets + run full repo prep (labels, audit, CI/tests)
+make scaffold       # Generate baseline tests and CI configuration only (no asset sync)
 make ensure-labels  # Create HydraFlow lifecycle labels
 make hot            # Send config update to running instance
 make ui             # Build React dashboard
