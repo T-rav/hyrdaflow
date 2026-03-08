@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from models import SessionLog, SessionStatus
+from tests.helpers import find_endpoint, make_dashboard_router
 
 
 def _make_session(
@@ -31,31 +32,6 @@ def _make_session(
     )
 
 
-def _make_router(config, event_bus, state, tmp_path, get_orch=None):
-    from dashboard_routes import create_router
-    from pr_manager import PRManager
-
-    pr_mgr = PRManager(config, event_bus)
-    return create_router(
-        config=config,
-        event_bus=event_bus,
-        state=state,
-        pr_manager=pr_mgr,
-        get_orchestrator=get_orch or (lambda: None),
-        set_orchestrator=lambda o: None,
-        set_run_task=lambda t: None,
-        ui_dist_dir=tmp_path / "no-dist",
-        template_dir=tmp_path / "no-templates",
-    )
-
-
-def _find_endpoint(router, path):
-    for route in router.routes:
-        if hasattr(route, "path") and route.path == path and hasattr(route, "endpoint"):
-            return route.endpoint
-    return None
-
-
 class TestGetSessions:
     """Tests for GET /api/sessions endpoint."""
 
@@ -63,8 +39,8 @@ class TestGetSessions:
     async def test_returns_empty_list_when_no_sessions(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
         assert endpoint is not None
 
         response = await endpoint()
@@ -80,8 +56,8 @@ class TestGetSessions:
         state.save_session(s1)
         state.save_session(s2)
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
         assert endpoint is not None
 
         response = await endpoint()
@@ -97,8 +73,8 @@ class TestGetSessions:
         state.save_session(s1)
         state.save_session(s2)
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
         assert endpoint is not None
 
         response = await endpoint(repo="org/repo-a")
@@ -117,8 +93,8 @@ class TestGetSessionDetail:
         session = _make_session(id="target-id")
         state.save_session(session)
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions/{session_id}")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions/{session_id}")
         assert endpoint is not None
 
         response = await endpoint(session_id="target-id")
@@ -131,8 +107,8 @@ class TestGetSessionDetail:
     async def test_returns_404_for_unknown_session(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions/{session_id}")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions/{session_id}")
         assert endpoint is not None
 
         response = await endpoint(session_id="nonexistent")
@@ -165,8 +141,8 @@ class TestGetSessionDetail:
             )
         )
 
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/sessions/{session_id}")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions/{session_id}")
         response = await endpoint(session_id="sess-1")
         data = json.loads(response.body)
         assert len(data["events"]) == 1
@@ -185,10 +161,10 @@ class TestControlStatusIncludesSessionId:
         mock_orch.current_session_id = "test-session-123"
         mock_orch.credits_paused_until = None
 
-        router = _make_router(
+        router, _pr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = _find_endpoint(router, "/api/control/status")
+        endpoint = find_endpoint(router, "/api/control/status")
         assert endpoint is not None
 
         response = await endpoint()
@@ -199,8 +175,8 @@ class TestControlStatusIncludesSessionId:
     async def test_control_status_session_id_null_when_idle(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = _make_router(config, event_bus, state, tmp_path)
-        endpoint = _find_endpoint(router, "/api/control/status")
+        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/control/status")
         assert endpoint is not None
 
         response = await endpoint()

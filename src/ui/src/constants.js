@@ -151,7 +151,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -166,6 +166,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   report_issue: 30,
   worktree_gc: 1800,
   adr_reviewer: 86400,
+  epic_sweeper: 3600,
 }
 
 /**
@@ -195,4 +196,5 @@ export const BACKGROUND_WORKERS = [
   { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red },
   { key: 'worktree_gc',    label: 'Worktree GC',    description: 'Garbage-collects stale worktrees and orphaned branches.', color: theme.textMuted, system: true },
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
+  { key: 'epic_sweeper',   label: 'Epic Sweeper',   description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
 ]

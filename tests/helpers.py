@@ -239,6 +239,7 @@ class ConfigFactory:
         git_user_email: str = "",
         dashboard_enabled: bool = False,
         dashboard_port: int = 15555,
+        dashboard_host: str = "127.0.0.1",
         review_insight_window: int = 10,
         review_pattern_threshold: int = 3,
         subskill_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -322,6 +323,7 @@ class ConfigFactory:
         epic_auto_decompose: bool = False,
         epic_decompose_complexity_threshold: int = 8,
         epic_monitor_interval: int = 1800,
+        epic_sweep_interval: int = 3600,
         worktree_gc_interval: int = 1800,
         epic_stale_days: int = 7,
         epic_merge_strategy: Literal[
@@ -355,7 +357,10 @@ class ConfigFactory:
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
         adr_review_enabled: bool = False,
+        adr_review_auto_triage: bool = False,
         adr_review_model: str = "sonnet",
+        adr_auto_triage: bool = False,
+        adr_pre_review: bool = True,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -443,6 +448,7 @@ class ConfigFactory:
                 git_user_email=git_user_email,
                 dashboard_enabled=dashboard_enabled,
                 dashboard_port=dashboard_port,
+                dashboard_host=dashboard_host,
                 ac_model=ac_model,
                 ac_tool=ac_tool,
                 verification_judge_tool=verification_judge_tool,
@@ -524,6 +530,7 @@ class ConfigFactory:
                 epic_auto_decompose=epic_auto_decompose,
                 epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
                 epic_monitor_interval=epic_monitor_interval,
+                epic_sweep_interval=epic_sweep_interval,
                 worktree_gc_interval=worktree_gc_interval,
                 epic_stale_days=epic_stale_days,
                 epic_merge_strategy=epic_merge_strategy,
@@ -574,7 +581,10 @@ class ConfigFactory:
                 adr_review_approval_threshold=adr_review_approval_threshold,
                 adr_review_max_rounds=adr_review_max_rounds,
                 adr_review_enabled=adr_review_enabled,
+                adr_review_auto_triage=adr_review_auto_triage,
                 adr_review_model=adr_review_model,
+                adr_auto_triage=adr_auto_triage,
+                adr_pre_review=adr_pre_review,
             )
 
 
@@ -778,7 +788,7 @@ class PipelineHarness:
         worker_result=None,
         review_verdict="approve",
     ) -> PipelineRunResult:
-        """Drive an issue through triage → plan → implement → review."""
+        """Drive an issue through triage -> plan -> implement -> review."""
         from models import ReviewVerdict
         from tests.conftest import (
             PlanResultFactory,
@@ -1019,6 +1029,7 @@ def make_implement_phase(
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
@@ -1162,6 +1173,96 @@ def make_conflict_resolver(config, *, agents=None):
         state=state,
         summarizer=None,
     )
+
+
+def make_dashboard_router(
+    config,
+    event_bus,
+    state,
+    tmp_path,
+    *,
+    get_orch=None,
+    registry=None,
+    ui_dist_dir=None,
+    template_dir=None,
+):
+    """Create a dashboard router with test-friendly defaults.
+
+    Returns ``(router, pr_mgr)`` so callers can mock individual
+    ``PRManager`` methods after construction.
+
+    Parameters
+    ----------
+    get_orch:
+        Callable returning the orchestrator instance.  Defaults to
+        ``lambda: None``.
+    registry:
+        Optional ``RepoRuntimeRegistry`` for multi-repo tests.
+    ui_dist_dir / template_dir:
+        Override the default ``tmp_path / "no-dist"`` / ``"no-templates"``.
+    """
+    from dashboard_routes import create_router
+    from pr_manager import PRManager
+
+    pr_mgr = PRManager(config, event_bus)
+    router = create_router(
+        config=config,
+        event_bus=event_bus,
+        state=state,
+        pr_manager=pr_mgr,
+        get_orchestrator=get_orch or (lambda: None),
+        set_orchestrator=lambda o: None,
+        set_run_task=lambda t: None,
+        ui_dist_dir=ui_dist_dir or (tmp_path / "no-dist"),
+        template_dir=template_dir or (tmp_path / "no-templates"),
+        registry=registry,
+    )
+    return router, pr_mgr
+
+
+def find_endpoint(router: Any, path: str, method: str | None = None) -> Any | None:
+    """Locate an endpoint handler on *router* by path and optional HTTP method.
+
+    When *method* is ``None``, returns the first route matching *path*.
+    When *method* is given (e.g. ``"GET"``, ``"POST"``), also checks that
+    the route's ``methods`` set contains the value.
+    """
+    for route in router.routes:
+        if not (
+            hasattr(route, "path") and route.path == path and hasattr(route, "endpoint")
+        ):
+            continue
+        if method is None or (hasattr(route, "methods") and method in route.methods):
+            return route.endpoint
+    return None
+
+
+def make_pr_manager_mock(**overrides: Any) -> AsyncMock:
+    """Create an ``AsyncMock`` with common ``PRManager`` method stubs.
+
+    Every method is an ``AsyncMock`` so callers can ``await`` them and
+    assert calls.  Pass keyword overrides to replace individual attributes::
+
+        prs = make_pr_manager_mock(get_pr_diff=AsyncMock(return_value="big diff"))
+    """
+    prs = AsyncMock()
+    prs.remove_label = AsyncMock()
+    prs.add_labels = AsyncMock()
+    prs.swap_pipeline_labels = AsyncMock()
+    prs.transition = AsyncMock()
+    prs.get_pr_diff = AsyncMock(return_value="")
+    prs.post_comment = AsyncMock()
+    prs.post_pr_comment = AsyncMock()
+    prs.push_branch = AsyncMock(return_value=True)
+    prs.merge_pr = AsyncMock(return_value=True)
+    prs.submit_review = AsyncMock(return_value=True)
+    prs.create_task = AsyncMock(return_value=99)
+    prs.close_task = AsyncMock()
+    prs.add_pr_labels = AsyncMock()
+    prs.remove_pr_label = AsyncMock()
+    for k, v in overrides.items():
+        setattr(prs, k, v)
+    return prs
 
 
 def make_review_phase(

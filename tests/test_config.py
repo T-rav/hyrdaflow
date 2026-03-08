@@ -500,6 +500,14 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.dashboard_port == 5555
 
+    def test_dashboard_host_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.dashboard_host == "127.0.0.1"
+
     def test_dashboard_enabled_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -623,6 +631,15 @@ class TestHydraFlowConfigCustomValues:
             state_file=tmp_path / "s.json",
         )
         assert cfg.dashboard_port == 8080
+
+    def test_custom_dashboard_host(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            dashboard_host="0.0.0.0",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.dashboard_host == "0.0.0.0"
 
     def test_custom_dashboard_enabled_false(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1469,6 +1486,18 @@ class GitIdentityEnvMixin:
 
 class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
     """Tests for git_user_name/git_user_email fields and env var resolution."""
+
+    @staticmethod
+    def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "HYDRAFLOW_GIT_USER_NAME",
+            "HYDRAFLOW_GIT_USER_EMAIL",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
 
     def test_git_user_name_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

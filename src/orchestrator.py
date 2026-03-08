@@ -25,6 +25,7 @@ from models import (
 )
 from phase_utils import (
     is_adr_issue_title,
+    is_likely_bug,
     release_batch_in_flight,
     safe_file_memory_suggestion,
 )
@@ -38,6 +39,7 @@ from subprocess_util import (
 )
 
 if TYPE_CHECKING:
+    from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
@@ -147,10 +149,25 @@ class HydraFlowOrchestrator:
         self._report_issue_loop = svc.report_issue_loop
         self._epic_manager = svc.epic_manager
         self._epic_monitor_loop = svc.epic_monitor_loop
+        self._epic_sweeper_loop = svc.epic_sweeper_loop
         self._worktree_gc_loop = svc.worktree_gc_loop
         self._runs_gc_loop = svc.runs_gc_loop
         self._adr_reviewer_loop = svc.adr_reviewer_loop
         self._crate_manager = svc.crate_manager
+
+        # Registry of triggerable background loop instances
+        self._bg_loop_registry: dict[str, BaseBackgroundLoop] = {
+            "memory_sync": self._memory_sync_bg,
+            "metrics": self._metrics_sync_bg,
+            "pr_unsticker": self._pr_unsticker_loop,
+            "manifest_refresh": self._manifest_refresh_loop,
+            "report_issue": self._report_issue_loop,
+            "epic_monitor": self._epic_monitor_loop,
+            "epic_sweeper": self._epic_sweeper_loop,
+            "worktree_gc": self._worktree_gc_loop,
+            "runs_gc": self._runs_gc_loop,
+            "adr_reviewer": self._adr_reviewer_loop,
+        }
 
     @property
     def crate_manager(self) -> CrateManager:
@@ -377,6 +394,18 @@ class HydraFlowOrchestrator:
             result[name] = {**state_dict, "enabled": self.is_bg_worker_enabled(name)}
         return result
 
+    def trigger_bg_worker(self, name: str) -> bool:
+        """Trigger an immediate execution of a background worker.
+
+        Returns ``True`` if the worker was found and triggered, ``False``
+        if *name* does not correspond to a registered ``BaseBackgroundLoop``.
+        """
+        loop = self._bg_loop_registry.get(name)
+        if loop is None:
+            return False
+        loop.trigger()
+        return True
+
     def set_bg_worker_interval(self, name: str, seconds: int) -> None:
         """Set a dynamic interval override for a background worker."""
         self._bg_worker_intervals[name] = seconds
@@ -528,11 +557,23 @@ class HydraFlowOrchestrator:
     async def _pipeline_stats_loop(self) -> None:
         """Emit pipeline stats every ~10 seconds."""
         interval = self.get_bg_worker_interval("pipeline_poller")
+        stats_failures = 0
+        crate_failures = 0
         while not self._stop_event.is_set():
             try:
                 await self.emit_pipeline_stats()
-            except Exception:
-                logger.exception("Pipeline stats emission failed")
+                stats_failures = 0
+            except Exception as exc:
+                stats_failures += 1
+                if is_likely_bug(exc) or stats_failures >= 5:
+                    logger.critical(
+                        "Pipeline stats emission failed (%s, %d consecutive)",
+                        type(exc).__name__,
+                        stats_failures,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("Pipeline stats emission failed")
             # Auto-package uncrated issues into a new crate when enabled
             try:
                 if (
@@ -542,8 +583,18 @@ class HydraFlowOrchestrator:
                     uncrated = self._store.get_uncrated_issues()
                     if uncrated:
                         await self._crate_manager.auto_package_if_needed(uncrated)
-            except Exception:
-                logger.exception("Auto-crate packaging failed")
+                crate_failures = 0
+            except Exception as exc:
+                crate_failures += 1
+                if is_likely_bug(exc) or crate_failures >= 5:
+                    logger.critical(
+                        "Auto-crate packaging failed (%s, %d consecutive)",
+                        type(exc).__name__,
+                        crate_failures,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("Auto-crate packaging failed")
             await self._sleep_or_stop(interval)
 
     def _restore_worker_intervals(self) -> None:
@@ -904,6 +955,7 @@ class HydraFlowOrchestrator:
             ("manifest_refresh", self._manifest_refresh_bg_loop),
             ("report_issue", self._report_issue_loop.run),
             ("epic_monitor", self._epic_monitor_loop.run),
+            ("epic_sweeper", self._epic_sweeper_loop.run),
             ("worktree_gc", self._worktree_gc_loop.run),
             ("runs_gc", self._runs_gc_loop.run),
             ("adr_reviewer", self._adr_reviewer_loop.run),
@@ -951,8 +1003,18 @@ class HydraFlowOrchestrator:
         work_fn: WorkFn,
         interval: int,
         enabled_name: str | None = None,
+        max_consecutive_failures: int = 5,
     ) -> None:
-        """Generic polling loop: check enabled -> try work -> except -> sleep."""
+        """Generic polling loop: check enabled -> try work -> except -> sleep.
+
+        Tracks consecutive failures by exception type.  After
+        *max_consecutive_failures* of the **same** type in a row the loop
+        escalates with a ``SYSTEM_ALERT`` event so operators can detect
+        permanent failure loops (e.g. a code bug being silently retried).
+        """
+        consecutive_failures = 0
+        last_exc_type: type[BaseException] | None = None
+
         while not self._stop_event.is_set():
             if enabled_name is not None and not self.is_bg_worker_enabled(enabled_name):
                 await self._sleep_or_stop(interval)
@@ -961,24 +1023,79 @@ class HydraFlowOrchestrator:
                 did_work = bool(await work_fn())
             except (AuthenticationError, CreditExhaustedError, MemoryError):
                 raise
-            except Exception:
+            except Exception as exc:
                 display = name.replace("_", " ").capitalize()
-                logger.exception(
-                    "%s loop iteration failed — will retry next cycle",
-                    display,
-                )
+                exc_type = type(exc)
+
+                # Track consecutive failures of the same type
+                if exc_type is last_exc_type:
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 1
+                    last_exc_type = exc_type
+
+                # Use higher severity for likely-bug exceptions
+                exc_is_bug = is_likely_bug(exc)
+                if exc_is_bug:
+                    logger.critical(
+                        "%s loop hit likely bug (%s) — will retry but "
+                        "this probably needs a code fix",
+                        display,
+                        exc_type.__name__,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception(
+                        "%s loop iteration failed — will retry next cycle",
+                        display,
+                    )
+
+                error_data: dict[str, Any] = {
+                    "message": f"{display} loop error",
+                    "source": name,
+                    "exception_type": exc_type.__name__,
+                    "is_likely_bug": exc_is_bug,
+                    "consecutive_failures": consecutive_failures,
+                }
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.ERROR,
-                        data={
-                            "message": f"{display} loop error",
-                            "source": name,
-                        },
+                        data=error_data,
                     )
                 )
+
+                # Circuit breaker: escalate exactly once when threshold is crossed
+                if consecutive_failures == max_consecutive_failures:
+                    logger.critical(
+                        "%s loop has failed %d consecutive times with %s "
+                        "— escalating via SYSTEM_ALERT",
+                        display,
+                        consecutive_failures,
+                        exc_type.__name__,
+                    )
+                    await self._bus.publish(
+                        HydraFlowEvent(
+                            type=EventType.SYSTEM_ALERT,
+                            data={
+                                "message": (
+                                    f"{display} loop circuit breaker: "
+                                    f"{consecutive_failures} consecutive "
+                                    f"{exc_type.__name__} failures"
+                                ),
+                                "source": name,
+                                "exception_type": exc_type.__name__,
+                                "consecutive_failures": consecutive_failures,
+                            },
+                        )
+                    )
+
                 self.update_bg_worker_status(name, "error")
                 await self._sleep_or_stop(interval)
                 continue
+            else:
+                # Success resets the failure counter
+                consecutive_failures = 0
+                last_exc_type = None
             self.update_bg_worker_status(name, "ok")
             if did_work:
                 continue
@@ -1080,11 +1197,19 @@ class HydraFlowOrchestrator:
                     duration_seconds=duration_seconds,
                     log_file=log_file,
                 )
-            except Exception:
-                logger.exception(
-                    "Failed to post transcript summary for issue #%d",
-                    issue_number,
-                )
+            except Exception as exc:
+                if is_likely_bug(exc):
+                    logger.critical(
+                        "Failed to post transcript summary for issue #%d — likely bug (%s)",
+                        issue_number,
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception(
+                        "Failed to post transcript summary for issue #%d",
+                        issue_number,
+                    )
 
     def _log_reference(self, filename: str) -> str:
         """Return a repo- or data-relative log reference for display."""

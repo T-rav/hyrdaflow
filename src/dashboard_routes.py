@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import importlib
 import json
 import logging
@@ -47,6 +48,7 @@ from models import (
     IssueHistoryLink,
     IssueHistoryPR,
     IssueHistoryResponse,
+    IssueOutcome,
     IssueOutcomeType,
     MetricsHistoryResponse,
     MetricsResponse,
@@ -71,6 +73,11 @@ if TYPE_CHECKING:
     from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 
 logger = logging.getLogger("hydraflow.dashboard")
+
+# Internal pipeline labels that must not be treated as epic names in the history panel.
+_EPIC_INTERNAL_LABELS: frozenset[str] = frozenset(
+    {"hydraflow-epic-child", "hydraflow-epic"}
+)
 
 # Backend stage keys → frontend stage names
 _STAGE_NAME_MAP: dict[str, str] = {
@@ -401,6 +408,114 @@ def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] |
     return result
 
 
+def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
+    """Best-effort parse of legacy query/body JSON object payloads."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_repo_slug(
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    slug_query: str | None,
+    repo_query: str | None,
+) -> str:
+    """Extract repo slug from supported request shapes."""
+    return _extract_field_from_sources(
+        ("slug", "repo"),
+        req,
+        req_query,
+        (slug_query, repo_query),
+        query_params_first=True,
+    )
+
+
+def _extract_repo_path(
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    path_query: str | None,
+    repo_path_query: str | None,
+) -> str:
+    """Extract repo path from supported body/query payload shapes."""
+    return _extract_field_from_sources(
+        ("path", "repo_path"),
+        req,
+        req_query,
+        (path_query, repo_path_query),
+        query_params_first=False,
+    )
+
+
+def _extract_field_from_sources(
+    field_names: tuple[str, str],
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    query_params: tuple[str | None, str | None],
+    *,
+    query_params_first: bool = False,
+) -> str:
+    """Extract a value from query params, body dict, and JSON query.
+
+    Args:
+        field_names: Pair of field name keys to look up (primary, alias).
+        req: Parsed request body dict.
+        req_query: Raw ``req`` query parameter (may be JSON).
+        query_params: Dedicated query-parameter values (primary, alias).
+        query_params_first: When True, check query params before body;
+            otherwise check body before query params.
+    """
+    candidates: list[str] = []
+
+    def _push(value: Any) -> None:
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed:
+                candidates.append(trimmed)
+
+    def _push_from_dict(src: dict[str, Any]) -> None:
+        for name in field_names:
+            _push(src.get(name))
+        nested = src.get("req")
+        if isinstance(nested, dict):
+            for name in field_names:
+                _push(nested.get(name))
+
+    def _push_query_params() -> None:
+        for qp in query_params:
+            _push(qp)
+
+    def _push_body() -> None:
+        if isinstance(req, dict):
+            _push_from_dict(req)
+
+    # Ordering: query_params_first controls whether dedicated query
+    # params are checked before or after the body dict.
+    if query_params_first:
+        _push_query_params()
+        _push_body()
+    else:
+        _push_body()
+
+    parsed_query = _parse_compat_json_object(req_query)
+    if parsed_query:
+        _push_from_dict(parsed_query)
+    else:
+        _push(req_query)
+
+    if not query_params_first:
+        _push_query_params()
+
+    return candidates[0] if candidates else ""
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -424,97 +539,6 @@ def create_router(
     """
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
-
-    def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
-        """Best-effort parse of legacy query/body JSON object payloads."""
-        if not isinstance(raw, str):
-            return None
-        text = raw.strip()
-        if not text:
-            return None
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
-
-    def _extract_repo_slug(
-        req: dict[str, Any] | None,
-        req_query: str | None,
-        slug_query: str | None,
-        repo_query: str | None,
-    ) -> str:
-        """Extract repo slug from supported request shapes."""
-        candidates: list[str] = []
-
-        def _push(value: Any) -> None:
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed:
-                    candidates.append(trimmed)
-
-        _push(slug_query)
-        _push(repo_query)
-
-        if isinstance(req, dict):
-            _push(req.get("slug"))
-            _push(req.get("repo"))
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("slug"))
-                _push(nested.get("repo"))
-
-        parsed_query = _parse_compat_json_object(req_query)
-        if parsed_query:
-            _push(parsed_query.get("slug"))
-            _push(parsed_query.get("repo"))
-            nested = parsed_query.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("slug"))
-                _push(nested.get("repo"))
-        else:
-            _push(req_query)
-
-        return candidates[0] if candidates else ""
-
-    def _extract_repo_path(
-        req: dict[str, Any] | None,
-        req_query: str | None,
-        path_query: str | None,
-        repo_path_query: str | None,
-    ) -> str:
-        """Extract repo path from supported body/query payload shapes."""
-        candidates: list[str] = []
-
-        def _push(value: Any) -> None:
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed:
-                    candidates.append(trimmed)
-
-        if isinstance(req, dict):
-            _push(req.get("path"))
-            _push(req.get("repo_path"))
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("path"))
-                _push(nested.get("repo_path"))
-
-        parsed_query = _parse_compat_json_object(req_query)
-        if parsed_query:
-            _push(parsed_query.get("path"))
-            _push(parsed_query.get("repo_path"))
-            nested = parsed_query.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("path"))
-                _push(nested.get("repo_path"))
-        else:
-            _push(req_query)
-
-        _push(path_query)
-        _push(repo_path_query)
-
-        return candidates[0] if candidates else ""
 
     def _resolve_runtime(
         slug: str | None,
@@ -655,6 +679,330 @@ def create_router(
         if not isinstance(current_last, str) or timestamp > current_last:
             row["last_seen"] = timestamp
 
+    def _build_issue_history_entry(
+        row: dict[str, Any],
+        outcome: IssueOutcome | None,
+    ) -> IssueHistoryEntry:
+        """Build an ``IssueHistoryEntry`` from a raw aggregation row."""
+        issue_number = int(row["issue_number"])
+        title = str(row.get("title", f"Issue #{issue_number}"))
+        row_status = str(row.get("status", "unknown")).lower()
+
+        linked_issues = _build_history_links(row.get("linked_issues", {}))
+        prs_map = row.get("prs", {})
+        if not isinstance(prs_map, dict):
+            prs_map = {}
+        pr_rows = sorted(
+            (
+                IssueHistoryPR(
+                    number=int(pr_data["number"]),
+                    url=str(pr_data.get("url", "")),
+                    merged=bool(pr_data.get("merged", False)),
+                )
+                for pr_data in prs_map.values()
+                if isinstance(pr_data, dict) and _coerce_int(pr_data.get("number")) > 0
+            ),
+            key=lambda p: p.number,
+            reverse=True,
+        )
+
+        return IssueHistoryEntry(
+            issue_number=issue_number,
+            title=title,
+            issue_url=str(row.get("issue_url", "")),
+            status=_coerce_history_status(row_status),
+            epic=str(row.get("epic", "")),
+            crate_number=row.get("crate_number"),
+            crate_title=str(row.get("crate_title", "")),
+            linked_issues=linked_issues,
+            prs=pr_rows,
+            session_ids=sorted(str(s) for s in row.get("session_ids", set()) if str(s)),
+            source_calls=dict(sorted(row.get("source_calls", {}).items())),
+            model_calls=dict(sorted(row.get("model_calls", {}).items())),
+            inference={k: _coerce_int(v) for k, v in row.get("inference", {}).items()},
+            first_seen=row.get("first_seen"),
+            last_seen=row.get("last_seen"),
+            outcome=outcome,
+        )
+
+    def _aggregate_telemetry_record(
+        row: dict[str, Any],
+        record: dict[str, Any],
+        pr_to_issue: dict[int, int],
+        *,
+        sum_counters: bool = False,
+    ) -> None:
+        """Extract shared metadata from a telemetry record into *row*.
+
+        When *sum_counters* is True the inference counter keys are also
+        accumulated (used in the per-record path).  The rollup path only
+        needs metadata so it passes ``sum_counters=False``.
+        """
+        issue_number = int(row["issue_number"])
+        timestamp = record.get("timestamp")
+        _touch_issue_timestamps(row, timestamp if isinstance(timestamp, str) else None)
+
+        session_id = str(record.get("session_id", "")).strip()
+        if session_id:
+            row["session_ids"].add(session_id)
+
+        source = str(record.get("source", "")).strip()
+        if source:
+            row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
+
+        model = str(record.get("model", "")).strip()
+        if model:
+            row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
+
+        if sum_counters:
+            for key in _INFERENCE_COUNTER_KEYS:
+                row["inference"][key] += _coerce_int(record.get(key))
+
+        pr_number = _coerce_int(record.get("pr_number"))
+        if pr_number > 0:
+            prs: dict[int, dict[str, Any]] = row["prs"]
+            if pr_number not in prs:
+                prs[pr_number] = {
+                    "number": pr_number,
+                    "url": "",
+                    "merged": False,
+                }
+            pr_to_issue.setdefault(pr_number, issue_number)
+
+    def _process_events_into_rows(
+        events: list[Any],
+        issue_rows: dict[int, dict[str, Any]],
+        pr_to_issue: dict[int, int],
+        since_dt: datetime | None,
+        until_dt: datetime | None,
+    ) -> None:
+        """Process event-bus events into *issue_rows* in place."""
+        for event in events:
+            timestamp = event.timestamp
+            if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
+                continue
+
+            issue_number = _event_issue_number(event.data)
+            if issue_number is None and event.type == EventType.MERGE_UPDATE:
+                pr_num = _coerce_int(event.data.get("pr"))
+                issue_number = pr_to_issue.get(pr_num)
+
+            if issue_number is None or issue_number <= 0:
+                continue
+
+            row = issue_rows.setdefault(
+                issue_number, _new_issue_history_entry(issue_number)
+            )
+            _touch_issue_timestamps(row, timestamp)
+
+            maybe_title = str(event.data.get("title", "")).strip()
+            if maybe_title:
+                row["title"] = maybe_title
+
+            maybe_url = str(event.data.get("url", "")).strip()
+            if maybe_url.startswith(("http://", "https://")):
+                row["issue_url"] = maybe_url
+
+            if event.type == EventType.ISSUE_CREATED:
+                labels = event.data.get("labels", [])
+                if isinstance(labels, list) and not row.get("epic"):
+                    for lbl in labels:
+                        s = str(lbl).strip()
+                        if (
+                            s
+                            and "epic" in s.lower()
+                            and s.lower() not in _EPIC_INTERNAL_LABELS
+                        ):
+                            row["epic"] = s
+                            break
+                milestone_num = _coerce_int(event.data.get("milestone_number"))
+                if milestone_num > 0 and not row.get("crate_number"):
+                    row["crate_number"] = milestone_num
+
+            if event.type == EventType.PR_CREATED:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    pr_to_issue[pr_number] = issue_number
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    url = str(event.data.get("url", "")).strip()
+                    if url.startswith(("http://", "https://")):
+                        payload["url"] = url
+                    prs[pr_number] = payload
+
+            if event.type == EventType.MERGE_UPDATE:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    if str(event.data.get("status", "")).lower() == "merged":
+                        payload["merged"] = True
+                    prs[pr_number] = payload
+
+            normalised = _normalise_event_status(event.type, event.data)
+            if normalised:
+                current = str(row.get("status", "unknown"))
+                current_ts = (
+                    row.get("status_updated_at")
+                    if isinstance(row.get("status_updated_at"), str)
+                    else None
+                )
+                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
+                    current, current_ts
+                ):
+                    row["status"] = normalised
+                    row["status_updated_at"] = timestamp
+
+    def _filter_rows_to_items(
+        issue_rows: dict[int, dict[str, Any]],
+        requested_status: str,
+        query_text: str,
+    ) -> list[IssueHistoryEntry]:
+        """Filter *issue_rows* and convert to ``IssueHistoryEntry`` objects."""
+        items: list[IssueHistoryEntry] = []
+        for row in issue_rows.values():
+            row_status = str(row.get("status", "unknown")).lower()
+            if requested_status and row_status != requested_status:
+                continue
+
+            issue_number = int(row["issue_number"])
+            title = str(row.get("title", f"Issue #{issue_number}"))
+            if (
+                query_text
+                and query_text not in title.lower()
+                and query_text not in str(issue_number)
+            ):
+                continue
+
+            items.append(
+                _build_issue_history_entry(row, state.get_outcome(issue_number))
+            )
+        return items
+
+    async def _apply_enrichment_and_crate_titles(
+        items: list[IssueHistoryEntry],
+        issue_rows: dict[int, dict[str, Any]],
+        requested_status: str,
+        query_text: str,
+        use_unfiltered: bool,
+    ) -> list[IssueHistoryEntry]:
+        """Enrich items via GitHub and backfill crate titles from milestones.
+
+        Returns a (potentially rebuilt) items list.
+        """
+        already_enriched: set[int] = _history_cache.get("enriched_issues", set())
+        issue_lookup = {
+            item.issue_number: issue_rows[item.issue_number] for item in items
+        }
+        enrich_candidates = [
+            item.issue_number
+            for item in items
+            if item.issue_number not in already_enriched
+            and (
+                not item.issue_url
+                or item.title.startswith("Issue #")
+                or (not item.epic and not item.linked_issues)
+            )
+        ][:40]
+        if enrich_candidates:
+            await _enrich_issue_history_with_github(
+                {k: issue_lookup[k] for k in enrich_candidates}
+            )
+            already_enriched.update(enrich_candidates)
+            _history_cache["enriched_issues"] = already_enriched
+            if use_unfiltered and _history_cache["issue_rows"] is not None:
+                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
+                _save_history_cache()
+            # Rebuild items from enriched rows.
+            items = _filter_rows_to_items(issue_rows, requested_status, query_text)
+
+        # Sort before crate-title backfill so milestone fetches are done
+        # after ordering.  The caller applies the page limit after returning.
+        items.sort(
+            key=lambda item: (
+                item.last_seen or "",
+                item.inference.get("total_tokens", 0),
+                item.issue_number,
+            ),
+            reverse=True,
+        )
+
+        # Populate crate titles from milestones for items that have a
+        # crate_number but no title yet.
+        needs_title = any(i.crate_number and not i.crate_title for i in items)
+        if needs_title:
+            try:
+                milestones = await pr_manager.list_milestones(state="all")
+                title_map = {m.number: m.title for m in milestones}
+                items = [
+                    i.model_copy(
+                        update={"crate_title": title_map.get(i.crate_number, "")}
+                    )
+                    if i.crate_number and not i.crate_title
+                    else i
+                    for i in items
+                ]
+                # Also backfill into the raw rows so the cache carries titles.
+                backfilled = False
+                for i in items:
+                    if i.crate_number and i.crate_title:
+                        raw = issue_rows.get(i.issue_number)
+                        if raw is not None and raw.get("crate_title") != i.crate_title:
+                            raw["crate_title"] = i.crate_title
+                            backfilled = True
+                if (
+                    backfilled
+                    and use_unfiltered
+                    and _history_cache.get("issue_rows") is not None
+                ):
+                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
+                    _save_history_cache()
+            except Exception:
+                logger.debug("Failed to fetch milestones for crate titles")
+
+        # Backfill epic field from state's epic tracking when not already set.
+        epic_states = state.get_all_epic_states()
+        if epic_states:
+            child_to_epic: dict[int, str] = {}
+            for es in epic_states.values():
+                title = es.title or f"Epic #{es.epic_number}"
+                for child in es.child_issues:
+                    child_to_epic[child] = title
+            if child_to_epic:
+                items = [
+                    i.model_copy(update={"epic": child_to_epic[i.issue_number]})
+                    if not i.epic and i.issue_number in child_to_epic
+                    else i
+                    for i in items
+                ]
+
+        # Derive outcome for issues that completed the pipeline (have a
+        # merged PR) but were never given an explicit record_outcome() call.
+        items = [
+            i.model_copy(
+                update={
+                    "outcome": IssueOutcome(
+                        outcome=IssueOutcomeType.MERGED,
+                        reason="Derived from merged PR",
+                        closed_at=i.last_seen or "",
+                        pr_number=next((p.number for p in i.prs if p.merged), None),
+                        phase="review",
+                    )
+                }
+            )
+            if not i.outcome and any(p.merged for p in i.prs)
+            else i
+            for i in items
+        ]
+
+        return items
+
     async def _enrich_issue_history_with_github(
         entries: dict[int, dict[str, Any]], limit: int = 150
     ) -> None:
@@ -677,7 +1025,17 @@ def create_router(
             row["issue_url"] = issue.url or row.get("issue_url", "")
             labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
             if not row.get("epic"):
-                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                # Skip internal pipeline labels (e.g. hydraflow-epic-child);
+                # only keep labels that look like actual epic names.
+                epic = next(
+                    (
+                        lbl
+                        for lbl in labels
+                        if "epic" in lbl.lower()
+                        and lbl.lower() not in _EPIC_INTERNAL_LABELS
+                    ),
+                    "",
+                )
                 row["epic"] = epic
             ms_num = _coerce_int(getattr(issue, "milestone_number", None))
             if ms_num > 0 and not row.get("crate_number"):
@@ -765,6 +1123,108 @@ def create_router(
             )
         finally:
             hitl_summary_inflight.discard(issue_number)
+
+    @router.get("/healthz")
+    def get_health() -> JSONResponse:
+        """Lightweight readiness response for load balancers and monitors."""
+        orchestrator = get_orchestrator()
+        orchestrator_running = bool(getattr(orchestrator, "running", False))
+        worker_states = state.get_bg_worker_states()
+        session_counters = state.get_session_counters()
+        session_started_at: str | None = session_counters.session_start or None
+        uptime_seconds: int | None = None
+        if session_started_at:
+            try:
+                started_dt = datetime.fromisoformat(session_started_at)
+            except (ValueError, TypeError):
+                session_started_at = None
+            else:
+                uptime_seconds = max(
+                    int((datetime.now(UTC) - started_dt).total_seconds()),
+                    0,
+                )
+
+        def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+            if isinstance(raw_status, BGWorkerHealth):
+                return raw_status
+            try:
+                return BGWorkerHealth(str(raw_status or "").lower())
+            except ValueError:
+                return BGWorkerHealth.DISABLED
+
+        worker_count = len(worker_states)
+        worker_errors = sorted(
+            name
+            for name, heartbeat in worker_states.items()
+            if _normalise_worker_health(heartbeat.get("status")) == BGWorkerHealth.ERROR
+        )
+        if orchestrator is None:
+            orchestrator_running = False
+        orchestrator_status = "missing"
+        if orchestrator is not None and orchestrator_running:
+            orchestrator_status = "running"
+        elif orchestrator is not None:
+            orchestrator_status = "idle"
+
+        worker_status = "disabled"
+        if worker_count > 0:
+            worker_status = "degraded" if worker_errors else "ok"
+
+        status = "ok"
+        if orchestrator_status == "missing":
+            status = "starting"
+        elif orchestrator_status == "idle":
+            status = "idle"
+        if worker_status == "degraded":
+            status = "degraded"
+
+        def _is_loopback_host(host: str) -> bool:
+            host_lower = (host or "").lower()
+            return host_lower == "localhost" or host_lower.startswith("127.")
+
+        dashboard_binding = {
+            "host": config.dashboard_host,
+            "port": config.dashboard_port,
+        }
+        dashboard_public = not _is_loopback_host(config.dashboard_host)
+
+        checks = {
+            "orchestrator": {
+                "status": orchestrator_status,
+                "running": orchestrator_running,
+                "session_started_at": session_started_at,
+            },
+            "workers": {
+                "status": worker_status,
+                "count": worker_count,
+                "errors": worker_errors,
+            },
+            "dashboard": {
+                "status": "ok" if config.dashboard_enabled else "disabled",
+                "host": config.dashboard_host,
+                "port": config.dashboard_port,
+                "public": dashboard_public,
+            },
+        }
+        ready = checks["orchestrator"]["status"] == "running" and checks["workers"][
+            "status"
+        ] in {"ok", "disabled"}
+        payload = {
+            "status": status,
+            "version": get_app_version(),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "orchestrator_running": orchestrator_running,
+            "active_issue_count": len(state.get_active_issue_numbers()),
+            "active_worktrees": len(state.get_active_worktrees()),
+            "worker_count": worker_count,
+            "worker_errors": worker_errors,
+            "dashboard": dashboard_binding,
+            "session_started_at": session_started_at,
+            "uptime_seconds": uptime_seconds,
+            "ready": ready,
+            "checks": checks,
+        }
+        return JSONResponse(payload)
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -1276,6 +1736,83 @@ def create_router(
         )
         return JSONResponse({"status": "ok"})
 
+    # ------------------------------------------------------------------
+    # HITL helpers
+    # ------------------------------------------------------------------
+
+    def _clear_hitl_state(
+        orch: HydraFlowOrchestrator | None,
+        issue_number: int,
+    ) -> None:
+        """Clear all HITL tracking state for an issue.
+
+        Consolidates the repeated skip + remove pattern used by every
+        HITL resolution endpoint.
+        """
+        if orch:
+            orch.skip_hitl_issue(issue_number)
+        state.remove_hitl_origin(issue_number)
+        state.remove_hitl_cause(issue_number)
+        state.remove_hitl_summary(issue_number)
+
+    async def _resolve_hitl_item(
+        issue_number: int,
+        orch: HydraFlowOrchestrator,
+        *,
+        action: str,
+        comment_heading: str,
+        comment_body: str,
+        outcome_type: IssueOutcomeType,
+        reason: str,
+    ) -> JSONResponse:
+        """Clear HITL state, record outcome, post comment, and publish event.
+
+        Shared implementation for hitl_skip, hitl_close, and
+        hitl_approve_process which all follow the same
+        cleanup → outcome → comment → event → response pattern.
+
+        ``orch`` must be the already-fetched, non-None orchestrator from the
+        caller so that state cleanup is always paired with the side effects the
+        caller already performed (label swaps, issue close, etc.).
+        """
+        _clear_hitl_state(orch, issue_number)
+        state.record_outcome(
+            issue_number,
+            outcome_type,
+            reason=reason,
+            phase="hitl",
+        )
+
+        try:
+            await pr_manager.post_comment(
+                issue_number,
+                f"**{comment_heading}** — {comment_body}\n\n---\n*HydraFlow Dashboard*",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to post %s comment for issue #%d",
+                action,
+                issue_number,
+                exc_info=True,
+            )
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.HITL_UPDATE,
+                data={
+                    "issue": issue_number,
+                    "status": "resolved",
+                    "action": action,
+                    "reason": reason,
+                },
+            )
+        )
+        return JSONResponse({"status": "ok"})
+
+    # ------------------------------------------------------------------
+    # HITL route handlers
+    # ------------------------------------------------------------------
+
     @router.post("/api/hitl/{issue_number}/skip")
     async def hitl_skip(issue_number: int, body: HITLSkipRequest) -> JSONResponse:
         """Remove a HITL issue from the queue without action (reason required)."""
@@ -1286,17 +1823,6 @@ def create_router(
         # Read origin before clearing state
         origin = state.get_hitl_origin(issue_number)
 
-        orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-        state.record_outcome(
-            issue_number,
-            IssueOutcomeType.HITL_SKIPPED,
-            reason=body.reason,
-            phase="hitl",
-        )
-
         # If this was an improve issue, transition to triage for implementation
         if origin and origin in config.improve_label and config.find_label:
             await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
@@ -1305,33 +1831,15 @@ def create_router(
             for lbl in config.all_pipeline_labels:
                 await pr_manager.remove_label(issue_number, lbl)
 
-        # Post reason as comment (best-effort, after skip succeeds)
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**HITL Skip** — Operator skipped this issue.\n\n"
-                f"**Reason:** {body.reason}\n\n"
-                f"---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post skip comment for issue #%d",
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "skip",
-                    "reason": body.reason,
-                },
-            )
+        return await _resolve_hitl_item(
+            issue_number,
+            orch,
+            action="skip",
+            comment_heading="HITL Skip",
+            comment_body=f"Operator skipped this issue.\n\n**Reason:** {body.reason}",
+            outcome_type=IssueOutcomeType.HITL_SKIPPED,
+            reason=body.reason,
         )
-        return JSONResponse({"status": "ok"})
 
     @router.post("/api/hitl/{issue_number}/close")
     async def hitl_close(issue_number: int, body: HITLCloseRequest) -> JSONResponse:
@@ -1339,46 +1847,17 @@ def create_router(
         orch = get_orchestrator()
         if not orch:
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
-
-        orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-        state.record_outcome(
-            issue_number,
-            IssueOutcomeType.HITL_CLOSED,
-            reason=body.reason,
-            phase="hitl",
-        )
         await pr_manager.close_issue(issue_number)
 
-        # Post reason as comment (best-effort, after close succeeds)
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**HITL Close** — Operator closed this issue.\n\n"
-                f"**Reason:** {body.reason}\n\n"
-                f"---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post close comment for issue #%d",
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "close",
-                    "reason": body.reason,
-                },
-            )
+        return await _resolve_hitl_item(
+            issue_number,
+            orch,
+            action="close",
+            comment_heading="HITL Close",
+            comment_body=f"Operator closed this issue.\n\n**Reason:** {body.reason}",
+            outcome_type=IssueOutcomeType.HITL_CLOSED,
+            reason=body.reason,
         )
-        return JSONResponse({"status": "ok"})
 
     @router.post("/api/hitl/{issue_number}/approve-memory")
     async def hitl_approve_memory(issue_number: int) -> JSONResponse:
@@ -1387,12 +1866,7 @@ def create_router(
         for lbl in config.all_pipeline_labels:
             await pr_manager.remove_label(issue_number, lbl)
         await pr_manager.add_labels(issue_number, config.memory_label)
-        orch = get_orchestrator()
-        if orch:
-            orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
+        _clear_hitl_state(get_orchestrator(), issue_number)
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
@@ -1420,43 +1894,18 @@ def create_router(
 
         await pr_manager.swap_pipeline_labels(issue_number, target_label)
 
-        # Clear HITL state after label swap succeeds
-        orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-        state.record_outcome(
+        return await _resolve_hitl_item(
             issue_number,
-            IssueOutcomeType.HITL_APPROVED,
+            orch,
+            action="approved_for_processing",
+            comment_heading="Approved for processing",
+            comment_body=(
+                f"Operator approved this issue.\n\n"
+                f"Routing to **{target_stage}** (`{target_label}`)."
+            ),
+            outcome_type=IssueOutcomeType.HITL_APPROVED,
             reason=f"Operator approved issue type for processing ({target_stage})",
-            phase="hitl",
         )
-
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**Approved for processing** — Operator approved this issue.\n\n"
-                f"Routing to **{target_stage}** (`{target_label}`).\n\n"
-                "---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post approval comment for #%d",
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "approved_for_processing",
-                },
-            )
-        )
-        return JSONResponse({"status": "ok"})
 
     @router.get("/api/human-input")
     async def get_human_input_requests() -> JSONResponse:
@@ -1852,6 +2301,20 @@ def create_router(
         orch.set_bg_worker_enabled(name, bool(enabled))
         return JSONResponse({"status": "ok", "name": name, "enabled": bool(enabled)})
 
+    @router.post("/api/control/bg-worker/trigger")
+    async def trigger_bg_worker(body: dict[str, Any]) -> JSONResponse:
+        """Trigger an immediate execution of a background worker."""
+        name = body.get("name")
+        if not name:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        triggered = orch.trigger_bg_worker(name)
+        if not triggered:
+            return JSONResponse({"error": f"unknown worker '{name}'"}, status_code=404)
+        return JSONResponse({"status": "ok", "name": name})
+
     # Interval bounds per editable worker.
     # memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
     # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
@@ -2025,8 +2488,6 @@ def create_router(
         )
 
         if cache_hit:
-            import copy
-
             issue_rows: dict[int, dict[str, Any]] = copy.deepcopy(
                 _history_cache["issue_rows"]
             )
@@ -2070,29 +2531,9 @@ def create_router(
                 row = issue_rows.get(issue_number)
                 if row is None:
                     continue
-                timestamp = record.get("timestamp")
-                _touch_issue_timestamps(
-                    row, timestamp if isinstance(timestamp, str) else None
+                _aggregate_telemetry_record(
+                    row, record, pr_to_issue, sum_counters=False
                 )
-                session_id = str(record.get("session_id", "")).strip()
-                if session_id:
-                    row["session_ids"].add(session_id)
-                source = str(record.get("source", "")).strip()
-                if source:
-                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
-                model = str(record.get("model", "")).strip()
-                if model:
-                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
-                pr_number = _coerce_int(record.get("pr_number"))
-                if pr_number > 0:
-                    prs: dict[int, dict[str, Any]] = row["prs"]
-                    if pr_number not in prs:
-                        prs[pr_number] = {
-                            "number": pr_number,
-                            "url": "",
-                            "merged": False,
-                        }
-                    pr_to_issue.setdefault(pr_number, issue_number)
         else:
             inference_rows = telemetry.load_inferences(limit=50000)
             for record in inference_rows:
@@ -2109,119 +2550,15 @@ def create_router(
                 row = issue_rows.setdefault(
                     issue_number, _new_issue_history_entry(issue_number)
                 )
-                _touch_issue_timestamps(
-                    row, timestamp if isinstance(timestamp, str) else None
-                )
-
-                session_id = str(record.get("session_id", "")).strip()
-                if session_id:
-                    row["session_ids"].add(session_id)
-
-                source = str(record.get("source", "")).strip()
-                if source:
-                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
-
-                model = str(record.get("model", "")).strip()
-                if model:
-                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
-
-                for key in _INFERENCE_COUNTER_KEYS:
-                    row["inference"][key] += _coerce_int(record.get(key))
-
-                pr_number = _coerce_int(record.get("pr_number"))
-                if pr_number > 0:
-                    prs: dict[int, dict[str, Any]] = row["prs"]
-                    if pr_number not in prs:
-                        prs[pr_number] = {
-                            "number": pr_number,
-                            "url": "",
-                            "merged": False,
-                        }
-                    pr_to_issue.setdefault(pr_number, issue_number)
+                _aggregate_telemetry_record(row, record, pr_to_issue, sum_counters=True)
 
         if not cache_hit:
-            for event in all_events:
-                timestamp = event.timestamp
-                if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
-                    continue
-
-                issue_number = _event_issue_number(event.data)
-                if issue_number is None and event.type == EventType.MERGE_UPDATE:
-                    pr_num = _coerce_int(event.data.get("pr"))
-                    issue_number = pr_to_issue.get(pr_num)
-
-                if issue_number is None or issue_number <= 0:
-                    continue
-
-                row = issue_rows.setdefault(
-                    issue_number, _new_issue_history_entry(issue_number)
-                )
-                _touch_issue_timestamps(row, timestamp)
-
-                maybe_title = str(event.data.get("title", "")).strip()
-                if maybe_title:
-                    row["title"] = maybe_title
-
-                maybe_url = str(event.data.get("url", "")).strip()
-                if maybe_url.startswith(("http://", "https://")):
-                    row["issue_url"] = maybe_url
-
-                if event.type == EventType.ISSUE_CREATED:
-                    labels = event.data.get("labels", [])
-                    if isinstance(labels, list) and not row.get("epic"):
-                        for lbl in labels:
-                            s = str(lbl).strip()
-                            if s and "epic" in s.lower():
-                                row["epic"] = s
-                                break
-                    milestone_num = _coerce_int(event.data.get("milestone_number"))
-                    if milestone_num > 0 and not row.get("crate_number"):
-                        row["crate_number"] = milestone_num
-
-                if event.type == EventType.PR_CREATED:
-                    pr_number = _coerce_int(event.data.get("pr"))
-                    if pr_number > 0:
-                        pr_to_issue[pr_number] = issue_number
-                        prs = row["prs"]
-                        payload = prs.get(
-                            pr_number,
-                            {"number": pr_number, "url": "", "merged": False},
-                        )
-                        url = str(event.data.get("url", "")).strip()
-                        if url.startswith(("http://", "https://")):
-                            payload["url"] = url
-                        prs[pr_number] = payload
-
-                if event.type == EventType.MERGE_UPDATE:
-                    pr_number = _coerce_int(event.data.get("pr"))
-                    if pr_number > 0:
-                        prs = row["prs"]
-                        payload = prs.get(
-                            pr_number,
-                            {"number": pr_number, "url": "", "merged": False},
-                        )
-                        if str(event.data.get("status", "")).lower() == "merged":
-                            payload["merged"] = True
-                        prs[pr_number] = payload
-
-                normalised = _normalise_event_status(event.type, event.data)
-                if normalised:
-                    current = str(row.get("status", "unknown"))
-                    current_ts = (
-                        row.get("status_updated_at")
-                        if isinstance(row.get("status_updated_at"), str)
-                        else None
-                    )
-                    if _status_sort_key(normalised, timestamp) >= _status_sort_key(
-                        current, current_ts
-                    ):
-                        row["status"] = normalised
-                        row["status_updated_at"] = timestamp
+            _process_events_into_rows(
+                all_events, issue_rows, pr_to_issue, since_dt, until_dt
+            )
 
             # Store in cache if this was an unfiltered aggregation.
             if use_unfiltered:
-                import copy
-
                 _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
                 _history_cache["pr_to_issue"] = dict(pr_to_issue)
                 _history_cache["event_count"] = event_count
@@ -2229,195 +2566,13 @@ def create_router(
                 _history_cache_ts[0] = now
                 _save_history_cache()
 
-        items: list[IssueHistoryEntry] = []
-        for row in issue_rows.values():
-            row_status = str(row.get("status", "unknown")).lower()
-            if requested_status and row_status != requested_status:
-                continue
+        items = _filter_rows_to_items(issue_rows, requested_status, query_text)
 
-            issue_number = int(row["issue_number"])
-            title = str(row.get("title", f"Issue #{issue_number}"))
-            if (
-                query_text
-                and query_text not in title.lower()
-                and query_text not in str(issue_number)
-            ):
-                continue
-
-            linked_issues = _build_history_links(row.get("linked_issues", {}))
-            prs_map = row.get("prs", {})
-            if not isinstance(prs_map, dict):
-                prs_map = {}
-            pr_rows = sorted(
-                (
-                    IssueHistoryPR(
-                        number=int(pr_data["number"]),
-                        url=str(pr_data.get("url", "")),
-                        merged=bool(pr_data.get("merged", False)),
-                    )
-                    for pr_data in prs_map.values()
-                    if isinstance(pr_data, dict)
-                    and _coerce_int(pr_data.get("number")) > 0
-                ),
-                key=lambda p: p.number,
-                reverse=True,
-            )
-
-            items.append(
-                IssueHistoryEntry(
-                    issue_number=issue_number,
-                    title=title,
-                    issue_url=str(row.get("issue_url", "")),
-                    status=_coerce_history_status(row_status),
-                    epic=str(row.get("epic", "")),
-                    crate_number=row.get("crate_number"),
-                    crate_title=str(row.get("crate_title", "")),
-                    linked_issues=linked_issues,
-                    prs=pr_rows,
-                    session_ids=sorted(
-                        str(s) for s in row.get("session_ids", set()) if str(s)
-                    ),
-                    source_calls=dict(sorted(row.get("source_calls", {}).items())),
-                    model_calls=dict(sorted(row.get("model_calls", {}).items())),
-                    inference={
-                        k: _coerce_int(v) for k, v in row.get("inference", {}).items()
-                    },
-                    first_seen=row.get("first_seen"),
-                    last_seen=row.get("last_seen"),
-                    outcome=state.get_outcome(issue_number),
-                )
-            )
-
-        # Keep API fast by enriching only visible rows and only when needed.
-        # Skip issues already enriched in a previous request.
-        already_enriched: set[int] = _history_cache.get("enriched_issues", set())
-        issue_lookup = {
-            item.issue_number: issue_rows[item.issue_number] for item in items
-        }
-        enrich_candidates = [
-            item.issue_number
-            for item in items
-            if item.issue_number not in already_enriched
-            and (
-                not item.issue_url
-                or item.title.startswith("Issue #")
-                or (not item.epic and not item.linked_issues)
-            )
-        ][:40]
-        if enrich_candidates:
-            await _enrich_issue_history_with_github(
-                {k: issue_lookup[k] for k in enrich_candidates}
-            )
-            already_enriched.update(enrich_candidates)
-            _history_cache["enriched_issues"] = already_enriched
-            # Update cached issue_rows with enrichment data so future cache
-            # hits include titles/epics/linked_issues from GitHub.
-            if use_unfiltered and _history_cache["issue_rows"] is not None:
-                import copy
-
-                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                _save_history_cache()
-            items = []
-            for row in issue_rows.values():
-                row_status = str(row.get("status", "unknown")).lower()
-                if requested_status and row_status != requested_status:
-                    continue
-                issue_number = int(row["issue_number"])
-                title = str(row.get("title", f"Issue #{issue_number}"))
-                if (
-                    query_text
-                    and query_text not in title.lower()
-                    and query_text not in str(issue_number)
-                ):
-                    continue
-                linked_issues = _build_history_links(row.get("linked_issues", {}))
-                prs_map = row.get("prs", {})
-                if not isinstance(prs_map, dict):
-                    prs_map = {}
-                pr_rows = sorted(
-                    (
-                        IssueHistoryPR(
-                            number=int(pr_data["number"]),
-                            url=str(pr_data.get("url", "")),
-                            merged=bool(pr_data.get("merged", False)),
-                        )
-                        for pr_data in prs_map.values()
-                        if isinstance(pr_data, dict)
-                        and _coerce_int(pr_data.get("number")) > 0
-                    ),
-                    key=lambda p: p.number,
-                    reverse=True,
-                )
-                items.append(
-                    IssueHistoryEntry(
-                        issue_number=issue_number,
-                        title=title,
-                        issue_url=str(row.get("issue_url", "")),
-                        status=_coerce_history_status(row_status),
-                        epic=str(row.get("epic", "")),
-                        crate_number=row.get("crate_number"),
-                        crate_title=str(row.get("crate_title", "")),
-                        linked_issues=linked_issues,
-                        prs=pr_rows,
-                        session_ids=sorted(
-                            str(s) for s in row.get("session_ids", set()) if str(s)
-                        ),
-                        source_calls=dict(sorted(row.get("source_calls", {}).items())),
-                        model_calls=dict(sorted(row.get("model_calls", {}).items())),
-                        inference={
-                            k: _coerce_int(v)
-                            for k, v in row.get("inference", {}).items()
-                        },
-                        first_seen=row.get("first_seen"),
-                        last_seen=row.get("last_seen"),
-                        outcome=state.get_outcome(issue_number),
-                    )
-                )
-
-        items.sort(
-            key=lambda item: (
-                item.last_seen or "",
-                item.inference.get("total_tokens", 0),
-                item.issue_number,
-            ),
-            reverse=True,
+        # Enrich via GitHub, backfill crate titles, sort.
+        items = await _apply_enrichment_and_crate_titles(
+            items, issue_rows, requested_status, query_text, use_unfiltered
         )
         items = items[:clamped_limit]
-
-        # Populate crate titles from milestones for items that have a
-        # crate_number but no title yet.
-        needs_title = any(i.crate_number and not i.crate_title for i in items)
-        if needs_title:
-            try:
-                milestones = await pr_manager.list_milestones(state="all")
-                title_map = {m.number: m.title for m in milestones}
-                items = [
-                    i.model_copy(
-                        update={"crate_title": title_map.get(i.crate_number, "")}
-                    )
-                    if i.crate_number and not i.crate_title
-                    else i
-                    for i in items
-                ]
-                # Also backfill into the raw rows so the cache carries titles.
-                backfilled = False
-                for i in items:
-                    if i.crate_number and i.crate_title:
-                        raw = issue_rows.get(i.issue_number)
-                        if raw is not None and raw.get("crate_title") != i.crate_title:
-                            raw["crate_title"] = i.crate_title
-                            backfilled = True
-                if (
-                    backfilled
-                    and use_unfiltered
-                    and _history_cache.get("issue_rows") is not None
-                ):
-                    import copy
-
-                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                    _save_history_cache()
-            except Exception:
-                logger.debug("Failed to fetch milestones for crate titles")
 
         totals = {
             "issues": len(items),
@@ -3265,14 +3420,24 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        repo_slug: str | None = ws.query_params.get("repo")
+
+        # Resolve the correct event bus for the requested repo.
+        try:
+            _cfg, _state, bus, _get_orch = _resolve_runtime(repo_slug)
+        except ValueError:
+            await ws.accept()
+            await ws.close(code=1008, reason=f"Unknown repo: {repo_slug}")
+            return
+
         await ws.accept()
 
         # Snapshot history BEFORE subscribing to avoid duplicates.
         # Events published between snapshot and subscribe are picked
         # up by the live queue, never sent twice.
-        history = event_bus.get_history()
+        history = bus.get_history()
 
-        async with event_bus.subscription() as queue:
+        async with bus.subscription() as queue:
             # Send history on connect
             for event in history:
                 try:

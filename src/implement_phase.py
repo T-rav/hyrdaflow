@@ -15,6 +15,7 @@ from models import GitHubIssue, PipelineStage, Task, WorkerResult, WorkerResultM
 from phase_utils import (
     escalate_to_hitl,
     is_adr_issue_title,
+    is_likely_bug,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
@@ -24,7 +25,7 @@ from phase_utils import (
 from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
-from subprocess_util import AuthenticationError, CreditExhaustedError, run_subprocess
+from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
 from workspace import WorkspaceManager
 
@@ -123,20 +124,33 @@ class ImplementPhase:
                     return await self._worker_inner(idx, issue, branch)
                 except (AuthenticationError, CreditExhaustedError, MemoryError):
                     raise
-                except Exception:
-                    logger.exception("Worker failed for issue #%d", issue.id)
+                except Exception as exc:
+                    exc_type_name = type(exc).__name__
+                    if is_likely_bug(exc):
+                        logger.critical(
+                            "Worker failed for issue #%d — likely bug (%s)",
+                            issue.id,
+                            exc_type_name,
+                            exc_info=True,
+                        )
+                    else:
+                        logger.exception(
+                            "Worker failed for issue #%d — %s",
+                            issue.id,
+                            exc_type_name,
+                        )
                     self._state.mark_issue(issue.id, "failed")
                     record_harness_failure(
                         self._harness_insights,
                         issue.id,
                         FailureCategory.IMPLEMENTATION_ERROR,
-                        f"Worker exception for issue #{issue.id}",
+                        f"Worker {exc_type_name} for issue #{issue.id}",
                         stage=PipelineStage.IMPLEMENT,
                     )
                     return WorkerResult(
                         issue_number=issue.id,
                         branch=branch,
-                        error=f"Worker exception for issue #{issue.id}",
+                        error=f"Worker {exc_type_name} for issue #{issue.id}",
                     )
                 finally:
                     async with self._active_issues_lock:
@@ -280,41 +294,34 @@ class ImplementPhase:
         )
 
     async def _setup_worktree_and_branch(
-        self, issue: Task, branch: str, *, reset_to_main: bool = False
+        self, issue: Task, branch: str, *, reset_for_retry: bool = False
     ) -> Path:
         """Ensure worktree exists/resumed and branch is pushed.
 
-        When *reset_to_main* is True (review-feedback retry), hard-reset the
-        branch to ``origin/main`` so the agent starts fresh instead of
-        re-implementing on top of previously rejected code.
+        When *reset_for_retry* is True, resets an existing worktree to
+        ``origin/main`` to discard stale state from a prior failed attempt.
         """
         wt_path = self._config.worktree_path_for_issue(issue.id)
         if wt_path.is_dir():
-            if reset_to_main:
+            if reset_for_retry:
                 logger.info(
-                    "Resetting worktree for issue #%d to main (review retry)",
+                    "Resetting worktree to clean state for issue #%d retry",
                     issue.id,
                 )
-                await run_subprocess(
-                    "git",
-                    "fetch",
-                    "origin",
-                    "main",
-                    cwd=wt_path,
-                )
-                await run_subprocess(
-                    "git",
-                    "reset",
-                    "--hard",
-                    "origin/main",
-                    cwd=wt_path,
-                )
+                try:
+                    await self._worktrees.reset_to_main(wt_path)
+                except Exception:
+                    logger.warning(
+                        "Worktree reset failed for issue #%d — continuing with existing state",
+                        issue.id,
+                        exc_info=True,
+                    )
             else:
                 logger.info("Resuming existing worktree for issue #%d", issue.id)
         else:
             wt_path = await self._worktrees.create(issue.id, branch)
         self._state.set_worktree(issue.id, str(wt_path))
-        await self._prs.push_branch(wt_path, branch)
+        await self._prs.push_branch(wt_path, branch, force=reset_for_retry)
         await self._transitioner.post_comment(
             issue.id,
             f"**Branch:** [`{branch}`](https://github.com/"
@@ -359,8 +366,21 @@ class ImplementPhase:
         review_feedback: str,
     ) -> WorkerResult:
         """Set up worktree, push branch, run agent, record metrics."""
+        # Retrieve prior failure context for retry feedback
+        last_meta = self._state.get_worker_result_meta(issue.id)
+        prior_failure = ""
+        reset_for_retry = bool(review_feedback)  # review-feedback retries always reset
+        # Only inject prior failure context for cycling retries (no active review feedback).
+        # During review-feedback retries the prior error is stale — the agent should
+        # focus on reviewer comments, not a potentially-resolved quality gate error.
+        if last_meta and not review_feedback:
+            prior_error = last_meta.get("error") or ""
+            if prior_error:
+                prior_failure = prior_error
+                reset_for_retry = True
+
         wt_path = await self._setup_worktree_and_branch(
-            issue, branch, reset_to_main=bool(review_feedback)
+            issue, branch, reset_for_retry=reset_for_retry
         )
 
         result = await self._agents.run(
@@ -369,6 +389,7 @@ class ImplementPhase:
             branch,
             worker_id=worker_id,
             review_feedback=review_feedback,
+            prior_failure=prior_failure,
         )
 
         await self._record_impl_metrics(issue, result, review_feedback)
@@ -379,47 +400,30 @@ class ImplementPhase:
         self, issue: Task, result: WorkerResult, is_retry: bool
     ) -> WorkerResult:
         """Handle the result of an agent run: close, create PR, swap labels."""
-        # Zero-commit: treat as implementation failure, not "already satisfied".
-        # The agent may have failed to understand the issue or hallucinated
-        # that no work was needed — escalate for human review.
+        # Zero-commit: treat as implementation failure. Instead of immediately
+        # escalating to HITL, mark as failed and let the attempt cap mechanism
+        # retry with corrective context (prior_failure feedback).
         if (
             not result.success
             and result.error == "No commits found on branch"
             and result.commits == 0
         ):
+            attempts = self._state.get_issue_attempts(issue.id)
             logger.warning(
-                "Issue #%d: zero commits after implementation — escalating as failure",
+                "Issue #%d: zero commits after implementation (attempt %d/%d)",
                 issue.id,
+                attempts,
+                self._config.max_issue_attempts,
             )
             await self._transitioner.post_comment(
                 issue.id,
                 "## Implementation Failed — Zero Commits\n\n"
                 "The implementation agent ran but produced no commits. "
-                "This likely means the agent incorrectly concluded no work "
-                "was needed, or encountered an error preventing commits.\n\n"
-                "Escalating for human review.\n\n"
+                f"Attempt {attempts}/{self._config.max_issue_attempts}.\n\n"
                 "---\n"
                 "*Generated by HydraFlow Implementer*",
             )
             self._state.mark_issue(issue.id, "failed")
-            await escalate_to_hitl(
-                self._state,
-                self._prs,
-                issue.id,
-                cause=self._hitl_cause(issue, "implementation produced zero commits"),
-                origin_label=self._config.ready_label[0],
-                hitl_label=self._config.hitl_label[0],
-            )
-            self._store.enqueue_transition(issue, "hitl")
-            if result.transcript:
-                await safe_file_memory_suggestion(
-                    result.transcript,
-                    "implement_zero_commits",
-                    f"issue #{issue.id}",
-                    self._config,
-                    self._prs,
-                    self._state,
-                )
             return result
 
         # Push final commits and create PR

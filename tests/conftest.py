@@ -15,6 +15,7 @@ _REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 sys.path.insert(0, str(_REPO_ROOT))
 
+import subprocess_util  # noqa: E402
 from tests.helpers import ConfigFactory  # noqa: E402
 
 if TYPE_CHECKING:
@@ -75,9 +76,10 @@ def setup_test_environment():
 
 @pytest.fixture(autouse=True)
 def _reset_gh_semaphore():
-    """Reset the global gh semaphore between tests to avoid stale event-loop binding."""
-    import subprocess_util
-
+    """Reset the global gh semaphore and rate-limit state between tests."""
+    subprocess_util._gh_semaphore = None
+    subprocess_util._rate_limit_until = None
+    yield
     subprocess_util._gh_semaphore = None
     subprocess_util._rate_limit_until = None
 

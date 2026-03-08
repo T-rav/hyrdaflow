@@ -17,6 +17,7 @@ from crate_manager import CrateManager
 from docker_runner import get_docker_runner
 from epic import EpicCompletionChecker, EpicManager
 from epic_monitor_loop import EpicMonitorLoop
+from epic_sweeper_loop import EpicSweeperLoop
 from events import EventBus
 from execution import SubprocessRunner
 from harness_insights import HarnessInsightStore
@@ -103,6 +104,7 @@ class ServiceRegistry:
     manifest_refresh_loop: ManifestRefreshLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
+    epic_sweeper_loop: EpicSweeperLoop
     worktree_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
@@ -352,6 +354,19 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
+    epic_sweeper_loop = EpicSweeperLoop(
+        config=config,
+        fetcher=fetcher,
+        prs=prs,
+        state=state,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
+
     worktree_gc_loop = WorkspaceGCLoop(
         config=config,
         worktrees=worktrees,
@@ -422,6 +437,7 @@ def build_services(
         manifest_refresh_loop=manifest_refresh_loop,
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
+        epic_sweeper_loop=epic_sweeper_loop,
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,

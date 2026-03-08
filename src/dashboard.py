@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from orchestrator import HydraFlowOrchestrator
+    from repo_runtime import RepoRuntimeRegistry
 
 logger = logging.getLogger("hydraflow.dashboard")
 
@@ -67,11 +68,14 @@ class HydraFlowDashboard:
         event_bus: EventBus,
         state: StateTracker,
         orchestrator: HydraFlowOrchestrator | None = None,
+        *,
+        registry: RepoRuntimeRegistry | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
         self._state = state
         self._orchestrator = orchestrator
+        self._registry = registry
         self._server_task: asyncio.Task[None] | None = None
         self._run_task: asyncio.Task[None] | None = None
         self._app: FastAPI | None = None
@@ -121,6 +125,7 @@ class HydraFlowDashboard:
             set_run_task=self._set_run_task,
             ui_dist_dir=_UI_DIST_DIR,
             template_dir=_TEMPLATE_DIR,
+            registry=self._registry,
         )
         app.include_router(router)
 
@@ -155,9 +160,10 @@ class HydraFlowDashboard:
                 logger.warning("Supervisor auto-start failed: %s", exc)
 
         app = self.create_app()
+        bind_host = self._config.dashboard_host
         config = uvicorn.Config(
             app,
-            host="127.0.0.1",
+            host=bind_host,
             port=self._config.dashboard_port,
             log_level="warning",
         )
@@ -165,7 +171,8 @@ class HydraFlowDashboard:
 
         self._server_task = asyncio.create_task(server.serve())
         logger.info(
-            "Dashboard running at http://localhost:%d",
+            "Dashboard running at http://%s:%d",
+            bind_host,
             self._config.dashboard_port,
         )
 

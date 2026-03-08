@@ -15,7 +15,9 @@ from events import EventType
 from harness_insights import FailureCategory, HarnessInsightStore
 from models import PipelineStage
 from phase_utils import (
+    LIKELY_BUG_EXCEPTIONS,
     escalate_to_hitl,
+    is_likely_bug,
     next_adr_number,
     publish_review_status,
     record_harness_failure,
@@ -615,3 +617,50 @@ class TestNextAdrNumber:
         (tmp_path / "README.md").touch()
         (tmp_path / "template.md").touch()
         assert next_adr_number(tmp_path) == 6
+
+
+# ---------------------------------------------------------------------------
+# Exception classification (#2065)
+# ---------------------------------------------------------------------------
+
+
+class TestIsLikelyBug:
+    """Tests for is_likely_bug() and LIKELY_BUG_EXCEPTIONS."""
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            TypeError("bad type"),
+            KeyError("missing"),
+            AttributeError("no attr"),
+            ValueError("bad value"),
+            IndexError("out of range"),
+            NotImplementedError("todo"),
+        ],
+    )
+    def test_bug_exceptions_detected(self, exc: BaseException) -> None:
+        assert is_likely_bug(exc) is True
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            RuntimeError("transient"),
+            OSError("disk full"),
+            TimeoutError("timed out"),
+            ConnectionError("lost"),
+            PermissionError("access denied"),
+        ],
+    )
+    def test_transient_exceptions_not_bugs(self, exc: BaseException) -> None:
+        assert is_likely_bug(exc) is False
+
+    def test_likely_bug_exceptions_tuple_is_nonempty(self) -> None:
+        assert len(LIKELY_BUG_EXCEPTIONS) >= 5
+
+    def test_subclass_of_likely_bug_is_detected(self) -> None:
+        """Subclasses of bug exception types should also be caught."""
+
+        class CustomKeyError(KeyError):
+            pass
+
+        assert is_likely_bug(CustomKeyError("sub")) is True

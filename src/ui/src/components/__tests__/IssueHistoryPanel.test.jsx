@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const mockUseHydraFlow = vi.fn()
 vi.mock('../../context/HydraFlowContext', () => ({
@@ -14,7 +14,7 @@ function makePayload() {
       {
         issue_number: 10,
         title: 'Fix auth cache',
-        issue_url: 'https://example.com/issues/10',
+        issue_url: 'https://github.com/acme/webapp/issues/10',
         status: 'active',
         epic: 'epic:auth',
         linked_issues: [
@@ -39,7 +39,7 @@ function makePayload() {
       {
         issue_number: 11,
         title: 'Merge docs',
-        issue_url: 'https://example.com/issues/11',
+        issue_url: 'https://github.com/acme/docs-site/issues/11',
         status: 'merged',
         epic: '',
         linked_issues: [],
@@ -87,7 +87,7 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.queryByText('Fix auth cache')).not.toBeInTheDocument()
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByPlaceholderText('Search issue #, title, epic, crate'), { target: { value: 'auth' } })
+    fireEvent.change(screen.getByPlaceholderText('Search issue #, title, repo, epic, crate, reason'), { target: { value: 'auth' } })
     expect(screen.getByText('No issues match this filter.')).toBeInTheDocument()
   })
 
@@ -117,7 +117,8 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     fireEvent.click(screen.getByLabelText('Toggle issue 10'))
     // 'Outcome' appears as both a column header and expanded detail label
     expect(screen.getAllByText('Outcome').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('CI timeout')).toBeInTheDocument()
+    // 'CI timeout' appears both as title subtitle and in expanded detail
+    expect(screen.getAllByText('CI timeout').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('phase: review')).toBeInTheDocument()
     expect(screen.getByText('PR #501')).toBeInTheDocument()
   })
@@ -185,8 +186,9 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('Title')).toBeInTheDocument()
     expect(screen.getByText('Stage')).toBeInTheDocument()
     expect(screen.getByText('Outcome')).toBeInTheDocument()
+    expect(screen.getByText('Repo')).toBeInTheDocument()
     expect(screen.getByText('Tokens')).toBeInTheDocument()
-    expect(screen.getByText('Last Seen')).toBeInTheDocument()
+    expect(screen.getByText('Timing')).toBeInTheDocument()
   })
 
   it('shows compact token values in issue rows', () => {
@@ -201,5 +203,77 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     // Issue 10 has epic='epic:auth', issue 11 has epic=''
     expect(screen.getByText('Fix auth cache')).toBeInTheDocument()
     expect(screen.queryByText('Merge docs')).not.toBeInTheDocument()
+  })
+
+  it('displays repo slug extracted from issue URL', async () => {
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    // Should extract and show repo name from GitHub URL
+    expect(screen.getByText('webapp')).toBeInTheDocument()
+    expect(screen.getByText('docs-site')).toBeInTheDocument()
+  })
+
+  it('displays outcome reason as subtitle under title', async () => {
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    // "CI timeout" reason should appear inline under the title
+    expect(screen.getByText('CI timeout')).toBeInTheDocument()
+    // "auto-merge" reason from issue 11
+    expect(screen.getByText('auto-merge')).toBeInTheDocument()
+  })
+
+  it('displays crate pill when crate info is present', async () => {
+    const payload = makePayload()
+    payload.items[0].crate_number = 5
+    payload.items[0].crate_title = 'v1.0 Sprint'
+    mockUseHydraFlow.mockReturnValue({ issueHistory: payload })
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    expect(screen.getByText('v1.0 Sprint')).toBeInTheDocument()
+  })
+
+  it('displays epic pill inline with title', async () => {
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    // Issue 10 has epic='epic:auth' — should show as inline pill
+    expect(screen.getAllByText('epic:auth').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('displays duration in timing column when first_seen is available', async () => {
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    // Issue 10: first_seen 2026-02-20, last_seen 2026-02-21 => 1d 0h
+    expect(screen.getByText('1d 0h')).toBeInTheDocument()
+    // Issue 11: first_seen 2026-02-19, last_seen 2026-02-22 => 3d 0h
+    expect(screen.getByText('3d 0h')).toBeInTheDocument()
+  })
+
+  it('searches by repo name', async () => {
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    fireEvent.change(screen.getByPlaceholderText('Search issue #, title, repo, epic, crate, reason'), { target: { value: 'docs-site' } })
+    expect(screen.queryByText('Fix auth cache')).not.toBeInTheDocument()
+    expect(screen.getByText('Merge docs')).toBeInTheDocument()
+  })
+
+  it('searches by outcome reason', async () => {
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    fireEvent.change(screen.getByPlaceholderText('Search issue #, title, repo, epic, crate, reason'), { target: { value: 'auto-merge' } })
+    expect(screen.queryByText('Fix auth cache')).not.toBeInTheDocument()
+    expect(screen.getByText('Merge docs')).toBeInTheDocument()
+  })
+
+  it('handles missing issue_url gracefully for repo extraction', async () => {
+    const payload = makePayload()
+    payload.items[0].issue_url = ''
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => payload,
+    })
+    render(<OutcomesPanel />)
+    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    // Should render without error — no repo slug shown
+    expect(screen.getByText('docs-site')).toBeInTheDocument()
   })
 })

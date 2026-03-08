@@ -350,7 +350,9 @@ class TestWaitAndFixCIEdgeCases:
         # Exception caught by _review_one outer handler
         assert len(results) == 1
         assert results[0].pr_number == 101
-        assert results[0].summary == "Review failed due to unexpected error"
+        assert (
+            results[0].summary == "Review failed due to unexpected error (RuntimeError)"
+        )
         # PR should NOT have been merged
         phase._prs.merge_pr.assert_not_awaited()
 

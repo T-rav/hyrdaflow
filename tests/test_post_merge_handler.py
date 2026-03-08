@@ -537,6 +537,53 @@ class TestPostMergeHandler:
         )
 
         handler._prs.create_issue.assert_awaited_once()
+        # Verification issue should record review origin so dashboard shows
+        # "from review" instead of "pending".
+        assert handler._state.get_hitl_origin(42) == config.review_label[0]
+
+    @pytest.mark.asyncio
+    async def test_verification_issue_records_review_origin(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Verification issues must record review origin for correct HITL status."""
+        verdict = JudgeVerdict(
+            issue_number=1,
+            criteria_results=[
+                CriterionResult(
+                    criterion="AC-1",
+                    verdict=CriterionVerdict.PASS,
+                    reasoning="Looks good",
+                ),
+            ],
+            summary="1/1 passed",
+            verification_instructions="Open the app and check the output",
+        )
+        mock_judge = AsyncMock()
+        mock_judge.judge = AsyncMock(return_value=verdict)
+        handler = _make_handler(config, verification_judge=mock_judge)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        handler._prs.create_issue = AsyncMock(return_value=99)
+        publish_fn = AsyncMock()
+        escalate_fn = AsyncMock()
+        ci_gate_fn = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "+++ b/src/ui/App.tsx\n@@\n+<button>Save</button>",
+            0,
+            ci_gate_fn=ci_gate_fn,
+            escalate_fn=escalate_fn,
+            publish_fn=publish_fn,
+        )
+
+        origin = handler._state.get_hitl_origin(99)
+        assert origin == config.review_label[0]
 
     @pytest.mark.asyncio
     async def test_verification_issue_skipped_for_refactor_and_test_only_work(

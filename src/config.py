@@ -47,6 +47,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
+    ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
@@ -85,6 +86,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
+    ("dashboard_host", "HYDRAFLOW_DASHBOARD_HOST", "127.0.0.1"),
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
     ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
@@ -146,6 +148,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
     ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
     ("adr_review_enabled", "HYDRAFLOW_ADR_REVIEW_ENABLED", False),
+    ("adr_review_auto_triage", "HYDRAFLOW_ADR_REVIEW_AUTO_TRIAGE", False),
     (
         "screenshot_redaction_enabled",
         "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED",
@@ -431,6 +434,12 @@ class HydraFlowConfig(BaseModel):
     epic_monitor_interval: int = Field(
         default=1800,
         description="Epic monitor loop interval in seconds (default 30 min)",
+    )
+    epic_sweep_interval: int = Field(
+        default=3600,
+        ge=600,
+        le=86400,
+        description="Epic sweeper loop interval in seconds (default 1 hour)",
     )
     worktree_gc_interval: int = Field(
         default=1800,
@@ -933,6 +942,11 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Dashboard
+    dashboard_host: str = Field(
+        default="127.0.0.1",
+        min_length=1,
+        description="Interface/IP to bind the dashboard web server to",
+    )
     dashboard_port: int = Field(
         default=5555, ge=1024, le=65535, description="Dashboard web UI port"
     )
@@ -1010,6 +1024,10 @@ class HydraFlowConfig(BaseModel):
     adr_review_enabled: bool = Field(
         default=False,
         description="Enable the ADR council review background loop",
+    )
+    adr_review_auto_triage: bool = Field(
+        default=False,
+        description="Route non-accepted council outcomes to triage instead of HITL",
     )
     adr_review_model: str = Field(
         default="sonnet",
