@@ -670,13 +670,27 @@ export function reducer(state, action) {
     case 'SELECT_SESSION':
       return { ...state, selectedSessionId: action.data.sessionId }
 
-    case 'SELECT_REPO':
+    case 'SELECT_REPO': {
+      const newSlug = action.data.slug ? normalizeRepoSlug(action.data.slug) : null
+      const repoChanged = newSlug !== state.selectedRepoSlug
       return {
         ...state,
-        selectedRepoSlug: action.data.slug ? normalizeRepoSlug(action.data.slug) : null,
+        selectedRepoSlug: newSlug,
         selectedRepoSlugRaw: action.data.slug || null,
         selectedSessionId: null,
+        // Reset stale data from the previous repo so users don't see a flash
+        // of old content while the new data is being fetched.
+        ...(repoChanged ? {
+          pipelineIssues: { ...emptyPipeline },
+          hitlItems: [],
+          workers: {},
+          prs: [],
+          reviews: [],
+          sessionPrsCount: 0,
+          events: [],
+        } : {}),
       }
+    }
 
     case 'SET_RUNTIMES':
       return {
