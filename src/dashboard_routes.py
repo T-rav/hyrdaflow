@@ -74,6 +74,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.dashboard")
 
+# Internal pipeline labels that must not be treated as epic names in the history panel.
+_EPIC_INTERNAL_LABELS: frozenset[str] = frozenset(
+    {"hydraflow-epic-child", "hydraflow-epic"}
+)
+
 # Backend stage keys → frontend stage names
 _STAGE_NAME_MAP: dict[str, str] = {
     IssueStoreStage.FIND: "triage",
@@ -403,6 +408,114 @@ def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] |
     return result
 
 
+def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
+    """Best-effort parse of legacy query/body JSON object payloads."""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_repo_slug(
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    slug_query: str | None,
+    repo_query: str | None,
+) -> str:
+    """Extract repo slug from supported request shapes."""
+    return _extract_field_from_sources(
+        ("slug", "repo"),
+        req,
+        req_query,
+        (slug_query, repo_query),
+        query_params_first=True,
+    )
+
+
+def _extract_repo_path(
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    path_query: str | None,
+    repo_path_query: str | None,
+) -> str:
+    """Extract repo path from supported body/query payload shapes."""
+    return _extract_field_from_sources(
+        ("path", "repo_path"),
+        req,
+        req_query,
+        (path_query, repo_path_query),
+        query_params_first=False,
+    )
+
+
+def _extract_field_from_sources(
+    field_names: tuple[str, str],
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    query_params: tuple[str | None, str | None],
+    *,
+    query_params_first: bool = False,
+) -> str:
+    """Extract a value from query params, body dict, and JSON query.
+
+    Args:
+        field_names: Pair of field name keys to look up (primary, alias).
+        req: Parsed request body dict.
+        req_query: Raw ``req`` query parameter (may be JSON).
+        query_params: Dedicated query-parameter values (primary, alias).
+        query_params_first: When True, check query params before body;
+            otherwise check body before query params.
+    """
+    candidates: list[str] = []
+
+    def _push(value: Any) -> None:
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed:
+                candidates.append(trimmed)
+
+    def _push_from_dict(src: dict[str, Any]) -> None:
+        for name in field_names:
+            _push(src.get(name))
+        nested = src.get("req")
+        if isinstance(nested, dict):
+            for name in field_names:
+                _push(nested.get(name))
+
+    def _push_query_params() -> None:
+        for qp in query_params:
+            _push(qp)
+
+    def _push_body() -> None:
+        if isinstance(req, dict):
+            _push_from_dict(req)
+
+    # Ordering: query_params_first controls whether dedicated query
+    # params are checked before or after the body dict.
+    if query_params_first:
+        _push_query_params()
+        _push_body()
+    else:
+        _push_body()
+
+    parsed_query = _parse_compat_json_object(req_query)
+    if parsed_query:
+        _push_from_dict(parsed_query)
+    else:
+        _push(req_query)
+
+    if not query_params_first:
+        _push_query_params()
+
+    return candidates[0] if candidates else ""
+
+
 def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
@@ -426,97 +539,6 @@ def create_router(
     """
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
-
-    def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
-        """Best-effort parse of legacy query/body JSON object payloads."""
-        if not isinstance(raw, str):
-            return None
-        text = raw.strip()
-        if not text:
-            return None
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
-
-    def _extract_repo_slug(
-        req: dict[str, Any] | None,
-        req_query: str | None,
-        slug_query: str | None,
-        repo_query: str | None,
-    ) -> str:
-        """Extract repo slug from supported request shapes."""
-        candidates: list[str] = []
-
-        def _push(value: Any) -> None:
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed:
-                    candidates.append(trimmed)
-
-        _push(slug_query)
-        _push(repo_query)
-
-        if isinstance(req, dict):
-            _push(req.get("slug"))
-            _push(req.get("repo"))
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("slug"))
-                _push(nested.get("repo"))
-
-        parsed_query = _parse_compat_json_object(req_query)
-        if parsed_query:
-            _push(parsed_query.get("slug"))
-            _push(parsed_query.get("repo"))
-            nested = parsed_query.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("slug"))
-                _push(nested.get("repo"))
-        else:
-            _push(req_query)
-
-        return candidates[0] if candidates else ""
-
-    def _extract_repo_path(
-        req: dict[str, Any] | None,
-        req_query: str | None,
-        path_query: str | None,
-        repo_path_query: str | None,
-    ) -> str:
-        """Extract repo path from supported body/query payload shapes."""
-        candidates: list[str] = []
-
-        def _push(value: Any) -> None:
-            if isinstance(value, str):
-                trimmed = value.strip()
-                if trimmed:
-                    candidates.append(trimmed)
-
-        if isinstance(req, dict):
-            _push(req.get("path"))
-            _push(req.get("repo_path"))
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("path"))
-                _push(nested.get("repo_path"))
-
-        parsed_query = _parse_compat_json_object(req_query)
-        if parsed_query:
-            _push(parsed_query.get("path"))
-            _push(parsed_query.get("repo_path"))
-            nested = parsed_query.get("req")
-            if isinstance(nested, dict):
-                _push(nested.get("path"))
-                _push(nested.get("repo_path"))
-        else:
-            _push(req_query)
-
-        _push(path_query)
-        _push(repo_path_query)
-
-        return candidates[0] if candidates else ""
 
     def _resolve_runtime(
         slug: str | None,
@@ -786,7 +808,11 @@ def create_router(
                 if isinstance(labels, list) and not row.get("epic"):
                     for lbl in labels:
                         s = str(lbl).strip()
-                        if s and "epic" in s.lower():
+                        if (
+                            s
+                            and "epic" in s.lower()
+                            and s.lower() not in _EPIC_INTERNAL_LABELS
+                        ):
                             row["epic"] = s
                             break
                 milestone_num = _coerce_int(event.data.get("milestone_number"))
@@ -940,6 +966,41 @@ def create_router(
             except Exception:
                 logger.debug("Failed to fetch milestones for crate titles")
 
+        # Backfill epic field from state's epic tracking when not already set.
+        epic_states = state.get_all_epic_states()
+        if epic_states:
+            child_to_epic: dict[int, str] = {}
+            for es in epic_states.values():
+                title = es.title or f"Epic #{es.epic_number}"
+                for child in es.child_issues:
+                    child_to_epic[child] = title
+            if child_to_epic:
+                items = [
+                    i.model_copy(update={"epic": child_to_epic[i.issue_number]})
+                    if not i.epic and i.issue_number in child_to_epic
+                    else i
+                    for i in items
+                ]
+
+        # Derive outcome for issues that completed the pipeline (have a
+        # merged PR) but were never given an explicit record_outcome() call.
+        items = [
+            i.model_copy(
+                update={
+                    "outcome": IssueOutcome(
+                        outcome=IssueOutcomeType.MERGED,
+                        reason="Derived from merged PR",
+                        closed_at=i.last_seen or "",
+                        pr_number=next((p.number for p in i.prs if p.merged), None),
+                        phase="review",
+                    )
+                }
+            )
+            if not i.outcome and any(p.merged for p in i.prs)
+            else i
+            for i in items
+        ]
+
         return items
 
     async def _enrich_issue_history_with_github(
@@ -964,7 +1025,17 @@ def create_router(
             row["issue_url"] = issue.url or row.get("issue_url", "")
             labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
             if not row.get("epic"):
-                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                # Skip internal pipeline labels (e.g. hydraflow-epic-child);
+                # only keep labels that look like actual epic names.
+                epic = next(
+                    (
+                        lbl
+                        for lbl in labels
+                        if "epic" in lbl.lower()
+                        and lbl.lower() not in _EPIC_INTERNAL_LABELS
+                    ),
+                    "",
+                )
                 row["epic"] = epic
             ms_num = _coerce_int(getattr(issue, "milestone_number", None))
             if ms_num > 0 and not row.get("crate_number"):
@@ -1052,6 +1123,108 @@ def create_router(
             )
         finally:
             hitl_summary_inflight.discard(issue_number)
+
+    @router.get("/healthz")
+    def get_health() -> JSONResponse:
+        """Lightweight readiness response for load balancers and monitors."""
+        orchestrator = get_orchestrator()
+        orchestrator_running = bool(getattr(orchestrator, "running", False))
+        worker_states = state.get_bg_worker_states()
+        session_counters = state.get_session_counters()
+        session_started_at: str | None = session_counters.session_start or None
+        uptime_seconds: int | None = None
+        if session_started_at:
+            try:
+                started_dt = datetime.fromisoformat(session_started_at)
+            except (ValueError, TypeError):
+                session_started_at = None
+            else:
+                uptime_seconds = max(
+                    int((datetime.now(UTC) - started_dt).total_seconds()),
+                    0,
+                )
+
+        def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+            if isinstance(raw_status, BGWorkerHealth):
+                return raw_status
+            try:
+                return BGWorkerHealth(str(raw_status or "").lower())
+            except ValueError:
+                return BGWorkerHealth.DISABLED
+
+        worker_count = len(worker_states)
+        worker_errors = sorted(
+            name
+            for name, heartbeat in worker_states.items()
+            if _normalise_worker_health(heartbeat.get("status")) == BGWorkerHealth.ERROR
+        )
+        if orchestrator is None:
+            orchestrator_running = False
+        orchestrator_status = "missing"
+        if orchestrator is not None and orchestrator_running:
+            orchestrator_status = "running"
+        elif orchestrator is not None:
+            orchestrator_status = "idle"
+
+        worker_status = "disabled"
+        if worker_count > 0:
+            worker_status = "degraded" if worker_errors else "ok"
+
+        status = "ok"
+        if orchestrator_status == "missing":
+            status = "starting"
+        elif orchestrator_status == "idle":
+            status = "idle"
+        if worker_status == "degraded":
+            status = "degraded"
+
+        def _is_loopback_host(host: str) -> bool:
+            host_lower = (host or "").lower()
+            return host_lower == "localhost" or host_lower.startswith("127.")
+
+        dashboard_binding = {
+            "host": config.dashboard_host,
+            "port": config.dashboard_port,
+        }
+        dashboard_public = not _is_loopback_host(config.dashboard_host)
+
+        checks = {
+            "orchestrator": {
+                "status": orchestrator_status,
+                "running": orchestrator_running,
+                "session_started_at": session_started_at,
+            },
+            "workers": {
+                "status": worker_status,
+                "count": worker_count,
+                "errors": worker_errors,
+            },
+            "dashboard": {
+                "status": "ok" if config.dashboard_enabled else "disabled",
+                "host": config.dashboard_host,
+                "port": config.dashboard_port,
+                "public": dashboard_public,
+            },
+        }
+        ready = checks["orchestrator"]["status"] == "running" and checks["workers"][
+            "status"
+        ] in {"ok", "disabled"}
+        payload = {
+            "status": status,
+            "version": get_app_version(),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "orchestrator_running": orchestrator_running,
+            "active_issue_count": len(state.get_active_issue_numbers()),
+            "active_worktrees": len(state.get_active_worktrees()),
+            "worker_count": worker_count,
+            "worker_errors": worker_errors,
+            "dashboard": dashboard_binding,
+            "session_started_at": session_started_at,
+            "uptime_seconds": uptime_seconds,
+            "ready": ready,
+            "checks": checks,
+        }
+        return JSONResponse(payload)
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -3247,14 +3420,24 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        repo_slug: str | None = ws.query_params.get("repo")
+
+        # Resolve the correct event bus for the requested repo.
+        try:
+            _cfg, _state, bus, _get_orch = _resolve_runtime(repo_slug)
+        except ValueError:
+            await ws.accept()
+            await ws.close(code=1008, reason=f"Unknown repo: {repo_slug}")
+            return
+
         await ws.accept()
 
         # Snapshot history BEFORE subscribing to avoid duplicates.
         # Events published between snapshot and subscribe are picked
         # up by the live queue, never sent twice.
-        history = event_bus.get_history()
+        history = bus.get_history()
 
-        async with event_bus.subscription() as queue:
+        async with bus.subscription() as queue:
             # Send history on connect
             for event in history:
                 try:

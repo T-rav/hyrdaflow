@@ -126,6 +126,24 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "lint_format": "Linting or formatting issues",
 }
 
+# Actionable remediation hints injected when a category appears in feedback.
+# Each hint gives the implementation agent specific guidance on what to fix.
+CATEGORY_REMEDIATION: dict[str, str] = {
+    "missing_tests": (
+        "Ensure tests cover: (a) the specific issue requirements, not just helpers; "
+        "(b) failure/error paths, not only happy paths; "
+        "(c) that new functions are actually called in production code (no dead code)"
+    ),
+    "edge_cases": (
+        "Add tests for empty inputs, None values, zero-length collections, "
+        "and boundary conditions for every new code path"
+    ),
+    "error_handling": (
+        "Add explicit error-path tests: verify exceptions are raised with "
+        "correct messages and that callers handle failures gracefully"
+    ),
+}
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -337,7 +355,11 @@ def get_common_feedback_section(
     ]
     for cat, count in top:
         desc = CATEGORY_DESCRIPTIONS.get(cat, cat)
-        lines.append(f"- {desc} (flagged in {count} of last {total} reviews)")
+        hint = CATEGORY_REMEDIATION.get(cat, "")
+        line = f"- {desc} (flagged in {count} of last {total} reviews)"
+        if hint:
+            line += f"\n  Action: {hint}"
+        lines.append(line)
 
     return "\n".join(lines)
 

@@ -242,6 +242,21 @@ make run
 # "authentication_failed" or empty transcripts.
 ```
 
+## EC2 Deployment
+
+Running HydraFlow as a 24/7 EC2 service is supported out-of-the-box:
+
+- `deploy/ec2/deploy-hydraflow.sh` bootstraps dependencies, syncs code, and restarts the orchestrator.
+- `deploy/ec2/deploy-hydraflow.sh doctor` runs a readiness check (git repo present, `.env` seeded, log/home dirs created, required binaries installed) before your first deploy.
+- `deploy/ec2/hydraflow.service` keeps the process alive under systemd; the `install` helper renders it with `SERVICE_USER`, `SERVICE_GROUP`, `SERVICE_WORK_DIR`, and `SERVICE_LOG_FILE` overrides so non-/opt installs work without manual edits.
+- FastAPI exposes `GET /healthz` with a `ready` flag plus per-component `checks` (orchestrator/worker/dashboard) so load balancers or monitors can make decisions without extra parsing.
+- `deploy/ec2/deploy-hydraflow.sh health [URL]` curls `/healthz` using the host/port from `/etc/hydraflow.env` (or your override) and exits non-zero when `HEALTHCHECK_REQUIRE_READY=1` but `ready=false`, which makes it easy to wire into cron, ALB checks, or pager hooks.
+- `deploy/ec2/deploy-hydraflow.sh wait-ready` (or `HEALTHCHECK_WAIT_FOR_READY=1 deploy ... deploy`) polls `/healthz` until `ready=true`; tune the gating with `HEALTHCHECK_WAIT_TIMEOUT_SECONDS` and `HEALTHCHECK_WAIT_INTERVAL_SECONDS`.
+- `/etc/hydraflow.env` (override with `RUNTIME_ENV_FILE`) is sourced automatically so manual `run` commands and systemd share credentials/config.
+- `deploy/ec2/deploy-hydraflow.sh install` copies the unit into `/etc/systemd/system` (or your custom `SYSTEMD_DIR`) and runs the required `systemctl enable --now` incantations.
+
+See [docs/deployment/ec2.md](docs/deployment/ec2.md) for the full playbook, including how to bind the dashboard to `0.0.0.0` using the new `HYDRAFLOW_DASHBOARD_HOST` config knob and how to scope your EC2 security group safely.
+
 ## Contributing
 
 - Fork it.
