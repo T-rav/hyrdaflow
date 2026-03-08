@@ -896,8 +896,8 @@ def create_router(
             # Rebuild items from enriched rows.
             items = _filter_rows_to_items(issue_rows, requested_status, query_text)
 
-        # Sort and apply limit before crate-title backfill so we only
-        # fetch milestones for visible items.
+        # Sort before crate-title backfill so milestone fetches are done
+        # after ordering.  The caller applies the page limit after returning.
         items.sort(
             key=lambda item: (
                 item.last_seen or "",
