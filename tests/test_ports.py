@@ -6,7 +6,7 @@ inspect.signature comparison.
 
 isinstance() with runtime_checkable only verifies that methods *exist* on the
 class — it does NOT verify that parameter names, types, or counts match.
-The signature tests in TestPRPortSignatures / TestWorktreePortSignatures catch
+The signature tests in TestPRPortSignatures / TestWorkspacePortSignatures catch
 those mismatches before they cause runtime errors.
 """
 
@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ports import PRPort, WorktreePort
+from ports import PRPort, WorkspacePort
 
 # ---------------------------------------------------------------------------
 # PRPort
@@ -55,16 +55,16 @@ class TestPRPortConformance:
 
 
 # ---------------------------------------------------------------------------
-# WorktreePort
+# WorkspacePort
 # ---------------------------------------------------------------------------
 
 
-class TestWorktreePortConformance:
-    """WorktreeManager must satisfy the WorktreePort protocol."""
+class TestWorkspacePortConformance:
+    """WorkspaceManager must satisfy the WorkspacePort protocol."""
 
     def test_worktree_manager_satisfies_worktree_port(self) -> None:
-        """WorktreeManager is a structural subtype of WorktreePort."""
-        from worktree import WorktreeManager
+        """WorkspaceManager is a structural subtype of WorkspacePort."""
+        from workspace import WorkspaceManager
 
         config = MagicMock()
         config.worktree_base = Path("/tmp/wt")
@@ -72,16 +72,16 @@ class TestWorktreePortConformance:
         config.main_branch = "main"
         config.git_command_timeout = 30
 
-        mgr = WorktreeManager(config)
-        assert isinstance(mgr, WorktreePort), (
-            "WorktreeManager no longer satisfies the WorktreePort protocol. "
-            "Check that all methods declared in WorktreePort exist on WorktreeManager."
+        mgr = WorkspaceManager(config)
+        assert isinstance(mgr, WorkspacePort), (
+            "WorkspaceManager no longer satisfies the WorkspacePort protocol. "
+            "Check that all methods declared in WorkspacePort exist on WorkspaceManager."
         )
 
     def test_async_mock_satisfies_worktree_port(self) -> None:
-        """An AsyncMock spec'd to WorktreePort is accepted as WorktreePort."""
-        mock: WorktreePort = AsyncMock(spec=WorktreePort)  # type: ignore[assignment]
-        assert isinstance(mock, WorktreePort)
+        """An AsyncMock spec'd to WorkspacePort is accepted as WorkspacePort."""
+        mock: WorkspacePort = AsyncMock(spec=WorkspacePort)  # type: ignore[assignment]
+        assert isinstance(mock, WorkspacePort)
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +119,8 @@ class TestPRPortMethods:
         )
 
 
-class TestWorktreePortMethods:
-    """All methods declared in WorktreePort exist on the concrete WorktreeManager."""
+class TestWorkspacePortMethods:
+    """All methods declared in WorkspacePort exist on the concrete WorkspaceManager."""
 
     _REQUIRED_METHODS = [
         "create",
@@ -132,10 +132,10 @@ class TestWorktreePortMethods:
 
     @pytest.mark.parametrize("method", _REQUIRED_METHODS)
     def test_method_exists_on_worktree_manager(self, method: str) -> None:
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
-        assert hasattr(WorktreeManager, method), (
-            f"WorktreeManager is missing '{method}' which is declared in WorktreePort"
+        assert hasattr(WorkspaceManager, method), (
+            f"WorkspaceManager is missing '{method}' which is declared in WorkspacePort"
         )
 
 
@@ -201,8 +201,8 @@ class TestPRPortSignatures:
         _assert_param_names_match(PRPort, PRManager, method)
 
 
-class TestWorktreePortSignatures:
-    """WorktreePort method signatures must exactly match WorktreeManager's."""
+class TestWorkspacePortSignatures:
+    """WorkspacePort method signatures must exactly match WorkspaceManager's."""
 
     _SIGNED_METHODS = [
         "create",
@@ -214,6 +214,6 @@ class TestWorktreePortSignatures:
 
     @pytest.mark.parametrize("method", _SIGNED_METHODS)
     def test_signature_matches_worktree_manager(self, method: str) -> None:
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
-        _assert_param_names_match(WorktreePort, WorktreeManager, method)
+        _assert_param_names_match(WorkspacePort, WorkspaceManager, method)

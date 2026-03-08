@@ -1377,63 +1377,10 @@ class TestBuildMounts:
         assert str(home / ".claude.json") not in mounts
 
 
-# ---------------------------------------------------------------------------
-# Worktree detection and command wrapping
-# ---------------------------------------------------------------------------
+class TestBuildMountsNoGitDir:
+    """Tests verifying .git is NOT mounted into Docker containers."""
 
-
-class TestDetectWorktree:
-    """Tests for DockerRunner._detect_worktree."""
-
-    def test_returns_name_for_valid_worktree(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").write_text("gitdir: /repo/.git/worktrees/issue-42\n")
-        assert DockerRunner._detect_worktree(str(tmp_path)) == "issue-42"
-
-    def test_returns_none_for_git_directory(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
-        assert DockerRunner._detect_worktree(str(tmp_path)) is None
-
-    def test_returns_none_when_no_git(self, tmp_path: Path) -> None:
-        assert DockerRunner._detect_worktree(str(tmp_path)) is None
-
-    def test_returns_none_for_malformed_gitdir(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").write_text("not a gitdir line\n")
-        assert DockerRunner._detect_worktree(str(tmp_path)) is None
-
-
-class TestWorktreeGitEnv:
-    """Tests for DockerRunner._worktree_git_env."""
-
-    def test_returns_git_env_for_worktree(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").write_text("gitdir: /repo/.git/worktrees/issue-99\n")
-        runner, _ = _make_runner(log_dir=tmp_path / "logs")
-        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
-
-        env = runner._worktree_git_env(str(tmp_path))
-
-        assert env["GIT_DIR"] == "/dot-git/worktrees/issue-99"
-        assert env["GIT_WORK_TREE"] == "/workspace"
-
-    def test_empty_for_non_worktree(self, tmp_path: Path) -> None:
-        (tmp_path / ".git").mkdir()
-        runner, _ = _make_runner(log_dir=tmp_path / "logs")
-        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
-
-        env = runner._worktree_git_env(str(tmp_path))
-        assert env == {}
-
-    def test_empty_when_cwd_none(self, tmp_path: Path) -> None:
-        runner, _ = _make_runner(log_dir=tmp_path / "logs")
-        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
-
-        env = runner._worktree_git_env(None)
-        assert env == {}
-
-
-class TestBuildMountsGitDir:
-    """Tests for .git directory mounting for worktree support."""
-
-    def test_mounts_git_dir_when_exists(self, tmp_path: Path) -> None:
+    def test_git_dir_not_mounted(self, tmp_path: Path) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".git").mkdir()
@@ -1442,14 +1389,11 @@ class TestBuildMountsGitDir:
 
         mounts = runner._build_mounts(str(tmp_path / "workspace"))
 
-        assert str(repo / ".git") in mounts
-        assert mounts[str(repo / ".git")]["bind"] == "/dot-git"
-        assert mounts[str(repo / ".git")]["mode"] == "rw"
+        assert not any(v["bind"] == "/dot-git" for v in mounts.values())
 
     def test_no_git_mount_when_missing(self, tmp_path: Path) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
-        # No .git directory
         runner, _ = _make_runner(repo_root=repo, log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
 

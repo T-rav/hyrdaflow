@@ -315,32 +315,6 @@ class DockerRunner:
     async def __aexit__(self, *_: object) -> None:
         await self.cleanup()
 
-    @staticmethod
-    def _detect_worktree(cwd: str) -> str | None:
-        """If *cwd* is a git worktree, return the worktree name (e.g. ``issue-1944``).
-
-        Git worktrees have a ``.git`` *file* (not directory) containing a
-        ``gitdir:`` line that points to ``<repo>/.git/worktrees/<name>``.
-        Returns ``None`` when *cwd* is not a worktree.
-        """
-        git_path = Path(cwd) / ".git"
-        if not git_path.is_file():
-            return None
-        try:
-            content = git_path.read_text().strip()
-        except OSError:
-            return None
-        if not content.startswith("gitdir:"):
-            return None
-        gitdir = content.split(":", 1)[1].strip()
-        parts = Path(gitdir).parts
-        # Expect …/.git/worktrees/<name>
-        try:
-            wt_idx = parts.index("worktrees")
-            return parts[wt_idx + 1]
-        except (ValueError, IndexError):
-            return None
-
     def _build_mounts(self, cwd: str | None) -> dict[str, dict[str, str]]:
         """Build Docker volume mount specification."""
         mounts: dict[str, dict[str, str]] = {}
@@ -352,12 +326,10 @@ class DockerRunner:
         if repo_str != cwd:
             mounts[repo_str] = {"bind": "/repo", "mode": "ro"}
 
-        # Mount the main .git directory (rw) so worktrees can commit.
-        # Worktree .git files reference <repo>/.git/worktrees/<name> which
-        # must exist inside the container for git operations to work.
-        git_dir = self._repo_root / ".git"
-        if git_dir.is_dir():
-            mounts[str(git_dir)] = {"bind": "/dot-git", "mode": "rw"}
+        # NOTE: The host .git directory is NOT mounted.  Workspaces are
+        # standalone local clones (created by WorkspaceManager), each with
+        # their own .git/ directory.  This prevents Docker containers from
+        # corrupting the host repo.
 
         self._log_dir.mkdir(parents=True, exist_ok=True)
         mounts[str(self._log_dir)] = {"bind": "/logs", "mode": "rw"}
@@ -368,24 +340,6 @@ class DockerRunner:
                 mode = parts[2] if len(parts) > 2 else "ro"
                 mounts[parts[0]] = {"bind": parts[1], "mode": mode}
         return mounts
-
-    def _worktree_git_env(self, cwd: str | None) -> dict[str, str]:
-        """Return ``GIT_DIR`` / ``GIT_WORK_TREE`` env vars when *cwd* is a worktree.
-
-        Instead of rewriting the ``.git`` file inside the container (which
-        corrupts the host worktree when the container is killed), we set
-        environment variables that tell git where the gitdir lives.  This is
-        safe regardless of how the container exits.
-        """
-        if not cwd:
-            return {}
-        wt_name = self._detect_worktree(cwd)
-        if not wt_name:
-            return {}
-        return {
-            "GIT_DIR": f"/dot-git/worktrees/{wt_name}",
-            "GIT_WORK_TREE": "/workspace",
-        }
 
     def _get_user_tool_mounts(self) -> dict[str, dict[str, str]]:
         """Return cached user-tool mounts, refreshing when env/home selection changes."""
@@ -455,6 +409,7 @@ class DockerRunner:
             gh_token=self._gh_token,
             git_user_name=self._git_user_name,
             git_user_email=self._git_user_email,
+            repo_root=self._repo_root,
         )
         if env.get("PI_CODING_AGENT_DIR"):
             env["PI_CODING_AGENT_DIR"] = f"{_CONTAINER_PI_HOME}/agent"
@@ -515,7 +470,6 @@ class DockerRunner:
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
-        container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
 
         needs_stdin = stdin is None or stdin == asyncio.subprocess.PIPE
@@ -551,14 +505,12 @@ class DockerRunner:
                 None,
                 lambda: container.attach_socket(params=attach_params),
             )
-            return cast(
-                asyncio.subprocess.Process,
-                DockerProcess(
-                    cast(ContainerLike, container),
-                    cast(DockerSocket, socket),
-                    loop,
-                ),
+            proc = DockerProcess(
+                cast(ContainerLike, container),
+                cast(DockerSocket, socket),
+                loop,
             )
+            return cast(asyncio.subprocess.Process, proc)
         except Exception:
             with contextlib.suppress(Exception):
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
@@ -588,7 +540,6 @@ class DockerRunner:
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
-        container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
 
         container_kwargs: dict[str, Any] = {

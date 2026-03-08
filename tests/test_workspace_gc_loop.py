@@ -1,4 +1,4 @@
-"""Tests for the WorktreeGCLoop background worker."""
+"""Tests for the WorkspaceGCLoop background worker."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from events import EventType
 from state import StateTracker
 from tests.helpers import make_bg_loop_deps
-from worktree_gc_loop import _MAX_GC_PER_CYCLE, WorktreeGCLoop
+from workspace_gc_loop import _MAX_GC_PER_CYCLE, WorkspaceGCLoop
 
 # Force-delete flag for branch deletion assertions
 _FORCE_DEL = chr(45) + chr(68)
@@ -29,8 +29,8 @@ def _make_loop(
     active_issue_numbers: list[int] | None = None,
     hitl_causes: dict[int, str] | None = None,
     pipeline_issues: set[int] | None = None,
-) -> tuple[WorktreeGCLoop, StateTracker, asyncio.Event]:
-    """Build a WorktreeGCLoop with test-friendly defaults."""
+) -> tuple[WorkspaceGCLoop, StateTracker, asyncio.Event]:
+    """Build a WorkspaceGCLoop with test-friendly defaults."""
     deps = make_bg_loop_deps(tmp_path, enabled=enabled, worktree_gc_interval=interval)
 
     state = StateTracker(deps.config.state_file)
@@ -47,7 +47,7 @@ def _make_loop(
     worktrees.destroy = AsyncMock()
     prs = MagicMock()
 
-    loop = WorktreeGCLoop(
+    loop = WorkspaceGCLoop(
         config=deps.config,
         worktrees=worktrees,
         prs=prs,
@@ -61,12 +61,11 @@ def _make_loop(
         is_in_pipeline_cb=lambda n: n in in_pipeline,
     )
     loop._issue_has_pipeline_label = AsyncMock(return_value=False)  # type: ignore[method-assign]
-    loop._git_worktree_prune = AsyncMock()  # type: ignore[method-assign]
     loop._collect_orphaned_branches = AsyncMock(return_value=0)  # type: ignore[method-assign]
     return loop, state, deps.stop_event
 
 
-class TestWorktreeGCLoopBasics:
+class TestWorkspaceGCLoopBasics:
     def test_worker_name(self, tmp_path: Path) -> None:
         loop, _state, _stop = _make_loop(tmp_path)
         assert loop._worker_name == "worktree_gc"
@@ -245,35 +244,14 @@ class TestWorktreeGCOrphanedDirs:
         assert result["collected"] == 0
 
 
-class TestWorktreeGCPrune:
-    @pytest.mark.asyncio
-    async def test_git_worktree_prune_called(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path)
-        loop._git_worktree_prune = WorktreeGCLoop._git_worktree_prune.__get__(loop)  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
-            m.return_value = ""
-            await loop._git_worktree_prune()
-        m.assert_awaited_once()
-        assert m.call_args[0][:3] == ("git", "worktree", "prune")
-
-    @pytest.mark.asyncio
-    async def test_git_worktree_prune_failure_handled(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path)
-        loop._git_worktree_prune = WorktreeGCLoop._git_worktree_prune.__get__(loop)  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
-            m.side_effect = RuntimeError("prune failed")
-            await loop._git_worktree_prune()
-        m.assert_awaited_once()
-
-
 class TestWorktreeGCOrphanedBranches:
     @pytest.mark.asyncio
     async def test_deletes_orphaned_branches(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.side_effect = ["  agent/issue-99\n", ""]
             count = await loop._collect_orphaned_branches()
         assert count == 1
@@ -283,9 +261,9 @@ class TestWorktreeGCOrphanedBranches:
     async def test_skips_branches_with_active_worktree(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path, active_worktrees={99: "/p/99"})
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = "  agent/issue-99\n"
             count = await loop._collect_orphaned_branches()
         assert count == 0
@@ -295,9 +273,9 @@ class TestWorktreeGCOrphanedBranches:
     async def test_starred_branch_parsed_correctly(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.side_effect = ["* agent/issue-77\n", ""]
             count = await loop._collect_orphaned_branches()
         assert count == 1
@@ -307,9 +285,9 @@ class TestWorktreeGCOrphanedBranches:
     async def test_branch_list_failure_returns_zero(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.side_effect = RuntimeError("git error")
             count = await loop._collect_orphaned_branches()
         assert count == 0
@@ -318,10 +296,10 @@ class TestWorktreeGCOrphanedBranches:
     async def test_skips_branch_when_labels_show_pipeline(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path, pipeline_issues=set())
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
         loop._issue_has_pipeline_label = AsyncMock(return_value=True)  # type: ignore[method-assign]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = "  agent/issue-99\n"
             count = await loop._collect_orphaned_branches()
         assert count == 0
@@ -331,10 +309,10 @@ class TestWorktreeGCOrphanedBranches:
     async def test_branch_budget_cap(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
         branches = "\n".join(f"  agent/issue-{i}" for i in range(1, 10))
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = branches
             count = await loop._collect_orphaned_branches(budget=3)
         assert count == 3
@@ -345,7 +323,7 @@ class TestWorktreeGCSubprocessArgs:
     @pytest.mark.asyncio
     async def test_get_issue_state_args(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = "closed\n"
             result = await loop._get_issue_state(42)
         assert result == "closed"
@@ -360,7 +338,7 @@ class TestWorktreeGCSubprocessArgs:
     @pytest.mark.asyncio
     async def test_has_open_pr_args(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = "0\n"
             result = await loop._has_open_pr(42)
         assert result is False
@@ -373,7 +351,7 @@ class TestWorktreeGCSubprocessArgs:
     @pytest.mark.asyncio
     async def test_has_open_pr_returns_true_on_error(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.side_effect = RuntimeError("gh failed")
             result = await loop._has_open_pr(42)
         assert result is True
@@ -384,9 +362,9 @@ class TestWorktreeGCSubprocessArgs:
     ) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._issue_has_pipeline_label = (
-            WorktreeGCLoop._issue_has_pipeline_label.__get__(loop)
+            WorkspaceGCLoop._issue_has_pipeline_label.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = f"{loop._config.ready_label[0]}\nother-label\n"
             result = await loop._issue_has_pipeline_label(42)
         assert result is True
@@ -402,9 +380,9 @@ class TestWorktreeGCSubprocessArgs:
     ) -> None:
         loop, _s, _e = _make_loop(tmp_path)
         loop._issue_has_pipeline_label = (
-            WorktreeGCLoop._issue_has_pipeline_label.__get__(loop)
+            WorkspaceGCLoop._issue_has_pipeline_label.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.side_effect = RuntimeError("gh failed")
             result = await loop._issue_has_pipeline_label(42)
         assert result is True
@@ -460,7 +438,6 @@ class TestWorktreeGCStopEvent:
         loop._get_issue_state = AsyncMock(side_effect=gc_and_stop)
         result = await loop._do_work()
         assert result["collected"] == 1
-        loop._git_worktree_prune.assert_not_awaited()
         loop._collect_orphaned_branches.assert_not_awaited()
 
 
@@ -540,7 +517,6 @@ class TestWorktreeGCStopEventPhase2:
         result = await loop._do_work()
         # Should stop after 2 orphaned dirs due to stop event
         assert result["collected"] <= 3
-        loop._git_worktree_prune.assert_not_awaited()
 
 
 class TestWorktreeGCBranchActiveIssues:
@@ -553,9 +529,9 @@ class TestWorktreeGCBranchActiveIssues:
         """Branches for active issues (no worktree entry) are not deleted."""
         loop, _s, _e = _make_loop(tmp_path, active_issue_numbers=[99])
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = "  agent/issue-99\n"
             count = await loop._collect_orphaned_branches()
         assert count == 0
@@ -698,9 +674,9 @@ class TestWorktreeGCPipelineProtection:
         """Branches for issues in the pipeline are not deleted."""
         loop, _s, _e = _make_loop(tmp_path, pipeline_issues={99})
         loop._collect_orphaned_branches = (
-            WorktreeGCLoop._collect_orphaned_branches.__get__(loop)
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
-        with patch("worktree_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
             m.return_value = "  agent/issue-99\n"
             count = await loop._collect_orphaned_branches()
         assert count == 0

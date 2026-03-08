@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import re
@@ -927,13 +926,8 @@ SUMMARY: <one-line summary>
     async def _force_commit_uncommitted(self, task: Task, worktree_path: Path) -> bool:
         """Stage and commit any uncommitted changes the agent left behind.
 
-        Always runs on the **host** (not inside Docker) since the worktree
+        Always runs on the **host** (not inside Docker) since the workspace
         is bind-mounted — file edits from the container are already on disk.
-
-        Docker containers set ``core.worktree=/workspace`` in the worktree's
-        git config, which breaks host-side git (it looks for files at
-        ``/workspace`` instead of the actual worktree path).  We fix this
-        by unsetting ``core.worktree`` before checking status.
 
         Returns ``True`` if a salvage commit was created, ``False`` otherwise.
         """
@@ -942,13 +936,6 @@ SUMMARY: <one-line summary>
         host = get_default_runner()
         timeout = self._config.git_command_timeout
         cwd = str(worktree_path)
-        # Fix Docker-corrupted core.worktree before any git operation
-        with contextlib.suppress(TimeoutError, FileNotFoundError, OSError):
-            await host.run_simple(
-                ["git", "config", "--unset", "core.worktree"],
-                cwd=cwd,
-                timeout=timeout,
-            )
 
         try:
             status = await host.run_simple(
@@ -963,12 +950,20 @@ SUMMARY: <one-line summary>
                 "Issue #%d: agent left uncommitted changes — force-committing",
                 task.id,
             )
-            await host.run_simple(
+            add_result = await host.run_simple(
                 ["git", "add", "-A"],
                 cwd=cwd,
                 timeout=timeout,
             )
-            await host.run_simple(
+            if add_result.returncode != 0:
+                logger.warning(
+                    "Issue #%d: git add failed (rc=%d): %s",
+                    task.id,
+                    add_result.returncode,
+                    add_result.stderr,
+                )
+                return False
+            commit_result = await host.run_simple(
                 [
                     "git",
                     "commit",
@@ -979,6 +974,14 @@ SUMMARY: <one-line summary>
                 cwd=cwd,
                 timeout=timeout,
             )
+            if commit_result.returncode != 0:
+                logger.warning(
+                    "Issue #%d: git commit failed (rc=%d): %s",
+                    task.id,
+                    commit_result.returncode,
+                    commit_result.stderr,
+                )
+                return False
             logger.info(
                 "Issue #%d: salvage commit created for uncommitted work",
                 task.id,

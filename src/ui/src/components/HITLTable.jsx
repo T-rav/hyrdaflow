@@ -255,7 +255,7 @@ export function HITLTable({ items, onRefresh }) {
                         #{item.pr}
                       </a>
                     ) : (
-                      <span style={styles.noPr}>No PR</span>
+                      <span style={styles.causePlaceholder}>—</span>
                     )}
                   </td>
                   <td style={styles.td}>{item.branch}</td>
@@ -515,7 +515,6 @@ const styles = {
   row: { cursor: 'pointer' },
   rowActive: { cursor: 'pointer', background: theme.surfaceInset },
   link: { color: theme.accent, textDecoration: 'none' },
-  noPr: { color: theme.textMuted, fontStyle: 'italic' },
   causeText: { fontSize: 11, color: theme.orange, fontWeight: 500 },
   causePlaceholder: { color: theme.textMuted, fontStyle: 'italic' },
   detailCell: { padding: 0, borderBottom: `1px solid ${theme.border}` },

@@ -21,7 +21,7 @@ from pr_manager import PRManager
 from prompt_stats import build_prompt_stats
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.merge_conflict_resolver")
 
@@ -32,7 +32,7 @@ class MergeConflictResolver:
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         agents: AgentRunner | None,
         prs: PRManager,
         event_bus: EventBus,
