@@ -1209,7 +1209,7 @@ def make_dashboard_router(
     return router, pr_mgr
 
 
-def find_endpoint(router, path, method=None):
+def find_endpoint(router: Any, path: str, method: str | None = None) -> Any | None:
     """Locate an endpoint handler on *router* by path and optional HTTP method.
 
     When *method* is ``None``, returns the first route matching *path*.
