@@ -7,6 +7,7 @@ Docker is unavailable.
 
 from __future__ import annotations
 
+import contextlib
 import textwrap
 from pathlib import Path
 
@@ -46,7 +47,7 @@ _TEST_IMAGE = "alpine:latest"
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="session")
 def _pull_image_once() -> None:
     """Ensure the test image is available locally (runs once per session)."""
     if not _docker_available:
@@ -173,11 +174,38 @@ class TestContainerCleanupIntegration:
         await runner.run_simple(["true"])
         assert len(runner._containers) == 0
 
-    async def test_cleanup_removes_all_tracked(self, runner: DockerRunner) -> None:
-        """cleanup() removes all tracked containers."""
-        await runner.run_simple(["true"])
-        await runner.cleanup()
-        assert len(runner._containers) == 0
+    async def test_cleanup_removes_all_tracked(
+        self, tmp_workspace: Path, tmp_log_dir: Path
+    ) -> None:
+        """cleanup() removes all in-flight tracked containers."""
+        # Use create_streaming_process so the container stays in _containers
+        # until we explicitly call cleanup (unlike run_simple which removes on exit).
+        r = DockerRunner(
+            image=_TEST_IMAGE,
+            repo_root=tmp_workspace,
+            log_dir=tmp_log_dir,
+            spawn_delay=0.0,
+        )
+        proc = await r.create_streaming_process(
+            ["sleep", "60"],
+            cwd=str(tmp_workspace),
+        )
+        container = next(iter(r._containers))
+        container_id = container.id
+        assert len(r._containers) == 1
+
+        await r.cleanup()
+        assert len(r._containers) == 0
+
+        # Verify the container no longer exists in Docker
+        client = _docker_mod.from_env()
+        running_ids = {c.id for c in client.containers.list(all=True)}
+        assert container_id not in running_ids
+
+        # Reap the process to avoid resource warnings
+        proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
 
 
 # ---------------------------------------------------------------------------
@@ -389,12 +417,21 @@ class TestResourceLimitsIntegration:
             ["sh", "-c", script],
             timeout=15.0,
         )
-        # Either we get a "Resource temporarily unavailable" error or fewer forks than requested
+        # Either we get a "Resource temporarily unavailable" / fork error,
+        # or we see fewer than 100 forks completed (limit prevented all forks).
         output = result.stdout + result.stderr
-        assert (
-            "Resource temporarily unavailable" in output
-            or "Cannot fork" in output
-            or "forked=" in output  # process ran but couldn't fork all 100
+        fork_error = (
+            "Resource temporarily unavailable" in output or "Cannot fork" in output
+        )
+        # Parse how many forks actually completed
+        forked_count = None
+        for token in output.split():
+            if token.startswith("forked="):
+                with contextlib.suppress(ValueError):
+                    forked_count = int(token.split("=", 1)[1])
+        limited_by_pid = forked_count is not None and forked_count < 100
+        assert fork_error or limited_by_pid, (
+            f"PID limit not enforced: output={output!r}"
         )
 
 
