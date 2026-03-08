@@ -15,6 +15,7 @@ from models import GitHubIssue, PipelineStage, Task, WorkerResult, WorkerResultM
 from phase_utils import (
     escalate_to_hitl,
     is_adr_issue_title,
+    is_likely_bug,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
@@ -123,20 +124,33 @@ class ImplementPhase:
                     return await self._worker_inner(idx, issue, branch)
                 except (AuthenticationError, CreditExhaustedError, MemoryError):
                     raise
-                except Exception:
-                    logger.exception("Worker failed for issue #%d", issue.id)
+                except Exception as exc:
+                    exc_type_name = type(exc).__name__
+                    if is_likely_bug(exc):
+                        logger.critical(
+                            "Worker failed for issue #%d — likely bug (%s)",
+                            issue.id,
+                            exc_type_name,
+                            exc_info=True,
+                        )
+                    else:
+                        logger.exception(
+                            "Worker failed for issue #%d — %s",
+                            issue.id,
+                            exc_type_name,
+                        )
                     self._state.mark_issue(issue.id, "failed")
                     record_harness_failure(
                         self._harness_insights,
                         issue.id,
                         FailureCategory.IMPLEMENTATION_ERROR,
-                        f"Worker exception for issue #{issue.id}",
+                        f"Worker {exc_type_name} for issue #{issue.id}",
                         stage=PipelineStage.IMPLEMENT,
                     )
                     return WorkerResult(
                         issue_number=issue.id,
                         branch=branch,
-                        error=f"Worker exception for issue #{issue.id}",
+                        error=f"Worker {exc_type_name} for issue #{issue.id}",
                     )
                 finally:
                     async with self._active_issues_lock:

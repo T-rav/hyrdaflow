@@ -363,9 +363,16 @@ describe('HITLTable component', () => {
     fetchSpy.mockRestore()
   })
 
-  it('shows "No PR" when pr is 0', () => {
+  it('shows em-dash when pr is 0', () => {
     render(<HITLTable items={mockItems} onRefresh={() => {}} />)
-    expect(screen.getAllByText('No PR')).toHaveLength(2)
+    const row10 = screen.getByTestId('hitl-row-10')
+    const row7 = screen.getByTestId('hitl-row-7')
+    // Both rows with pr: 0 should show em-dash in PR column
+    const cells10 = row10.querySelectorAll('td')
+    const cells7 = row7.querySelectorAll('td')
+    // PR is the 4th column (index 3)
+    expect(cells10[3].textContent).toBe('—')
+    expect(cells7[3].textContent).toBe('—')
   })
 
   it('renders Cause column header', () => {

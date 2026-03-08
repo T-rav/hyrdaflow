@@ -305,7 +305,7 @@ class TestWorkerExceptionIsolation:
         assert len(results) == 1
         assert results[0].success is False
         assert results[0].error is not None
-        assert "Worker exception" in results[0].error
+        assert "Worker RuntimeError for issue" in results[0].error
 
     @pytest.mark.asyncio
     async def test_worker_exception_marks_issue_failed(
@@ -419,7 +419,7 @@ class TestWorktreeCreationFailure:
         assert len(results) == 1
         assert results[0].success is False
         assert results[0].error is not None
-        assert "Worker exception" in results[0].error
+        assert "Worker RuntimeError for issue" in results[0].error
 
     @pytest.mark.asyncio
     async def test_worktree_creation_failure_does_not_crash_other_workers(
@@ -441,7 +441,7 @@ class TestWorktreeCreationFailure:
         assert len(results) == 2
         result_map = {r.issue_number: r for r in results}
         assert result_map[1].success is False
-        assert "Worker exception" in result_map[1].error
+        assert "Worker RuntimeError for issue" in result_map[1].error
         assert result_map[2].success is True
 
     @pytest.mark.asyncio

@@ -1110,6 +1110,19 @@ export function HydraFlowProvider({ children }) {
     } catch { /* ignore — local state already updated */ }
   }, [])
 
+  const triggerBgWorker = useCallback(async (name) => {
+    try {
+      const resp = await fetch('/api/control/bg-worker/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      return resp.ok
+    } catch {
+      return false
+    }
+  }, [])
+
   const updateBgWorkerInterval = useCallback(async (name, intervalSeconds) => {
     // Optimistic local update
     dispatch({ type: 'UPDATE_BG_WORKER_INTERVAL', data: { name, interval_seconds: intervalSeconds } })
@@ -1439,6 +1452,7 @@ export function HydraFlowProvider({ children }) {
     submitHumanInput,
     requestChanges,
     toggleBgWorker,
+    triggerBgWorker,
     updateBgWorkerInterval,
     refreshHitl: fetchHitlItems,
     selectSession,

@@ -1470,6 +1470,18 @@ class GitIdentityEnvMixin:
 class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
     """Tests for git_user_name/git_user_email fields and env var resolution."""
 
+    @staticmethod
+    def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "HYDRAFLOW_GIT_USER_NAME",
+            "HYDRAFLOW_GIT_USER_EMAIL",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
     def test_git_user_name_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

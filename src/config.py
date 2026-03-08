@@ -13,6 +13,8 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+import file_util
+
 logger = logging.getLogger("hydraflow.config")
 
 # Data-driven env-var override tables.
@@ -45,6 +47,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
+    ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
@@ -429,6 +432,12 @@ class HydraFlowConfig(BaseModel):
     epic_monitor_interval: int = Field(
         default=1800,
         description="Epic monitor loop interval in seconds (default 30 min)",
+    )
+    epic_sweep_interval: int = Field(
+        default=3600,
+        ge=600,
+        le=86400,
+        description="Epic sweeper loop interval in seconds (default 1 hour)",
     )
     worktree_gc_interval: int = Field(
         default=1800,
@@ -1994,19 +2003,28 @@ def load_config_file(path: Path | None) -> dict[str, Any]:
 
 
 def save_config_file(path: Path | None, values: dict[str, Any]) -> None:
-    """Save config values to a JSON file, merging with existing contents."""
+    """Save config values to a JSON file, merging with existing contents.
+
+    Uses atomic write (temp file + ``os.replace``) to prevent data loss from
+    concurrent writes or crashes mid-write (TOCTOU race condition).
+    """
     if path is None:
         return
+
     existing: dict[str, Any] = {}
     try:
         existing = json.loads(path.read_text())
         if not isinstance(existing, dict):
+            logger.warning(
+                "Config file %s contained non-dict JSON; starting fresh", path
+            )
             existing = {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
+    except FileNotFoundError:
+        logger.debug("Config file %s not found; will create", path)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to read config file %s: %s; starting fresh", path, exc)
     existing.update(values)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(existing, indent=2) + "\n")
-    except OSError:
-        logger.warning("Failed to write config file %s", path)
+        file_util.atomic_write(path, json.dumps(existing, indent=2) + "\n")
+    except OSError as exc:
+        logger.warning("Failed to write config file %s: %s", path, exc)

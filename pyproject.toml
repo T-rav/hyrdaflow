@@ -123,12 +123,13 @@ asyncio_mode = "auto"
 addopts = [
     "-q",
     "--tb=short",
-    "-m", "not soak",
+    "-m", "not soak and not docker",
 ]
 markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "soak: marks tests as soak/long-running tests (excluded from default runs)",
+    "docker: marks tests requiring a running Docker daemon",
 ]
 
 [tool.coverage.run]

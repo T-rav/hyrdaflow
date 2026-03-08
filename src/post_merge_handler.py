@@ -601,6 +601,7 @@ class PostMergeHandler:
 
         if issue_number > 0:
             self._state.set_verification_issue(issue.id, issue_number)
+            self._state.set_hitl_origin(issue_number, self._config.review_label[0])
             logger.info(
                 "Created verification issue #%d for issue #%d (PR #%d)",
                 issue_number,
