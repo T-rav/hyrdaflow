@@ -1,0 +1,3 @@
+#!/bin/sh
+# Add your lint command here
+exit 0
