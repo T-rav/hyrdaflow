@@ -39,6 +39,8 @@ from models import (
 from phase_utils import (
     adr_validation_reasons,
     is_adr_issue_title,
+    load_existing_adr_topics,
+    normalize_adr_topic,
     publish_review_status,
     record_harness_failure,
     release_batch_in_flight,
@@ -60,7 +62,7 @@ from reviewer import ReviewRunner
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.review_phase")
 
@@ -89,7 +91,7 @@ class ReviewPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         reviewers: ReviewRunner,
         prs: PRManager,
         stop_event: asyncio.Event,
@@ -215,6 +217,29 @@ class ReviewPhase:
 
     async def _review_single_adr(self, issue: Task) -> ReviewResult:
         """Validate ADR quality and either finalize or escalate to HITL."""
+        topic_key = normalize_adr_topic(issue.title)
+        existing = load_existing_adr_topics(self._config.repo_root)
+        if topic_key and topic_key in existing:
+            await self._transitioner.post_comment(
+                issue.id,
+                f"## Closing as Duplicate\n\n"
+                f"An ADR already exists for this topic in `docs/adr/`. "
+                f"Normalized topic: *{topic_key}*",
+            )
+            await self._transitioner.close_task(issue.id)
+            self._state.mark_issue(issue.id, "completed")
+            logger.info(
+                "ADR issue #%d closed as duplicate — topic %r exists in docs/adr/",
+                issue.id,
+                topic_key,
+            )
+            return ReviewResult(
+                pr_number=0,
+                issue_number=issue.id,
+                verdict=ReviewVerdict.APPROVE,
+                summary="Closed as duplicate ADR",
+                merged=True,
+            )
         reasons = adr_validation_reasons(issue.body)
         decision_detail = self._extract_adr_section(issue.body, "decision")
         if len(decision_detail.strip()) < 60:
@@ -472,19 +497,30 @@ class ReviewPhase:
         diff = pre_review.diff
         code_scanning_alerts = pre_review.code_scanning_alerts
 
-        if result.fixes_made and result.verdict in (
+        if result.verdict in (
             ReviewVerdict.REQUEST_CHANGES,
             ReviewVerdict.COMMENT,
         ):
-            result, diff = await self._handle_self_fix_re_review(
-                pr,
-                task,
-                wt_path,
-                result,
-                diff,
-                worker_id,
-                code_scanning_alerts=code_scanning_alerts,
-            )
+            if result.fixes_made:
+                result, diff = await self._handle_self_fix_re_review(
+                    pr,
+                    task,
+                    wt_path,
+                    result,
+                    diff,
+                    worker_id,
+                    code_scanning_alerts=code_scanning_alerts,
+                )
+            else:
+                result, diff = await self._attempt_review_fix(
+                    pr,
+                    task,
+                    wt_path,
+                    result,
+                    diff,
+                    worker_id,
+                    code_scanning_alerts=code_scanning_alerts,
+                )
 
         visual_report = await self._run_visual_validation(pr, wt_path, worker_id)
         if visual_report and visual_report.has_failures:
@@ -673,11 +709,11 @@ class ReviewPhase:
 
         if not skip:
             try:
-                await self._worktrees.destroy(pr.issue_number)
+                await self._worktrees.post_work_cleanup(pr.issue_number)
                 self._state.remove_worktree(pr.issue_number)
             except RuntimeError as exc:
                 logger.warning(
-                    "Could not destroy worktree for issue #%d: %s",
+                    "Could not clean up worktree for issue #%d: %s",
                     pr.issue_number,
                     exc,
                 )
@@ -807,6 +843,100 @@ class ReviewPhase:
             )
             return result, diff
 
+    async def _attempt_review_fix(
+        self,
+        pr: PRInfo,
+        task: Task,
+        wt_path: Path,
+        result: ReviewResult,
+        diff: str,
+        worker_id: int,
+        code_scanning_alerts: list[dict] | None = None,
+    ) -> tuple[ReviewResult, str]:
+        """Spin up a sub-agent to fix review findings, then re-review.
+
+        Tries up to 2 fix-then-review cycles. If the fix agent makes
+        changes and the re-review approves, returns the upgraded result.
+        Otherwise falls through to the normal rejection path.
+        """
+        max_fix_attempts = 2
+
+        for attempt in range(1, max_fix_attempts + 1):
+            logger.info(
+                "PR #%d: attempting review fix %d/%d",
+                pr.number,
+                attempt,
+                max_fix_attempts,
+            )
+            try:
+                await self._publish_review_status(pr, worker_id, "fixing_review")
+
+                fix_result = await self._reviewers.fix_review_findings(
+                    pr,
+                    task,
+                    wt_path,
+                    result.summary,
+                    worker_id=worker_id,
+                )
+
+                if not fix_result.fixes_made:
+                    logger.info(
+                        "PR #%d: fix agent made no changes on attempt %d — giving up",
+                        pr.number,
+                        attempt,
+                    )
+                    break
+
+                # Push the fixes
+                await self._prs.push_branch(wt_path, pr.branch)
+
+                # Re-review
+                await self._publish_review_status(pr, worker_id, "re_reviewing")
+                updated_diff = await self._prs.get_pr_diff(pr.number)
+                re_result = await self._reviewers.review(
+                    pr,
+                    task,
+                    wt_path,
+                    updated_diff,
+                    worker_id=worker_id,
+                    code_scanning_alerts=code_scanning_alerts,
+                )
+
+                if re_result.fixes_made:
+                    await self._prs.push_branch(wt_path, pr.branch)
+
+                if re_result.verdict == ReviewVerdict.APPROVE:
+                    logger.info(
+                        "PR #%d: review fix attempt %d succeeded — upgrading to APPROVE",
+                        pr.number,
+                        attempt,
+                    )
+                    return re_result, updated_diff
+
+                # Still rejected — use the new feedback for the next attempt
+                logger.info(
+                    "PR #%d: review fix attempt %d still %s — %s",
+                    pr.number,
+                    attempt,
+                    re_result.verdict.value,
+                    "retrying" if attempt < max_fix_attempts else "falling through",
+                )
+                result = re_result
+                diff = updated_diff
+
+            except (AuthenticationError, CreditExhaustedError, MemoryError):
+                raise
+            except Exception:
+                logger.warning(
+                    "PR #%d: review fix attempt %d failed — falling back to rejection",
+                    pr.number,
+                    attempt,
+                    exc_info=True,
+                )
+                break
+
+        return result, diff
+
     async def _run_delta_verification(self, pr: PRInfo, diff: str) -> str:
         """Run delta verification comparing plan's File Delta section to actual diff.
 
@@ -895,9 +1025,10 @@ class ReviewPhase:
             return False
 
         if resolution.used_rebuild:
-            await self._prs.force_push_branch(
+            await self._prs.push_branch(
                 self._config.worktree_path_for_issue(pr.issue_number),
                 pr.branch,
+                force=True,
             )
         else:
             await self._prs.push_branch(wt_path, pr.branch)
@@ -1223,15 +1354,8 @@ class ReviewPhase:
                 body = build_insight_issue_body(category, count, len(recent), evidence)
                 desc = CATEGORY_DESCRIPTIONS.get(category, category)
                 title = f"[Review Insight] Recurring feedback: {desc}"
-                labels = self._config.improve_label[:1] + self._config.hitl_label[:1]
-                issue_num = await self._transitioner.create_task(title, body, labels)
-                if issue_num:
-                    self._state.set_hitl_origin(
-                        issue_num, self._config.improve_label[0]
-                    )
-                    self._state.set_hitl_cause(
-                        issue_num, f"Recurring review pattern: {desc}"
-                    )
+                labels = self._config.improve_label[:1]
+                await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
         except Exception:  # noqa: BLE001
             status = "error"

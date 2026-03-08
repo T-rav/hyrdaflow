@@ -51,8 +51,8 @@ from triage import TriageRunner
 from triage_phase import TriagePhase
 from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
-from worktree import WorktreeManager
-from worktree_gc_loop import WorktreeGCLoop
+from workspace import WorkspaceManager
+from workspace_gc_loop import WorkspaceGCLoop
 
 if TYPE_CHECKING:
     from metrics_manager import MetricsManager
@@ -63,7 +63,7 @@ class ServiceRegistry:
     """Holds all service instances for the orchestrator."""
 
     # Core infrastructure
-    worktrees: WorktreeManager
+    worktrees: WorkspaceManager
     subprocess_runner: SubprocessRunner
     agents: AgentRunner
     planners: PlannerRunner
@@ -103,7 +103,7 @@ class ServiceRegistry:
     manifest_refresh_loop: ManifestRefreshLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
-    worktree_gc_loop: WorktreeGCLoop
+    worktree_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
 
@@ -131,7 +131,7 @@ def build_services(
     This replaces the 170-line orchestrator constructor body.
     """
     # Core runners
-    worktrees = WorktreeManager(config)
+    worktrees = WorkspaceManager(config)
     subprocess_runner = get_docker_runner(config)
     agents = AgentRunner(config, event_bus, runner=subprocess_runner)
     planners = PlannerRunner(config, event_bus, runner=subprocess_runner)
@@ -352,7 +352,7 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
-    worktree_gc_loop = WorktreeGCLoop(
+    worktree_gc_loop = WorkspaceGCLoop(
         config=config,
         worktrees=worktrees,
         prs=prs,

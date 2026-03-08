@@ -10,6 +10,7 @@ import pytest
 from epic import (
     EpicCompletionChecker,
     EpicManager,
+    ReleaseEpicResultError,
     check_all_checkboxes,
     parse_epic_sub_issues,
 )
@@ -1168,3 +1169,34 @@ class TestEpicManagerTryAutoClose:
         epic = manager._state.get_epic_state(100)
         assert epic is not None
         assert epic.closed is True
+
+
+# ---------------------------------------------------------------------------
+# ReleaseEpicResultError
+# ---------------------------------------------------------------------------
+
+
+class TestReleaseEpicResultError:
+    def test_stores_epic_number_and_result(self) -> None:
+        result = {"error": "merge failed", "status": "error"}
+        err = ReleaseEpicResultError(42, result)
+        assert err.epic_number == 42
+        assert err.result is result
+
+    def test_message_uses_error_field(self) -> None:
+        err = ReleaseEpicResultError(7, {"error": "conflict"})
+        assert "conflict" in str(err)
+        assert "7" in str(err)
+
+    def test_message_includes_epic_number(self) -> None:
+        err = ReleaseEpicResultError(42, {"error": "merge failed"})
+        assert "42" in str(err)
+        assert "merge failed" in str(err)
+
+    def test_is_runtime_error_subclass(self) -> None:
+        err = ReleaseEpicResultError(1, {"error": "x"})
+        assert isinstance(err, RuntimeError)
+
+    def test_missing_error_field_falls_back_to_unknown(self) -> None:
+        err = ReleaseEpicResultError(5, {})
+        assert "unknown error" in str(err)

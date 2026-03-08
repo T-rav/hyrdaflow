@@ -135,7 +135,6 @@ class TestPostMergeConflictFix:
 
         assert ok is True
         phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch)
-        phase._prs.force_push_branch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_attempt_post_merge_conflict_fix_force_pushes_on_rebuild(
@@ -154,8 +153,7 @@ class TestPostMergeConflictFix:
         ok = await phase._attempt_post_merge_conflict_fix(pr, issue, worker_id=7)
 
         assert ok is True
-        phase._prs.force_push_branch.assert_awaited_once_with(wt, pr.branch)
-        phase._prs.push_branch.assert_not_awaited()
+        phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch, force=True)
 
     @pytest.mark.asyncio
     async def test_returns_comment_verdict_when_issue_missing(
@@ -2103,25 +2101,25 @@ class TestCleanupWorktree:
 
     @pytest.mark.asyncio
     async def test_destroys_when_not_skipped(self, config: HydraFlowConfig) -> None:
-        """Worktree should be destroyed when skip=False and stop_event not set."""
+        """Worktree should be cleaned up when skip=False and stop_event not set."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create()
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
+        phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
     @pytest.mark.asyncio
     async def test_preserves_when_skipped(self, config: HydraFlowConfig) -> None:
-        """Worktree should NOT be destroyed when skip=True."""
+        """Worktree should NOT be cleaned up when skip=True."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create()
 
         await phase._cleanup_worktree(pr, result, skip=True)
 
-        phase._worktrees.destroy.assert_not_awaited()
+        phase._worktrees.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_preserves_when_stop_event_set_and_not_merged(
@@ -2136,13 +2134,13 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.destroy.assert_not_awaited()
+        phase._worktrees.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_destroys_when_stop_event_set_but_merged(
         self, config: HydraFlowConfig
     ) -> None:
-        """Worktree should be destroyed when stop_event is set but PR was merged."""
+        """Worktree should be cleaned up when stop_event is set but PR was merged."""
         phase = make_review_phase(config)
         phase._stop_event.set()
         pr = PRInfoFactory.create()
@@ -2151,7 +2149,7 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
+        phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
 
 class TestConstructorDefaultHelpers:

@@ -414,7 +414,7 @@ class TestReviewInsightIntegration:
         call_args = phase._prs.create_task.call_args
         assert "[Review Insight]" in call_args.args[0]
         assert "hydraflow-improve" in call_args.args[2]
-        assert "hydraflow-hitl" in call_args.args[2]
+        assert "hydraflow-hitl" not in call_args.args[2]
 
     @pytest.mark.asyncio
     async def test_review_insight_does_not_refile_proposed_category(
@@ -1546,45 +1546,6 @@ class TestRecordReviewInsight:
             await phase._record_review_insight(result)
 
         phase._prs.create_task.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_sets_hitl_state_when_issue_created(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """When an insight issue is created, HITL origin and cause are recorded in state."""
-        phase = make_review_phase(config)
-        result = ReviewResultFactory.create(
-            issue_number=42, verdict=ReviewVerdict.REQUEST_CHANGES
-        )
-        phase._prs.create_task = AsyncMock(return_value=99)
-
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = [MagicMock()] * 5
-        mock_insights.get_proposed_categories.return_value = set()
-        phase._insights = mock_insights
-
-        from review_insights import ReviewRecord
-
-        mock_evidence = [
-            ReviewRecord(
-                pr_number=10,
-                issue_number=42,
-                timestamp="2026-01-01T00:00:00",
-                verdict="request-changes",
-                summary="Type errors found",
-                fixes_made=False,
-                categories=["type_errors"],
-            ),
-        ]
-        with patch(
-            "review_phase.analyze_patterns",
-            return_value=[("type_errors", 3, mock_evidence)],
-        ):
-            await phase._record_review_insight(result)
-
-        assert phase._state.get_hitl_origin(99) == config.improve_label[0]
-        cause = phase._state.get_hitl_cause(99)
-        assert cause is not None and "Recurring review pattern" in cause
 
     @pytest.mark.asyncio
     async def test_exception_does_not_propagate(self, config: HydraFlowConfig) -> None:

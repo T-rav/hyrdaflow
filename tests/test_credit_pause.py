@@ -89,6 +89,7 @@ def _mock_fetcher_noop(orch: HydraFlowOrchestrator) -> None:
     orch._fetcher.fetch_issue_by_number = AsyncMock(return_value=None)  # type: ignore[method-assign]
     orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
     orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+    orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
 
 # ===========================================================================

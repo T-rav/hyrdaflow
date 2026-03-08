@@ -18,7 +18,7 @@ from subprocess_util import CreditExhaustedError
 from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory
 from tests.orchestrator_integration_utils import (
-    FakeWorktreeManager,
+    FakeWorkspaceManager,
     PipelineScript,
     build_scripted_services,
 )
@@ -239,7 +239,7 @@ async def test_failed_implementation_discards_worktree(tmp_path) -> None:
             lambda: _queue_depth(orch, "ready") == 0,
         )
 
-        worktrees = cast(FakeWorktreeManager, orch._worktrees)
+        worktrees = cast(FakeWorkspaceManager, orch._worktrees)
         assert issue_id in worktrees.cleaned
 
 

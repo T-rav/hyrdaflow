@@ -133,7 +133,7 @@ Plans are rejected (and retried once) if any gate fails:
 - `## Implementation Steps` has fewer than 3 numbered steps
 - Word count below `min_plan_words` (full plans only)
 - ≥4 `[NEEDS CLARIFICATION]` markers
-- `## Testing Strategy` is empty or deferred (test-first gate)
+- `## Testing Strategy` is empty or deferred (testing gate)
 - `constitution.md` principles violated (constitution gate)
 
 ### Retry behaviour
@@ -161,7 +161,7 @@ Commits changes but never pushes or creates PRs.
 6. **Common review feedback** — aggregated patterns from recent review history (via `ReviewInsightStore`), summarized to `_MAX_COMMON_FEEDBACK_CHARS` (2 000).
 7. **Manifest + memory injection**.
 8. **Runtime logs** (opt-in via `inject_runtime_logs`).
-9. **Instructions** — 5 numbered steps: understand → TDD → pre-quality review → run quality gate → commit.
+9. **Instructions** — 7 numbered steps: understand → implement → write tests → diff sanity → pre-quality review → run quality gate → commit.
 10. **UI guidelines** — component reuse, centralized constants/theme, responsive design, spacing.
 11. **Rules** — mandatory tests, no push/PR, quality gate must pass before commit.
 12. **Memory suggestion**.
@@ -192,7 +192,7 @@ quality-fix: <description> (#<issue>)
 
 ### Rules enforced by prompt
 
-- Write tests before implementing (TDD).
+- Write tests for all new code — tests are mandatory.
 - Never push to remote.
 - Never create PRs (`git push`, `gh pr create` are explicitly prohibited).
 - `make quality` must pass before committing.
@@ -313,7 +313,7 @@ The escalation `cause` string is classified into a prompt template:
 |-----------|------------------|--------------------|
 | `ci` | "ci", "check", "test fail" | `make quality` → fix root causes → rerun |
 | `merge_conflict` | "merge" + "conflict" | `git status` → resolve → quality check |
-| `needs_info` | "insufficient", "needs", "detail" | Read guidance → TDD → implement → quality |
+| `needs_info` | "insufficient", "needs", "detail" | Read guidance → implement → test → quality |
 | `default` | (anything else) | Read guidance → fix → quality |
 
 Note: `needs_info` is checked before `ci` because "insufficient" contains "ci".

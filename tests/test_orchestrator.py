@@ -51,6 +51,7 @@ def _mock_fetcher_noop(orch: HydraFlowOrchestrator) -> None:
     orch._fetcher.fetch_issue_by_number = AsyncMock(return_value=None)  # type: ignore[method-assign]
     orch._fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
     orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+    orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
 
 def make_worker_result(
@@ -106,10 +107,10 @@ class TestInit:
         assert isinstance(orch._state, StateTracker)
 
     def test_creates_worktree_manager(self, config: HydraFlowConfig) -> None:
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._worktrees, WorktreeManager)
+        assert isinstance(orch._worktrees, WorkspaceManager)
 
     def test_creates_agent_runner(self, config: HydraFlowConfig) -> None:
         from agent import AgentRunner
@@ -381,6 +382,33 @@ class TestRunLoop:
 # ---------------------------------------------------------------------------
 # run() finally block — subprocess cleanup
 # ---------------------------------------------------------------------------
+
+
+class TestRunCallsSanitizeRepo:
+    """Verify run() calls sanitize_repo at startup and shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_sanitize_repo_called_on_startup(
+        self, config: HydraFlowConfig
+    ) -> None:
+        orch = HydraFlowOrchestrator(config)
+        orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        _mock_fetcher_noop(orch)
+
+        async def plan_and_stop() -> list[PlanResult]:
+            orch._stop_event.set()
+            return []
+
+        orch._planner_phase.plan_issues = plan_and_stop  # type: ignore[method-assign]
+        orch._implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        with patch.object(
+            orch._worktrees, "sanitize_repo", new_callable=AsyncMock
+        ) as mock_sanitize:
+            await orch.run()
+
+        # Called at startup + shutdown = at least 2 times
+        assert mock_sanitize.await_count >= 2
 
 
 class TestRunFinallyTerminatesRunners:
@@ -1306,6 +1334,39 @@ class TestLoopExceptionIsolation:
         assert call_count == 2
 
     @pytest.mark.asyncio
+    async def test_review_loop_no_hot_spin_on_requeued_issues(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When reviewable issues are re-queued (PR not visible), the loop should
+        break out of _do_review_work instead of spinning hot."""
+        orch = HydraFlowOrchestrator(config)
+        fetch_count = 0
+
+        requeued_task = Task(id=99, title="Test issue", body="")
+
+        def fake_get_reviewable(max_count: int) -> list[Task]:
+            nonlocal fetch_count
+            fetch_count += 1
+            if fetch_count == 1:
+                return [requeued_task]
+            # On second call the re-queued item would appear again,
+            # but the loop should have broken out before getting here.
+            return [requeued_task]
+
+        async def fake_review_single(issue: Task) -> bool:
+            # Simulate PR not visible — returns False (re-queued)
+            return False
+
+        orch._store.get_reviewable = fake_get_reviewable  # type: ignore[method-assign]
+        orch._review_single_issue = fake_review_single  # type: ignore[method-assign]
+
+        await orch._do_review_work()
+
+        # Should have fetched once, reviewed once, then broken out —
+        # NOT looped back to fetch the re-queued item again.
+        assert fetch_count == 1
+
+    @pytest.mark.asyncio
     async def test_error_event_published_on_triage_exception(
         self, config: HydraFlowConfig
     ) -> None:
@@ -1429,6 +1490,7 @@ class TestSupervisorLoops:
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
         orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         implement_calls = 0
 
@@ -1711,6 +1773,7 @@ class TestAuthFailure:
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
         orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_triage() -> None:
             raise AuthenticationError("401 Unauthorized")
@@ -1738,6 +1801,7 @@ class TestAuthFailure:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
         orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_plan() -> list[PlanResult]:
             raise AuthenticationError("401 Unauthorized")
@@ -1769,6 +1833,7 @@ class TestAuthFailure:
         orch = HydraFlowOrchestrator(config)
         orch._prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
         orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             raise AuthenticationError("401 Unauthorized")

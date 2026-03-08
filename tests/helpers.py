@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from collections.abc import Callable, Coroutine
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 if TYPE_CHECKING:
     from events import HydraFlowEvent
     from models import QueueStats, Task
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
 
 @dataclass
@@ -359,214 +361,221 @@ class ConfigFactory:
         from config import HydraFlowConfig
 
         root = repo_root or Path("/tmp/hydraflow-test-repo")
-        return HydraFlowConfig(
-            config_file=config_file,
-            ready_label=ready_label if ready_label is not None else ["test-label"],
-            batch_size=batch_size,
-            max_workers=max_workers,
-            max_planners=max_planners,
-            max_reviewers=max_reviewers,
-            system_tool=system_tool,
-            system_model=system_model,
-            background_tool=background_tool,
-            background_model=background_model,
-            implementation_tool=implementation_tool,
-            model=model,
-            review_tool=review_tool,
-            review_model=review_model,
-            ci_check_timeout=ci_check_timeout,
-            ci_poll_interval=ci_poll_interval,
-            max_ci_fix_attempts=max_ci_fix_attempts,
-            max_pre_quality_review_attempts=max_pre_quality_review_attempts,
-            max_quality_fix_attempts=max_quality_fix_attempts,
-            max_review_fix_attempts=max_review_fix_attempts,
-            min_review_findings=min_review_findings,
-            max_merge_conflict_fix_attempts=max_merge_conflict_fix_attempts,
-            max_ci_timeout_fix_attempts=max_ci_timeout_fix_attempts,
-            max_issue_attempts=max_issue_attempts,
-            review_label=review_label
-            if review_label is not None
-            else ["hydraflow-review"],
-            hitl_label=hitl_label if hitl_label is not None else ["hydraflow-hitl"],
-            hitl_active_label=hitl_active_label
-            if hitl_active_label is not None
-            else ["hydraflow-hitl-active"],
-            fixed_label=fixed_label if fixed_label is not None else ["hydraflow-fixed"],
-            improve_label=improve_label
-            if improve_label is not None
-            else ["hydraflow-improve"],
-            memory_label=memory_label
-            if memory_label is not None
-            else ["hydraflow-memory"],
-            transcript_label=transcript_label
-            if transcript_label is not None
-            else ["hydraflow-transcript"],
-            manifest_label=manifest_label
-            if manifest_label is not None
-            else ["hydraflow-manifest"],
-            metrics_label=metrics_label
-            if metrics_label is not None
-            else ["hydraflow-metrics"],
-            dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
-            epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
-            epic_child_label=(
-                epic_child_label
-                if epic_child_label is not None
-                else ["hydraflow-epic-child"]
-            ),
-            find_label=find_label if find_label is not None else ["hydraflow-find"],
-            planner_label=planner_label
-            if planner_label is not None
-            else ["hydraflow-plan"],
-            planner_tool=planner_tool,
-            planner_model=planner_model,
-            triage_tool=triage_tool,
-            triage_model=triage_model,
-            min_plan_words=min_plan_words,
-            max_new_files_warning=max_new_files_warning,
-            lite_plan_labels=lite_plan_labels
-            if lite_plan_labels is not None
-            else ["bug", "typo", "docs"],
-            repo=repo,
-            dry_run=dry_run,
-            gh_token=gh_token,
-            git_user_name=git_user_name,
-            git_user_email=git_user_email,
-            dashboard_enabled=dashboard_enabled,
-            dashboard_port=dashboard_port,
-            ac_model=ac_model,
-            ac_tool=ac_tool,
-            verification_judge_tool=verification_judge_tool,
-            review_insight_window=review_insight_window,
-            review_pattern_threshold=review_pattern_threshold,
-            subskill_tool=subskill_tool,
-            subskill_model=subskill_model,
-            max_subskill_attempts=max_subskill_attempts,
-            debug_escalation_enabled=debug_escalation_enabled,
-            debug_tool=debug_tool,
-            debug_model=debug_model,
-            max_debug_attempts=max_debug_attempts,
-            subskill_confidence_threshold=subskill_confidence_threshold,
-            poll_interval=poll_interval,
-            data_poll_interval=data_poll_interval,
-            gh_max_retries=gh_max_retries,
-            test_command=test_command,
-            max_issue_body_chars=max_issue_body_chars,
-            max_review_diff_chars=max_review_diff_chars,
-            repo_root=root,
-            worktree_base=worktree_base or root.parent / "test-worktrees",
-            state_file=state_file or root / ".hydraflow-state.json",
-            event_log_path=event_log_path or root / ".hydraflow-events.jsonl",
-            memory_compaction_model=memory_compaction_model,
-            memory_compaction_tool=memory_compaction_tool,
-            max_memory_chars=max_memory_chars,
-            max_memory_prompt_chars=max_memory_prompt_chars,
-            memory_sync_interval=memory_sync_interval,
-            metrics_sync_interval=metrics_sync_interval,
-            manifest_refresh_interval=manifest_refresh_interval,
-            max_manifest_prompt_chars=max_manifest_prompt_chars,
-            credit_pause_buffer_minutes=credit_pause_buffer_minutes,
-            transcript_summarization_enabled=transcript_summarization_enabled,
-            transcript_summary_model=transcript_summary_model,
-            transcript_summary_tool=transcript_summary_tool,
-            max_transcript_summary_chars=max_transcript_summary_chars,
-            pr_unstick_interval=pr_unstick_interval,
-            pr_unstick_batch_size=pr_unstick_batch_size,
-            max_sessions_per_repo=max_sessions_per_repo,
-            execution_mode=execution_mode,
-            docker_image=docker_image,
-            docker_cpu_limit=docker_cpu_limit,
-            docker_memory_limit=docker_memory_limit,
-            docker_pids_limit=docker_pids_limit,
-            docker_tmp_size=docker_tmp_size,
-            docker_network_mode=docker_network_mode,
-            docker_spawn_delay=docker_spawn_delay,
-            docker_read_only_root=docker_read_only_root,
-            docker_no_new_privileges=docker_no_new_privileges,
-            ui_dirs=ui_dirs if ui_dirs is not None else ["ui"],
-            docker_network=docker_network,
-            docker_extra_mounts=docker_extra_mounts
-            if docker_extra_mounts is not None
-            else [],
-            memory_auto_approve=memory_auto_approve,
-            memory_prune_stale_items=memory_prune_stale_items,
-            transcript_summary_as_issue=transcript_summary_as_issue,
-            harness_insight_window=harness_insight_window,
-            harness_pattern_threshold=harness_pattern_threshold,
-            inject_runtime_logs=inject_runtime_logs,
-            max_runtime_log_chars=max_runtime_log_chars,
-            max_ci_log_chars=max_ci_log_chars,
-            code_scanning_enabled=code_scanning_enabled,
-            max_code_scanning_chars=max_code_scanning_chars,
-            visual_gate_enabled=visual_gate_enabled,
-            visual_gate_bypass=visual_gate_bypass,
-            agent_timeout=agent_timeout,
-            transcript_summary_timeout=transcript_summary_timeout,
-            memory_compaction_timeout=memory_compaction_timeout,
-            quality_timeout=quality_timeout,
-            git_command_timeout=git_command_timeout,
-            summarizer_timeout=summarizer_timeout,
-            error_output_max_chars=error_output_max_chars,
-            unstick_auto_merge=unstick_auto_merge,
-            unstick_all_causes=unstick_all_causes,
-            enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
-            max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
-            epic_group_planning=epic_group_planning,
-            epic_auto_decompose=epic_auto_decompose,
-            epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
-            epic_monitor_interval=epic_monitor_interval,
-            worktree_gc_interval=worktree_gc_interval,
-            epic_stale_days=epic_stale_days,
-            epic_merge_strategy=epic_merge_strategy,
-            collaborator_check_enabled=collaborator_check_enabled,
-            collaborator_cache_ttl=collaborator_cache_ttl,
-            artifact_retention_days=artifact_retention_days,
-            artifact_max_size_mb=artifact_max_size_mb,
-            runs_gc_interval=runs_gc_interval,
-            release_on_epic_close=release_on_epic_close,
-            release_version_source=release_version_source,
-            release_tag_prefix=release_tag_prefix,
-            baseline_snapshot_patterns=baseline_snapshot_patterns
-            if baseline_snapshot_patterns is not None
-            else ["**/__snapshots__/**", "**/*.snap.png", "**/*.baseline.png"],
-            baseline_approval_required=baseline_approval_required,
-            baseline_approvers=baseline_approvers
-            if baseline_approvers is not None
-            else [],
-            baseline_max_audit_records=baseline_max_audit_records,
-            visual_validation_enabled=visual_validation_enabled,
-            visual_diff_threshold=visual_diff_threshold,
-            visual_warn_threshold=visual_warn_threshold,
-            visual_max_screens=visual_max_screens,
-            visual_per_screen_budget_bytes=visual_per_screen_budget_bytes,
-            visual_validation_trigger_patterns=(
-                visual_validation_trigger_patterns
-                if visual_validation_trigger_patterns is not None
-                else [
-                    "src/ui/**",
-                    "ui/**",
-                    "frontend/**",
-                    "web/**",
-                    "*.css",
-                    "*.scss",
-                    "*.tsx",
-                    "*.jsx",
-                    "*.html",
-                ]
-            ),
-            visual_required_label=visual_required_label,
-            visual_skip_label=visual_skip_label,
-            visual_max_retries=visual_max_retries,
-            visual_retry_delay=visual_retry_delay,
-            visual_fail_threshold=visual_fail_threshold,
-            screenshot_redaction_enabled=screenshot_redaction_enabled,
-            screenshot_gist_public=screenshot_gist_public,
-            adr_review_interval=adr_review_interval,
-            adr_review_approval_threshold=adr_review_approval_threshold,
-            adr_review_max_rounds=adr_review_max_rounds,
-            adr_review_enabled=adr_review_enabled,
-            adr_review_model=adr_review_model,
-        )
+        with ExitStack() as stack:
+            if execution_mode == "docker" and shutil.which("docker") is None:
+                stack.enter_context(
+                    patch("shutil.which", return_value="/usr/bin/docker")
+                )
+            return HydraFlowConfig(
+                config_file=config_file,
+                ready_label=ready_label if ready_label is not None else ["test-label"],
+                batch_size=batch_size,
+                max_workers=max_workers,
+                max_planners=max_planners,
+                max_reviewers=max_reviewers,
+                system_tool=system_tool,
+                system_model=system_model,
+                background_tool=background_tool,
+                background_model=background_model,
+                implementation_tool=implementation_tool,
+                model=model,
+                review_tool=review_tool,
+                review_model=review_model,
+                ci_check_timeout=ci_check_timeout,
+                ci_poll_interval=ci_poll_interval,
+                max_ci_fix_attempts=max_ci_fix_attempts,
+                max_pre_quality_review_attempts=max_pre_quality_review_attempts,
+                max_quality_fix_attempts=max_quality_fix_attempts,
+                max_review_fix_attempts=max_review_fix_attempts,
+                min_review_findings=min_review_findings,
+                max_merge_conflict_fix_attempts=max_merge_conflict_fix_attempts,
+                max_ci_timeout_fix_attempts=max_ci_timeout_fix_attempts,
+                max_issue_attempts=max_issue_attempts,
+                review_label=review_label
+                if review_label is not None
+                else ["hydraflow-review"],
+                hitl_label=hitl_label if hitl_label is not None else ["hydraflow-hitl"],
+                hitl_active_label=hitl_active_label
+                if hitl_active_label is not None
+                else ["hydraflow-hitl-active"],
+                fixed_label=fixed_label
+                if fixed_label is not None
+                else ["hydraflow-fixed"],
+                improve_label=improve_label
+                if improve_label is not None
+                else ["hydraflow-improve"],
+                memory_label=memory_label
+                if memory_label is not None
+                else ["hydraflow-memory"],
+                transcript_label=transcript_label
+                if transcript_label is not None
+                else ["hydraflow-transcript"],
+                manifest_label=manifest_label
+                if manifest_label is not None
+                else ["hydraflow-manifest"],
+                metrics_label=metrics_label
+                if metrics_label is not None
+                else ["hydraflow-metrics"],
+                dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
+                epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
+                epic_child_label=(
+                    epic_child_label
+                    if epic_child_label is not None
+                    else ["hydraflow-epic-child"]
+                ),
+                find_label=find_label if find_label is not None else ["hydraflow-find"],
+                planner_label=planner_label
+                if planner_label is not None
+                else ["hydraflow-plan"],
+                planner_tool=planner_tool,
+                planner_model=planner_model,
+                triage_tool=triage_tool,
+                triage_model=triage_model,
+                min_plan_words=min_plan_words,
+                max_new_files_warning=max_new_files_warning,
+                lite_plan_labels=lite_plan_labels
+                if lite_plan_labels is not None
+                else ["bug", "typo", "docs"],
+                repo=repo,
+                dry_run=dry_run,
+                gh_token=gh_token,
+                git_user_name=git_user_name,
+                git_user_email=git_user_email,
+                dashboard_enabled=dashboard_enabled,
+                dashboard_port=dashboard_port,
+                ac_model=ac_model,
+                ac_tool=ac_tool,
+                verification_judge_tool=verification_judge_tool,
+                review_insight_window=review_insight_window,
+                review_pattern_threshold=review_pattern_threshold,
+                subskill_tool=subskill_tool,
+                subskill_model=subskill_model,
+                max_subskill_attempts=max_subskill_attempts,
+                debug_escalation_enabled=debug_escalation_enabled,
+                debug_tool=debug_tool,
+                debug_model=debug_model,
+                max_debug_attempts=max_debug_attempts,
+                subskill_confidence_threshold=subskill_confidence_threshold,
+                poll_interval=poll_interval,
+                data_poll_interval=data_poll_interval,
+                gh_max_retries=gh_max_retries,
+                test_command=test_command,
+                max_issue_body_chars=max_issue_body_chars,
+                max_review_diff_chars=max_review_diff_chars,
+                repo_root=root,
+                worktree_base=worktree_base or root.parent / "test-worktrees",
+                state_file=state_file or root / ".hydraflow-state.json",
+                event_log_path=event_log_path or root / ".hydraflow-events.jsonl",
+                memory_compaction_model=memory_compaction_model,
+                memory_compaction_tool=memory_compaction_tool,
+                max_memory_chars=max_memory_chars,
+                max_memory_prompt_chars=max_memory_prompt_chars,
+                memory_sync_interval=memory_sync_interval,
+                metrics_sync_interval=metrics_sync_interval,
+                manifest_refresh_interval=manifest_refresh_interval,
+                max_manifest_prompt_chars=max_manifest_prompt_chars,
+                credit_pause_buffer_minutes=credit_pause_buffer_minutes,
+                transcript_summarization_enabled=transcript_summarization_enabled,
+                transcript_summary_model=transcript_summary_model,
+                transcript_summary_tool=transcript_summary_tool,
+                max_transcript_summary_chars=max_transcript_summary_chars,
+                pr_unstick_interval=pr_unstick_interval,
+                pr_unstick_batch_size=pr_unstick_batch_size,
+                max_sessions_per_repo=max_sessions_per_repo,
+                execution_mode=execution_mode,
+                docker_image=docker_image,
+                docker_cpu_limit=docker_cpu_limit,
+                docker_memory_limit=docker_memory_limit,
+                docker_pids_limit=docker_pids_limit,
+                docker_tmp_size=docker_tmp_size,
+                docker_network_mode=docker_network_mode,
+                docker_spawn_delay=docker_spawn_delay,
+                docker_read_only_root=docker_read_only_root,
+                docker_no_new_privileges=docker_no_new_privileges,
+                ui_dirs=ui_dirs if ui_dirs is not None else ["ui"],
+                docker_network=docker_network,
+                docker_extra_mounts=docker_extra_mounts
+                if docker_extra_mounts is not None
+                else [],
+                memory_auto_approve=memory_auto_approve,
+                memory_prune_stale_items=memory_prune_stale_items,
+                transcript_summary_as_issue=transcript_summary_as_issue,
+                harness_insight_window=harness_insight_window,
+                harness_pattern_threshold=harness_pattern_threshold,
+                inject_runtime_logs=inject_runtime_logs,
+                max_runtime_log_chars=max_runtime_log_chars,
+                max_ci_log_chars=max_ci_log_chars,
+                code_scanning_enabled=code_scanning_enabled,
+                max_code_scanning_chars=max_code_scanning_chars,
+                visual_gate_enabled=visual_gate_enabled,
+                visual_gate_bypass=visual_gate_bypass,
+                agent_timeout=agent_timeout,
+                transcript_summary_timeout=transcript_summary_timeout,
+                memory_compaction_timeout=memory_compaction_timeout,
+                quality_timeout=quality_timeout,
+                git_command_timeout=git_command_timeout,
+                summarizer_timeout=summarizer_timeout,
+                error_output_max_chars=error_output_max_chars,
+                unstick_auto_merge=unstick_auto_merge,
+                unstick_all_causes=unstick_all_causes,
+                enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
+                max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
+                epic_group_planning=epic_group_planning,
+                epic_auto_decompose=epic_auto_decompose,
+                epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
+                epic_monitor_interval=epic_monitor_interval,
+                worktree_gc_interval=worktree_gc_interval,
+                epic_stale_days=epic_stale_days,
+                epic_merge_strategy=epic_merge_strategy,
+                collaborator_check_enabled=collaborator_check_enabled,
+                collaborator_cache_ttl=collaborator_cache_ttl,
+                artifact_retention_days=artifact_retention_days,
+                artifact_max_size_mb=artifact_max_size_mb,
+                runs_gc_interval=runs_gc_interval,
+                release_on_epic_close=release_on_epic_close,
+                release_version_source=release_version_source,
+                release_tag_prefix=release_tag_prefix,
+                baseline_snapshot_patterns=baseline_snapshot_patterns
+                if baseline_snapshot_patterns is not None
+                else ["**/__snapshots__/**", "**/*.snap.png", "**/*.baseline.png"],
+                baseline_approval_required=baseline_approval_required,
+                baseline_approvers=baseline_approvers
+                if baseline_approvers is not None
+                else [],
+                baseline_max_audit_records=baseline_max_audit_records,
+                visual_validation_enabled=visual_validation_enabled,
+                visual_diff_threshold=visual_diff_threshold,
+                visual_warn_threshold=visual_warn_threshold,
+                visual_max_screens=visual_max_screens,
+                visual_per_screen_budget_bytes=visual_per_screen_budget_bytes,
+                visual_validation_trigger_patterns=(
+                    visual_validation_trigger_patterns
+                    if visual_validation_trigger_patterns is not None
+                    else [
+                        "src/ui/**",
+                        "ui/**",
+                        "frontend/**",
+                        "web/**",
+                        "*.css",
+                        "*.scss",
+                        "*.tsx",
+                        "*.jsx",
+                        "*.html",
+                    ]
+                ),
+                visual_required_label=visual_required_label,
+                visual_skip_label=visual_skip_label,
+                visual_max_retries=visual_max_retries,
+                visual_retry_delay=visual_retry_delay,
+                visual_fail_threshold=visual_fail_threshold,
+                screenshot_redaction_enabled=screenshot_redaction_enabled,
+                screenshot_gist_public=screenshot_gist_public,
+                adr_review_interval=adr_review_interval,
+                adr_review_approval_threshold=adr_review_approval_threshold,
+                adr_review_max_rounds=adr_review_max_rounds,
+                adr_review_enabled=adr_review_enabled,
+                adr_review_model=adr_review_model,
+            )
 
 
 class PipelineHarness:
@@ -876,14 +885,14 @@ class PipelineHarness:
         )
 
 
-def make_docker_manager(tmp_path: Path) -> WorktreeManager:
-    """Create a WorktreeManager with docker execution mode.
+def make_docker_manager(tmp_path: Path) -> WorkspaceManager:
+    """Create a WorkspaceManager with docker execution mode.
 
     Promoted from test_worktree._make_docker_manager() for reuse across test files.
     """
     from unittest.mock import patch
 
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
     with patch("shutil.which", return_value="/usr/bin/docker"):
         cfg = ConfigFactory.create(
@@ -892,7 +901,7 @@ def make_docker_manager(tmp_path: Path) -> WorktreeManager:
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
-    return WorktreeManager(cfg)
+    return WorkspaceManager(cfg)
 
 
 class AuditCheckFactory:
@@ -1246,6 +1255,13 @@ def make_review_phase(
         post_merge=post_merge,
         baseline_policy=baseline_policy,
     )
+
+    # Default fix_review_findings to return no-op so _attempt_review_fix
+    # doesn't loop unexpectedly in tests that don't care about it.
+    from models import ReviewResult as _RR
+
+    _no_fix = _RR(pr_number=0, issue_number=0, fixes_made=False)
+    phase._reviewers.fix_review_findings = AsyncMock(return_value=_no_fix)
 
     if default_mocks:
         from tests.conftest import ReviewResultFactory

@@ -35,6 +35,16 @@ from state import StateTracker
 logger = logging.getLogger("hydraflow.epic")
 
 
+class ReleaseEpicResultError(RuntimeError):
+    """Structured cause for release_epic responses that include an error."""
+
+    def __init__(self, epic_number: int, result: dict[str, object]) -> None:
+        self.epic_number = epic_number
+        self.result = result
+        message = str(result.get("error", "unknown error"))
+        super().__init__(f"epic {epic_number} release failed: {message}")
+
+
 def _stage_from_labels(labels: list[str], config: HydraFlowConfig) -> str:
     """Derive pipeline stage name from issue labels."""
     label_set = set(labels)
@@ -1079,7 +1089,7 @@ class EpicManager:
 
             result = await self.release_epic(epic_number)
             if "error" in result:
-                raise RuntimeError(result["error"])
+                raise ReleaseEpicResultError(epic_number, result)
 
             await self._bus.publish(
                 HydraFlowEvent(

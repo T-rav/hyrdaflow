@@ -181,28 +181,23 @@ class TestImplementIncludesPush:
         assert results[0].pr_info.number == 101
 
     @pytest.mark.asyncio
-    async def test_worker_creates_draft_pr_on_failure(
+    async def test_worker_creates_full_pr_on_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        """When agent fails, PR should be created as draft and label kept."""
+        """When agent fails, PR should still be created as a full (non-draft) PR."""
         issue = TaskFactory.create()
 
         phase, _, mock_prs = make_implement_phase(
             config,
             [issue],
             success=False,
-            create_pr_return=PRInfoFactory.create(draft=True),
+            create_pr_return=PRInfoFactory.create(draft=False),
         )
 
         await phase.run_batch()
 
         call_kwargs = mock_prs.create_pr.call_args
-        assert call_kwargs.kwargs.get("draft") is True
-
-        # On failure: should NOT remove hydraflow-ready or add hydraflow-review
-        mock_prs.remove_label.assert_not_awaited()
-        add_calls = [c.args for c in mock_prs.add_labels.call_args_list]
-        assert (42, ["hydraflow-review"]) not in add_calls
+        assert "draft" not in (call_kwargs.kwargs or {})
 
     @pytest.mark.asyncio
     async def test_worker_no_pr_when_push_fails(self, config: HydraFlowConfig) -> None:
@@ -448,6 +443,42 @@ class TestWorktreeCreationFailure:
         assert result_map[1].success is False
         assert "Worker exception" in result_map[1].error
         assert result_map[2].success is True
+
+    @pytest.mark.asyncio
+    async def test_review_retry_resets_worktree_to_main(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When review feedback exists, worktree branch should reset to origin/main."""
+        from state import StateTracker
+
+        issue = TaskFactory.create(id=99)
+        state = StateTracker(config.state_file)
+        state.set_review_feedback(99, "Fix the scope creep")
+
+        phase, mock_wt, _ = make_implement_phase(config, [issue])
+
+        # Simulate existing worktree directory
+        wt_path = config.worktree_path_for_issue(99)
+        wt_path.mkdir(parents=True, exist_ok=True)
+        phase._state = state
+
+        # Mock run_subprocess to track git reset calls
+        from unittest.mock import patch
+
+        with patch(
+            "implement_phase.run_subprocess", new_callable=AsyncMock
+        ) as mock_run:
+            results, _ = await phase.run_batch()
+
+        # Verify git fetch + reset --hard were called
+        fetch_calls = [c for c in mock_run.call_args_list if "fetch" in c.args]
+        reset_calls = [
+            c
+            for c in mock_run.call_args_list
+            if "reset" in c.args and "--hard" in c.args
+        ]
+        assert len(fetch_calls) >= 1, "Should fetch origin main"
+        assert len(reset_calls) >= 1, "Should reset --hard to origin/main"
 
     @pytest.mark.asyncio
     async def test_stop_event_cancels_remaining_workers(

@@ -2559,7 +2559,7 @@ class TestReviewInsightIntegration:
         call_args = phase._prs.create_task.call_args
         assert "[Review Insight]" in call_args.args[0]
         assert "hydraflow-improve" in call_args.args[2]
-        assert "hydraflow-hitl" in call_args.args[2]
+        assert "hydraflow-hitl" not in call_args.args[2]
 
     @pytest.mark.asyncio
     async def test_review_insight_does_not_refile_proposed_category(
@@ -5361,6 +5361,110 @@ class TestWaitAndFixCIEdgeCases:
 # ---------------------------------------------------------------------------
 # _handle_self_fix_re_review — extracted helper
 # ---------------------------------------------------------------------------
+
+
+class TestAttemptReviewFix:
+    """Tests for _attempt_review_fix — sub-agent fix then re-review."""
+
+    def _setup(self, config: HydraFlowConfig) -> tuple[ReviewPhase, PRInfo, Task, Path]:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+        phase._prs.get_pr_diff = AsyncMock(return_value="updated diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+        return phase, pr, issue, wt
+
+    @pytest.mark.asyncio
+    async def test_fix_then_approve_upgrades_result(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Fix agent fixes, re-review approves → return approved result."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        fix_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=True
+        )
+        approved = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=False
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(return_value=fix_result)
+        phase._reviewers.review = AsyncMock(return_value=approved)
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.APPROVE
+        phase._reviewers.fix_review_findings.assert_awaited_once()
+        phase._prs.push_branch.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fix_no_changes_falls_through(self, config: HydraFlowConfig) -> None:
+        """Fix agent makes no changes → return original result."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        fix_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(return_value=fix_result)
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+        # Should NOT have called review since no fixes were made
+        phase._reviewers.review = AsyncMock()
+        phase._reviewers.review.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retries_up_to_two_times(self, config: HydraFlowConfig) -> None:
+        """Should try fix+review up to 2 times before giving up."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        fix_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=True
+        )
+        still_rejected = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=False,
+            summary="still bad",
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(return_value=fix_result)
+        phase._reviewers.review = AsyncMock(return_value=still_rejected)
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+        assert phase._reviewers.fix_review_findings.await_count == 2
+        assert phase._reviewers.review.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_exception_falls_through(self, config: HydraFlowConfig) -> None:
+        """Exception during fix should fall back to original result."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result is original
 
 
 class TestHandleSelfFixReReview:

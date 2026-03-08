@@ -1198,7 +1198,7 @@ class TestHydraFlowConfigValidationConstraints:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_pre_quality_review_attempts == 1
+        assert cfg.max_pre_quality_review_attempts == 3
 
     def test_max_pre_quality_review_attempts_configurable(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1823,13 +1823,13 @@ class TestHydraFlowConfigMaxPreQualityReviewAttempts:
     def test_max_pre_quality_review_attempts_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS", "3")
+        monkeypatch.setenv("HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_pre_quality_review_attempts == 3
+        assert cfg.max_pre_quality_review_attempts == 4
 
     def test_max_pre_quality_review_attempts_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2220,7 +2220,11 @@ class TestWorktreePathForIssue:
         )
         assert cfg.repo_slug == "acme-widgets"
 
-    def test_repo_slug_fallback_to_dir_name(self, tmp_path: Path) -> None:
+    def test_repo_slug_fallback_to_dir_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GITHUB_REPO", raising=False)
+        monkeypatch.setattr("config._detect_repo_slug", lambda _repo_root: "")
         cfg = HydraFlowConfig(
             repo="",
             repo_root=tmp_path,
@@ -4936,9 +4940,11 @@ class TestTwoPhasePathResolution:
         assert str(cfg.state_file).startswith(str(cfg.data_root))
 
     def test_no_repo_falls_back_to_directory_name_scoped_paths(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Without a repo slug, paths should use repo_root dir name as fallback slug."""
+        monkeypatch.delenv("HYDRAFLOW_GITHUB_REPO", raising=False)
+        monkeypatch.setattr("config._detect_repo_slug", lambda _repo_root: "")
         cfg = HydraFlowConfig(repo_root=tmp_path)
         # repo_slug falls back to repo_root.name
         assert cfg.repo_slug == tmp_path.name
