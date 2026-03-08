@@ -121,24 +121,40 @@ class TestFileLock:
     """Integration tests for file_util.file_lock."""
 
     def test_exclusive_access(self, tmp_path: Path) -> None:
-        """Two threads competing for the same lock execute serially."""
+        """Concurrent threads holding the lock never interleave critical sections.
+
+        Each worker performs a non-atomic read-modify-write on a shared counter
+        file with a deliberate sleep inside the critical section. Without proper
+        mutual exclusion the threads would read the same stale value and the
+        final count would be less than the expected total.
+        """
+        import time
+
         from file_util import file_lock
 
         lock_path = tmp_path / "test.lock"
-        results: list[int] = []
+        counter_path = tmp_path / "counter.txt"
+        counter_path.write_text("0")
 
-        def worker(value: int) -> None:
-            with file_lock(lock_path):
-                results.append(value)
+        iterations = 5
 
-        t1 = threading.Thread(target=worker, args=(1,))
-        t2 = threading.Thread(target=worker, args=(2,))
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
-        # Both values should be present (order doesn't matter)
-        assert sorted(results) == [1, 2]
+        def worker() -> None:
+            for _ in range(iterations):
+                with file_lock(lock_path):
+                    # Non-atomic read-modify-write: without mutual exclusion
+                    # another thread could read the same value before we write.
+                    current = int(counter_path.read_text())
+                    time.sleep(0.01)  # widen the race window
+                    counter_path.write_text(str(current + 1))
+
+        threads = [threading.Thread(target=worker) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # 3 threads × 5 iterations = 15.  Any interleaving would lose increments.
+        assert int(counter_path.read_text()) == 3 * iterations
 
     def test_lock_creates_parent_dirs(self, tmp_path: Path) -> None:
         from file_util import file_lock
