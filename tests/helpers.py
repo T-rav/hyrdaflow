@@ -356,6 +356,7 @@ class ConfigFactory:
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
         adr_review_enabled: bool = False,
+        adr_review_auto_triage: bool = False,
         adr_review_model: str = "sonnet",
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
@@ -576,6 +577,7 @@ class ConfigFactory:
                 adr_review_approval_threshold=adr_review_approval_threshold,
                 adr_review_max_rounds=adr_review_max_rounds,
                 adr_review_enabled=adr_review_enabled,
+                adr_review_auto_triage=adr_review_auto_triage,
                 adr_review_model=adr_review_model,
             )
 
