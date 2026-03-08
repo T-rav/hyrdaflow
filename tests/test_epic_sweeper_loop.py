@@ -249,3 +249,28 @@ class TestMultipleEpics:
         assert result["checked"] == 0
         assert result["swept"] == 0
         assert result["total_open_epics"] == 1
+
+    @pytest.mark.asyncio
+    async def test_exception_on_one_epic_does_not_abort_others(
+        self, tmp_path: Path
+    ) -> None:
+        """An error sweeping one epic must not prevent subsequent epics from being swept."""
+        loop, fetcher, prs, _ = _make_loop(tmp_path)
+        epic1 = _make_epic(100, "- [ ] #10")
+        epic2 = _make_epic(200, "- [ ] #20")
+        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic1, epic2])
+
+        call_count = 0
+
+        async def side_effect(n: int):
+            nonlocal call_count
+            call_count += 1
+            if n == 10:
+                raise RuntimeError("transient network error")
+            return _make_issue(n, state="closed")
+
+        fetcher.fetch_issue_by_number = AsyncMock(side_effect=side_effect)
+        result = await loop._do_work()
+        # epic1 errored, epic2 should still be swept
+        assert result["swept"] == 1
+        prs.close_issue.assert_called_once_with(200)
