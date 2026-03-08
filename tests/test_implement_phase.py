@@ -464,7 +464,26 @@ class TestWorktreeCreationFailure:
         state.set_worker_result_meta(99, {"error": "Previous attempt failed"})
         state.increment_issue_attempts(99)
 
-        phase, mock_wt, _ = make_implement_phase(config, [issue])
+        captured_prior_failure: list[str] = []
+
+        async def capturing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+            prior_failure: str = "",
+        ) -> WorkerResult:
+            captured_prior_failure.append(prior_failure)
+            return WorkerResultFactory.create(
+                issue_number=issue.id,
+                success=True,
+                worktree_path=str(wt_path),
+            )
+
+        phase, mock_wt, _ = make_implement_phase(
+            config, [issue], agent_run=capturing_agent
+        )
 
         # Simulate existing worktree directory
         wt_path = config.worktree_path_for_issue(99)
@@ -475,6 +494,8 @@ class TestWorktreeCreationFailure:
 
         # Verify workspace manager's reset_to_main was called
         mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
+        # Verify prior_failure was passed to the agent
+        assert captured_prior_failure == ["Previous attempt failed"]
 
     @pytest.mark.asyncio
     async def test_review_feedback_resets_worktree_to_main(
@@ -500,6 +521,55 @@ class TestWorktreeCreationFailure:
 
         # Verify workspace manager's reset_to_main was called even with no prior error
         mock_wt.reset_to_main.assert_awaited_once_with(wt_path)
+
+    @pytest.mark.asyncio
+    async def test_review_feedback_suppresses_prior_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When review_feedback is present, prior_failure should NOT be injected.
+
+        A review-feedback retry means the previous implementation produced a PR.
+        Any error stored in meta is stale (e.g., a quality gate issue that was
+        eventually resolved). The agent should focus on the reviewer's comments,
+        not be distracted by that old error.
+        """
+        from state import StateTracker
+
+        issue = TaskFactory.create(id=99)
+        state = StateTracker(config.state_file)
+        # Simulate: prior run had commits but also a stale quality error
+        state.set_review_feedback(99, "Please fix the logic error")
+        state.set_worker_result_meta(99, {"error": "make quality failed", "commits": 3})
+        state.increment_issue_attempts(99)
+
+        captured_prior_failure: list[str] = []
+
+        async def capturing_agent(
+            issue: Task,
+            wt_path: Path,
+            branch: str,
+            worker_id: int = 0,
+            review_feedback: str = "",
+            prior_failure: str = "",
+        ) -> WorkerResult:
+            captured_prior_failure.append(prior_failure)
+            return WorkerResultFactory.create(
+                issue_number=issue.id,
+                success=True,
+                worktree_path=str(wt_path),
+            )
+
+        phase, mock_wt, _ = make_implement_phase(
+            config, [issue], agent_run=capturing_agent
+        )
+        wt_path = config.worktree_path_for_issue(99)
+        wt_path.mkdir(parents=True, exist_ok=True)
+        phase._state = state
+
+        await phase.run_batch()
+
+        # prior_failure must be empty — stale error suppressed when review_feedback present
+        assert captured_prior_failure == [""]
 
     @pytest.mark.asyncio
     async def test_stop_event_cancels_remaining_workers(

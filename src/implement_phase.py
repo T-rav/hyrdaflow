@@ -372,7 +372,10 @@ class ImplementPhase:
         reset_for_retry = bool(
             review_feedback
         )  # always reset for review-feedback retries
-        if last_meta:
+        # Only inject prior failure context for cycling retries (no active review feedback).
+        # During review-feedback retries the prior error is stale — the agent should
+        # focus on reviewer comments, not a potentially-resolved quality gate error.
+        if last_meta and not review_feedback:
             prior_error = last_meta.get("error") or ""
             if prior_error:
                 prior_failure = prior_error
