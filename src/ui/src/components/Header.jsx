@@ -78,6 +78,27 @@ function sanitizeClonedDocumentForHtml2Canvas(clonedDoc) {
     })
   })
 }
+const MAX_SCREENSHOT_WIDTH = 1280
+
+/**
+ * Downscale a canvas to MAX_SCREENSHOT_WIDTH if it exceeds that width.
+ * Returns a data URL of the (possibly resized) image.
+ */
+function downscaleCanvas(source) {
+  if (source.width <= MAX_SCREENSHOT_WIDTH) {
+    return source.toDataURL('image/png')
+  }
+  const ratio = MAX_SCREENSHOT_WIDTH / source.width
+  const w = MAX_SCREENSHOT_WIDTH
+  const h = Math.round(source.height * ratio)
+  const offscreen = document.createElement('canvas')
+  offscreen.width = w
+  offscreen.height = h
+  const ctx = offscreen.getContext('2d')
+  ctx.drawImage(source, 0, 0, w, h)
+  return offscreen.toDataURL('image/png')
+}
+
 async function captureDashboardScreenshot(root, html2canvas) {
   if (!root) return null
   const STYLE_PROPS = [
@@ -117,7 +138,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
         })
       },
     })
-    return first.toDataURL('image/png')
+    return downscaleCanvas(first)
   } catch (firstErr) {
     console.warn('Primary screenshot capture failed, retrying with safe mode.', firstErr)
   }
@@ -134,7 +155,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
         redactSensitiveElements(clonedEl)
       },
     })
-    return second.toDataURL('image/png')
+    return downscaleCanvas(second)
   } catch (secondErr) {
     console.warn('Safe-mode screenshot capture failed, retrying with sanitized clone.', secondErr)
   }
@@ -153,7 +174,7 @@ async function captureDashboardScreenshot(root, html2canvas) {
         sanitizeClonedDocumentForHtml2Canvas(clonedDoc)
       },
     })
-    return third.toDataURL('image/png')
+    return downscaleCanvas(third)
   } catch (thirdErr) {
     console.error('Sanitized screenshot capture failed:', thirdErr)
     return null

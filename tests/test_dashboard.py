@@ -2850,3 +2850,61 @@ class TestPipelineStatsWebSocketForwarding:
         # Should not raise
         assert event.type == EventType.PIPELINE_STATS
         assert event.data["timestamp"] == "2026-02-28T00:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# Registry forwarding
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryForwarding:
+    """Tests that HydraFlowDashboard forwards registry to create_router."""
+
+    def test_create_app_passes_registry_to_create_router(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from dashboard import HydraFlowDashboard
+
+        mock_registry = MagicMock()
+
+        with patch("dashboard_routes.create_router") as mock_create_router:
+            mock_create_router.return_value = MagicMock()
+            dashboard = HydraFlowDashboard(
+                config, event_bus, state, registry=mock_registry
+            )
+            dashboard.create_app()
+
+            mock_create_router.assert_called_once()
+            call_kwargs = mock_create_router.call_args
+            assert call_kwargs.kwargs.get("registry") is mock_registry
+
+    def test_create_app_default_registry_is_none(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from dashboard import HydraFlowDashboard
+
+        with patch("dashboard_routes.create_router") as mock_create_router:
+            mock_create_router.return_value = MagicMock()
+            dashboard = HydraFlowDashboard(config, event_bus, state)
+            dashboard.create_app()
+
+            mock_create_router.assert_called_once()
+            call_kwargs = mock_create_router.call_args
+            assert call_kwargs.kwargs.get("registry") is None
+
+    def test_registry_stored_on_instance(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from dashboard import HydraFlowDashboard
+
+        mock_registry = MagicMock()
+        dashboard = HydraFlowDashboard(config, event_bus, state, registry=mock_registry)
+        assert dashboard._registry is mock_registry
+
+    def test_registry_defaults_to_none_on_instance(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        assert dashboard._registry is None

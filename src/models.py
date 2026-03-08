@@ -55,6 +55,101 @@ def _check_iso_timestamp(v: str) -> str:
 HttpUrl = Annotated[str, AfterValidator(_check_url)]
 IsoTimestamp = Annotated[str, AfterValidator(_check_iso_timestamp)]
 
+# --- Enumerations for constrained fields ---
+
+
+class GitHubIssueState(StrEnum):
+    """Lifecycle state returned by the GitHub Issues API."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class IssueType(StrEnum):
+    """LLM-classified issue type from the triage stage."""
+
+    FEATURE = "feature"
+    BUG = "bug"
+    EPIC = "epic"
+
+
+class MergeStrategy(StrEnum):
+    """Supported merge orchestration strategies for epic children."""
+
+    INDEPENDENT = "independent"
+    BUNDLED = "bundled"
+    BUNDLED_HITL = "bundled_hitl"
+    ORDERED = "ordered"
+
+
+class EpicStatus(StrEnum):
+    """Dashboard-friendly lifecycle status for epics."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    STALE = "stale"
+    BLOCKED = "blocked"
+
+
+class EpicChildState(StrEnum):
+    """GitHub issue state for epic children."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class EpicChildStatus(StrEnum):
+    """Pipeline execution status for epic child work."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class EpicChildPRState(StrEnum):
+    """Pull request state surfaced on the dashboard."""
+
+    OPEN = "open"
+    MERGED = "merged"
+    DRAFT = "draft"
+
+
+class CIStatus(StrEnum):
+    """CI check aggregation status for epic children."""
+
+    PASSING = "passing"
+    FAILING = "failing"
+    PENDING = "pending"
+
+
+class ReviewStatus(StrEnum):
+    """Review verdict states tracked for epic children."""
+
+    APPROVED = "approved"
+    CHANGES_REQUESTED = "changes_requested"
+    PENDING = "pending"
+
+
+class HITLItemStatus(StrEnum):
+    """HITL queue lifecycle status values."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    RESOLVED = "resolved"
+
+
+class ControlStatus(StrEnum):
+    """Operator control plane lifecycle status."""
+
+    IDLE = "idle"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    DONE = "done"
+    AUTH_FAILED = "auth_failed"
+    CREDITS_PAUSED = "credits_paused"
+
+
 # --- Task (source-agnostic task abstraction) ---
 
 
@@ -149,7 +244,7 @@ class GitHubIssue(BaseModel):
     comments: list[str] = Field(default_factory=list)
     url: HttpUrl = ""
     author: str = ""
-    state: str = "open"  # "open" or "closed" from GitHub API
+    state: GitHubIssueState = GitHubIssueState.OPEN
     milestone_number: int | None = None
     created_at: str = Field(
         default="",
@@ -171,6 +266,14 @@ class GitHubIssue(BaseModel):
         if isinstance(v, list):
             return [c.get("body", "") if isinstance(c, dict) else str(c) for c in v]
         return v  # type: ignore[return-value]
+
+    @field_validator("state", mode="before")
+    @classmethod
+    def _normalise_state(cls, value: Any) -> Any:
+        """Allow case-insensitive GitHub API values."""
+        if isinstance(value, str):
+            return value.lower()
+        return value
 
     def to_task(self) -> Task:
         """Convert to a source-agnostic :class:`Task`."""
@@ -224,7 +327,21 @@ class TriageResult(BaseModel):
     ready: bool = False
     reasons: list[str] = Field(default_factory=list)
     complexity_score: int = 0
-    issue_type: str = "feature"  # "feature" | "bug" | "epic"
+    issue_type: IssueType = IssueType.FEATURE
+    enrichment: str = ""
+
+    @field_validator("issue_type", mode="before")
+    @classmethod
+    def _coerce_issue_type(cls, value: Any) -> IssueType:
+        """Normalise issue type inputs and fall back to ``feature``."""
+        if isinstance(value, IssueType):
+            return value
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            for member in IssueType:
+                if cleaned == member.value:
+                    return member
+        return IssueType.FEATURE
 
 
 class EpicDecompResult(BaseModel):
@@ -907,7 +1024,7 @@ class EpicState(BaseModel):
     excluded_children: list[int] = Field(default_factory=list)
     hitl_warned_children: list[int] = Field(default_factory=list)
     approved_children: list[int] = Field(default_factory=list)
-    merge_strategy: str = "independent"
+    merge_strategy: MergeStrategy = MergeStrategy.INDEPENDENT
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     closed: bool = False
@@ -992,11 +1109,11 @@ class EpicProgress(BaseModel):
     in_progress: int = 0
     approved: int = 0
     ready_to_merge: bool = False
-    status: str = "active"  # "active", "completed", "stale", "blocked"
+    status: EpicStatus = EpicStatus.ACTIVE
     percent_complete: float = 0.0
     last_activity: str = ""
     auto_decomposed: bool = False
-    merge_strategy: str = "independent"
+    merge_strategy: MergeStrategy = MergeStrategy.INDEPENDENT
     child_issues: list[int] = Field(default_factory=list)
 
 
@@ -1006,20 +1123,20 @@ class EpicChildInfo(BaseModel):
     issue_number: int
     title: str = ""
     url: str = ""
-    state: str = "open"  # "open", "closed"
+    state: EpicChildState = EpicChildState.OPEN
     stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
     current_stage: str = ""  # UI-facing alias of stage
-    status: str = "queued"  # done, running, queued, failed
+    status: EpicChildStatus = EpicChildStatus.QUEUED
     is_completed: bool = False
     is_failed: bool = False
     is_excluded: bool = False
     is_approved: bool = False
     pr_number: int | None = None
     pr_url: str = ""
-    pr_state: str | None = None  # open, merged, draft
+    pr_state: EpicChildPRState | None = None
     branch: str = ""
-    ci_status: str | None = None  # passing, failing, pending
-    review_status: str | None = None  # approved, changes_requested, pending
+    ci_status: CIStatus | None = None
+    review_status: ReviewStatus | None = None
     time_in_stage_seconds: int = 0
     stage_entered_at: str = ""
     worker: str | None = None
@@ -1052,12 +1169,12 @@ class EpicDetail(BaseModel):
     queued_children: int = 0
     approved: int = 0
     ready_to_merge: bool = False
-    status: str = "active"
+    status: EpicStatus = EpicStatus.ACTIVE
     percent_complete: float = 0.0
     last_activity: str = ""
     created_at: str = ""
     auto_decomposed: bool = False
-    merge_strategy: str = "independent"
+    merge_strategy: MergeStrategy = MergeStrategy.INDEPENDENT
     children: list[EpicChildInfo] = Field(default_factory=list)
     readiness: EpicReadiness = Field(default_factory=EpicReadiness)
     release: dict | None = None
@@ -1168,7 +1285,7 @@ class IntentResponse(BaseModel):
     issue_number: int
     title: str
     url: HttpUrl = ""
-    status: str = "created"
+    status: Literal["created"] = "created"
 
 
 class ReportIssueRequest(BaseModel):
@@ -1185,7 +1302,7 @@ class ReportIssueResponse(BaseModel):
     issue_number: int
     title: str
     url: HttpUrl = ""
-    status: str = "created"
+    status: Literal["created", "queued"] = "created"
 
 
 class PendingReport(BaseModel):
@@ -1196,6 +1313,7 @@ class PendingReport(BaseModel):
     screenshot_base64: str = ""
     environment: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    attempts: int = 0
 
 
 class PRListItem(BaseModel):
@@ -1219,7 +1337,7 @@ class HITLItem(BaseModel):
     prUrl: HttpUrl = ""  # camelCase to match existing frontend contract
     branch: str = ""
     cause: str = ""  # escalation reason (populated by #113)
-    status: str = "pending"  # pending | processing | resolved
+    status: HITLItemStatus = HITLItemStatus.PENDING
     isMemorySuggestion: bool = False  # camelCase to match frontend contract
     llmSummary: str = ""  # cached, operator-focused context summary
     llmSummaryUpdatedAt: str | None = None
@@ -1259,7 +1377,7 @@ class ControlStatusConfig(BaseModel):
 class ControlStatusResponse(BaseModel):
     """Response for GET /api/control/status."""
 
-    status: str = "idle"
+    status: ControlStatus = ControlStatus.IDLE
     credits_paused_until: str | None = None
     config: ControlStatusConfig = Field(default_factory=ControlStatusConfig)
 
@@ -1892,85 +2010,6 @@ class AuditResult(BaseModel):
             )
 
         return "\n".join(lines)
-
-
-# --- Visual Validation ---
-
-
-class ScreenVerdict(StrEnum):
-    """Per-screen diff verdict."""
-
-    PASS = "pass"
-    WARN = "warn"
-    FAIL = "fail"
-    ERROR = "error"
-
-
-class ScreenResult(BaseModel):
-    """Diff result for a single screen comparison."""
-
-    screen_name: str
-    verdict: ScreenVerdict
-    diff_ratio: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Fraction of file bytes that differ (byte-level proxy for visual change)",
-    )
-    changed_pixels: int = Field(default=0, ge=0)
-    total_pixels: int = Field(default=0, ge=0)
-    baseline_path: str = ""
-    candidate_path: str = ""
-    diff_path: str = ""
-    artifact_bytes: int = Field(default=0, ge=0)
-    runtime_seconds: float = Field(default=0.0, ge=0.0)
-    error_message: str = ""
-
-
-class FailureCategory(StrEnum):
-    """Classification of visual validation failures."""
-
-    NONE = "none"
-    THRESHOLD_EXCEEDED = "threshold_exceeded"
-    MISSING_BASELINE = "missing_baseline"
-    IMAGE_LOAD_ERROR = "image_load_error"
-    SIZE_MISMATCH = "size_mismatch"
-    BUDGET_EXCEEDED = "budget_exceeded"
-
-
-class VisualReport(BaseModel):
-    """Aggregate visual validation report emitted as visual_report.json."""
-
-    version: str = "1.0"
-    aggregate_verdict: ScreenVerdict = ScreenVerdict.PASS
-    screens: list[ScreenResult] = Field(default_factory=list)
-    total_screens: int = 0
-    passed: int = 0
-    warned: int = 0
-    failed: int = 0
-    errored: int = 0
-    diff_threshold: float = 0.01
-    warn_threshold: float = 0.005
-    total_runtime_seconds: float = Field(default=0.0, ge=0.0)
-    retry_count: int = Field(default=0, ge=0)
-    total_artifact_bytes: int = Field(default=0, ge=0)
-    failure_category: FailureCategory = FailureCategory.NONE
-    generated_at: str = ""
-
-    @property
-    def is_pass(self) -> bool:
-        """Return True if the aggregate verdict is PASS."""
-        return self.aggregate_verdict == ScreenVerdict.PASS
-
-    @property
-    def is_fail(self) -> bool:
-        """Return True if the aggregate verdict is FAIL or ERROR."""
-        return self.aggregate_verdict in (ScreenVerdict.FAIL, ScreenVerdict.ERROR)
-
-    @property
-    def is_error(self) -> bool:
-        """Return True if the aggregate verdict is ERROR (config/load failure)."""
-        return self.aggregate_verdict == ScreenVerdict.ERROR
 
 
 # --- Callback Protocols ---

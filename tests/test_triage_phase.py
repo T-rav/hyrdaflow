@@ -271,6 +271,36 @@ class TestTriagePhase:
         assert "Missing required ADR sections" in comment
 
     @pytest.mark.asyncio
+    async def test_adr_issue_closed_as_duplicate_when_topic_exists_on_disk(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ADR issue whose topic already exists in docs/adr/ is closed at triage."""
+        adr_dir = config.repo_root / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0001-event-sourced-state-snapshots.md").write_text("# ADR\n")
+
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(
+            id=79,
+            title="[ADR] Draft decision from memory #100: Event sourced state snapshots",
+            body=(
+                "## Context\nSome context.\n\n"
+                "## Decision\nAdopt event sourced snapshots for state persistence.\n\n"
+                "## Consequences\nReduces replay cost."
+            ),
+        )
+        store.get_triageable = supply_once([issue])
+
+        await phase.triage_issues()
+
+        triage.evaluate.assert_not_awaited()
+        prs.transition.assert_not_called()
+        prs.close_task.assert_called_once_with(79)
+        prs.post_comment.assert_called_once()
+        comment = prs.post_comment.call_args.args[1]
+        assert "Duplicate" in comment
+
+    @pytest.mark.asyncio
     async def test_triage_infra_error_does_not_escalate_to_hitl(
         self,
         config: HydraFlowConfig,

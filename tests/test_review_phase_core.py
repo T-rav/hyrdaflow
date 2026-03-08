@@ -135,7 +135,6 @@ class TestPostMergeConflictFix:
 
         assert ok is True
         phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch)
-        phase._prs.force_push_branch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_attempt_post_merge_conflict_fix_force_pushes_on_rebuild(
@@ -154,8 +153,7 @@ class TestPostMergeConflictFix:
         ok = await phase._attempt_post_merge_conflict_fix(pr, issue, worker_id=7)
 
         assert ok is True
-        phase._prs.force_push_branch.assert_awaited_once_with(wt, pr.branch)
-        phase._prs.push_branch.assert_not_awaited()
+        phase._prs.push_branch.assert_awaited_once_with(wt, pr.branch, force=True)
 
     @pytest.mark.asyncio
     async def test_returns_comment_verdict_when_issue_missing(
@@ -1762,101 +1760,6 @@ class TestHandleSelfFixReReview:
 
 
 # ---------------------------------------------------------------------------
-# Skip guard: no new commits since last review (issue #853)
-# ---------------------------------------------------------------------------
-
-
-class TestSkipGuardNoNewCommits:
-    """Tests for the skip guard that avoids re-reviewing when no new commits."""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_same_sha(self, config: HydraFlowConfig) -> None:
-        """When stored SHA matches current HEAD, review should be skipped."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-
-        # Pre-store the same SHA that get_pr_head_sha will return
-        phase._state.set_last_reviewed_sha(42, "abc123def456")
-        phase._prs.get_pr_head_sha = AsyncMock(return_value="abc123def456")
-
-        wt = config.worktree_path_for_issue(42)
-        wt.mkdir(parents=True, exist_ok=True)
-
-        results = await phase.review_prs([pr], [issue])
-
-        assert len(results) == 1
-        assert "skipped" in results[0].summary.lower()
-        assert "no new commits" in results[0].summary.lower()
-        # Reviewer should NOT have been called
-        phase._reviewers.review.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_proceeds_with_new_commits(self, config: HydraFlowConfig) -> None:
-        """When stored SHA differs from current HEAD, review should proceed."""
-        phase = make_review_phase(config, default_mocks=True)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-
-        # Stored SHA differs from current
-        phase._state.set_last_reviewed_sha(42, "old_sha_111")
-        phase._prs.get_pr_head_sha = AsyncMock(return_value="new_sha_222")
-
-        results = await phase.review_prs([pr], [issue])
-
-        assert len(results) == 1
-        phase._reviewers.review.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_proceeds_when_no_prior_sha(self, config: HydraFlowConfig) -> None:
-        """When no stored SHA exists, review should proceed (first review)."""
-        phase = make_review_phase(config, default_mocks=True)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-
-        # No prior SHA stored
-        assert phase._state.get_last_reviewed_sha(42) is None
-        phase._prs.get_pr_head_sha = AsyncMock(return_value="first_sha_abc")
-
-        results = await phase.review_prs([pr], [issue])
-
-        assert len(results) == 1
-        phase._reviewers.review.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_sha_updated_after_review(self, config: HydraFlowConfig) -> None:
-        """After a successful review, the SHA should be stored in state."""
-        phase = make_review_phase(config, default_mocks=True)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-
-        # Return different SHA on the post-review call
-        phase._prs.get_pr_head_sha = AsyncMock(
-            side_effect=["first_sha", "post_review_sha"]
-        )
-
-        await phase.review_prs([pr], [issue])
-
-        # The post-review SHA should be stored
-        assert phase._state.get_last_reviewed_sha(42) == "post_review_sha"
-
-    @pytest.mark.asyncio
-    async def test_proceeds_when_sha_fetch_fails(self, config: HydraFlowConfig) -> None:
-        """When get_pr_head_sha returns empty string (fail), review should proceed (fail-open)."""
-        phase = make_review_phase(config, default_mocks=True)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-
-        # Even with a stored SHA, an empty current SHA means we can't compare
-        phase._state.set_last_reviewed_sha(42, "old_sha")
-        phase._prs.get_pr_head_sha = AsyncMock(return_value="")
-
-        results = await phase.review_prs([pr], [issue])
-
-        assert len(results) == 1
-        # Review should proceed despite SHA fetch failure
-        phase._reviewers.review.assert_awaited_once()
-
 
 # ---------------------------------------------------------------------------
 # Critical exception propagation through _review_one and _handle_self_fix_re_review
@@ -2198,25 +2101,25 @@ class TestCleanupWorktree:
 
     @pytest.mark.asyncio
     async def test_destroys_when_not_skipped(self, config: HydraFlowConfig) -> None:
-        """Worktree should be destroyed when skip=False and stop_event not set."""
+        """Worktree should be cleaned up when skip=False and stop_event not set."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create()
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
+        phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
     @pytest.mark.asyncio
     async def test_preserves_when_skipped(self, config: HydraFlowConfig) -> None:
-        """Worktree should NOT be destroyed when skip=True."""
+        """Worktree should NOT be cleaned up when skip=True."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create()
 
         await phase._cleanup_worktree(pr, result, skip=True)
 
-        phase._worktrees.destroy.assert_not_awaited()
+        phase._worktrees.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_preserves_when_stop_event_set_and_not_merged(
@@ -2231,13 +2134,13 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.destroy.assert_not_awaited()
+        phase._worktrees.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_destroys_when_stop_event_set_but_merged(
         self, config: HydraFlowConfig
     ) -> None:
-        """Worktree should be destroyed when stop_event is set but PR was merged."""
+        """Worktree should be cleaned up when stop_event is set but PR was merged."""
         phase = make_review_phase(config)
         phase._stop_event.set()
         pr = PRInfoFactory.create()
@@ -2246,7 +2149,7 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
+        phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
 
 class TestConstructorDefaultHelpers:

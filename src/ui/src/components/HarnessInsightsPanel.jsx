@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 
@@ -76,63 +76,13 @@ function SuggestionCard({ suggestion }) {
 }
 
 export function HarnessInsightsPanel() {
-  const { config } = useHydraFlow()
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [usingCachedData, setUsingCachedData] = useState(false)
-  const cacheKey = `hydraflow:harness-insights:${config?.repo || 'default'}`
+  const { harnessInsights: data } = useHydraFlow()
 
-  useEffect(() => {
-    let cancelled = false
-    let hasCachedData = false
-
-    try {
-      const raw = localStorage.getItem(cacheKey)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object') {
-          hasCachedData = true
-          setData(parsed)
-          setUsingCachedData(true)
-          setLoading(false)
-        }
-      }
-    } catch {
-      // Ignore malformed cache; fetch fresh from API
-    }
-
-    async function fetchData() {
-      try {
-        const resp = await fetch('/api/harness-insights')
-        if (resp.ok && !cancelled) {
-          const payload = await resp.json()
-          setData(payload)
-          setUsingCachedData(false)
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify(payload))
-          } catch {
-            // Ignore storage write errors
-          }
-        }
-      } catch {
-        // Silently fail — panel just shows empty state
-      } finally {
-        if (!cancelled && !hasCachedData) setLoading(false)
-      }
-    }
-    fetchData()
-    const interval = setInterval(fetchData, 30000)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [cacheKey])
-
-  if (loading) {
+  if (!data) {
     return <div style={styles.empty}>Loading harness insights...</div>
   }
 
-  if (!data || data.total_failures === 0) {
+  if (data.total_failures === 0) {
     return <div style={styles.empty}>No failure patterns detected yet.</div>
   }
 
@@ -145,9 +95,6 @@ export function HarnessInsightsPanel() {
       <div style={styles.header}>
         <span style={styles.totalBadge}>{data.total_failures}</span>
         <span style={styles.headerText}>failures tracked</span>
-        {usingCachedData && (
-          <span style={styles.cachedHint}>cached</span>
-        )}
       </div>
 
       <div style={styles.section}>
@@ -230,15 +177,6 @@ const styles = {
   headerText: {
     fontSize: 13,
     color: theme.textMuted,
-  },
-  cachedHint: {
-    fontSize: 11,
-    color: theme.yellow,
-    border: `1px solid ${theme.yellow}`,
-    borderRadius: 6,
-    padding: '1px 6px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.4px',
   },
   section: {
     display: 'flex',

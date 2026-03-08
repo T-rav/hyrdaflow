@@ -14,6 +14,8 @@ from phase_utils import (
     adr_validation_reasons,
     escalate_to_hitl,
     is_adr_issue_title,
+    load_existing_adr_topics,
+    normalize_adr_topic,
     release_batch_in_flight,
     run_refilling_pool,
     store_lifecycle,
@@ -93,6 +95,24 @@ class TriagePhase:
         if is_adr_issue_title(issue.title):
             if self._config.dry_run:
                 return 1
+            # --- Duplicate detection: close if topic already exists ---
+            topic_key = normalize_adr_topic(issue.title)
+            existing = load_existing_adr_topics(self._config.repo_root)
+            if topic_key and topic_key in existing:
+                await self._prs.post_comment(
+                    issue.id,
+                    f"## Closing as Duplicate\n\n"
+                    f"An ADR already exists for this topic in `docs/adr/`. "
+                    f"Normalized topic: *{topic_key}*",
+                )
+                await self._transitioner.close_task(issue.id)
+                self._state.mark_issue(issue.id, "completed")
+                logger.info(
+                    "Issue #%d ADR closed as duplicate — topic %r already in docs/adr/",
+                    issue.id,
+                    topic_key,
+                )
+                return 1
             reasons = adr_validation_reasons(issue.body)
             if reasons:
                 await self._escalate_triage_issue(issue.id, reasons)
@@ -131,6 +151,12 @@ class TriagePhase:
 
         if result.ready:
             if not await self._maybe_decompose(issue, result):
+                if result.enrichment:
+                    await self._transitioner.post_comment(issue.id, result.enrichment)
+                    logger.info(
+                        "Issue #%d enriched by triage before promotion",
+                        issue.id,
+                    )
                 await self._transitioner.transition(issue.id, "plan")
                 self._store.enqueue_transition(issue, "plan")
                 self._state.increment_session_counter("triaged")

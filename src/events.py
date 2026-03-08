@@ -371,3 +371,6 @@ class EventBus:
         """Remove all history and subscribers."""
         self._history.clear()
         self._subscribers.clear()
+        self._active_session_id = None
+        self._active_repo = ""
+        self._pending_persists.clear()

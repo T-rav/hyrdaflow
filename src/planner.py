@@ -556,7 +556,7 @@ This closes the issue automatically. False positives waste significant human tim
         {"fix", "typo", "correct", "patch", "update", "rename", "bump", "tweak"}
     )
 
-    # Pattern for detecting test-first gate violations.
+    # Pattern for detecting deferred testing strategy.
     _TEST_LATER_RE = re.compile(
         r"\b(later|tbd|todo|to\s+be\s+determined|will\s+be\s+added\s+later)\b",
         re.IGNORECASE,
@@ -851,7 +851,7 @@ This closes the issue automatically. False positives waste significant human tim
                     f"(threshold is {threshold})"
                 )
 
-        # --- Test-first gate: reject if Testing Strategy is empty or deferred ---
+        # --- Testing gate: reject if Testing Strategy is empty or deferred ---
         ts_match = re.search(
             r"## Testing Strategy\s*\n(.*?)(?=\n## |\Z)",
             plan,
@@ -860,11 +860,10 @@ This closes the issue automatically. False positives waste significant human tim
         if ts_match:
             ts_body = ts_match.group(1).strip()
             if not ts_body or ts_body.lower() in ("none", "n/a", "-"):
-                blocking.append("Test-first gate: Testing Strategy section is empty")
+                blocking.append("Testing gate: Testing Strategy section is empty")
             elif self._TEST_LATER_RE.search(ts_body):
                 blocking.append(
-                    "Test-first gate: Testing Strategy defers tests "
-                    "(e.g. 'later', 'TBD')"
+                    "Testing gate: Testing Strategy defers tests (e.g. 'later', 'TBD')"
                 )
         else:
             # Section missing entirely — already caught by _validate_plan

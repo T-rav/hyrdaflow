@@ -211,18 +211,11 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
         })}
       </div>
 
-      {(pipelineWorkers.length > 0 || hitlCount > 0) && (
+      {hitlCount > 0 && (
         <div style={styles.statusRow}>
-          {pipelineWorkers.length > 0 && (
-            <div style={styles.activeBadge}>
-              {pipelineWorkers.length} active
-            </div>
-          )}
-          {hitlCount > 0 && (
-            <div style={styles.hitlBadge}>
-              {hitlCount} HITL {hitlCount === 1 ? 'issue' : 'issues'}
-            </div>
-          )}
+          <div style={styles.hitlBadge}>
+            {hitlCount} HITL {hitlCount === 1 ? 'issue' : 'issues'}
+          </div>
         </div>
       )}
 
@@ -330,17 +323,6 @@ const styles = {
     gap: 8,
     flexWrap: 'wrap',
     marginBottom: 12,
-  },
-  activeBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    fontSize: 11,
-    fontWeight: 600,
-    color: theme.accent,
-    background: theme.accentSubtle,
-    border: `1px solid ${theme.accent}`,
-    borderRadius: 10,
-    padding: '2px 10px',
   },
   hitlBadge: {
     display: 'inline-flex',

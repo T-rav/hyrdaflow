@@ -16,12 +16,16 @@ def ensure_running() -> None:
     if supervisor_client.ping():
         return
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    process = subprocess.Popen(  # noqa: S603
-        [sys.executable, "-m", "hf_cli.supervisor_service"],
-        stdout=_SUPERVISOR_LOG.open("a"),
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    log_handle = _SUPERVISOR_LOG.open("a")
+    try:
+        process = subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "hf_cli.supervisor_service"],
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    finally:
+        log_handle.close()
     start = time.time()
     timeout = 5.0
     while time.time() - start < timeout:

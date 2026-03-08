@@ -292,6 +292,242 @@ class TestIssueHistoryEndpoint:
         assert issue["prs"][0]["merged"] is True
 
     @pytest.mark.asyncio
+    async def test_issue_history_provides_issue_url_fallback(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+        from prompt_telemetry import PromptTelemetry
+
+        issue_number = 314
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="implementer",
+            tool="codex",
+            model="gpt-5",
+            issue_number=issue_number,
+            pr_number=0,
+            session_id="sess-fallback",
+            prompt_chars=10,
+            transcript_chars=5,
+            duration_seconds=0.1,
+            success=True,
+            stats={"total_tokens": 11, "input_tokens": 6, "output_tokens": 5},
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
+        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+            response = await endpoint(limit=100)
+
+        payload = json.loads(response.body)
+        issue = next(
+            (x for x in payload["items"] if x["issue_number"] == issue_number), None
+        )
+        assert issue is not None
+        assert (
+            issue["issue_url"]
+            == f"https://github.com/{config.repo}/issues/{issue_number}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_issue_history_fallback_skips_when_repo_missing(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+        from prompt_telemetry import PromptTelemetry
+
+        config.repo = ""
+        issue_number = 271
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="implementer",
+            tool="codex",
+            model="gpt-5",
+            issue_number=issue_number,
+            pr_number=0,
+            session_id="sess-no-repo",
+            prompt_chars=10,
+            transcript_chars=5,
+            duration_seconds=0.1,
+            success=True,
+            stats={"total_tokens": 9, "input_tokens": 4, "output_tokens": 5},
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
+        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+            response = await endpoint(limit=100)
+
+        payload = json.loads(response.body)
+        issue = next(
+            (x for x in payload["items"] if x["issue_number"] == issue_number), None
+        )
+        assert issue is not None
+        assert issue["issue_url"] == ""
+
+    @pytest.mark.asyncio
+    async def test_issue_history_fallback_strips_github_url_prefix(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+        from prompt_telemetry import PromptTelemetry
+
+        config.repo = "https://github.com/test-org/test-repo"
+        issue_number = 419
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="implementer",
+            tool="codex",
+            model="gpt-5",
+            issue_number=issue_number,
+            pr_number=0,
+            session_id="sess-strip-prefix",
+            prompt_chars=10,
+            transcript_chars=5,
+            duration_seconds=0.1,
+            success=True,
+            stats={"total_tokens": 7, "input_tokens": 3, "output_tokens": 4},
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
+        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+            response = await endpoint(limit=100)
+
+        payload = json.loads(response.body)
+        issue = next(
+            (x for x in payload["items"] if x["issue_number"] == issue_number), None
+        )
+        assert issue is not None
+        assert (
+            issue["issue_url"]
+            == f"https://github.com/test-org/test-repo/issues/{issue_number}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_issue_history_fallback_strips_http_github_url_prefix(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+        from prompt_telemetry import PromptTelemetry
+
+        config.repo = "http://github.com/test-org/test-repo"
+        issue_number = 420
+        telemetry = PromptTelemetry(config)
+        telemetry.record(
+            source="implementer",
+            tool="codex",
+            model="gpt-5",
+            issue_number=issue_number,
+            pr_number=0,
+            session_id="sess-strip-http-prefix",
+            prompt_chars=10,
+            transcript_chars=5,
+            duration_seconds=0.1,
+            success=True,
+            stats={"total_tokens": 6, "input_tokens": 3, "output_tokens": 3},
+        )
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            r.endpoint
+            for r in router.routes
+            if getattr(r, "path", "") == "/api/issues/history"
+        )
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
+        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+            response = await endpoint(limit=100)
+
+        payload = json.loads(response.body)
+        issue = next(
+            (x for x in payload["items"] if x["issue_number"] == issue_number), None
+        )
+        assert issue is not None
+        assert (
+            issue["issue_url"]
+            == f"https://github.com/test-org/test-repo/issues/{issue_number}"
+        )
+
+    @pytest.mark.asyncio
     async def test_issue_history_uses_latest_status_not_highest_rank(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
@@ -6887,6 +7123,42 @@ class TestDetectRepoSlugFromPath:
 class TestAddRepoByPath:
     """Tests for POST /api/repos/add endpoint."""
 
+    class _FakeGitProcess:
+        """Minimal async proc stub for git subprocess calls."""
+
+        def __init__(self, stdout: bytes, returncode: int = 0) -> None:
+            self._stdout = stdout
+            self.returncode = returncode
+
+        async def communicate(self):
+            return self._stdout, b""
+
+    def _mock_git_validation(
+        self,
+        repo_dir: Path,
+        *,
+        remote_url: str | None = "https://github.com/testowner/testrepo.git",
+    ):
+        """Patch asyncio.create_subprocess_exec for git validation + slug detection."""
+        expected_path = str(repo_dir.resolve())
+
+        async def fake_create_subprocess_exec(*cmd, **_kwargs):
+            assert cmd[0] == "git", f"unexpected binary {cmd[0]}"
+            assert cmd[1] == "-C", "git -C <path> expected"
+            assert cmd[2] == expected_path, f"unexpected repo path {cmd[2]}"
+            git_args = tuple(cmd[3:])
+            if git_args[:2] == ("rev-parse", "--git-dir"):
+                return self._FakeGitProcess(b".git\n", returncode=0)
+            if git_args[:3] == ("remote", "get-url", "origin"):
+                stdout = (remote_url + "\n").encode() if remote_url else b""
+                return self._FakeGitProcess(stdout, returncode=0)
+            raise AssertionError(f"unexpected git args {git_args}")
+
+        return patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=fake_create_subprocess_exec,
+        )
+
     def _make_router(self, config, event_bus, state, tmp_path):
         from dashboard_routes import create_router
         from pr_manager import PRManager
@@ -7035,24 +7307,9 @@ class TestAddRepoByPath:
     ) -> None:
         """Valid git repo path is registered with supervisor."""
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "my-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/testowner/testrepo.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7076,7 +7333,12 @@ class TestAddRepoByPath:
             )
             endpoint = self._get_endpoint(router)
 
-            with patch("prep.ensure_labels", new_callable=AsyncMock):
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/testowner/testrepo.git"
+                ),
+                patch("prep.ensure_labels", new_callable=AsyncMock),
+            ):
                 resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
@@ -7094,24 +7356,9 @@ class TestAddRepoByPath:
     ) -> None:
         """Labels fail but repo is still registered with a warning."""
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "label-fail-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/org/labeltest.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7135,10 +7382,15 @@ class TestAddRepoByPath:
             )
             endpoint = self._get_endpoint(router)
 
-            with patch(
-                "prep.ensure_labels",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("gh not found"),
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/org/labeltest.git"
+                ),
+                patch(
+                    "prep.ensure_labels",
+                    new_callable=AsyncMock,
+                    side_effect=RuntimeError("gh not found"),
+                ),
             ):
                 resp = await endpoint({"path": str(repo_dir)})
 
@@ -7156,24 +7408,9 @@ class TestAddRepoByPath:
         tmp_path: Path,
     ) -> None:
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "supervisor-down-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/org/down.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7206,7 +7443,12 @@ class TestAddRepoByPath:
                 template_dir=tmp_path / "no-templates",
             )
             endpoint = self._get_endpoint(router)
-            with patch("prep.ensure_labels", new_callable=AsyncMock) as ensure_labels:
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/org/down.git"
+                ),
+                patch("prep.ensure_labels", new_callable=AsyncMock) as ensure_labels,
+            ):
                 resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
@@ -7224,24 +7466,9 @@ class TestAddRepoByPath:
         tmp_path: Path,
     ) -> None:
         import json as json_mod
-        import subprocess
 
         repo_dir = tmp_path / "supervisor-autostart-repo"
         repo_dir.mkdir()
-        subprocess.run(["git", "init", str(repo_dir)], capture_output=True, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "remote",
-                "add",
-                "origin",
-                "https://github.com/org/autostart.git",
-            ],
-            capture_output=True,
-            check=True,
-        )
 
         mock_supervisor = MagicMock()
         mock_supervisor.register_repo = MagicMock(
@@ -7277,7 +7504,12 @@ class TestAddRepoByPath:
                 template_dir=tmp_path / "no-templates",
             )
             endpoint = self._get_endpoint(router)
-            with patch("prep.ensure_labels", new_callable=AsyncMock):
+            with (
+                self._mock_git_validation(
+                    repo_dir, remote_url="https://github.com/org/autostart.git"
+                ),
+                patch("prep.ensure_labels", new_callable=AsyncMock),
+            ):
                 resp = await endpoint({"path": str(repo_dir)})
 
         data = json_mod.loads(resp.body)
@@ -7513,3 +7745,325 @@ class TestBrowsableFilesystemAPI:
         assert "repo-a" in names
         assert "repo-b" in names
         assert ".hidden" not in names
+
+
+# ---------------------------------------------------------------------------
+# Runtime endpoints with registry
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeEndpointsWithRegistry:
+    """Tests for /api/runtimes/* endpoints when a registry is provided."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, *, registry=None):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            registry=registry,
+        )
+
+    def _find_endpoint(self, router, path, method=None):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+                and (
+                    method is None
+                    or (hasattr(route, "methods") and method in route.methods)
+                )
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_list_runtimes_empty_registry(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_registry = MagicMock()
+        mock_registry.all = []
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes")
+        assert endpoint is not None
+
+        resp = await endpoint()
+        import json as json_mod
+
+        data = json_mod.loads(resp.body)
+        assert data == {"runtimes": []}
+
+    @pytest.mark.asyncio
+    async def test_list_runtimes_with_registered_runtime(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.slug = "owner-repo"
+        mock_rt.config.repo = "owner/repo"
+        mock_rt.running = False
+
+        mock_registry = MagicMock()
+        mock_registry.all = [mock_rt]
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes")
+
+        resp = await endpoint()
+        import json as json_mod
+
+        data = json_mod.loads(resp.body)
+        assert len(data["runtimes"]) == 1
+        assert data["runtimes"][0]["slug"] == "owner-repo"
+        assert data["runtimes"][0]["running"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_runtime_status_found(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.slug = "owner-repo"
+        mock_rt.config.repo = "owner/repo"
+        mock_rt.running = False
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_rt
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "GET")
+
+        resp = await endpoint("owner-repo")
+        import json as json_mod
+
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["slug"] == "owner-repo"
+
+    @pytest.mark.asyncio
+    async def test_get_runtime_status_not_found(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "GET")
+
+        resp = await endpoint("nonexistent")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_runtime_status_no_registry(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "GET")
+        assert endpoint is not None
+
+        resp = await endpoint("any-slug")
+        assert resp.status_code == 501
+
+    @pytest.mark.asyncio
+    async def test_start_runtime_success(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.running = False
+        mock_rt.start = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_rt
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+
+        resp = await endpoint("my-repo")
+        import json as json_mod
+
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["status"] == "started"
+        mock_rt.start.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_start_runtime_already_running(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.running = True
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_rt
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+
+        resp = await endpoint("my-repo")
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_stop_runtime_success(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.running = True
+        mock_rt.stop = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_rt
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+
+        resp = await endpoint("my-repo")
+        import json as json_mod
+
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["status"] == "stopped"
+        mock_rt.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_runtime_success(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.running = False
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_rt
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
+        assert endpoint is not None
+
+        resp = await endpoint("my-repo")
+        import json as json_mod
+
+        data = json_mod.loads(resp.body)
+        assert data["status"] == "removed"
+        mock_registry.remove.assert_called_once_with("my-repo")
+
+    @pytest.mark.asyncio
+    async def test_start_runtime_no_registry(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+        assert endpoint is not None
+
+        resp = await endpoint("my-repo")
+        assert resp.status_code == 501
+
+    @pytest.mark.asyncio
+    async def test_stop_runtime_no_registry(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+        assert endpoint is not None
+
+        resp = await endpoint("my-repo")
+        assert resp.status_code == 501
+
+    @pytest.mark.asyncio
+    async def test_stop_runtime_not_running(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_rt = MagicMock()
+        mock_rt.running = False
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_rt
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+
+        resp = await endpoint("my-repo")
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_delete_runtime_no_registry(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
+        assert endpoint is not None
+
+        resp = await endpoint("my-repo")
+        assert resp.status_code == 501
+
+    @pytest.mark.asyncio
+    async def test_start_runtime_not_found(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+        assert endpoint is not None
+
+        resp = await endpoint("nonexistent")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_stop_runtime_not_found(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+        assert endpoint is not None
+
+        resp = await endpoint("nonexistent")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_runtime_not_found(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
+        assert endpoint is not None
+
+        resp = await endpoint("nonexistent")
+        assert resp.status_code == 404

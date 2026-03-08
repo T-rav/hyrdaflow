@@ -100,11 +100,11 @@ class TestFindRepoRoot:
     def test_finds_git_root_initialized_with_subprocess(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should find the root of a real git repo created with git init."""
+        """Should find the root when a .git directory exists."""
         # Arrange
         git_root = tmp_path / "real_repo"
         git_root.mkdir()
-        subprocess.run(["git", "init", str(git_root)], check=True, capture_output=True)
+        (git_root / ".git").mkdir()
         nested = git_root / "a" / "b" / "c"
         nested.mkdir(parents=True)
         monkeypatch.chdir(nested)
@@ -1198,7 +1198,7 @@ class TestHydraFlowConfigValidationConstraints:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_pre_quality_review_attempts == 1
+        assert cfg.max_pre_quality_review_attempts == 3
 
     def test_max_pre_quality_review_attempts_configurable(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1451,7 +1451,23 @@ class TestHydraFlowConfigGhToken:
 # ---------------------------------------------------------------------------
 
 
-class TestHydraFlowConfigGitIdentity:
+class GitIdentityEnvMixin:
+    """Utility mixin for clearing git identity env vars across tests."""
+
+    @staticmethod
+    def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in (
+            "HYDRAFLOW_GIT_USER_NAME",
+            "HYDRAFLOW_GIT_USER_EMAIL",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+
+class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
     """Tests for git_user_name/git_user_email fields and env var resolution."""
 
     @staticmethod
@@ -1509,6 +1525,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_name_picks_up_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_NAME", "EnvBot")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1520,6 +1537,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_email_picks_up_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_EMAIL", "env@example.com")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1531,6 +1549,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_name_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_NAME", "EnvBot")
         cfg = HydraFlowConfig(
             git_user_name="ExplicitBot",
@@ -1543,6 +1562,7 @@ class TestHydraFlowConfigGitIdentity:
     def test_git_user_email_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._clear_git_identity_env(monkeypatch)
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_EMAIL", "env@example.com")
         cfg = HydraFlowConfig(
             git_user_email="explicit@example.com",
@@ -1815,13 +1835,13 @@ class TestHydraFlowConfigMaxPreQualityReviewAttempts:
     def test_max_pre_quality_review_attempts_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS", "3")
+        monkeypatch.setenv("HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.max_pre_quality_review_attempts == 3
+        assert cfg.max_pre_quality_review_attempts == 4
 
     def test_max_pre_quality_review_attempts_explicit_overrides_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2212,7 +2232,11 @@ class TestWorktreePathForIssue:
         )
         assert cfg.repo_slug == "acme-widgets"
 
-    def test_repo_slug_fallback_to_dir_name(self, tmp_path: Path) -> None:
+    def test_repo_slug_fallback_to_dir_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYDRAFLOW_GITHUB_REPO", raising=False)
+        monkeypatch.setattr("config._detect_repo_slug", lambda _repo_root: "")
         cfg = HydraFlowConfig(
             repo="",
             repo_root=tmp_path,
@@ -3363,7 +3387,7 @@ class TestDockerConfigCustomValues:
 # ---------------------------------------------------------------------------
 
 
-class TestDockerConfigValidation:
+class TestDockerConfigValidation(GitIdentityEnvMixin):
     """Tests for Docker config validation constraints."""
 
     def test_invalid_execution_mode_raises(self, tmp_path: Path) -> None:
@@ -3589,15 +3613,7 @@ class TestDockerConfigValidation:
         monkeypatch.delenv("HYDRAFLOW_GH_TOKEN", raising=False)
         monkeypatch.delenv("GH_TOKEN", raising=False)
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        for var in (
-            "HYDRAFLOW_GIT_USER_NAME",
-            "HYDRAFLOW_GIT_USER_EMAIL",
-            "GIT_AUTHOR_NAME",
-            "GIT_AUTHOR_EMAIL",
-            "GIT_COMMITTER_NAME",
-            "GIT_COMMITTER_EMAIL",
-        ):
-            monkeypatch.delenv(var, raising=False)
+        self._clear_git_identity_env(monkeypatch)
         caplog.clear()
         with caplog.at_level("WARNING", logger="hydraflow.config"):
             HydraFlowConfig(
@@ -3619,15 +3635,7 @@ class TestDockerConfigValidation:
         import shutil
 
         monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
-        for var in (
-            "HYDRAFLOW_GIT_USER_NAME",
-            "HYDRAFLOW_GIT_USER_EMAIL",
-            "GIT_AUTHOR_NAME",
-            "GIT_AUTHOR_EMAIL",
-            "GIT_COMMITTER_NAME",
-            "GIT_COMMITTER_EMAIL",
-        ):
-            monkeypatch.delenv(var, raising=False)
+        self._clear_git_identity_env(monkeypatch)
         caplog.clear()
         with caplog.at_level("WARNING", logger="hydraflow.config"):
             HydraFlowConfig(
@@ -4944,9 +4952,11 @@ class TestTwoPhasePathResolution:
         assert str(cfg.state_file).startswith(str(cfg.data_root))
 
     def test_no_repo_falls_back_to_directory_name_scoped_paths(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Without a repo slug, paths should use repo_root dir name as fallback slug."""
+        monkeypatch.delenv("HYDRAFLOW_GITHUB_REPO", raising=False)
+        monkeypatch.setattr("config._detect_repo_slug", lambda _repo_root: "")
         cfg = HydraFlowConfig(repo_root=tmp_path)
         # repo_slug falls back to repo_root.name
         assert cfg.repo_slug == tmp_path.name

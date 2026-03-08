@@ -85,3 +85,40 @@ def test_ensure_running_starts_and_waits_until_ping_succeeds(monkeypatch) -> Non
 
     assert calls["ping"] >= 3
     assert calls["sleep"] >= 1
+
+
+def test_ensure_running_closes_log_file_handle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    state_dir = tmp_path / "state"
+    log_file = tmp_path / "supervisor.log"
+    monkeypatch.setattr(supervisor_manager, "STATE_DIR", state_dir)
+    monkeypatch.setattr(supervisor_manager, "_SUPERVISOR_LOG", log_file)
+
+    calls = {"ping": 0}
+
+    def _ping() -> bool:
+        calls["ping"] += 1
+        return calls["ping"] >= 2
+
+    monkeypatch.setattr(supervisor_manager.supervisor_client, "ping", _ping)
+
+    captured: dict[str, object] = {}
+
+    class _Proc:
+        returncode = None
+
+        def poll(self):
+            return None
+
+    def _fake_popen(*_a, **kwargs):
+        captured["stdout"] = kwargs["stdout"]
+        return _Proc()
+
+    monkeypatch.setattr(supervisor_manager.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(supervisor_manager.time, "sleep", lambda _x: None)
+
+    supervisor_manager.ensure_running()
+
+    stdout_handle = captured["stdout"]
+    assert getattr(stdout_handle, "closed", False) is True

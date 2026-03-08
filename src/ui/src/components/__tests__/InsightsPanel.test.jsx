@@ -1,5 +1,5 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 const mockUseHydraFlow = vi.fn()
@@ -58,45 +58,32 @@ function troubleshootingPayload(overrides = {}) {
   }
 }
 
+function defaultContext(overrides = {}) {
+  return {
+    config: { repo: 'T-rav/hyrda' },
+    harnessInsights: null,
+    reviewInsights: null,
+    retrospectives: null,
+    troubleshooting: null,
+    memories: null,
+    ...overrides,
+  }
+}
+
 describe('InsightsPanel — LearningsSection sub-sections', () => {
   beforeEach(() => {
-    localStorage.clear()
-    mockUseHydraFlow.mockReturnValue({
-      config: { repo: 'T-rav/hyrda' },
-    })
+    mockUseHydraFlow.mockReturnValue(defaultContext({
+      memories: memoriesPayload(),
+      troubleshooting: troubleshootingPayload(),
+    }))
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('renders the Learnings top-level section', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => memoriesPayload(),
-      }),
-    )
-
+  it('renders the Learnings top-level section', () => {
     render(<InsightsPanel />)
     expect(screen.getByText('Learnings')).toBeInTheDocument()
   })
 
   it('shows Curated Knowledge sub-section with overview and architecture', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => {
-        if (url === '/api/memories') {
-          return Promise.resolve({ ok: true, json: async () => memoriesPayload() })
-        }
-        if (url === '/api/troubleshooting') {
-          return Promise.resolve({ ok: true, json: async () => troubleshootingPayload() })
-        }
-        return Promise.resolve({ ok: true, json: async () => ({}) })
-      }),
-    )
-
     render(<InsightsPanel />)
     // Expand Learnings section
     fireEvent.click(screen.getByText('Learnings'))
@@ -108,19 +95,6 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
   })
 
   it('shows Memory Items sub-section with search filtering', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => {
-        if (url === '/api/memories') {
-          return Promise.resolve({ ok: true, json: async () => memoriesPayload() })
-        }
-        if (url === '/api/troubleshooting') {
-          return Promise.resolve({ ok: true, json: async () => troubleshootingPayload() })
-        }
-        return Promise.resolve({ ok: true, json: async () => ({}) })
-      }),
-    )
-
     render(<InsightsPanel />)
     fireEvent.click(screen.getByText('Learnings'))
 
@@ -146,19 +120,6 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
   })
 
   it('shows Troubleshooting Patterns sub-section', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => {
-        if (url === '/api/memories') {
-          return Promise.resolve({ ok: true, json: async () => memoriesPayload() })
-        }
-        if (url === '/api/troubleshooting') {
-          return Promise.resolve({ ok: true, json: async () => troubleshootingPayload() })
-        }
-        return Promise.resolve({ ok: true, json: async () => ({}) })
-      }),
-    )
-
     render(<InsightsPanel />)
     fireEvent.click(screen.getByText('Learnings'))
 
@@ -177,19 +138,6 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
   })
 
   it('expands troubleshooting pattern to show fix strategy', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => {
-        if (url === '/api/memories') {
-          return Promise.resolve({ ok: true, json: async () => memoriesPayload() })
-        }
-        if (url === '/api/troubleshooting') {
-          return Promise.resolve({ ok: true, json: async () => troubleshootingPayload() })
-        }
-        return Promise.resolve({ ok: true, json: async () => ({}) })
-      }),
-    )
-
     render(<InsightsPanel />)
     fireEvent.click(screen.getByText('Learnings'))
 
@@ -214,21 +162,10 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
   })
 
   it('shows empty state when no troubleshooting patterns exist', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url) => {
-        if (url === '/api/memories') {
-          return Promise.resolve({ ok: true, json: async () => memoriesPayload() })
-        }
-        if (url === '/api/troubleshooting') {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({ total_patterns: 0, patterns: [] }),
-          })
-        }
-        return Promise.resolve({ ok: true, json: async () => ({}) })
-      }),
-    )
+    mockUseHydraFlow.mockReturnValue(defaultContext({
+      memories: memoriesPayload(),
+      troubleshooting: { total_patterns: 0, patterns: [] },
+    }))
 
     render(<InsightsPanel />)
     fireEvent.click(screen.getByText('Learnings'))
