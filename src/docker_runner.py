@@ -268,11 +268,6 @@ class DockerProcess:
         result = await self._loop.run_in_executor(None, self._container.wait)
         code = int(result.get("StatusCode", 1))
         self.returncode = code
-        # Clean up core.worktree patch after container exits
-        unpatch = getattr(self, "_unpatch", None)
-        config = getattr(self, "_patched_config", None)
-        if unpatch and config:
-            unpatch(config)
         return code
 
 
@@ -321,32 +316,6 @@ class DockerRunner:
     async def __aexit__(self, *_: object) -> None:
         await self.cleanup()
 
-    @staticmethod
-    def _detect_worktree(cwd: str) -> str | None:
-        """If *cwd* is a git worktree, return the worktree name (e.g. ``issue-1944``).
-
-        Git worktrees have a ``.git`` *file* (not directory) containing a
-        ``gitdir:`` line that points to ``<repo>/.git/worktrees/<name>``.
-        Returns ``None`` when *cwd* is not a worktree.
-        """
-        git_path = Path(cwd) / ".git"
-        if not git_path.is_file():
-            return None
-        try:
-            content = git_path.read_text().strip()
-        except OSError:
-            return None
-        if not content.startswith("gitdir:"):
-            return None
-        gitdir = content.split(":", 1)[1].strip()
-        parts = Path(gitdir).parts
-        # Expect …/.git/worktrees/<name>
-        try:
-            wt_idx = parts.index("worktrees")
-            return parts[wt_idx + 1]
-        except (ValueError, IndexError):
-            return None
-
     def _build_mounts(self, cwd: str | None) -> dict[str, dict[str, str]]:
         """Build Docker volume mount specification."""
         mounts: dict[str, dict[str, str]] = {}
@@ -358,12 +327,11 @@ class DockerRunner:
         if repo_str != cwd:
             mounts[repo_str] = {"bind": "/repo", "mode": "ro"}
 
-        # Mount the main .git directory (rw) so worktrees can commit.
-        # Worktree .git files reference <repo>/.git/worktrees/<name> which
-        # must exist inside the container for git operations to work.
-        git_dir = self._repo_root / ".git"
-        if git_dir.is_dir():
-            mounts[str(git_dir)] = {"bind": "/dot-git", "mode": "rw"}
+        # NOTE: The host .git directory is NOT mounted.  Workspaces are
+        # converted to standalone clones by prepare_workspace() before the
+        # container starts, giving each container its own .git/ directory.
+        # This prevents Docker containers from corrupting the host repo
+        # (e.g. setting core.bare=true or core.worktree in .git/config).
 
         self._log_dir.mkdir(parents=True, exist_ok=True)
         mounts[str(self._log_dir)] = {"bind": "/logs", "mode": "rw"}
@@ -375,79 +343,84 @@ class DockerRunner:
                 mounts[parts[0]] = {"bind": parts[1], "mode": mode}
         return mounts
 
-    def _worktree_git_env(self, cwd: str | None) -> dict[str, str]:
-        """Return ``GIT_DIR`` env var when *cwd* is a worktree.
+    def prepare_workspace(self, cwd: str) -> None:
+        """Convert a git worktree into a standalone clone for Docker.
 
-        Only ``GIT_DIR`` is set — **not** ``GIT_WORK_TREE``.  Setting
-        ``GIT_WORK_TREE`` causes git to persist a ``core.worktree``
-        entry in the gitdir config, which corrupts the host repo for
-        all subsequent operations after the container exits.
+        Git worktrees share the parent repo's ``.git/`` directory via a
+        ``.git`` *file* containing a ``gitdir:`` pointer.  Mounting the
+        parent ``.git`` read-write lets containers corrupt the host config
+        (e.g. setting ``core.bare=true``).
 
-        Instead, the worktree gitdir config is patched with the
-        container-side ``core.worktree`` value before the container
-        starts and cleaned up afterwards (see ``_patch_worktree_config``
-        / ``_unpatch_worktree_config``).
+        This method replaces the worktree with a local clone so the
+        container gets its own independent ``.git/`` directory.  The host
+        repo is never exposed to the container.
+
+        Idempotent — if the workspace already has a ``.git/`` directory,
+        this is a no-op.
         """
-        if not cwd:
-            return {}
-        wt_name = self._detect_worktree(cwd)
-        if not wt_name:
-            return {}
-        return {
-            "GIT_DIR": f"/dot-git/worktrees/{wt_name}",
-        }
+        git_path = Path(cwd) / ".git"
+        if git_path.is_dir():
+            return  # Already a standalone repo
+        if not git_path.is_file():
+            return  # Not a git repo at all
 
-    def _patch_worktree_config(self, cwd: str | None) -> Path | None:
-        """Set ``core.worktree`` in the worktree gitdir config to ``/workspace``.
+        content = git_path.read_text().strip()
+        if not content.startswith("gitdir:"):
+            return
 
-        Returns the config path so it can be cleaned up after the
-        container exits, or ``None`` if *cwd* is not a worktree.
-        """
-        if not cwd:
-            return None
-        wt_name = self._detect_worktree(cwd)
-        if not wt_name:
-            return None
-        config_path = self._repo_root / ".git" / "worktrees" / wt_name / "config"
-        if not config_path.exists():
-            return None
+        # Determine the current branch
         try:
+            branch: str | None = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if branch == "HEAD":
+                # Detached HEAD — can't use --branch with "HEAD"
+                branch = None
+        except (subprocess.CalledProcessError, OSError):
+            branch = None
+
+        # Clone the repo locally, then swap .git/ into the workspace
+        import shutil  # noqa: PLC0415
+
+        clone_tmp = Path(cwd) / ".git-clone-tmp"
+        try:
+            clone_cmd = [
+                "git",
+                "clone",
+                "--local",
+                "--no-checkout",
+            ]
+            if branch:
+                clone_cmd += ["--branch", branch]
+            clone_cmd += [str(self._repo_root), str(clone_tmp)]
             subprocess.run(
-                [
-                    "git",
-                    "config",
-                    "--file",
-                    str(config_path),
-                    "core.worktree",
-                    "/workspace",
-                ],
+                clone_cmd,
                 check=True,
                 capture_output=True,
             )
-        except (subprocess.CalledProcessError, OSError) as exc:
-            logger.warning("Failed to patch worktree config: %s", exc)
-            return None
-        return config_path
+            # Replace the worktree .git file with the clone's .git directory
+            git_path.unlink()
+            (clone_tmp / ".git").rename(git_path)
 
-    def _unpatch_worktree_config(self, config_path: Path | None) -> None:
-        """Remove ``core.worktree`` from the worktree gitdir config."""
-        if config_path is None or not config_path.exists():
-            return
-        try:
+            # Update the index to match the already-checked-out files
             subprocess.run(
-                [
-                    "git",
-                    "config",
-                    "--file",
-                    str(config_path),
-                    "--unset",
-                    "core.worktree",
-                ],
+                ["git", "reset", "HEAD"],
+                cwd=cwd,
                 check=False,
                 capture_output=True,
             )
-        except OSError as exc:
-            logger.warning("Failed to unpatch worktree config: %s", exc)
+        except (subprocess.CalledProcessError, OSError) as exc:
+            logger.warning("Failed to convert worktree to standalone clone: %s", exc)
+            if clone_tmp.exists():
+                shutil.rmtree(clone_tmp, ignore_errors=True)
+            raise
+        finally:
+            if clone_tmp.exists():
+                shutil.rmtree(clone_tmp, ignore_errors=True)
 
     def _get_user_tool_mounts(self) -> dict[str, dict[str, str]]:
         """Return cached user-tool mounts, refreshing when env/home selection changes."""
@@ -574,14 +547,13 @@ class DockerRunner:
         """
         await self._enforce_spawn_delay()
 
+        if cwd:
+            self.prepare_workspace(cwd)
+
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
-        container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
-
-        # Patch worktree config so git resolves /workspace inside container
-        patched_config = self._patch_worktree_config(cwd)
 
         needs_stdin = stdin is None or stdin == asyncio.subprocess.PIPE
 
@@ -621,11 +593,8 @@ class DockerRunner:
                 cast(DockerSocket, socket),
                 loop,
             )
-            proc._patched_config = patched_config  # type: ignore[attr-defined]
-            proc._unpatch = self._unpatch_worktree_config  # type: ignore[attr-defined]
             return cast(asyncio.subprocess.Process, proc)
         except Exception:
-            self._unpatch_worktree_config(patched_config)
             with contextlib.suppress(Exception):
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
             self._containers.discard(container)
@@ -651,14 +620,13 @@ class DockerRunner:
             raise NotImplementedError(msg)
         await self._enforce_spawn_delay()
 
+        if cwd:
+            self.prepare_workspace(cwd)
+
         loop = asyncio.get_running_loop()
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
-        container_env.update(self._worktree_git_env(cwd))
         working_dir = "/workspace" if cwd else None
-
-        # Patch worktree config so git resolves /workspace inside container
-        patched_config = self._patch_worktree_config(cwd)
 
         container_kwargs: dict[str, Any] = {
             "image": self._image,
@@ -712,7 +680,6 @@ class DockerRunner:
                 await loop.run_in_executor(None, container.kill)
             raise
         finally:
-            self._unpatch_worktree_config(patched_config)
             with contextlib.suppress(Exception):
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
             self._containers.discard(container)
