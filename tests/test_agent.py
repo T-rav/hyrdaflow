@@ -592,53 +592,53 @@ class TestBuildPrompt:
         assert "empty inputs" in prompt
 
     def test_pre_quality_review_checks_logic_errors(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review should check for logic errors."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(issue, attempt=1)
+        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "logic errors" in prompt
 
     def test_pre_quality_review_checks_failure_paths(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review should verify failure paths are tested."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(issue, attempt=1)
+        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "failure/error paths" in prompt
 
     def test_pre_quality_review_checks_missing_implementation(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review should check for gaps vs plan/issue description."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(issue, attempt=1)
+        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "is anything missing" in prompt
 
     def test_prompt_includes_test_step(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Implementation prompt should include a test-writing step."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_prompt(issue)
+        prompt = runner._build_prompt(agent_task)
         assert "Write tests" in prompt
         assert "prevent regressions" in prompt
 
     def test_self_check_includes_dead_code_check(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check checklist should verify no dead code is introduced."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_prompt(issue)
+        prompt = runner._build_prompt(agent_task)
         assert "New code is reachable" in prompt
         assert "dead code" in prompt
 
     def test_self_check_includes_issue_requirements_check(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check checklist should verify tests match issue requirements."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_prompt(issue)
+        prompt = runner._build_prompt(agent_task)
         assert "Tests verify issue requirements" in prompt
 
     def test_prompt_forbids_already_satisfied(
