@@ -321,7 +321,7 @@ class ImplementPhase:
         else:
             wt_path = await self._worktrees.create(issue.id, branch)
         self._state.set_worktree(issue.id, str(wt_path))
-        await self._prs.push_branch(wt_path, branch)
+        await self._prs.push_branch(wt_path, branch, force=reset_for_retry)
         await self._transitioner.post_comment(
             issue.id,
             f"**Branch:** [`{branch}`](https://github.com/"
@@ -369,9 +369,7 @@ class ImplementPhase:
         # Retrieve prior failure context for retry feedback
         last_meta = self._state.get_worker_result_meta(issue.id)
         prior_failure = ""
-        reset_for_retry = bool(
-            review_feedback
-        )  # always reset for review-feedback retries
+        reset_for_retry = bool(review_feedback)  # review-feedback retries always reset
         # Only inject prior failure context for cycling retries (no active review feedback).
         # During review-feedback retries the prior error is stale — the agent should
         # focus on reviewer comments, not a potentially-resolved quality gate error.

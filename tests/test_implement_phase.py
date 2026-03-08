@@ -2276,3 +2276,5 @@ class TestZeroCommitCorrectiveRetry:
 
         comment_calls = [c.args for c in mock_prs.post_comment.call_args_list]
         assert any("Attempt 1/3" in c[1] for c in comment_calls)
+        # Zero-commit path should NOT escalate to HITL — retry instead
+        mock_prs.transition_issue_label.assert_not_called()
