@@ -735,7 +735,7 @@ class TestDiffSanityLoop:
                     "DIFF_SANITY_RESULT: RETRY\nSUMMARY: scope creep",
                 ]
             )
-            result = await runner.run(agent_task, tmp_path, "agent/agent_task-42")
+            result = await runner.run(agent_task, tmp_path, "agent/issue-42")
 
         assert result.success is False
         assert "Diff sanity" in (result.error or "")
