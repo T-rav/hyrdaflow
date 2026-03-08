@@ -5681,7 +5681,7 @@ class TestSPAEndpoints:
 class TestWebSocketEndpoint:
     """Tests for WebSocket /ws endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
+    def _make_router(self, config, event_bus, state, tmp_path, *, registry=None):
         from dashboard_routes import create_router
         from pr_manager import PRManager
 
@@ -5696,6 +5696,7 @@ class TestWebSocketEndpoint:
             set_run_task=lambda t: None,
             ui_dist_dir=tmp_path / "no-dist",
             template_dir=tmp_path / "no-templates",
+            registry=registry,
         )
 
     def test_websocket_route_is_registered(
@@ -5727,6 +5728,7 @@ class TestWebSocketEndpoint:
 
         # Create a mock WebSocket
         mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {}
         sent_texts: list[str] = []
         mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
 
@@ -5751,6 +5753,141 @@ class TestWebSocketEndpoint:
         mock_ws.accept.assert_called_once()
         # At least one history event should have been sent
         assert len(sent_texts) >= 1
+
+    @pytest.mark.asyncio
+    async def test_websocket_repo_scoped_uses_repo_event_bus(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When ?repo=slug is provided, the WS subscribes to that repo's event bus."""
+        from fastapi import WebSocket
+        from fastapi.websockets import WebSocketDisconnect
+
+        from tests.conftest import EventFactory
+
+        # Create a separate event bus for the repo runtime
+        repo_bus = EventBus()
+        await repo_bus.publish(EventFactory.create(data={"repo_event": True}))
+
+        # Mock the registry
+        mock_runtime = MagicMock()
+        mock_runtime.config = config
+        mock_runtime.state = state
+        mock_runtime.event_bus = repo_bus
+        mock_runtime.orchestrator = None
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = mock_runtime
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {"repo": "my-org-my-repo"}
+        sent_texts: list[str] = []
+        mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
+
+        q: asyncio.Queue = asyncio.Queue()
+        q.get = AsyncMock(side_effect=WebSocketDisconnect)  # type: ignore[method-assign]
+
+        with patch.object(repo_bus, "subscription") as mock_sub:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=q)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_sub.return_value = mock_ctx
+
+            await endpoint(mock_ws)
+
+        mock_ws.accept.assert_called_once()
+        mock_registry.get.assert_called_once_with("my-org-my-repo")
+        # Should have sent repo_bus history, not the default event_bus
+        assert len(sent_texts) >= 1
+        assert "repo_event" in sent_texts[0]
+
+    @pytest.mark.asyncio
+    async def test_websocket_unknown_repo_closes_with_1008(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When ?repo=unknown-slug is provided, the WS closes with code 1008."""
+        from fastapi import WebSocket
+
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = None  # unknown slug
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {"repo": "nonexistent-repo"}
+
+        await endpoint(mock_ws)
+
+        mock_ws.accept.assert_called_once()
+        mock_registry.get.assert_called_once_with("nonexistent-repo")
+        mock_ws.close.assert_called_once_with(
+            code=1008, reason="Unknown repo: nonexistent-repo"
+        )
+        # Should NOT have called send_text (no history/events streamed)
+        mock_ws.send_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_websocket_no_repo_param_uses_default_bus(
+        self, config, event_bus: EventBus, state, tmp_path
+    ) -> None:
+        """When no ?repo param is given, the WS uses the default event bus (backward compat)."""
+        from fastapi import WebSocket
+        from fastapi.websockets import WebSocketDisconnect
+
+        from tests.conftest import EventFactory
+
+        await event_bus.publish(EventFactory.create(data={"default": True}))
+
+        mock_registry = MagicMock()
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, registry=mock_registry
+        )
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        mock_ws = AsyncMock(spec=WebSocket)
+        mock_ws.query_params = {}  # no repo param
+        sent_texts: list[str] = []
+        mock_ws.send_text = AsyncMock(side_effect=sent_texts.append)
+
+        q: asyncio.Queue = asyncio.Queue()
+        q.get = AsyncMock(side_effect=WebSocketDisconnect)  # type: ignore[method-assign]
+
+        with patch.object(event_bus, "subscription") as mock_sub:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=q)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_sub.return_value = mock_ctx
+
+            await endpoint(mock_ws)
+
+        mock_ws.accept.assert_called_once()
+        # Registry.get should NOT have been called (no repo param)
+        mock_registry.get.assert_not_called()
+        assert len(sent_texts) >= 1
+        assert "default" in sent_texts[0]
 
 
 class TestIssueHistoryCache:

@@ -3265,14 +3265,24 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        repo_slug: str | None = ws.query_params.get("repo")
+
+        # Resolve the correct event bus for the requested repo.
+        try:
+            _cfg, _state, bus, _get_orch = _resolve_runtime(repo_slug)
+        except ValueError:
+            await ws.accept()
+            await ws.close(code=1008, reason=f"Unknown repo: {repo_slug}")
+            return
+
         await ws.accept()
 
         # Snapshot history BEFORE subscribing to avoid duplicates.
         # Events published between snapshot and subscribe are picked
         # up by the live queue, never sent twice.
-        history = event_bus.get_history()
+        history = bus.get_history()
 
-        async with event_bus.subscription() as queue:
+        async with bus.subscription() as queue:
             # Send history on connect
             for event in history:
                 try:
