@@ -505,7 +505,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_reject_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
+        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -534,7 +534,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_request_changes_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
+        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -604,7 +604,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_no_consensus_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
+        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -636,7 +636,7 @@ class TestVerdictRouting:
     async def test_triage_route_fallbacks_to_hitl_when_triage_fails(
         self, tmp_path: Path
     ) -> None:
-        reviewer = _make_reviewer(tmp_path)
+        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -2110,7 +2110,7 @@ class TestPreValidationGate:
         self, tmp_path: Path
     ) -> None:
         """Pre-validation failure creates a triage issue."""
-        reviewer = _make_reviewer(tmp_path)
+        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
         validation = ADRValidationResult(
@@ -2139,7 +2139,7 @@ class TestPreValidationGate:
         self, tmp_path: Path
     ) -> None:
         """If triage issue creation fails, pre-validation falls back to HITL."""
-        reviewer = _make_reviewer(tmp_path)
+        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
         # Make first create_issue call fail, second succeed
         reviewer._prs.create_issue = AsyncMock(side_effect=[Exception("API error"), 99])
 
