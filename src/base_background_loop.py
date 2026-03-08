@@ -54,6 +54,7 @@ class BaseBackgroundLoop(abc.ABC):
         self._sleep_fn = sleep_fn
         self._interval_cb = interval_cb
         self._run_on_startup = run_on_startup
+        self._trigger_event = asyncio.Event()
 
     @abc.abstractmethod
     async def _do_work(self) -> dict[str, Any] | None:
@@ -66,6 +67,14 @@ class BaseBackgroundLoop(abc.ABC):
     @abc.abstractmethod
     def _get_default_interval(self) -> int:
         """Return the config-driven default interval in seconds."""
+
+    def trigger(self) -> None:
+        """Request an immediate execution of the next work cycle.
+
+        Interrupts the current sleep so the loop runs without waiting
+        for the full polling interval to elapse.
+        """
+        self._trigger_event.set()
 
     def _get_interval(self) -> int:
         """Return the effective interval, preferring dynamic override."""
@@ -129,6 +138,39 @@ class BaseBackgroundLoop(abc.ABC):
                 )
             )
 
+    async def _sleep_or_trigger(self, seconds: int | float) -> bool:
+        """Call the configured sleep function, but return early on trigger.
+
+        Races ``_sleep_fn(seconds)`` against the trigger event so that
+        :meth:`trigger` can interrupt any pending sleep.  Returns ``True``
+        if the sleep was cut short by a trigger, ``False`` if it ran to
+        completion.
+
+        If the trigger event is already set when this method is called
+        (i.e. :meth:`trigger` was called during the preceding work cycle),
+        the sleep is skipped entirely and ``True`` is returned immediately.
+        """
+        if self._trigger_event.is_set():
+            self._trigger_event.clear()
+            return True
+        sleep_task = asyncio.create_task(self._sleep_fn(seconds))
+        trigger_task = asyncio.create_task(self._trigger_event.wait())
+        try:
+            done, pending = await asyncio.wait(
+                {sleep_task, trigger_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for p in pending:
+                p.cancel()
+            triggered = trigger_task in done
+            if triggered:
+                self._trigger_event.clear()
+            return triggered
+        except BaseException:
+            sleep_task.cancel()
+            trigger_task.cancel()
+            raise
+
     async def run(self) -> None:
         """Run the background worker loop until the stop event is set."""
         if self._run_on_startup:
@@ -137,14 +179,15 @@ class BaseBackgroundLoop(abc.ABC):
         while not self._stop_event.is_set():
             interval = self._get_interval()
             if self._run_on_startup:
-                await self._sleep_fn(interval)
+                triggered = await self._sleep_or_trigger(interval)
                 if self._stop_event.is_set():
                     break
-                if not self._enabled_cb(self._worker_name):
+                if not self._enabled_cb(self._worker_name) and not triggered:
                     continue
             elif not self._enabled_cb(self._worker_name):
-                await self._sleep_fn(interval)
-                continue
+                triggered = await self._sleep_or_trigger(interval)
+                if not triggered:
+                    continue
             await self._execute_cycle()
             if not self._run_on_startup:
-                await self._sleep_fn(interval)
+                await self._sleep_or_trigger(interval)

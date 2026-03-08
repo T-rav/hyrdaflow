@@ -1852,6 +1852,20 @@ def create_router(
         orch.set_bg_worker_enabled(name, bool(enabled))
         return JSONResponse({"status": "ok", "name": name, "enabled": bool(enabled)})
 
+    @router.post("/api/control/bg-worker/trigger")
+    async def trigger_bg_worker(body: dict[str, Any]) -> JSONResponse:
+        """Trigger an immediate execution of a background worker."""
+        name = body.get("name")
+        if not name:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        triggered = orch.trigger_bg_worker(name)
+        if not triggered:
+            return JSONResponse({"error": f"unknown worker '{name}'"}, status_code=404)
+        return JSONResponse({"status": "ok", "name": name})
+
     # Interval bounds per editable worker.
     # memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
     # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
