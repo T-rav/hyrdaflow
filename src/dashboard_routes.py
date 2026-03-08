@@ -1165,6 +1165,108 @@ def create_router(
         finally:
             hitl_summary_inflight.discard(issue_number)
 
+    @router.get("/healthz")
+    def get_health() -> JSONResponse:
+        """Lightweight readiness response for load balancers and monitors."""
+        orchestrator = get_orchestrator()
+        orchestrator_running = bool(getattr(orchestrator, "running", False))
+        worker_states = state.get_bg_worker_states()
+        session_counters = state.get_session_counters()
+        session_started_at: str | None = session_counters.session_start or None
+        uptime_seconds: int | None = None
+        if session_started_at:
+            try:
+                started_dt = datetime.fromisoformat(session_started_at)
+            except (ValueError, TypeError):
+                session_started_at = None
+            else:
+                uptime_seconds = max(
+                    int((datetime.now(UTC) - started_dt).total_seconds()),
+                    0,
+                )
+
+        def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+            if isinstance(raw_status, BGWorkerHealth):
+                return raw_status
+            try:
+                return BGWorkerHealth(str(raw_status or "").lower())
+            except ValueError:
+                return BGWorkerHealth.DISABLED
+
+        worker_count = len(worker_states)
+        worker_errors = sorted(
+            name
+            for name, heartbeat in worker_states.items()
+            if _normalise_worker_health(heartbeat.get("status")) == BGWorkerHealth.ERROR
+        )
+        if orchestrator is None:
+            orchestrator_running = False
+        orchestrator_status = "missing"
+        if orchestrator is not None and orchestrator_running:
+            orchestrator_status = "running"
+        elif orchestrator is not None:
+            orchestrator_status = "idle"
+
+        worker_status = "disabled"
+        if worker_count > 0:
+            worker_status = "degraded" if worker_errors else "ok"
+
+        status = "ok"
+        if orchestrator_status == "missing":
+            status = "starting"
+        elif orchestrator_status == "idle":
+            status = "idle"
+        if worker_status == "degraded":
+            status = "degraded"
+
+        def _is_loopback_host(host: str) -> bool:
+            host_lower = (host or "").lower()
+            return host_lower == "localhost" or host_lower.startswith("127.")
+
+        dashboard_binding = {
+            "host": config.dashboard_host,
+            "port": config.dashboard_port,
+        }
+        dashboard_public = not _is_loopback_host(config.dashboard_host)
+
+        checks = {
+            "orchestrator": {
+                "status": orchestrator_status,
+                "running": orchestrator_running,
+                "session_started_at": session_started_at,
+            },
+            "workers": {
+                "status": worker_status,
+                "count": worker_count,
+                "errors": worker_errors,
+            },
+            "dashboard": {
+                "status": "ok" if config.dashboard_enabled else "disabled",
+                "host": config.dashboard_host,
+                "port": config.dashboard_port,
+                "public": dashboard_public,
+            },
+        }
+        ready = checks["orchestrator"]["status"] == "running" and checks["workers"][
+            "status"
+        ] in {"ok", "disabled"}
+        payload = {
+            "status": status,
+            "version": get_app_version(),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "orchestrator_running": orchestrator_running,
+            "active_issue_count": len(state.get_active_issue_numbers()),
+            "active_worktrees": len(state.get_active_worktrees()),
+            "worker_count": worker_count,
+            "worker_errors": worker_errors,
+            "dashboard": dashboard_binding,
+            "session_started_at": session_started_at,
+            "uptime_seconds": uptime_seconds,
+            "ready": ready,
+            "checks": checks,
+        }
+        return JSONResponse(payload)
+
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         return _serve_spa_index()

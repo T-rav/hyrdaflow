@@ -1,6 +1,14 @@
 import { theme } from './theme'
 
 /**
+ * Normalize a repo slug or path to a canonical dash-separated key.
+ * Replaces forward/backslashes with dashes, e.g. "owner/repo" → "owner-repo".
+ */
+export function canonicalRepoSlug(value) {
+  return String(value || '').trim().replace(/[\\/]+/g, '-')
+}
+
+/**
  * Statuses that indicate a worker is actively processing.
  * Used across dashboard components to filter/count active workers.
  */

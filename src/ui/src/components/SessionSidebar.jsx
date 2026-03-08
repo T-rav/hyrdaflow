@@ -1,15 +1,11 @@
 import React, { useState, useMemo } from 'react'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
-import { PULSE_ANIMATION } from '../constants'
+import { PULSE_ANIMATION, canonicalRepoSlug } from '../constants'
 
 function shortRepo(repo) {
   const parts = (repo || '').split('/')
   return parts.length > 1 ? parts[parts.length - 1] : repo
-}
-
-function canonicalRepoSlug(repo) {
-  return String(repo || '').trim().replace(/[\\/]+/g, '-')
 }
 
 export function SessionSidebar() {
@@ -24,25 +20,30 @@ export function SessionSidebar() {
     deleteSession,
     supervisedRepos = [],
     runtimes = [],
+    startRuntime,
+    stopRuntime,
     removeRepoShortcut,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
   const [hoveredSession, setHoveredSession] = useState(null)
   const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
+  const [repoActions, setRepoActions] = useState({})
+  const [repoErrors, setRepoErrors] = useState({})
 
   const repoEntries = useMemo(() => {
     const entries = new Map()
     const slugIndex = new Map()
 
-    const ensureEntry = (key, slug, filterSlug, displayName) => {
+    const ensureEntry = (key, rawSlug, filterSlug, displayName) => {
       if (!entries.has(key)) {
         entries.set(key, {
           key,
-          slug,
+          repoSlug: rawSlug || null,
           filterSlug,
           displayName,
           sessions: [],
           info: null,
+          repoPath: null,
         })
         if (filterSlug) slugIndex.set(filterSlug, key)
       }
@@ -50,16 +51,16 @@ export function SessionSidebar() {
     }
 
     for (const session of sessions) {
-      const slug = canonicalRepoSlug(session.repo) || shortRepo(session.repo)
-      const key = slug || session.repo
-      const entry = ensureEntry(key, slug, slug, session.repo)
+      const canonical = canonicalRepoSlug(session.repo)
+      const key = canonical || session.repo
+      const entry = ensureEntry(key, session.repo, canonical, session.repo)
       entry.sessions.push(session)
     }
 
     for (const repo of supervisedRepos || []) {
       if (!repo) continue
-      const rawSlug = repo.slug || canonicalRepoSlug(repo.path || '') || shortRepo(repo.path || '')
-      const filterSlug = canonicalRepoSlug(rawSlug)
+      const rawSlug = repo.slug || repo.repo || repo.full_name || repo.path || ''
+      const filterSlug = canonicalRepoSlug(rawSlug || repo.path || '')
       let entryKey = (filterSlug && slugIndex.get(filterSlug)) || filterSlug
       let entry = entryKey ? entries.get(entryKey) : undefined
       if (!entry) {
@@ -72,8 +73,9 @@ export function SessionSidebar() {
         )
       }
       if (repo.slug) {
-        entry.slug = repo.slug
+        entry.repoSlug = repo.slug
       }
+      entry.repoPath = repo.path || entry.repoPath
       if (!entry.filterSlug) {
         entry.filterSlug = filterSlug
       }
@@ -120,6 +122,29 @@ export function SessionSidebar() {
     }
   }
 
+  const handleStartStop = async (e, entry, action) => {
+    e.stopPropagation()
+    const slug = entry.repoSlug || entry.displayName || entry.key
+    if (!slug) return
+    const runner = action === 'start' ? startRuntime : stopRuntime
+    if (!runner) return
+    setRepoActions(prev => ({ ...prev, [slug]: action }))
+    setRepoErrors(prev => {
+      const next = { ...prev }
+      delete next[slug]
+      return next
+    })
+    const result = await runner(slug, entry.repoPath || entry.info?.path || null)
+    if (!result?.ok) {
+      setRepoErrors(prev => ({ ...prev, [slug]: result?.error || `Failed to ${action} repo` }))
+    }
+    setRepoActions(prev => {
+      const next = { ...prev }
+      delete next[slug]
+      return next
+    })
+  }
+
   return (
     <div style={styles.sidebar}>
       <div style={styles.header}>
@@ -136,11 +161,18 @@ export function SessionSidebar() {
           const isRepoSelected = selectedRepoSlug === entry.filterSlug
           const rt = entry.runtime
           const isRunning = rt?.running ?? entry.info?.running ?? false
+          const actionKey = entry.repoSlug || entry.filterSlug || entry.key
+          const actionState = repoActions[actionKey]
+          const errorMessage = repoErrors[actionKey]
+          const showControls = Boolean(entry.info || entry.runtime)
+          let actionLabel = isRunning ? 'Stop' : 'Start'
+          if (actionState === 'start') actionLabel = 'Starting…'
+          if (actionState === 'stop') actionLabel = 'Stopping…'
 
           return (
             <div key={entry.key}>
               <div
-                onClick={() => selectRepo(isRepoSelected ? null : entry.slug)}
+                onClick={() => selectRepo(isRepoSelected ? null : entry.repoSlug)}
                 style={isRepoSelected ? repoHeaderSelected : styles.repoHeader}
               >
                 <div style={styles.repoTitle}>
@@ -150,6 +182,7 @@ export function SessionSidebar() {
                   >
                     {isExpanded ? '▾' : '▸'}
                   </span>
+                  <span style={isRunning ? styles.repoDotRunning : styles.repoDotStopped} />
                   <div style={styles.repoText}>
                     <span style={styles.repoName}>{entry.displayName}</span>
                     {entry.info?.path && entry.info.path !== entry.displayName && (
@@ -159,9 +192,19 @@ export function SessionSidebar() {
                 </div>
                 <div style={styles.repoMeta}>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
+                  {showControls && (
+                    <button
+                      onClick={(e) => handleStartStop(e, entry, isRunning ? 'stop' : 'start')}
+                      style={isRunning ? styles.repoStopBtn : styles.repoStartBtn}
+                      disabled={!!actionState}
+                      aria-label={isRunning ? 'Stop repo runtime' : 'Start repo runtime'}
+                    >
+                      {actionLabel}
+                    </button>
+                  )}
                   {entry.info && (
                     <button
-                      onClick={(e) => handleDisconnect(e, entry.slug, isRunning)}
+                      onClick={(e) => handleDisconnect(e, entry.repoSlug || entry.displayName, isRunning)}
                       style={styles.disconnectBtn}
                       aria-label="Disconnect repo"
                       title="Disconnect repo"
@@ -171,6 +214,10 @@ export function SessionSidebar() {
                   )}
                 </div>
               </div>
+
+              {errorMessage && (
+                <div style={styles.repoError}>{errorMessage}</div>
+              )}
 
               {isExpanded && repoSessions.map(session => {
                 const isActive = session.status === 'active'
@@ -338,7 +385,7 @@ const styles = {
   },
   repoTitle: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 6,
     minWidth: 0,
   },
@@ -374,10 +421,31 @@ const styles = {
     background: theme.surface,
     border: `1px solid ${theme.border}`,
   },
+  repoError: {
+    fontSize: 10,
+    color: theme.red,
+    padding: '2px 12px 6px 28px',
+  },
   repoMeta: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
+  },
+  repoDotRunning: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: theme.green,
+    flexShrink: 0,
+    marginTop: 2,
+  },
+  repoDotStopped: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: theme.textMuted,
+    flexShrink: 0,
+    marginTop: 2,
   },
   repoStartBtn: {
     fontSize: 9,

@@ -202,7 +202,7 @@ function formatDuration(firstSeen, lastSeen) {
 const GRID_COLUMNS = '26px 52px minmax(220px, 3fr) minmax(80px, 1fr) 84px 100px 40px 60px 90px'
 
 export function OutcomesPanel() {
-  const { issueHistory } = useHydraFlow()
+  const { issueHistory, selectedRepoSlug } = useHydraFlow()
   const [preset, setPreset] = useState('all')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -226,10 +226,16 @@ export function OutcomesPanel() {
   )
 
   const filtered = useMemo(() => {
+    const slug = selectedRepoSlug
     const q = search.trim().toLowerCase()
     const since = timeRange.since ? new Date(timeRange.since).getTime() : null
     const until = timeRange.until ? new Date(timeRange.until).getTime() : null
     return (payload.items || []).filter(item => {
+      if (slug) {
+        const sessions = Array.isArray(item.session_ids) ? item.session_ids : []
+        const matchesRepo = sessions.some((id) => typeof id === 'string' && id.startsWith(slug))
+        if (!matchesRepo) return false
+      }
       if (since || until) {
         const ts = item.last_seen ? new Date(item.last_seen).getTime() : 0
         if (since && ts < since) return false
@@ -249,7 +255,16 @@ export function OutcomesPanel() {
       if ((item.outcome?.reason || '').toLowerCase().includes(q)) return true
       return false
     })
-  }, [payload.items, statusFilter, outcomeFilter, epicOnly, search, timeRange.since, timeRange.until])
+  }, [
+    payload.items,
+    statusFilter,
+    outcomeFilter,
+    epicOnly,
+    search,
+    selectedRepoSlug,
+    timeRange.since,
+    timeRange.until,
+  ])
 
   const grouped = useMemo(() => {
     if (groupBy === 'none') return null

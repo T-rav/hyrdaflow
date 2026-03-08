@@ -179,9 +179,10 @@ class HydraFlowDashboard:
                 logger.warning("Supervisor auto-start failed: %s", exc)
 
         app = self.create_app()
+        bind_host = self._config.dashboard_host
         config = uvicorn.Config(
             app,
-            host="127.0.0.1",
+            host=bind_host,
             port=self._config.dashboard_port,
             log_level="warning",
         )
@@ -189,7 +190,8 @@ class HydraFlowDashboard:
 
         self._server_task = asyncio.create_task(server.serve())
         logger.info(
-            "Dashboard running at http://localhost:%d",
+            "Dashboard running at http://%s:%d",
+            bind_host,
             self._config.dashboard_port,
         )
 

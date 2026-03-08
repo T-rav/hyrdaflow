@@ -316,6 +316,7 @@ class TestParseArgs:
             "transcript_summary_tool",
             "transcript_summary_model",
             "dashboard_port",
+            "dashboard_host",
             "gh_token",
         ]
         for field in none_fields:
@@ -400,6 +401,7 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("ac_tool", "claude"),
     ("verification_judge_tool", "claude"),
     ("main_branch", "main"),
+    ("dashboard_host", "127.0.0.1"),
     ("dashboard_port", 5555),
     ("dashboard_enabled", True),
     ("dry_run", False),
@@ -652,6 +654,11 @@ class TestBuildConfig:
         args = parse_args(["--dashboard-port", "8080"])
         cfg = build_config(args)
         assert cfg.dashboard_port == 8080
+
+    def test_dashboard_host_passed_through(self) -> None:
+        args = parse_args(["--dashboard-host", "0.0.0.0"])
+        cfg = build_config(args)
+        assert cfg.dashboard_host == "0.0.0.0"
 
     def test_min_plan_words_passed_through(self) -> None:
         args = parse_args(["--min-plan-words", "300"])
