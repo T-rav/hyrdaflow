@@ -417,6 +417,38 @@ def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _extract_repo_slug(
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    slug_query: str | None,
+    repo_query: str | None,
+) -> str:
+    """Extract repo slug from supported request shapes."""
+    return _extract_field_from_sources(
+        ("slug", "repo"),
+        req,
+        req_query,
+        (slug_query, repo_query),
+        query_params_first=True,
+    )
+
+
+def _extract_repo_path(
+    req: dict[str, Any] | None,
+    req_query: str | None,
+    path_query: str | None,
+    repo_path_query: str | None,
+) -> str:
+    """Extract repo path from supported body/query payload shapes."""
+    return _extract_field_from_sources(
+        ("path", "repo_path"),
+        req,
+        req_query,
+        (path_query, repo_path_query),
+        query_params_first=False,
+    )
+
+
 def _extract_field_from_sources(
     field_names: tuple[str, str],
     req: dict[str, Any] | None,
@@ -502,36 +534,6 @@ def create_router(
     """
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
-
-    def _extract_repo_slug(
-        req: dict[str, Any] | None,
-        req_query: str | None,
-        slug_query: str | None,
-        repo_query: str | None,
-    ) -> str:
-        """Extract repo slug from supported request shapes."""
-        return _extract_field_from_sources(
-            ("slug", "repo"),
-            req,
-            req_query,
-            (slug_query, repo_query),
-            query_params_first=True,
-        )
-
-    def _extract_repo_path(
-        req: dict[str, Any] | None,
-        req_query: str | None,
-        path_query: str | None,
-        repo_path_query: str | None,
-    ) -> str:
-        """Extract repo path from supported body/query payload shapes."""
-        return _extract_field_from_sources(
-            ("path", "repo_path"),
-            req,
-            req_query,
-            (path_query, repo_path_query),
-            query_params_first=False,
-        )
 
     def _resolve_runtime(
         slug: str | None,
