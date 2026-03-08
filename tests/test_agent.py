@@ -335,7 +335,7 @@ class TestBuildPrompt:
         assert "Missing or insufficient test coverage" in prompt
 
     def test_prompt_includes_escalation_block_when_threshold_met(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include mandatory escalation block when patterns exceed threshold."""
         from review_insights import ReviewInsightStore, ReviewRecord
@@ -355,12 +355,12 @@ class TestBuildPrompt:
             )
 
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_prompt(issue)
+        prompt = runner._build_prompt(agent_task)
         assert "Mandatory Requirements: Test Coverage" in prompt
         assert "missing or insufficient test coverage" in prompt
 
     def test_prompt_omits_escalation_below_threshold(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         from review_insights import ReviewInsightStore, ReviewRecord
 
@@ -380,16 +380,16 @@ class TestBuildPrompt:
             )
 
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_prompt(issue)
+        prompt = runner._build_prompt(agent_task)
         assert "Mandatory Requirements" not in prompt
         assert "## Common Review Feedback" in prompt
 
     def test_prompt_includes_new_self_check_items(
-        self, config, event_bus: EventBus, issue
+        self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the new dead-code and failure-path checklist items."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_prompt(issue)
+        prompt = runner._build_prompt(agent_task)
         assert "New code is reachable" in prompt
         assert "Tests verify issue requirements" in prompt
         assert "Failure paths are tested" in prompt
