@@ -622,6 +622,270 @@ def create_router(
         if not isinstance(current_last, str) or timestamp > current_last:
             row["last_seen"] = timestamp
 
+    def _aggregate_telemetry_record(
+        record: dict[str, Any],
+        row: dict[str, Any],
+        pr_to_issue: dict[int, int],
+        issue_number: int,
+        *,
+        sum_counters: bool = False,
+    ) -> None:
+        """Extract shared metadata from a telemetry record into *row*.
+
+        When *sum_counters* is True the inference counter keys are also
+        accumulated (used in the per-record path).  The rollup path skips
+        counters because totals already came from ``get_issue_totals``.
+        """
+        timestamp = record.get("timestamp")
+        _touch_issue_timestamps(row, timestamp if isinstance(timestamp, str) else None)
+        session_id = str(record.get("session_id", "")).strip()
+        if session_id:
+            row["session_ids"].add(session_id)
+        source = str(record.get("source", "")).strip()
+        if source:
+            row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
+        model = str(record.get("model", "")).strip()
+        if model:
+            row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
+        if sum_counters:
+            for key in _INFERENCE_COUNTER_KEYS:
+                row["inference"][key] += _coerce_int(record.get(key))
+        pr_number = _coerce_int(record.get("pr_number"))
+        if pr_number > 0:
+            prs: dict[int, dict[str, Any]] = row["prs"]
+            if pr_number not in prs:
+                prs[pr_number] = {
+                    "number": pr_number,
+                    "url": "",
+                    "merged": False,
+                }
+            pr_to_issue.setdefault(pr_number, issue_number)
+
+    def _build_issue_history_entry(
+        row: dict[str, Any],
+    ) -> IssueHistoryEntry:
+        """Build an ``IssueHistoryEntry`` from a raw issue row dict."""
+        issue_number = int(row["issue_number"])
+        title = str(row.get("title", f"Issue #{issue_number}"))
+        row_status = str(row.get("status", "unknown")).lower()
+        linked_issues = _build_history_links(row.get("linked_issues", {}))
+        prs_map = row.get("prs", {})
+        if not isinstance(prs_map, dict):
+            prs_map = {}
+        pr_rows = sorted(
+            (
+                IssueHistoryPR(
+                    number=int(pr_data["number"]),
+                    url=str(pr_data.get("url", "")),
+                    merged=bool(pr_data.get("merged", False)),
+                )
+                for pr_data in prs_map.values()
+                if isinstance(pr_data, dict) and _coerce_int(pr_data.get("number")) > 0
+            ),
+            key=lambda p: p.number,
+            reverse=True,
+        )
+        return IssueHistoryEntry(
+            issue_number=issue_number,
+            title=title,
+            issue_url=str(row.get("issue_url", "")),
+            status=row_status,
+            epic=str(row.get("epic", "")),
+            crate_number=row.get("crate_number"),
+            crate_title=str(row.get("crate_title", "")),
+            linked_issues=linked_issues,
+            prs=pr_rows,
+            session_ids=sorted(str(s) for s in row.get("session_ids", set()) if str(s)),
+            source_calls=dict(sorted(row.get("source_calls", {}).items())),
+            model_calls=dict(sorted(row.get("model_calls", {}).items())),
+            inference={k: _coerce_int(v) for k, v in row.get("inference", {}).items()},
+            first_seen=row.get("first_seen"),
+            last_seen=row.get("last_seen"),
+            outcome=state.get_outcome(issue_number),
+        )
+
+    def _filter_and_build_entries(
+        issue_rows: dict[int, dict[str, Any]],
+        requested_status: str,
+        query_text: str,
+    ) -> list[IssueHistoryEntry]:
+        """Filter rows by status/query and convert to ``IssueHistoryEntry`` list."""
+        items: list[IssueHistoryEntry] = []
+        for row in issue_rows.values():
+            row_status = str(row.get("status", "unknown")).lower()
+            if requested_status and row_status != requested_status:
+                continue
+            issue_number = int(row["issue_number"])
+            title = str(row.get("title", f"Issue #{issue_number}"))
+            if (
+                query_text
+                and query_text not in title.lower()
+                and query_text not in str(issue_number)
+            ):
+                continue
+            items.append(_build_issue_history_entry(row))
+        return items
+
+    def _process_events_into_rows(
+        events: list[Any],
+        issue_rows: dict[int, dict[str, Any]],
+        pr_to_issue: dict[int, int],
+        since_dt: datetime | None,
+        until_dt: datetime | None,
+    ) -> None:
+        """Process event-bus events into *issue_rows* (mutating)."""
+        for event in events:
+            timestamp = event.timestamp
+            if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
+                continue
+
+            issue_number = _event_issue_number(event.data)
+            if issue_number is None and event.type == EventType.MERGE_UPDATE:
+                pr_num = _coerce_int(event.data.get("pr"))
+                issue_number = pr_to_issue.get(pr_num)
+
+            if issue_number is None or issue_number <= 0:
+                continue
+
+            row = issue_rows.setdefault(
+                issue_number, _new_issue_history_entry(issue_number)
+            )
+            _touch_issue_timestamps(row, timestamp)
+
+            maybe_title = str(event.data.get("title", "")).strip()
+            if maybe_title:
+                row["title"] = maybe_title
+
+            maybe_url = str(event.data.get("url", "")).strip()
+            if maybe_url.startswith(("http://", "https://")):
+                row["issue_url"] = maybe_url
+
+            if event.type == EventType.ISSUE_CREATED:
+                labels = event.data.get("labels", [])
+                if isinstance(labels, list) and not row.get("epic"):
+                    for lbl in labels:
+                        s = str(lbl).strip()
+                        if s and "epic" in s.lower():
+                            row["epic"] = s
+                            break
+                milestone_num = _coerce_int(event.data.get("milestone_number"))
+                if milestone_num > 0 and not row.get("crate_number"):
+                    row["crate_number"] = milestone_num
+
+            if event.type == EventType.PR_CREATED:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    pr_to_issue[pr_number] = issue_number
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    url = str(event.data.get("url", "")).strip()
+                    if url.startswith(("http://", "https://")):
+                        payload["url"] = url
+                    prs[pr_number] = payload
+
+            if event.type == EventType.MERGE_UPDATE:
+                pr_number = _coerce_int(event.data.get("pr"))
+                if pr_number > 0:
+                    prs = row["prs"]
+                    payload = prs.get(
+                        pr_number,
+                        {"number": pr_number, "url": "", "merged": False},
+                    )
+                    if str(event.data.get("status", "")).lower() == "merged":
+                        payload["merged"] = True
+                    prs[pr_number] = payload
+
+            normalised = _normalise_event_status(event.type, event.data)
+            if normalised:
+                current = str(row.get("status", "unknown"))
+                current_ts = (
+                    row.get("status_updated_at")
+                    if isinstance(row.get("status_updated_at"), str)
+                    else None
+                )
+                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
+                    current, current_ts
+                ):
+                    row["status"] = normalised
+                    row["status_updated_at"] = timestamp
+
+    async def _apply_enrichment_and_crate_titles(
+        items: list[IssueHistoryEntry],
+        issue_rows: dict[int, dict[str, Any]],
+        requested_status: str,
+        query_text: str,
+        use_unfiltered: bool,
+    ) -> list[IssueHistoryEntry]:
+        """Enrich items via GitHub and backfill crate titles from milestones.
+
+        Returns a (possibly rebuilt) items list.
+        """
+        already_enriched: set[int] = _history_cache.get("enriched_issues", set())
+        issue_lookup = {
+            item.issue_number: issue_rows[item.issue_number] for item in items
+        }
+        enrich_candidates = [
+            item.issue_number
+            for item in items
+            if item.issue_number not in already_enriched
+            and (
+                not item.issue_url
+                or item.title.startswith("Issue #")
+                or (not item.epic and not item.linked_issues)
+            )
+        ][:40]
+        if enrich_candidates:
+            await _enrich_issue_history_with_github(
+                {k: issue_lookup[k] for k in enrich_candidates}
+            )
+            already_enriched.update(enrich_candidates)
+            _history_cache["enriched_issues"] = already_enriched
+            if use_unfiltered and _history_cache["issue_rows"] is not None:
+                import copy
+
+                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
+                _save_history_cache()
+            # Rebuild items after enrichment changed the underlying rows.
+            items = _filter_and_build_entries(issue_rows, requested_status, query_text)
+
+        # Populate crate titles from milestones.
+        needs_title = any(i.crate_number and not i.crate_title for i in items)
+        if needs_title:
+            try:
+                milestones = await pr_manager.list_milestones(state="all")
+                title_map = {m.number: m.title for m in milestones}
+                items = [
+                    i.model_copy(
+                        update={"crate_title": title_map.get(i.crate_number, "")}
+                    )
+                    if i.crate_number and not i.crate_title
+                    else i
+                    for i in items
+                ]
+                backfilled = False
+                for i in items:
+                    if i.crate_number and i.crate_title:
+                        raw = issue_rows.get(i.issue_number)
+                        if raw is not None and raw.get("crate_title") != i.crate_title:
+                            raw["crate_title"] = i.crate_title
+                            backfilled = True
+                if (
+                    backfilled
+                    and use_unfiltered
+                    and _history_cache.get("issue_rows") is not None
+                ):
+                    import copy
+
+                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
+                    _save_history_cache()
+            except Exception:
+                logger.debug("Failed to fetch milestones for crate titles")
+
+        return items
+
     async def _enrich_issue_history_with_github(
         entries: dict[int, dict[str, Any]], limit: int = 150
     ) -> None:
@@ -2033,29 +2297,9 @@ def create_router(
                 row = issue_rows.get(issue_number)
                 if row is None:
                     continue
-                timestamp = record.get("timestamp")
-                _touch_issue_timestamps(
-                    row, timestamp if isinstance(timestamp, str) else None
+                _aggregate_telemetry_record(
+                    record, row, pr_to_issue, issue_number, sum_counters=False
                 )
-                session_id = str(record.get("session_id", "")).strip()
-                if session_id:
-                    row["session_ids"].add(session_id)
-                source = str(record.get("source", "")).strip()
-                if source:
-                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
-                model = str(record.get("model", "")).strip()
-                if model:
-                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
-                pr_number = _coerce_int(record.get("pr_number"))
-                if pr_number > 0:
-                    prs: dict[int, dict[str, Any]] = row["prs"]
-                    if pr_number not in prs:
-                        prs[pr_number] = {
-                            "number": pr_number,
-                            "url": "",
-                            "merged": False,
-                        }
-                    pr_to_issue.setdefault(pr_number, issue_number)
         else:
             inference_rows = telemetry.load_inferences(limit=50000)
             for record in inference_rows:
@@ -2072,114 +2316,14 @@ def create_router(
                 row = issue_rows.setdefault(
                     issue_number, _new_issue_history_entry(issue_number)
                 )
-                _touch_issue_timestamps(
-                    row, timestamp if isinstance(timestamp, str) else None
+                _aggregate_telemetry_record(
+                    record, row, pr_to_issue, issue_number, sum_counters=True
                 )
-
-                session_id = str(record.get("session_id", "")).strip()
-                if session_id:
-                    row["session_ids"].add(session_id)
-
-                source = str(record.get("source", "")).strip()
-                if source:
-                    row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
-
-                model = str(record.get("model", "")).strip()
-                if model:
-                    row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
-
-                for key in _INFERENCE_COUNTER_KEYS:
-                    row["inference"][key] += _coerce_int(record.get(key))
-
-                pr_number = _coerce_int(record.get("pr_number"))
-                if pr_number > 0:
-                    prs: dict[int, dict[str, Any]] = row["prs"]
-                    if pr_number not in prs:
-                        prs[pr_number] = {
-                            "number": pr_number,
-                            "url": "",
-                            "merged": False,
-                        }
-                    pr_to_issue.setdefault(pr_number, issue_number)
 
         if not cache_hit:
-            for event in all_events:
-                timestamp = event.timestamp
-                if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
-                    continue
-
-                issue_number = _event_issue_number(event.data)
-                if issue_number is None and event.type == EventType.MERGE_UPDATE:
-                    pr_num = _coerce_int(event.data.get("pr"))
-                    issue_number = pr_to_issue.get(pr_num)
-
-                if issue_number is None or issue_number <= 0:
-                    continue
-
-                row = issue_rows.setdefault(
-                    issue_number, _new_issue_history_entry(issue_number)
-                )
-                _touch_issue_timestamps(row, timestamp)
-
-                maybe_title = str(event.data.get("title", "")).strip()
-                if maybe_title:
-                    row["title"] = maybe_title
-
-                maybe_url = str(event.data.get("url", "")).strip()
-                if maybe_url.startswith(("http://", "https://")):
-                    row["issue_url"] = maybe_url
-
-                if event.type == EventType.ISSUE_CREATED:
-                    labels = event.data.get("labels", [])
-                    if isinstance(labels, list) and not row.get("epic"):
-                        for lbl in labels:
-                            s = str(lbl).strip()
-                            if s and "epic" in s.lower():
-                                row["epic"] = s
-                                break
-                    milestone_num = _coerce_int(event.data.get("milestone_number"))
-                    if milestone_num > 0 and not row.get("crate_number"):
-                        row["crate_number"] = milestone_num
-
-                if event.type == EventType.PR_CREATED:
-                    pr_number = _coerce_int(event.data.get("pr"))
-                    if pr_number > 0:
-                        pr_to_issue[pr_number] = issue_number
-                        prs = row["prs"]
-                        payload = prs.get(
-                            pr_number,
-                            {"number": pr_number, "url": "", "merged": False},
-                        )
-                        url = str(event.data.get("url", "")).strip()
-                        if url.startswith(("http://", "https://")):
-                            payload["url"] = url
-                        prs[pr_number] = payload
-
-                if event.type == EventType.MERGE_UPDATE:
-                    pr_number = _coerce_int(event.data.get("pr"))
-                    if pr_number > 0:
-                        prs = row["prs"]
-                        payload = prs.get(
-                            pr_number,
-                            {"number": pr_number, "url": "", "merged": False},
-                        )
-                        if str(event.data.get("status", "")).lower() == "merged":
-                            payload["merged"] = True
-                        prs[pr_number] = payload
-
-                normalised = _normalise_event_status(event.type, event.data)
-                if normalised:
-                    current = str(row.get("status", "unknown"))
-                    current_ts = (
-                        row.get("status_updated_at")
-                        if isinstance(row.get("status_updated_at"), str)
-                        else None
-                    )
-                    if _status_sort_key(normalised, timestamp) >= _status_sort_key(
-                        current, current_ts
-                    ):
-                        row["status"] = normalised
-                        row["status_updated_at"] = timestamp
+            _process_events_into_rows(
+                all_events, issue_rows, pr_to_issue, since_dt, until_dt
+            )
 
             # Store in cache if this was an unfiltered aggregation.
             if use_unfiltered:
@@ -2192,150 +2336,11 @@ def create_router(
                 _history_cache_ts[0] = now
                 _save_history_cache()
 
-        items: list[IssueHistoryEntry] = []
-        for row in issue_rows.values():
-            row_status = str(row.get("status", "unknown")).lower()
-            if requested_status and row_status != requested_status:
-                continue
+        items = _filter_and_build_entries(issue_rows, requested_status, query_text)
 
-            issue_number = int(row["issue_number"])
-            title = str(row.get("title", f"Issue #{issue_number}"))
-            if (
-                query_text
-                and query_text not in title.lower()
-                and query_text not in str(issue_number)
-            ):
-                continue
-
-            linked_issues = _build_history_links(row.get("linked_issues", {}))
-            prs_map = row.get("prs", {})
-            if not isinstance(prs_map, dict):
-                prs_map = {}
-            pr_rows = sorted(
-                (
-                    IssueHistoryPR(
-                        number=int(pr_data["number"]),
-                        url=str(pr_data.get("url", "")),
-                        merged=bool(pr_data.get("merged", False)),
-                    )
-                    for pr_data in prs_map.values()
-                    if isinstance(pr_data, dict)
-                    and _coerce_int(pr_data.get("number")) > 0
-                ),
-                key=lambda p: p.number,
-                reverse=True,
-            )
-
-            items.append(
-                IssueHistoryEntry(
-                    issue_number=issue_number,
-                    title=title,
-                    issue_url=str(row.get("issue_url", "")),
-                    status=row_status,
-                    epic=str(row.get("epic", "")),
-                    crate_number=row.get("crate_number"),
-                    crate_title=str(row.get("crate_title", "")),
-                    linked_issues=linked_issues,
-                    prs=pr_rows,
-                    session_ids=sorted(
-                        str(s) for s in row.get("session_ids", set()) if str(s)
-                    ),
-                    source_calls=dict(sorted(row.get("source_calls", {}).items())),
-                    model_calls=dict(sorted(row.get("model_calls", {}).items())),
-                    inference={
-                        k: _coerce_int(v) for k, v in row.get("inference", {}).items()
-                    },
-                    first_seen=row.get("first_seen"),
-                    last_seen=row.get("last_seen"),
-                    outcome=state.get_outcome(issue_number),
-                )
-            )
-
-        # Keep API fast by enriching only visible rows and only when needed.
-        # Skip issues already enriched in a previous request.
-        already_enriched: set[int] = _history_cache.get("enriched_issues", set())
-        issue_lookup = {
-            item.issue_number: issue_rows[item.issue_number] for item in items
-        }
-        enrich_candidates = [
-            item.issue_number
-            for item in items
-            if item.issue_number not in already_enriched
-            and (
-                not item.issue_url
-                or item.title.startswith("Issue #")
-                or (not item.epic and not item.linked_issues)
-            )
-        ][:40]
-        if enrich_candidates:
-            await _enrich_issue_history_with_github(
-                {k: issue_lookup[k] for k in enrich_candidates}
-            )
-            already_enriched.update(enrich_candidates)
-            _history_cache["enriched_issues"] = already_enriched
-            # Update cached issue_rows with enrichment data so future cache
-            # hits include titles/epics/linked_issues from GitHub.
-            if use_unfiltered and _history_cache["issue_rows"] is not None:
-                import copy
-
-                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                _save_history_cache()
-            items = []
-            for row in issue_rows.values():
-                row_status = str(row.get("status", "unknown")).lower()
-                if requested_status and row_status != requested_status:
-                    continue
-                issue_number = int(row["issue_number"])
-                title = str(row.get("title", f"Issue #{issue_number}"))
-                if (
-                    query_text
-                    and query_text not in title.lower()
-                    and query_text not in str(issue_number)
-                ):
-                    continue
-                linked_issues = _build_history_links(row.get("linked_issues", {}))
-                prs_map = row.get("prs", {})
-                if not isinstance(prs_map, dict):
-                    prs_map = {}
-                pr_rows = sorted(
-                    (
-                        IssueHistoryPR(
-                            number=int(pr_data["number"]),
-                            url=str(pr_data.get("url", "")),
-                            merged=bool(pr_data.get("merged", False)),
-                        )
-                        for pr_data in prs_map.values()
-                        if isinstance(pr_data, dict)
-                        and _coerce_int(pr_data.get("number")) > 0
-                    ),
-                    key=lambda p: p.number,
-                    reverse=True,
-                )
-                items.append(
-                    IssueHistoryEntry(
-                        issue_number=issue_number,
-                        title=title,
-                        issue_url=str(row.get("issue_url", "")),
-                        status=row_status,
-                        epic=str(row.get("epic", "")),
-                        crate_number=row.get("crate_number"),
-                        crate_title=str(row.get("crate_title", "")),
-                        linked_issues=linked_issues,
-                        prs=pr_rows,
-                        session_ids=sorted(
-                            str(s) for s in row.get("session_ids", set()) if str(s)
-                        ),
-                        source_calls=dict(sorted(row.get("source_calls", {}).items())),
-                        model_calls=dict(sorted(row.get("model_calls", {}).items())),
-                        inference={
-                            k: _coerce_int(v)
-                            for k, v in row.get("inference", {}).items()
-                        },
-                        first_seen=row.get("first_seen"),
-                        last_seen=row.get("last_seen"),
-                        outcome=state.get_outcome(issue_number),
-                    )
-                )
+        items = await _apply_enrichment_and_crate_titles(
+            items, issue_rows, requested_status, query_text, use_unfiltered
+        )
 
         items.sort(
             key=lambda item: (
@@ -2346,41 +2351,6 @@ def create_router(
             reverse=True,
         )
         items = items[:clamped_limit]
-
-        # Populate crate titles from milestones for items that have a
-        # crate_number but no title yet.
-        needs_title = any(i.crate_number and not i.crate_title for i in items)
-        if needs_title:
-            try:
-                milestones = await pr_manager.list_milestones(state="all")
-                title_map = {m.number: m.title for m in milestones}
-                items = [
-                    i.model_copy(
-                        update={"crate_title": title_map.get(i.crate_number, "")}
-                    )
-                    if i.crate_number and not i.crate_title
-                    else i
-                    for i in items
-                ]
-                # Also backfill into the raw rows so the cache carries titles.
-                backfilled = False
-                for i in items:
-                    if i.crate_number and i.crate_title:
-                        raw = issue_rows.get(i.issue_number)
-                        if raw is not None and raw.get("crate_title") != i.crate_title:
-                            raw["crate_title"] = i.crate_title
-                            backfilled = True
-                if (
-                    backfilled
-                    and use_unfiltered
-                    and _history_cache.get("issue_rows") is not None
-                ):
-                    import copy
-
-                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                    _save_history_cache()
-            except Exception:
-                logger.debug("Failed to fetch milestones for crate titles")
 
         totals = {
             "issues": len(items),
