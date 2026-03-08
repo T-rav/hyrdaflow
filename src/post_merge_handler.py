@@ -125,11 +125,12 @@ class PostMergeHandler:
         for epic_num in parent_epics:
             try:
                 await self._epic_manager.on_child_approved(epic_num, issue_number)
-            except Exception:  # noqa: BLE001
+            except (RuntimeError, OSError) as exc:
                 logger.warning(
-                    "Epic approval notification failed for child #%d of epic #%d",
+                    "Epic approval notification failed for child #%d of epic #%d: %s",
                     issue_number,
                     epic_num,
+                    exc,
                     exc_info=True,
                 )
 
@@ -325,7 +326,7 @@ class PostMergeHandler:
         )
         try:
             await self._prs.post_comment(issue.id, body)
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Could not post inference usage comment for issue #%d (PR #%d)",
                 issue.id,
@@ -342,7 +343,7 @@ class PostMergeHandler:
         """Await a post-merge hook, recording failures for visibility."""
         try:
             return await coro
-        except Exception as exc:  # noqa: BLE001
+        except (RuntimeError, OSError, ValueError) as exc:
             error_msg = str(exc)[:500]
             logger.warning(
                 "%s failed for issue #%d",
@@ -352,7 +353,7 @@ class PostMergeHandler:
             )
             try:
                 self._state.record_hook_failure(issue_number, name, error_msg)
-            except Exception:  # noqa: BLE001
+            except (RuntimeError, OSError, ValueError):
                 logger.debug(
                     "Failed to record hook failure for issue #%d",
                     issue_number,
@@ -373,7 +374,7 @@ class PostMergeHandler:
                         },
                     )
                 )
-            except Exception:  # noqa: BLE001
+            except (RuntimeError, OSError, ValueError):
                 logger.debug(
                     "Failed to publish hook failure event for issue #%d",
                     issue_number,
@@ -386,7 +387,7 @@ class PostMergeHandler:
                     f"Error: {error_msg}\n\n"
                     f"---\n*HydraFlow PostMergeHandler*",
                 )
-            except Exception:  # noqa: BLE001
+            except RuntimeError:
                 logger.warning(
                     "Could not post hook-failure comment for issue #%d",
                     issue_number,
@@ -422,7 +423,7 @@ class PostMergeHandler:
                     pr_number=pr.number,
                     review_result=result,
                 )
-            except Exception:  # noqa: BLE001
+            except (RuntimeError, OSError, ValueError):
                 retro_status = "error"
                 logger.warning(
                     "retrospective failed for issue #%d",
@@ -436,7 +437,7 @@ class PostMergeHandler:
                         retro_status,
                         {"issue_number": pr.issue_number, "pr_number": pr.number},
                     )
-                except Exception:  # noqa: BLE001
+                except (RuntimeError, OSError, ValueError):
                     logger.warning(
                         "retrospective status callback failed for issue #%d",
                         pr.issue_number,
