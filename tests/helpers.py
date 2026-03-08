@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 if TYPE_CHECKING:
     from events import HydraFlowEvent
     from models import QueueStats, Task
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
 
 @dataclass
@@ -885,14 +885,14 @@ class PipelineHarness:
         )
 
 
-def make_docker_manager(tmp_path: Path) -> WorktreeManager:
-    """Create a WorktreeManager with docker execution mode.
+def make_docker_manager(tmp_path: Path) -> WorkspaceManager:
+    """Create a WorkspaceManager with docker execution mode.
 
     Promoted from test_worktree._make_docker_manager() for reuse across test files.
     """
     from unittest.mock import patch
 
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
     with patch("shutil.which", return_value="/usr/bin/docker"):
         cfg = ConfigFactory.create(
@@ -901,7 +901,7 @@ def make_docker_manager(tmp_path: Path) -> WorktreeManager:
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
-    return WorktreeManager(cfg)
+    return WorkspaceManager(cfg)
 
 
 class AuditCheckFactory:

@@ -62,7 +62,7 @@ from reviewer import ReviewRunner
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.review_phase")
 
@@ -91,7 +91,7 @@ class ReviewPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         reviewers: ReviewRunner,
         prs: PRManager,
         stop_event: asyncio.Event,

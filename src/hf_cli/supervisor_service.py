@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import signal
@@ -17,6 +18,8 @@ from typing import Any
 
 from . import supervisor_state
 from .config import DEFAULT_SUPERVISOR_PORT, STATE_DIR, SUPERVISOR_PORT_FILE
+
+logger = logging.getLogger(__name__)
 
 
 class RepoProcess:
@@ -166,6 +169,8 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
     try:
         raw = await reader.readline()
         if not raw:
+            writer.close()
+            await writer.wait_closed()
             return
         request = json.loads(raw.decode())
         action = request.get("action")
@@ -240,10 +245,14 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
         else:
             response = {"status": "error", "error": "unknown action"}
     except Exception as exc:  # noqa: BLE001
+        logger.exception("Unhandled error in supervisor handler")
         response = {"status": "error", "error": str(exc)}
-    writer.write((json.dumps(response) + "\n").encode())
-    await writer.drain()
-    writer.close()
+    try:
+        writer.write((json.dumps(response) + "\n").encode())
+        await writer.drain()
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 def _build_repo_status_payload() -> list[dict[str, Any]]:

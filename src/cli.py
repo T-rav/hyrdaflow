@@ -1258,12 +1258,12 @@ async def _run_scaffold(config: HydraFlowConfig) -> bool:
 async def _run_clean(config: HydraFlowConfig) -> None:
     """Remove all worktrees and reset state."""
     from state import StateTracker
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
     logger = logging.getLogger("hydraflow")
     logger.info("Cleaning up all HydraFlow worktrees and state...")
 
-    wt_mgr = WorktreeManager(config)
+    wt_mgr = WorkspaceManager(config)
     await wt_mgr.destroy_all()
 
     state = StateTracker(config.state_file)
@@ -1394,6 +1394,16 @@ def main(argv: list[str] | None = None) -> None:
         _run_replay(config, args.replay, args.replay_latest)
         sys.exit(0)
 
+    _logger = logging.getLogger("hydraflow.cli")
+    _logger.info(
+        "Loaded worker counts: triagers=%d planners=%d workers=%d reviewers=%d hitl=%d (config_file=%s)",
+        config.max_triagers,
+        config.max_planners,
+        config.max_workers,
+        config.max_reviewers,
+        config.max_hitl_workers,
+        config.config_file,
+    )
     asyncio.run(_run_main(config))
 
 

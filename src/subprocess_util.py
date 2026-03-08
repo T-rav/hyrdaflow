@@ -225,17 +225,48 @@ def make_clean_env(gh_token: str = "") -> dict[str, str]:
     return env
 
 
+def _read_dotenv(repo_root: Path) -> dict[str, str]:
+    """Read key=value pairs from ``repo_root/.env`` for Docker passthrough."""
+    env_file = repo_root / ".env"
+    if not env_file.is_file():
+        return {}
+    try:
+        text = env_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()  # noqa: PLW2901
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()  # noqa: PLW2901
+        val = val.strip().strip("\"'")
+        if key and val:
+            result[key] = val
+    return result
+
+
 def make_docker_env(
     gh_token: str = "",
     git_user_name: str = "",
     git_user_email: str = "",
+    repo_root: Path | None = None,
 ) -> dict[str, str]:
     """Build a minimal env dict for Docker container execution.
 
     Unlike :func:`make_clean_env` which inherits the full host env, this
     passes only the variables necessary for agent operation inside a container.
+
+    When *repo_root* is provided, keys not found in ``os.environ`` are
+    looked up in ``repo_root/.env`` so that values like
+    ``CLAUDE_CODE_OAUTH_TOKEN`` reach the container even when they are
+    only set in the dotenv file.
     """
     env: dict[str, str] = {"HOME": "/home/hydraflow"}
+    dotenv = _read_dotenv(repo_root) if repo_root else {}
 
     if gh_token:
         env["GH_TOKEN"] = gh_token
@@ -247,7 +278,7 @@ def make_docker_env(
             env["GH_TOKEN"] = inherited_token
 
     for key in _DOCKER_ENV_PASSTHROUGH_KEYS:
-        value = os.environ.get(key, "")
+        value = os.environ.get(key, "") or dotenv.get(key, "")
         if value:
             env[key] = value
 

@@ -46,7 +46,7 @@ class FakeBackgroundLoop:
         await asyncio.sleep(0)
 
 
-class FakeWorktreeManager:
+class FakeWorkspaceManager:
     """Tracks worktree cleanup calls."""
 
     def __init__(self) -> None:
@@ -223,7 +223,7 @@ class ScriptedImplementPhase:
         config: HydraFlowConfig,
         store: IssueStore,
         script: PipelineScript,
-        worktrees: FakeWorktreeManager,
+        worktrees: FakeWorkspaceManager,
         github: ScriptedGitHub,
     ) -> None:
         self._config = config
@@ -393,7 +393,7 @@ def build_scripted_services(
     script: PipelineScript,
 ) -> SimpleNamespace:
     """Return a fake ServiceRegistry wired with scripted phases."""
-    worktrees = FakeWorktreeManager()
+    worktrees = FakeWorkspaceManager()
     github = ScriptedGitHub()
 
     store = IssueStore(config, StaticTaskFetcher(), event_bus)

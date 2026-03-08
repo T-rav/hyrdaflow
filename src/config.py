@@ -13,6 +13,8 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+import file_util
+
 logger = logging.getLogger("hydraflow.config")
 
 # Data-driven env-var override tables.
@@ -1994,19 +1996,28 @@ def load_config_file(path: Path | None) -> dict[str, Any]:
 
 
 def save_config_file(path: Path | None, values: dict[str, Any]) -> None:
-    """Save config values to a JSON file, merging with existing contents."""
+    """Save config values to a JSON file, merging with existing contents.
+
+    Uses atomic write (temp file + ``os.replace``) to prevent data loss from
+    concurrent writes or crashes mid-write (TOCTOU race condition).
+    """
     if path is None:
         return
+
     existing: dict[str, Any] = {}
     try:
         existing = json.loads(path.read_text())
         if not isinstance(existing, dict):
+            logger.warning(
+                "Config file %s contained non-dict JSON; starting fresh", path
+            )
             existing = {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
+    except FileNotFoundError:
+        logger.debug("Config file %s not found; will create", path)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to read config file %s: %s; starting fresh", path, exc)
     existing.update(values)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(existing, indent=2) + "\n")
-    except OSError:
-        logger.warning("Failed to write config file %s", path)
+        file_util.atomic_write(path, json.dumps(existing, indent=2) + "\n")
+    except OSError as exc:
+        logger.warning("Failed to write config file %s: %s", path, exc)

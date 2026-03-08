@@ -26,7 +26,7 @@ from run_recorder import RunRecorder
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError, run_subprocess
 from task_source import TaskTransitioner
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.implement_phase")
 
@@ -38,7 +38,7 @@ class ImplementPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         agents: AgentRunner,
         prs: PRManager,
         store: IssueStore,

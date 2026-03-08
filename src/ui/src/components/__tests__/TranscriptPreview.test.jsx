@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { TranscriptPreview } from '../TranscriptPreview'
 
 describe('TranscriptPreview', () => {
@@ -113,6 +113,106 @@ describe('TranscriptPreview', () => {
   it('does not show toggle when transcript has exactly maxCollapsedLines lines', () => {
     render(<TranscriptPreview transcript={['line 1', 'line 2', 'line 3']} maxCollapsedLines={3} />)
     expect(screen.queryByTestId('transcript-toggle')).not.toBeInTheDocument()
+  })
+
+  describe('copy button', () => {
+    let writeTextMock
+
+    beforeEach(() => {
+      writeTextMock = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { writeText: writeTextMock },
+      })
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('renders the copy button when transcript exists', () => {
+      render(<TranscriptPreview transcript={['hello']} />)
+      expect(screen.getByTestId('transcript-copy')).toBeInTheDocument()
+      expect(screen.getByTestId('transcript-copy')).toHaveTextContent('Copy')
+    })
+
+    it('does not render copy button when transcript is empty', () => {
+      const { container } = render(<TranscriptPreview transcript={[]} />)
+      expect(container.firstChild).toBeNull()
+    })
+
+    it('copies full transcript to clipboard on click', async () => {
+      const lines = ['line 1', 'line 2', 'line 3']
+      render(<TranscriptPreview transcript={lines} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      expect(writeTextMock).toHaveBeenCalledWith('line 1\nline 2\nline 3')
+    })
+
+    it('copies all lines even when collapsed', async () => {
+      const lines = ['line 1', 'line 2', 'line 3', 'line 4', 'line 5']
+      render(<TranscriptPreview transcript={lines} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      expect(writeTextMock).toHaveBeenCalledWith('line 1\nline 2\nline 3\nline 4\nline 5')
+    })
+
+    it('shows "Copied!" feedback after clicking', async () => {
+      render(<TranscriptPreview transcript={['hello']} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      expect(screen.getByTestId('transcript-copy')).toHaveTextContent('Copied!')
+    })
+
+    it('resets "Copied!" text after 1.5 seconds', async () => {
+      render(<TranscriptPreview transcript={['hello']} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      expect(screen.getByTestId('transcript-copy')).toHaveTextContent('Copied!')
+
+      act(() => {
+        vi.advanceTimersByTime(1500)
+      })
+
+      expect(screen.getByTestId('transcript-copy')).toHaveTextContent('Copy')
+    })
+
+    it('handles clipboard API failure gracefully', async () => {
+      writeTextMock.mockRejectedValue(new Error('Clipboard blocked'))
+      render(<TranscriptPreview transcript={['hello']} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      // Should not crash, button should still show "Copy"
+      expect(screen.getByTestId('transcript-copy')).toHaveTextContent('Copy')
+    })
+
+    it('clears timeout on unmount to prevent stale state update', async () => {
+      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
+      const { unmount } = render(<TranscriptPreview transcript={['hello']} />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('transcript-copy'))
+      })
+
+      unmount()
+      expect(clearTimeoutSpy).toHaveBeenCalled()
+      clearTimeoutSpy.mockRestore()
+    })
   })
 
 })

@@ -107,10 +107,10 @@ class TestInit:
         assert isinstance(orch._state, StateTracker)
 
     def test_creates_worktree_manager(self, config: HydraFlowConfig) -> None:
-        from worktree import WorktreeManager
+        from workspace import WorkspaceManager
 
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._worktrees, WorktreeManager)
+        assert isinstance(orch._worktrees, WorkspaceManager)
 
     def test_creates_agent_runner(self, config: HydraFlowConfig) -> None:
         from agent import AgentRunner

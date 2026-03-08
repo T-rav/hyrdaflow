@@ -26,7 +26,7 @@ if TYPE_CHECKING:
         TroubleshootingPattern,
         TroubleshootingPatternStore,
     )
-    from worktree import WorktreeManager
+    from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.pr_unsticker")
 
@@ -105,7 +105,7 @@ class PRUnsticker:
         event_bus: EventBus,
         pr_manager: PRManager,
         agents: AgentRunner,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         fetcher: IssueFetcher,
         hitl_runner: HITLRunner | None = None,
         stop_event: asyncio.Event | None = None,

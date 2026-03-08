@@ -15,7 +15,7 @@ from phase_utils import safe_file_memory_suggestion
 from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.hitl_phase")
 
@@ -36,7 +36,7 @@ class HITLPhase:
         state: StateTracker,
         store: IssueStore,
         fetcher: IssueFetcher,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         hitl_runner: HITLRunner,
         prs: PRManager,
         event_bus: EventBus,
