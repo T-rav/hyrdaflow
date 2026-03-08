@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { theme } from '../theme'
+import { useHydraFlow } from '../context/HydraFlowContext'
 
 const RANGE_PRESETS = [
   { key: '24h', label: '24h', hours: 24 },
@@ -173,6 +174,7 @@ function renderLinkedIssue(linked, index) {
 const GRID_COLUMNS = '26px 52px minmax(180px, 2fr) 84px 100px 50px minmax(80px, 1fr) 70px 100px'
 
 export function OutcomesPanel() {
+  const { issueHistory } = useHydraFlow()
   const [preset, setPreset] = useState('all')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -181,73 +183,30 @@ export function OutcomesPanel() {
   const [search, setSearch] = useState('')
   const [epicOnly, setEpicOnly] = useState(false)
   const [groupBy, setGroupBy] = useState('none')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [payload, setPayload] = useState({ items: [], totals: {} })
   const [expanded, setExpanded] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
-  const cachedPayload = useRef(null)
-  const refreshTimer = useRef(null)
+
+  const loading = !issueHistory
+  const payload = useMemo(() => ({
+    items: Array.isArray(issueHistory?.items) ? issueHistory.items : [],
+    totals: issueHistory?.totals || {},
+  }), [issueHistory])
 
   const timeRange = useMemo(
     () => buildTimeRange(preset, customStart, customEnd),
     [preset, customStart, customEnd],
   )
 
-  const abortRef = useRef(null)
-
-  const fetchHistory = useCallback((params, { background = false, signal } = {}) => {
-    if (!background) {
-      if (cachedPayload.current) {
-        setPayload(cachedPayload.current)
-      }
-      setLoading(true)
-      setError('')
-    }
-
-    return fetch(`/api/issues/history?${params.toString()}`, { signal })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`status ${res.status}`)
-        return await res.json()
-      })
-      .then(data => {
-        const next = {
-          items: Array.isArray(data.items) ? data.items : [],
-          totals: data.totals || {},
-        }
-        cachedPayload.current = next
-        setPayload(next)
-      })
-      .catch((err) => {
-        if (err?.name === 'AbortError') return
-        if (!background) setError('Could not load issue history')
-      })
-      .finally(() => {
-        if (!background) setLoading(false)
-      })
-  }, [])
-
-  useEffect(() => {
-    const ac = new AbortController()
-    abortRef.current = ac
-    const params = new URLSearchParams()
-    if (timeRange.since) params.set('since', timeRange.since)
-    if (timeRange.until) params.set('until', timeRange.until)
-    params.set('limit', '500')
-
-    fetchHistory(params, { signal: ac.signal })
-
-    clearInterval(refreshTimer.current)
-    refreshTimer.current = setInterval(() => {
-      fetchHistory(params, { background: true })
-    }, 30_000)
-
-    return () => { ac.abort(); clearInterval(refreshTimer.current) }
-  }, [timeRange.since, timeRange.until, fetchHistory])
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
+    const since = timeRange.since ? new Date(timeRange.since).getTime() : null
+    const until = timeRange.until ? new Date(timeRange.until).getTime() : null
     return (payload.items || []).filter(item => {
+      if (since || until) {
+        const ts = item.last_seen ? new Date(item.last_seen).getTime() : 0
+        if (since && ts < since) return false
+        if (until && ts > until) return false
+      }
       if (statusFilter !== 'all' && (item.status || 'unknown') !== statusFilter) return false
       if (outcomeFilter !== 'all' && item.outcome?.outcome !== outcomeFilter) return false
       if (epicOnly && !item.epic) return false
@@ -258,7 +217,7 @@ export function OutcomesPanel() {
       if ((item.crate_title || '').toLowerCase().includes(q)) return true
       return false
     })
-  }, [payload.items, statusFilter, outcomeFilter, epicOnly, search])
+  }, [payload.items, statusFilter, outcomeFilter, epicOnly, search, timeRange.since, timeRange.until])
 
   const grouped = useMemo(() => {
     if (groupBy === 'none') return null
@@ -548,7 +507,6 @@ export function OutcomesPanel() {
       </div>
 
       {loading && <div style={styles.info}>Loading...</div>}
-      {error && <div style={styles.error}>{error}</div>}
 
       <div style={styles.table}>
         <div style={styles.headerRow}>
@@ -974,14 +932,6 @@ const styles = {
     padding: 12,
     color: theme.textMuted,
     fontSize: 12,
-  },
-  error: {
-    padding: 12,
-    borderRadius: 6,
-    border: `1px solid ${theme.red}`,
-    color: theme.red,
-    fontSize: 12,
-    background: theme.redSubtle || theme.surface,
   },
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { HarnessInsightsPanel } from './HarnessInsightsPanel'
@@ -28,63 +28,6 @@ function InsightBar({ label, count, maxCount, color }) {
 }
 
 // ---------------------------------------------------------------------------
-// Generic fetch + poll hook
-// ---------------------------------------------------------------------------
-
-function usePolledData(url, intervalMs = 30000) {
-  const { config } = useHydraFlow()
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const cacheKey = `hydraflow:${url}:${config?.repo || 'default'}`
-
-  useEffect(() => {
-    let cancelled = false
-    let hasCachedData = false
-
-    try {
-      const raw = localStorage.getItem(cacheKey)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object') {
-          hasCachedData = true
-          setData(parsed)
-          setLoading(false)
-        }
-      }
-    } catch {
-      // Ignore malformed cache
-    }
-
-    async function fetchData() {
-      try {
-        const resp = await fetch(url)
-        if (resp.ok && !cancelled) {
-          const payload = await resp.json()
-          setData(payload)
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify(payload))
-          } catch {
-            // Ignore storage write errors
-          }
-        }
-      } catch {
-        // Silently fail
-      } finally {
-        if (!cancelled && !hasCachedData) setLoading(false)
-      }
-    }
-    fetchData()
-    const interval = setInterval(fetchData, intervalMs)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [cacheKey, url, intervalMs])
-
-  return { data, loading }
-}
-
-// ---------------------------------------------------------------------------
 // Review Feedback sub-section
 // ---------------------------------------------------------------------------
 
@@ -106,10 +49,10 @@ const REVIEW_CATEGORY_LABELS = {
 }
 
 function ReviewFeedbackSection() {
-  const { data, loading } = usePolledData('/api/review-insights')
+  const { reviewInsights: data } = useHydraFlow()
 
-  if (loading) return <div style={styles.empty}>Loading review insights...</div>
-  if (!data || data.total_reviews === 0) return <div style={styles.empty}>No review data yet.</div>
+  if (!data) return <div style={styles.empty}>Loading review insights...</div>
+  if (data.total_reviews === 0) return <div style={styles.empty}>No review data yet.</div>
 
   const verdictCounts = data.verdict_counts || {}
   const maxVerdict = Math.max(...Object.values(verdictCounts), 1)
@@ -215,10 +158,10 @@ function PatternCard({ pattern }) {
 // ---------------------------------------------------------------------------
 
 function RetrospectiveSection() {
-  const { data, loading } = usePolledData('/api/retrospectives')
+  const { retrospectives: data } = useHydraFlow()
 
-  if (loading) return <div style={styles.empty}>Loading retrospective data...</div>
-  if (!data || data.total_entries === 0) return <div style={styles.empty}>No retrospective data yet.</div>
+  if (!data) return <div style={styles.empty}>Loading retrospective data...</div>
+  if (data.total_entries === 0) return <div style={styles.empty}>No retrospective data yet.</div>
 
   const verdictCounts = data.verdict_counts || {}
   const maxVerdict = Math.max(...Object.values(verdictCounts), 1)
@@ -367,10 +310,10 @@ function TroubleshootingCard({ pattern }) {
 // ---------------------------------------------------------------------------
 
 function TroubleshootingSubSection() {
-  const { data, loading } = usePolledData('/api/troubleshooting')
+  const { troubleshooting: data } = useHydraFlow()
 
-  if (loading) return <div style={styles.empty}>Loading troubleshooting patterns...</div>
-  if (!data || data.total_patterns === 0) {
+  if (!data) return <div style={styles.empty}>Loading troubleshooting patterns...</div>
+  if (data.total_patterns === 0) {
     return <div style={styles.empty}>No troubleshooting patterns recorded yet.</div>
   }
 
@@ -392,11 +335,11 @@ function TroubleshootingSubSection() {
 // ---------------------------------------------------------------------------
 
 function LearningsSection() {
-  const { data, loading } = usePolledData('/api/memories')
+  const { memories: data } = useHydraFlow()
   const [memoryFilter, setMemoryFilter] = useState('')
 
-  if (loading) return <div style={styles.empty}>Loading learnings...</div>
-  if (!data || data.total_items === 0) return <div style={styles.empty}>No learnings recorded yet.</div>
+  if (!data) return <div style={styles.empty}>Loading learnings...</div>
+  if (data.total_items === 0) return <div style={styles.empty}>No learnings recorded yet.</div>
 
   const curated = data.curated || {}
   const hasCurated =

@@ -32,14 +32,6 @@ class TestBuildConflictPrompt:
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
         assert "Do not push" in prompt
 
-    def test_includes_post_merge_checklist(self) -> None:
-        prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
-        assert "Post-Merge Checklist" in prompt
-        assert "Duplicate definitions" in prompt
-        assert "Duplicate keyword arguments" in prompt
-        assert "Sequential numbering" in prompt
-        assert "Stale assertions" in prompt
-
     def test_no_previous_error_on_first_attempt(self) -> None:
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
         assert "Previous Attempt Failed" not in prompt
@@ -54,7 +46,6 @@ class TestBuildConflictPrompt:
         )
         assert "## Previous Attempt Failed" in prompt
         assert "ruff error" in prompt
-        assert "Attempt 1" in prompt
 
     def test_truncates_long_error(self) -> None:
         long_error = "x" * 5000
@@ -142,12 +133,11 @@ class TestBuildRebuildPrompt:
         assert ISSUE_URL in prompt
         assert PR_URL in prompt
 
-    def test_includes_fresh_branch_instructions(self) -> None:
+    def test_includes_re_apply_header(self) -> None:
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
         )
-        assert "fresh branch" in prompt.lower()
-        assert "re-applying" in prompt.lower()
+        assert "re-apply" in prompt.lower()
 
     def test_includes_pr_diff(self) -> None:
         prompt = build_rebuild_prompt(
@@ -157,11 +147,10 @@ class TestBuildRebuildPrompt:
         assert "-old" in prompt
         assert "+new" in prompt
 
-    def test_includes_instructions_section(self) -> None:
+    def test_includes_make_quality(self) -> None:
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
         )
-        assert "## Instructions" in prompt
         assert "make quality" in prompt
 
     def test_includes_commit_message_with_issue_number(self) -> None:
@@ -170,28 +159,18 @@ class TestBuildRebuildPrompt:
         )
         assert "Fixes #42" in prompt
 
-    def test_includes_numbered_file_instruction(self) -> None:
+    def test_includes_do_not_push(self) -> None:
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
         )
-        assert "numbered file" in prompt.lower()
-        assert "already exists" in prompt
-
-    def test_includes_rules_section(self) -> None:
-        prompt = build_rebuild_prompt(
-            ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF
-        )
-        assert "## Rules" in prompt
-        assert "Do NOT push" in prompt
+        assert "Do not push" in prompt
 
     def test_truncates_long_diff(self) -> None:
         long_diff = "+" + "x" * 20_000
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=long_diff
         )
-        diff_section = prompt.split("## Original PR Diff")[1].split("## Instructions")[
-            0
-        ]
+        diff_section = prompt.split("## Original PR Diff")[1].split("## Optional:")[0]
         assert diff_section.count("x") <= 15_000
 
     def test_truncates_diff_using_config_max_chars(self, tmp_path: Path) -> None:
@@ -202,9 +181,7 @@ class TestBuildRebuildPrompt:
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=long_diff, config=config
         )
-        diff_section = prompt.split("## Original PR Diff")[1].split("## Instructions")[
-            0
-        ]
+        diff_section = prompt.split("## Original PR Diff")[1].split("## Optional:")[0]
         assert diff_section.count("Q") <= 2000
 
     def test_includes_project_context_when_config_provided(

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
 
 const mockUseHydraFlow = vi.fn()
 
@@ -23,53 +23,37 @@ function insightsPayload(overrides = {}) {
   }
 }
 
-describe('HarnessInsightsPanel cache', () => {
+describe('HarnessInsightsPanel', () => {
   beforeEach(() => {
-    localStorage.clear()
     mockUseHydraFlow.mockReturnValue({
-      config: { repo: 'T-rav/hyrda' },
+      harnessInsights: null,
     })
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
+  it('shows loading state when harnessInsights is null', () => {
+    render(<HarnessInsightsPanel />)
+    expect(screen.getByText('Loading harness insights...')).toBeInTheDocument()
   })
 
-  it('loads cached data when API fetch fails', async () => {
-    localStorage.setItem(
-      'hydraflow:harness-insights:T-rav/hyrda',
-      JSON.stringify(insightsPayload({ total_failures: 7 })),
-    )
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+  it('renders failure categories from context data', () => {
+    mockUseHydraFlow.mockReturnValue({
+      harnessInsights: insightsPayload({ total_failures: 7 }),
+    })
 
     render(<HarnessInsightsPanel />)
 
-    await waitFor(() => {
-      expect(screen.getByText('Failure Categories')).toBeInTheDocument()
-      expect(screen.getByText('cached')).toBeInTheDocument()
-      expect(screen.getByText('7')).toBeInTheDocument()
-    })
+    expect(screen.getByText('Failure Categories')).toBeInTheDocument()
+    expect(screen.getByText('7')).toBeInTheDocument()
   })
 
-  it('writes fresh API payload to localStorage', async () => {
-    const payload = insightsPayload({ total_failures: 5 })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => payload,
-      }),
-    )
+  it('renders data with different total_failures from context', () => {
+    mockUseHydraFlow.mockReturnValue({
+      harnessInsights: insightsPayload({ total_failures: 5 }),
+    })
 
     render(<HarnessInsightsPanel />)
 
-    await waitFor(() => {
-      expect(screen.getByText('Failure Categories')).toBeInTheDocument()
-      expect(screen.getByText('5')).toBeInTheDocument()
-    })
-
-    const raw = localStorage.getItem('hydraflow:harness-insights:T-rav/hyrda')
-    expect(raw).not.toBeNull()
-    expect(JSON.parse(raw).total_failures).toBe(5)
+    expect(screen.getByText('Failure Categories')).toBeInTheDocument()
+    expect(screen.getByText('5')).toBeInTheDocument()
   })
 })

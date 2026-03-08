@@ -16,6 +16,7 @@ from models import (
     EpicDetail,
     EpicProgress,
     EpicState,
+    MergeStrategy,
     Task,
     TaskLinkKind,
     parse_task_links,
@@ -128,11 +129,11 @@ class TestEpicStateNewFields:
 
     def test_merge_strategy_defaults_to_independent(self) -> None:
         epic = EpicState(epic_number=1)
-        assert epic.merge_strategy == "independent"
+        assert epic.merge_strategy == MergeStrategy.INDEPENDENT
 
     def test_merge_strategy_can_be_set(self) -> None:
         epic = EpicState(epic_number=1, merge_strategy="bundled")
-        assert epic.merge_strategy == "bundled"
+        assert epic.merge_strategy == MergeStrategy.BUNDLED
 
     def test_approved_children_persistence(self) -> None:
         epic = EpicState(epic_number=1, approved_children=[1, 2, 3])
@@ -165,7 +166,7 @@ class TestEpicProgressNewFields:
 
     def test_merge_strategy_defaults_to_independent(self) -> None:
         progress = EpicProgress(epic_number=1)
-        assert progress.merge_strategy == "independent"
+        assert progress.merge_strategy == MergeStrategy.INDEPENDENT
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +204,7 @@ class TestEpicDetailNewFields:
 
     def test_merge_strategy_defaults_to_independent(self) -> None:
         detail = EpicDetail(epic_number=1)
-        assert detail.merge_strategy == "independent"
+        assert detail.merge_strategy == MergeStrategy.INDEPENDENT
 
 
 # ---------------------------------------------------------------------------

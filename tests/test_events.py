@@ -472,6 +472,39 @@ class TestEventBusClear:
         assert queue.get_nowait() is event
         assert len(bus.get_history()) == 1
 
+    @pytest.mark.asyncio
+    async def test_clear_resets_session_repo_and_pending_persists(self) -> None:
+        bus = EventBus()
+        bus.set_session_id("session-123")
+        bus.set_repo("hydraflow/repo")
+
+        first_event = EventFactory.create(type=EventType.PHASE_CHANGE)
+        await bus.publish(first_event)
+        assert first_event.session_id == "session-123"
+        assert first_event.data["repo"] == "hydraflow/repo"
+
+        async def _noop() -> None:
+            return None
+
+        pending_task = asyncio.create_task(_noop())
+        await pending_task
+        bus._pending_persists.add(pending_task)
+
+        assert bus.current_session_id == "session-123"
+        assert bus._active_repo == "hydraflow/repo"
+        assert bus._pending_persists
+
+        bus.clear()
+
+        next_event = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
+        await bus.publish(next_event)
+
+        assert bus.current_session_id is None
+        assert next_event.session_id is None
+        assert "repo" not in next_event.data
+        assert bus._active_repo == ""
+        assert not bus._pending_persists
+
 
 # ---------------------------------------------------------------------------
 # Slow subscriber (queue full → drop oldest)

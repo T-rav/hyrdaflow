@@ -1,17 +1,6 @@
 import { PIPELINE_STAGES, PIPELINE_LOOPS, ACTIVE_STATUSES } from '../constants'
 
 /**
- * Mapping from stage key to the session counter property name in state.
- */
-const SESSION_COUNTER_KEYS = {
-  triage: 'sessionTriaged',
-  plan: 'sessionPlanned',
-  implement: 'sessionImplemented',
-  review: 'sessionReviewed',
-  merged: 'mergedCount',
-}
-
-/**
  * Set of pipeline loop keys for quick lookup of which stages have toggleable loops.
  */
 const LOOP_KEYS = new Set(PIPELINE_LOOPS.map(l => l.key))
@@ -21,54 +10,33 @@ const LOOP_KEYS = new Set(PIPELINE_LOOPS.map(l => l.key))
  *
  * Returns an object keyed by stage key with per-stage metrics, plus a `workload` aggregate.
  *
+ * pipelineStats (from backend) is the single source of truth for all aggregate numbers:
+ * sessionCount, activeCount, queuedCount, workerCount, workerCaps, and merged done count.
+ * pipelineIssues is only used for issueCount (card rendering) and workload open-issue totals.
+ *
  * @param {Object} pipelineIssues - Issues per stage { triage: [...], plan: [...], ... }
- * @param {Object} workers - Worker map keyed by issue/worker key
+ * @param {Object} workers - Worker map keyed by issue/worker key (used for workload.active)
  * @param {Array} backgroundWorkers - Array of { name, status, enabled, ... }
- * @param {Object} sessionCounters - { sessionTriaged, sessionPlanned, sessionImplemented, sessionReviewed, mergedCount }
- * @returns {{ [stageKey]: { issueCount, activeCount, queuedCount, workerCount, enabled, sessionCount }, workload: { total, active, done, failed } }}
- *   workload is pipeline-centric (same source as Stream/System pipeline views):
- *   open issue counts come from pipelineIssues; merged comes from session counters.
+ * @param {Object} pipelineStats - Backend PipelineStats — the single source of truth
  */
-export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, sessionCounters, config) {
+export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, pipelineStats) {
   const issues = pipelineIssues || {}
   const workerValues = Object.values(workers || {})
   const bgMap = new Map((backgroundWorkers || []).map(w => [w.name, w]))
-  const counters = sessionCounters || {}
-  const cfg = config || {}
+  const stages = pipelineStats?.stages || {}
 
   const stageStatus = {}
 
-  const triageCap = Number.isFinite(Number(cfg.max_triagers))
-    ? Number(cfg.max_triagers)
-    : null
-  const plannerCap = Number.isFinite(Number(cfg.max_planners))
-    ? Number(cfg.max_planners)
-    : null
-  const implementCap = Number.isFinite(Number(cfg.max_workers))
-    ? Number(cfg.max_workers)
-    : null
-  const reviewCap = Number.isFinite(Number(cfg.max_reviewers))
-    ? Number(cfg.max_reviewers)
-    : null
-
   const workerCaps = {
-    triage: triageCap,
-    plan: plannerCap,
-    implement: implementCap,
-    review: reviewCap,
+    triage: stages.triage?.worker_cap ?? null,
+    plan: stages.plan?.worker_cap ?? null,
+    implement: stages.implement?.worker_cap ?? null,
+    review: stages.review?.worker_cap ?? null,
   }
 
   for (const stage of PIPELINE_STAGES) {
     const stageIssues = issues[stage.key] || []
-    const activeIssues = stageIssues.filter(i => i.status === 'active').length
-
-    // Worker count: filter workers by role and active status
-    let workerCount = 0
-    if (stage.role) {
-      workerCount = workerValues.filter(
-        w => w.role === stage.role && ACTIVE_STATUSES.includes(w.status)
-      ).length
-    }
+    const ss = stages[stage.key]
 
     // Enabled state: from backgroundWorkers for stages with pipeline loops; merged is always true
     let enabled = true
@@ -77,22 +45,17 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, se
       enabled = bgWorker ? bgWorker.enabled !== false : true
     }
 
-    // Session count
-    const counterKey = SESSION_COUNTER_KEYS[stage.key]
-    const sessionCount = counterKey ? (counters[counterKey] || 0) : 0
-
     stageStatus[stage.key] = {
       issueCount: stageIssues.length,
-      activeCount: activeIssues,
-      queuedCount: stageIssues.length - activeIssues,
-      workerCount,
+      activeCount: ss?.active ?? 0,
+      queuedCount: ss?.queued ?? 0,
+      workerCount: ss?.worker_count ?? 0,
       enabled,
-      sessionCount,
+      sessionCount: ss?.completed_session ?? 0,
     }
   }
 
-  // Workload aggregate aligned with pipeline snapshots to avoid drift between
-  // Header and Stream/System pipeline views.
+  // Workload aggregate
   const openStageKeys = ['triage', 'plan', 'implement', 'review', 'hitl']
   const openIssues = openStageKeys.flatMap((k) => issues[k] || [])
   const pipelineActive = openIssues.filter(i => i.status === 'active').length
@@ -101,7 +64,7 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, se
   ).length
   const workerActive = workerValues.filter(w => ACTIVE_STATUSES.includes(w.status)).length
 
-  const doneCount = counters.mergedCount || 0
+  const doneCount = stages.merged?.completed_session ?? 0
   const totalCount = openIssues.length + doneCount
 
   const workload = {

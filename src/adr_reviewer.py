@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.adr_reviewer")
 
+# Valid statuses are single words: Proposed, Accepted, Superseded, Deprecated, Rejected.
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
 _ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
 _DUPLICATE_THRESHOLD = 0.7

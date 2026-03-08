@@ -12,7 +12,7 @@ HydraFlow runs five concurrent async loops from `orchestrator.py`:
 
 1. **Triage loop**: Fetches new issues, scores complexity, classifies type, and applies the `hydraflow-plan` label.
 2. **Plan loop**: Fetches issues labeled `hydraflow-plan`, runs a read-only Claude agent to explore the codebase and produce an implementation plan, posts the plan as a comment, then swaps the label to `hydraflow-ready`.
-3. **Implement loop**: Fetches issues labeled `hydraflow-ready`, creates git worktrees, runs implementation agents with TDD prompts, pushes branches, creates PRs, then swaps to `hydraflow-review`.
+3. **Implement loop**: Fetches issues labeled `hydraflow-ready`, creates git worktrees, runs implementation agents, pushes branches, creates PRs, then swaps to `hydraflow-review`.
 4. **Review loop**: Fetches issues labeled `hydraflow-review`, runs a review agent to check quality and optionally fix issues, submits a formal PR review, waits for CI, and auto-merges approved PRs. CI failures escalate to `hydraflow-hitl` for human intervention.
 5. **HITL loop**: Processes issues labeled `hydraflow-hitl` that need human-in-the-loop correction.
 

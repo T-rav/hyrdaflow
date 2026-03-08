@@ -150,7 +150,7 @@ class TestBuildPrompt:
         prompt = hitl_runner._build_prompt(
             issue, "Add logging", "Insufficient issue detail for triage"
         )
-        assert "TDD" in prompt
+        assert "comprehensive tests" in prompt
 
     def test_prompt_uses_visual_instructions_for_visual_cause(
         self, hitl_runner

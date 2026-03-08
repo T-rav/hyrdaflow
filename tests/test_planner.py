@@ -1328,7 +1328,7 @@ def test_phase_minus_one_simplicity_gate_warns_on_many_new_files(config, event_b
     assert any("Simplicity gate" in w for w in warnings)
 
 
-def test_phase_minus_one_test_first_gate_rejects_later(config, event_bus):
+def test_phase_minus_one_testing_gate_rejects_later(config, event_bus):
     """'tests will be added later' in Testing Strategy is rejected."""
     runner = _make_runner(config, event_bus)
     plan = _valid_plan().replace(
@@ -1337,10 +1337,10 @@ def test_phase_minus_one_test_first_gate_rejects_later(config, event_bus):
         "Tests will be added later after implementation is stable.",
     )
     blocking, _ = runner._run_phase_minus_one_gates(plan)
-    assert any("Test-first gate" in e for e in blocking)
+    assert any("Testing gate" in e for e in blocking)
 
 
-def test_phase_minus_one_test_first_gate_rejects_tbd(config, event_bus):
+def test_phase_minus_one_testing_gate_rejects_tbd(config, event_bus):
     """'TBD' in Testing Strategy is rejected."""
     runner = _make_runner(config, event_bus)
     plan = _valid_plan().replace(
@@ -1349,14 +1349,14 @@ def test_phase_minus_one_test_first_gate_rejects_tbd(config, event_bus):
         "TBD",
     )
     blocking, _ = runner._run_phase_minus_one_gates(plan)
-    assert any("Test-first gate" in e for e in blocking)
+    assert any("Testing gate" in e for e in blocking)
 
 
-def test_phase_minus_one_test_first_gate_accepts_valid(config, event_bus):
-    """A proper testing strategy passes the test-first gate."""
+def test_phase_minus_one_testing_gate_accepts_valid(config, event_bus):
+    """A proper testing strategy passes the testing gate."""
     runner = _make_runner(config, event_bus)
     blocking, _ = runner._run_phase_minus_one_gates(_valid_plan())
-    assert not any("Test-first gate" in e for e in blocking)
+    assert not any("Testing gate" in e for e in blocking)
 
 
 def test_phase_minus_one_constitution_gate_skipped_when_no_file(config, event_bus):

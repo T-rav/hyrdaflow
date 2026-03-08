@@ -30,6 +30,7 @@ class IssueFetcher:
         self._rate_limit_lock = asyncio.Lock()
         self._collaborators: set[str] | None = None
         self._collaborators_fetched_at: datetime | None = None
+        self._api_cache_ttl = f"{config.data_poll_interval}s"
 
     @staticmethod
     def _normalize_issue_payload(item: dict) -> dict:
@@ -136,12 +137,12 @@ class IssueFetcher:
             return []
 
         seen: dict[int, dict] = {}
-        rate_limited = False
+        incomplete = False
 
         async def _query_label(label: str | None) -> None:
-            nonlocal rate_limited
+            nonlocal incomplete
             if self._is_rate_limited_now():
-                rate_limited = True
+                incomplete = True
                 return
             page = 1
             remaining = max(0, limit)
@@ -153,6 +154,8 @@ class IssueFetcher:
                     f"repos/{self._config.repo}/issues",
                     "--method",
                     "GET",
+                    "--cache",
+                    self._api_cache_ttl,
                     "--field",
                     "state=open",
                     "--field",
@@ -188,9 +191,11 @@ class IssueFetcher:
                 except (RuntimeError, json.JSONDecodeError, FileNotFoundError) as exc:
                     if isinstance(exc, RuntimeError) and self._is_rate_limit_error(exc):
                         await self._set_rate_limit_backoff(exc)
-                        rate_limited = True
-                        return
-                    logger.error("gh issue list failed for label=%r: %s", label, exc)
+                    else:
+                        logger.error(
+                            "gh issue list failed for label=%r: %s", label, exc
+                        )
+                    incomplete = True
                     return
 
         if labels:
@@ -212,9 +217,9 @@ class IssueFetcher:
         else:
             return []
 
-        if require_complete and rate_limited:
+        if require_complete and incomplete:
             raise IncompleteIssueFetchError(
-                "GitHub issue fetch incomplete due to rate limiting"
+                "GitHub issue fetch incomplete due to rate limiting or API errors"
             )
 
         issues = [GitHubIssue.model_validate(raw) for raw in seen.values()]
@@ -304,7 +309,7 @@ class IssueFetcher:
             return []
         return await self.fetch_issues_by_labels(
             all_labels,
-            limit=100,
+            limit=500,
             require_complete=True,
         )
 
