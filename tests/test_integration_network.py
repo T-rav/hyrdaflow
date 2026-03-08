@@ -191,7 +191,7 @@ class TestVersionComparison:
     def test_is_newer_fallback_for_non_numeric(self) -> None:
         from hf_cli.update_check import _is_newer
 
-        # When both keys are empty, falls back to string inequality
+        # When either version key is empty (non-numeric), falls back to string inequality
         assert _is_newer("alpha", "beta") is True  # "alpha" != "beta"
         assert _is_newer("same", "same") is False
 
@@ -243,84 +243,49 @@ class TestCheckForUpdates:
 class TestDashboardHttp:
     """Integration tests for the dashboard HTTP endpoints."""
 
-    def test_stats_endpoint(self, tmp_path: Path) -> None:
+    @pytest.fixture()
+    def app_client(self, tmp_path: Path):
+        """Build a TestClient-wrapped FastAPI app with a real dashboard router."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from events import EventBus
+        from state import StateTracker
+        from tests.helpers import ConfigFactory, make_dashboard_router
+
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            state_file=tmp_path / "state.json",
+        )
+        event_bus = EventBus()
+        state = StateTracker(tmp_path / "state.json")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        app = FastAPI()
+        app.include_router(router)
+        with TestClient(app) as client:
+            yield client, state
+
+    def test_stats_endpoint(self, app_client) -> None:
         """GET /api/stats returns a JSON response."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
+        client, _ = app_client
+        resp = client.get("/api/stats")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), dict)
 
-        from events import EventBus
-        from state import StateTracker
-        from tests.helpers import ConfigFactory, make_dashboard_router
-
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-        )
-        event_bus = EventBus()
-        state = StateTracker(tmp_path / "state.json")
-
-        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
-        app = FastAPI()
-        app.include_router(router)
-
-        with TestClient(app) as client:
-            resp = client.get("/api/stats")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert isinstance(data, dict)
-
-    def test_state_endpoint(self, tmp_path: Path) -> None:
+    def test_state_endpoint(self, app_client) -> None:
         """GET /api/state returns the state tracker data."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from events import EventBus
-        from state import StateTracker
-        from tests.helpers import ConfigFactory, make_dashboard_router
-
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-        )
-        event_bus = EventBus()
-        state = StateTracker(tmp_path / "state.json")
+        client, state = app_client
         state.mark_issue(42, "planned")
+        resp = client.get("/api/state")
+        assert resp.status_code == 200
+        assert resp.json()["processed_issues"]["42"] == "planned"
 
-        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
-        app = FastAPI()
-        app.include_router(router)
-
-        with TestClient(app) as client:
-            resp = client.get("/api/state")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["processed_issues"]["42"] == "planned"
-
-    def test_event_history_endpoint(self, tmp_path: Path) -> None:
+    def test_event_history_endpoint(self, app_client) -> None:
         """GET /api/events returns event history as a list."""
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from events import EventBus
-        from state import StateTracker
-        from tests.helpers import ConfigFactory, make_dashboard_router
-
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-        )
-        event_bus = EventBus()
-        state = StateTracker(tmp_path / "state.json")
-
-        router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
-        app = FastAPI()
-        app.include_router(router)
-
-        with TestClient(app) as client:
-            resp = client.get("/api/events")
-            assert resp.status_code == 200
-            events = resp.json()
-            assert isinstance(events, list)
+        client, _ = app_client
+        resp = client.get("/api/events")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
 
 
 # ---------------------------------------------------------------------------
