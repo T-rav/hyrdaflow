@@ -25,6 +25,7 @@ from models import (
 )
 from phase_utils import (
     is_adr_issue_title,
+    is_likely_bug,
     release_batch_in_flight,
     safe_file_memory_suggestion,
 )
@@ -527,11 +528,23 @@ class HydraFlowOrchestrator:
     async def _pipeline_stats_loop(self) -> None:
         """Emit pipeline stats every ~10 seconds."""
         interval = self.get_bg_worker_interval("pipeline_poller")
+        stats_failures = 0
+        crate_failures = 0
         while not self._stop_event.is_set():
             try:
                 await self.emit_pipeline_stats()
-            except Exception:
-                logger.exception("Pipeline stats emission failed")
+                stats_failures = 0
+            except Exception as exc:
+                stats_failures += 1
+                if is_likely_bug(exc) or stats_failures >= 5:
+                    logger.critical(
+                        "Pipeline stats emission failed (%s, %d consecutive)",
+                        type(exc).__name__,
+                        stats_failures,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("Pipeline stats emission failed")
             # Auto-package uncrated issues into a new crate when enabled
             try:
                 if (
@@ -541,8 +554,18 @@ class HydraFlowOrchestrator:
                     uncrated = self._store.get_uncrated_issues()
                     if uncrated:
                         await self._crate_manager.auto_package_if_needed(uncrated)
-            except Exception:
-                logger.exception("Auto-crate packaging failed")
+                crate_failures = 0
+            except Exception as exc:
+                crate_failures += 1
+                if is_likely_bug(exc) or crate_failures >= 5:
+                    logger.critical(
+                        "Auto-crate packaging failed (%s, %d consecutive)",
+                        type(exc).__name__,
+                        crate_failures,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("Auto-crate packaging failed")
             await self._sleep_or_stop(interval)
 
     def _restore_worker_intervals(self) -> None:
@@ -931,8 +954,18 @@ class HydraFlowOrchestrator:
         work_fn: WorkFn,
         interval: int,
         enabled_name: str | None = None,
+        max_consecutive_failures: int = 5,
     ) -> None:
-        """Generic polling loop: check enabled -> try work -> except -> sleep."""
+        """Generic polling loop: check enabled -> try work -> except -> sleep.
+
+        Tracks consecutive failures by exception type.  After
+        *max_consecutive_failures* of the **same** type in a row the loop
+        escalates with a ``SYSTEM_ALERT`` event so operators can detect
+        permanent failure loops (e.g. a code bug being silently retried).
+        """
+        consecutive_failures = 0
+        last_exc_type: type[BaseException] | None = None
+
         while not self._stop_event.is_set():
             if enabled_name is not None and not self.is_bg_worker_enabled(enabled_name):
                 await self._sleep_or_stop(interval)
@@ -941,23 +974,77 @@ class HydraFlowOrchestrator:
                 did_work = bool(await work_fn())
             except (AuthenticationError, CreditExhaustedError, MemoryError):
                 raise
-            except Exception:
+            except Exception as exc:
                 display = name.replace("_", " ").capitalize()
-                logger.exception(
-                    "%s loop iteration failed — will retry next cycle",
-                    display,
-                )
+                exc_type = type(exc)
+
+                # Track consecutive failures of the same type
+                if exc_type is last_exc_type:
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 1
+                    last_exc_type = exc_type
+
+                # Use higher severity for likely-bug exceptions
+                if is_likely_bug(exc):
+                    logger.critical(
+                        "%s loop hit likely bug (%s) — will retry but "
+                        "this probably needs a code fix",
+                        display,
+                        exc_type.__name__,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception(
+                        "%s loop iteration failed — will retry next cycle",
+                        display,
+                    )
+
+                error_data: dict[str, Any] = {
+                    "message": f"{display} loop error",
+                    "source": name,
+                    "exception_type": exc_type.__name__,
+                    "is_likely_bug": is_likely_bug(exc),
+                    "consecutive_failures": consecutive_failures,
+                }
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.ERROR,
-                        data={
-                            "message": f"{display} loop error",
-                            "source": name,
-                        },
+                        data=error_data,
                     )
                 )
+
+                # Circuit breaker: escalate after N consecutive same-type failures
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.critical(
+                        "%s loop has failed %d consecutive times with %s "
+                        "— escalating via SYSTEM_ALERT",
+                        display,
+                        consecutive_failures,
+                        exc_type.__name__,
+                    )
+                    await self._bus.publish(
+                        HydraFlowEvent(
+                            type=EventType.SYSTEM_ALERT,
+                            data={
+                                "message": (
+                                    f"{display} loop circuit breaker: "
+                                    f"{consecutive_failures} consecutive "
+                                    f"{exc_type.__name__} failures"
+                                ),
+                                "source": name,
+                                "exception_type": exc_type.__name__,
+                                "consecutive_failures": consecutive_failures,
+                            },
+                        )
+                    )
+
                 await self._sleep_or_stop(interval)
                 continue
+            else:
+                # Success resets the failure counter
+                consecutive_failures = 0
+                last_exc_type = None
             if did_work:
                 continue
             await self._sleep_or_stop(interval)

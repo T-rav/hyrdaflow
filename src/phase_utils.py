@@ -278,6 +278,29 @@ def adr_validation_reasons(body: str) -> list[str]:
 _ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
 
 
+# ---------------------------------------------------------------------------
+# Exception classification
+# ---------------------------------------------------------------------------
+
+#: Exception types that almost certainly indicate a code bug rather than a
+#: transient/environmental failure.  When one of these is caught in a
+#: catch-all handler, it should be logged at a higher severity so operators
+#: can distinguish "needs a code fix" from "will probably succeed on retry".
+LIKELY_BUG_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    TypeError,
+    KeyError,
+    AttributeError,
+    ValueError,
+    IndexError,
+    NotImplementedError,
+)
+
+
+def is_likely_bug(exc: BaseException) -> bool:
+    """Return True if *exc* is likely a code bug rather than a transient failure."""
+    return isinstance(exc, LIKELY_BUG_EXCEPTIONS)
+
+
 def next_adr_number(adr_dir: Path) -> int:
     """Return the next available ADR number by scanning *adr_dir*.
 

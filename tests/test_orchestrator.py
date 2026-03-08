@@ -3319,3 +3319,212 @@ class TestPipelineStatsEmission:
         # Verify the method exists
         assert hasattr(orch, "_pipeline_stats_loop")
         assert callable(orch._pipeline_stats_loop)
+
+
+# ---------------------------------------------------------------------------
+# Polling loop — exception classification & circuit breaker (#2065)
+# ---------------------------------------------------------------------------
+
+
+class TestPollingLoopExceptionClassification:
+    """Tests for exception classification and circuit breaker in _polling_loop."""
+
+    @pytest.mark.asyncio
+    async def test_likely_bug_logged_at_critical(self, config: HydraFlowConfig) -> None:
+        """TypeError/KeyError etc. should be logged at CRITICAL level."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+
+        async def bug_then_stop() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TypeError("bad type")
+            orch._stop_event.set()
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("test", bug_then_stop, 10)
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_error_event_includes_exception_metadata(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ERROR events should include exception_type and is_likely_bug fields."""
+        orch = HydraFlowOrchestrator(config)
+        published: list[HydraFlowEvent] = []
+        original_publish = orch._bus.publish
+
+        async def capture_publish(event: HydraFlowEvent) -> None:
+            published.append(event)
+            await original_publish(event)
+
+        orch._bus.publish = capture_publish  # type: ignore[method-assign]
+        call_count = 0
+
+        async def fail_then_stop() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise KeyError("missing key")
+            orch._stop_event.set()
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop("test", fail_then_stop, 10)
+
+        error_events = [e for e in published if e.type == EventType.ERROR]
+        assert len(error_events) == 1
+        data = error_events[0].data
+        assert data["exception_type"] == "KeyError"
+        assert data["is_likely_bug"] is True
+        assert data["consecutive_failures"] == 1
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_fires_after_max_consecutive(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """After max_consecutive_failures of the same type, a SYSTEM_ALERT fires."""
+        orch = HydraFlowOrchestrator(config)
+        published: list[HydraFlowEvent] = []
+        original_publish = orch._bus.publish
+
+        async def capture_publish(event: HydraFlowEvent) -> None:
+            published.append(event)
+            await original_publish(event)
+
+        orch._bus.publish = capture_publish  # type: ignore[method-assign]
+        call_count = 0
+        max_failures = 3
+
+        async def always_fail() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count > max_failures:
+                orch._stop_event.set()
+                return
+            raise RuntimeError("always fails")
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop(
+            "test", always_fail, 10, max_consecutive_failures=max_failures
+        )
+
+        alert_events = [e for e in published if e.type == EventType.SYSTEM_ALERT]
+        assert len(alert_events) == 1
+        assert "circuit breaker" in alert_events[0].data["message"]
+        assert alert_events[0].data["consecutive_failures"] == max_failures
+
+    @pytest.mark.asyncio
+    async def test_success_resets_failure_counter(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """A successful iteration should reset the consecutive failure counter."""
+        orch = HydraFlowOrchestrator(config)
+        published: list[HydraFlowEvent] = []
+        original_publish = orch._bus.publish
+
+        async def capture_publish(event: HydraFlowEvent) -> None:
+            published.append(event)
+            await original_publish(event)
+
+        orch._bus.publish = capture_publish  # type: ignore[method-assign]
+        call_count = 0
+
+        async def fail_succeed_fail_stop() -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("fail 1")
+            if call_count == 2:
+                return True  # success — resets counter
+            if call_count == 3:
+                raise RuntimeError("fail 2")
+            orch._stop_event.set()
+            return False
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop(
+            "test", fail_succeed_fail_stop, 10, max_consecutive_failures=2
+        )
+
+        # Two errors, but no SYSTEM_ALERT because success reset the counter
+        error_events = [e for e in published if e.type == EventType.ERROR]
+        alert_events = [e for e in published if e.type == EventType.SYSTEM_ALERT]
+        assert len(error_events) == 2
+        assert len(alert_events) == 0
+        # Both errors should have consecutive_failures == 1 (reset between them)
+        assert error_events[0].data["consecutive_failures"] == 1
+        assert error_events[1].data["consecutive_failures"] == 1
+
+    @pytest.mark.asyncio
+    async def test_different_exception_types_reset_counter(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Switching exception types resets the consecutive counter."""
+        orch = HydraFlowOrchestrator(config)
+        published: list[HydraFlowEvent] = []
+        original_publish = orch._bus.publish
+
+        async def capture_publish(event: HydraFlowEvent) -> None:
+            published.append(event)
+            await original_publish(event)
+
+        orch._bus.publish = capture_publish  # type: ignore[method-assign]
+        call_count = 0
+
+        async def alternate_exceptions() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("r1")
+            if call_count == 2:
+                raise TypeError("t1")
+            orch._stop_event.set()
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        await orch._polling_loop(
+            "test", alternate_exceptions, 10, max_consecutive_failures=2
+        )
+
+        error_events = [e for e in published if e.type == EventType.ERROR]
+        # Both should have consecutive_failures == 1 (different types)
+        assert error_events[0].data["consecutive_failures"] == 1
+        assert error_events[1].data["consecutive_failures"] == 1
+
+    @pytest.mark.asyncio
+    async def test_transient_error_logged_at_exception_level(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Non-bug exceptions (RuntimeError, etc.) use logger.exception level."""
+        orch = HydraFlowOrchestrator(config)
+        call_count = 0
+
+        async def transient_then_stop() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("network blip")
+            orch._stop_event.set()
+
+        async def instant_sleep(seconds: int) -> None:  # noqa: ARG001
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        # Should complete without raising
+        await orch._polling_loop("test", transient_then_stop, 10)
+        assert call_count == 2

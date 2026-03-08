@@ -39,6 +39,7 @@ from models import (
 from phase_utils import (
     adr_validation_reasons,
     is_adr_issue_title,
+    is_likely_bug,
     publish_review_status,
     record_harness_failure,
     release_batch_in_flight,
@@ -174,16 +175,31 @@ class ReviewPhase:
                         return await self._review_one_inner(idx, pr, issue_map)
                     except (AuthenticationError, CreditExhaustedError, MemoryError):
                         raise
-                    except Exception:
-                        logger.exception(
-                            "Review failed for PR #%d (issue #%d)",
-                            pr.number,
-                            pr.issue_number,
-                        )
+                    except Exception as exc:
+                        exc_type_name = type(exc).__name__
+                        if is_likely_bug(exc):
+                            logger.critical(
+                                "Review failed for PR #%d (issue #%d) — "
+                                "likely bug (%s), needs code fix",
+                                pr.number,
+                                pr.issue_number,
+                                exc_type_name,
+                                exc_info=True,
+                            )
+                        else:
+                            logger.exception(
+                                "Review failed for PR #%d (issue #%d) — %s",
+                                pr.number,
+                                pr.issue_number,
+                                exc_type_name,
+                            )
                         return ReviewResult(
                             pr_number=pr.number,
                             issue_number=pr.issue_number,
-                            summary="Review failed due to unexpected error",
+                            summary=(
+                                f"Review failed due to unexpected error "
+                                f"({exc_type_name})"
+                            ),
                         )
                     finally:
                         await self._publish_review_status(pr, idx, "done")
@@ -822,12 +838,22 @@ class ReviewPhase:
             return result, updated_diff
         except (AuthenticationError, CreditExhaustedError, MemoryError):
             raise
-        except Exception:
-            logger.warning(
-                "PR #%d: self-fix re-review failed — falling back to original rejection",
-                pr.number,
-                exc_info=True,
-            )
+        except Exception as exc:
+            if is_likely_bug(exc):
+                logger.critical(
+                    "PR #%d: self-fix re-review hit likely bug (%s) — "
+                    "falling back to original rejection",
+                    pr.number,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+            else:
+                logger.warning(
+                    "PR #%d: self-fix re-review failed — "
+                    "falling back to original rejection",
+                    pr.number,
+                    exc_info=True,
+                )
             return result, diff
 
     async def _run_delta_verification(self, pr: PRInfo, diff: str) -> str:
