@@ -861,6 +861,12 @@ class StateTracker:
         self._data.pending_reports.append(report)
         self.save()
 
+    def peek_report(self) -> PendingReport | None:
+        """Return the first pending report without removing it, or None."""
+        if not self._data.pending_reports:
+            return None
+        return self._data.pending_reports[0]
+
     def dequeue_report(self) -> PendingReport | None:
         """Pop the first pending report (FIFO) and persist, or return None."""
         if not self._data.pending_reports:
@@ -868,6 +874,22 @@ class StateTracker:
         report = self._data.pending_reports.pop(0)
         self.save()
         return report
+
+    def remove_report(self, report_id: str) -> None:
+        """Remove a report by ID and persist."""
+        self._data.pending_reports = [
+            r for r in self._data.pending_reports if r.id != report_id
+        ]
+        self.save()
+
+    def fail_report(self, report_id: str) -> int:
+        """Increment attempt count for a report. Returns the new count."""
+        for r in self._data.pending_reports:
+            if r.id == report_id:
+                r.attempts += 1
+                self.save()
+                return r.attempts
+        return 0
 
     def get_pending_reports(self) -> list[PendingReport]:
         """Return a copy of the pending reports list."""

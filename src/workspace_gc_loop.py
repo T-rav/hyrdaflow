@@ -15,15 +15,15 @@ from models import StatusCallback
 from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import run_subprocess
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
-logger = logging.getLogger("hydraflow.worktree_gc_loop")
+logger = logging.getLogger("hydraflow.workspace_gc_loop")
 
 # Maximum worktrees to GC per cycle to avoid long-running passes.
 _MAX_GC_PER_CYCLE = 20
 
 
-class WorktreeGCLoop(BaseBackgroundLoop):
+class WorkspaceGCLoop(BaseBackgroundLoop):
     """Periodically garbage-collects stale worktrees and orphaned branches.
 
     Catches worktrees that leak when PRs are merged manually, via HITL,
@@ -33,7 +33,7 @@ class WorktreeGCLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         prs: PRManager,
         state: StateTracker,
         event_bus: EventBus,
@@ -63,12 +63,12 @@ class WorktreeGCLoop(BaseBackgroundLoop):
         return self._config.worktree_gc_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
-        """Run one GC cycle: state worktrees, orphan dirs, prune, orphan branches."""
+        """Run one GC cycle: state workspaces, orphan dirs, orphan branches."""
         collected = 0
         skipped = 0
         errors = 0
 
-        # Phase 1: GC worktrees tracked in state
+        # Phase 1: GC workspaces tracked in state
         active_worktrees = self._state.get_active_worktrees()
         for issue_number in list(active_worktrees.keys()):
             if self._stop_event.is_set() or collected >= _MAX_GC_PER_CYCLE:
@@ -80,12 +80,12 @@ class WorktreeGCLoop(BaseBackgroundLoop):
                     self._state.remove_worktree(issue_number)
                     await self._worktrees.destroy(issue_number)
                     collected += 1
-                    logger.info("GC: collected worktree for issue #%d", issue_number)
+                    logger.info("GC: collected workspace for issue #%d", issue_number)
                 else:
                     skipped += 1
             except Exception:
                 logger.warning(
-                    "GC: failed to collect worktree for issue #%d",
+                    "GC: failed to collect workspace for issue #%d",
                     issue_number,
                     exc_info=True,
                 )
@@ -98,11 +98,7 @@ class WorktreeGCLoop(BaseBackgroundLoop):
             )
             collected += orphan_count
 
-        # Phase 3: run git worktree prune
-        if not self._stop_event.is_set():
-            await self._git_worktree_prune()
-
-        # Phase 4: delete orphaned agent/issue-* local branches
+        # Phase 3: delete orphaned agent/issue-* local branches
         if not self._stop_event.is_set():
             branch_count = await self._collect_orphaned_branches(
                 _MAX_GC_PER_CYCLE - collected
@@ -269,19 +265,6 @@ class WorktreeGCLoop(BaseBackgroundLoop):
                     exc_info=True,
                 )
         return collected
-
-    async def _git_worktree_prune(self) -> None:
-        """Run ``git worktree prune`` to clean up stale bookkeeping."""
-        try:
-            await run_subprocess(
-                "git",
-                "worktree",
-                "prune",
-                cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
-            )
-        except RuntimeError:
-            logger.warning("GC: git worktree prune failed", exc_info=True)
 
     _AGENT_BRANCH_RE = re.compile(r"^agent/issue-(\d+)$")
 

@@ -293,6 +293,16 @@ class TestBuildPrompt:
         assert "push" in prompt.lower() or "Do NOT push" in prompt
         assert "pull request" in prompt.lower() or "pr create" in prompt.lower()
 
+    def test_prompt_forbids_interactive_git(
+        self, config, event_bus: EventBus, issue
+    ) -> None:
+        """Prompt should forbid interactive git commands (no TTY in Docker)."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_prompt(issue)
+        assert "git add -i" in prompt
+        assert "git add -p" in prompt
+        assert "git rebase -i" in prompt
+
     def test_prompt_includes_common_feedback_when_reviews_exist(
         self, config, event_bus: EventBus, issue
     ) -> None:
@@ -598,77 +608,219 @@ class TestGetEscalationData:
         assert result == []
 
 
-class TestTddRedPhase:
-    """Tests for TDD red-phase helpers and gate behavior."""
+# ---------------------------------------------------------------------------
+# Diff sanity + test adequacy skill loops
+# ---------------------------------------------------------------------------
 
-    def test_is_test_file_path_matches_common_patterns(
-        self, config, event_bus: EventBus
-    ) -> None:
-        runner = AgentRunner(config, event_bus)
-        assert runner._is_test_file_path("tests/test_agent.py")
-        assert runner._is_test_file_path("src/ui/src/__tests__/a.spec.ts")
-        assert runner._is_test_file_path("pkg/foo/bar.test.tsx")
-        assert not runner._is_test_file_path("src/agent.py")
+
+class TestDiffSanityLoop:
+    """Tests for the diff sanity check skill integration."""
 
     @pytest.mark.asyncio
-    async def test_run_tdd_red_phase_fails_when_non_test_file_changed(
+    async def test_skipped_when_disabled(
         self, config, event_bus: EventBus, issue, tmp_path: Path
     ) -> None:
+        config.max_diff_sanity_attempts = 0
         runner = AgentRunner(config, event_bus)
-
-        with (
-            patch.object(
-                runner,
-                "_execute",
-                new_callable=AsyncMock,
-                return_value="TDD_RED_RESULT: OK",
-            ),
-            patch.object(
-                runner,
-                "_collect_changed_files_for_tdd_red",
-                new_callable=AsyncMock,
-                return_value={"src/agent.py"},
-            ),
-        ):
-            ok, msg, _tx = await runner._run_tdd_red_phase(
-                issue, tmp_path, "agent/issue-42", worker_id=1
-            )
-
-        assert ok is False
-        assert "non-test files" in msg
-
-    @pytest.mark.asyncio
-    async def test_run_tdd_red_phase_passes_with_test_only_changes_and_failing_tests(
-        self, config, event_bus: EventBus, issue, tmp_path: Path
-    ) -> None:
-        runner = AgentRunner(config, event_bus)
-
-        with (
-            patch.object(
-                runner,
-                "_execute",
-                new_callable=AsyncMock,
-                return_value="TDD_RED_RESULT: OK\nSUMMARY: added failing test",
-            ),
-            patch.object(
-                runner,
-                "_collect_changed_files_for_tdd_red",
-                new_callable=AsyncMock,
-                return_value={"tests/test_new_behavior.py"},
-            ),
-            patch.object(
-                runner,
-                "_verify_tdd_red_fails",
-                new_callable=AsyncMock,
-                return_value=(True, "Expected failing test observed"),
-            ),
-        ):
-            ok, msg, _tx = await runner._run_tdd_red_phase(
-                issue, tmp_path, "agent/issue-42", worker_id=1
-            )
-
+        ok, msg = await runner._run_diff_sanity_loop(
+            issue, tmp_path, "branch", worker_id=0
+        )
         assert ok is True
-        assert msg == "OK"
+        assert "disabled" in msg
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_no_commits(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner, "_count_commits", new_callable=AsyncMock, return_value=0
+        ):
+            ok, msg = await runner._run_diff_sanity_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+        assert "No commits" in msg
+
+    @pytest.mark.asyncio
+    async def test_passes_on_ok_result(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+import os\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="DIFF_SANITY_RESULT: OK\nSUMMARY: No issues found",
+            ),
+        ):
+            ok, msg = await runner._run_diff_sanity_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_retry(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+print('debug')\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="DIFF_SANITY_RESULT: RETRY\nSUMMARY: debug code",
+            ),
+        ):
+            ok, msg = await runner._run_diff_sanity_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is False
+        assert "debug code" in msg
+
+    @pytest.mark.asyncio
+    async def test_run_fails_when_diff_sanity_fails(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        """AgentRunner.run should return success=False when diff sanity fails."""
+        config.max_diff_sanity_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_execute", new_callable=AsyncMock, return_value="transcript"
+            ),
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+print('debug')\n",
+            ),
+            patch.object(runner, "_save_transcript"),
+        ):
+            # Mock _execute to return RETRY for diff sanity (second call)
+            runner._execute = AsyncMock(
+                side_effect=[
+                    "transcript",  # implementation run
+                    "DIFF_SANITY_RESULT: RETRY\nSUMMARY: scope creep",
+                ]
+            )
+            result = await runner.run(issue, tmp_path, "agent/issue-42")
+
+        assert result.success is False
+        assert "Diff sanity" in (result.error or "")
+
+
+class TestTestAdequacyLoop:
+    """Tests for the test adequacy check skill integration."""
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_disabled(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 0
+        runner = AgentRunner(config, event_bus)
+        ok, msg = await runner._run_test_adequacy_loop(
+            issue, tmp_path, "branch", worker_id=0
+        )
+        assert ok is True
+        assert "disabled" in msg
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_no_commits(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with patch.object(
+            runner, "_count_commits", new_callable=AsyncMock, return_value=0
+        ):
+            ok, msg = await runner._run_test_adequacy_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+        assert "No commits" in msg
+
+    @pytest.mark.asyncio
+    async def test_passes_on_ok_result(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+def foo(): pass\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="TEST_ADEQUACY_RESULT: OK\nSUMMARY: adequate",
+            ),
+        ):
+            ok, msg = await runner._run_test_adequacy_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_retry(
+        self, config, event_bus: EventBus, issue, tmp_path: Path
+    ) -> None:
+        config.max_test_adequacy_attempts = 1
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+def foo(): pass\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                return_value="TEST_ADEQUACY_RESULT: RETRY\nSUMMARY: missing tests",
+            ),
+        ):
+            ok, msg = await runner._run_test_adequacy_loop(
+                issue, tmp_path, "branch", worker_id=0
+            )
+        assert ok is False
+        assert "missing tests" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -710,8 +862,7 @@ class TestRunSuccess:
         assert result.issue_number == issue.id
         assert result.branch == "agent/issue-42"
         assert result.commits == 2
-        assert "## Implementation Phase" in (result.transcript or "")
-        assert "transcript" in (result.transcript or "")
+        assert result.transcript == "transcript"
 
     @pytest.mark.asyncio
     async def test_run_success_sets_duration(
@@ -736,6 +887,220 @@ class TestRunSuccess:
             result = await runner.run(issue, tmp_path, "agent/issue-42")
 
         assert result.duration_seconds >= 0
+
+
+# ---------------------------------------------------------------------------
+# AgentRunner._force_commit_uncommitted
+# ---------------------------------------------------------------------------
+
+
+class TestForceCommitUncommitted:
+    """Tests for the salvage-commit mechanism (always runs on host)."""
+
+    @pytest.mark.asyncio
+    async def test_force_commit_creates_commit_when_dirty(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Uncommitted changes should be staged and committed via host git."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        call_count = 0
+
+        async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
+            nonlocal call_count
+            call_count += 1
+            from execution import SimpleResult
+
+            if "status" in cmd:
+                return SimpleResult(stdout=" M src/foo.py", stderr="", returncode=0)
+            return SimpleResult(stdout="", stderr="", returncode=0)
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is True
+        assert call_count == 3  # status, add, commit
+
+    @pytest.mark.asyncio
+    async def test_force_commit_noop_when_clean(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """No commit should be created when working tree is clean."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
+            from execution import SimpleResult
+
+            return SimpleResult(stdout="", stderr="", returncode=0)
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is False
+        assert mock_host.run_simple.await_count == 1  # status
+
+    @pytest.mark.asyncio
+    async def test_force_commit_returns_false_when_git_add_fails(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Non-zero returncode from git add should return False."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
+            from execution import SimpleResult
+
+            if "status" in cmd:
+                return SimpleResult(stdout=" M src/foo.py", stderr="", returncode=0)
+            if "add" in cmd:
+                return SimpleResult(stdout="", stderr="fatal: error", returncode=128)
+            return SimpleResult(stdout="", stderr="", returncode=0)
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_force_commit_returns_false_when_git_commit_fails(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Non-zero returncode from git commit should return False."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        async def fake_run_simple(cmd, *, cwd=None, timeout=120.0, **kw):
+            from execution import SimpleResult
+
+            if "status" in cmd:
+                return SimpleResult(stdout=" M src/foo.py", stderr="", returncode=0)
+            if "commit" in cmd:
+                return SimpleResult(stdout="", stderr="nothing to commit", returncode=1)
+            return SimpleResult(stdout="", stderr="", returncode=0)
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=fake_run_simple)
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_force_commit_handles_error_gracefully(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Errors in git commands should not crash, just return False."""
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=99, title="Fix the widget")
+
+        mock_host = MagicMock()
+        mock_host.run_simple = AsyncMock(side_effect=OSError("git broke"))
+
+        with patch("execution.get_default_runner", return_value=mock_host):
+            result = await runner._force_commit_uncommitted(task, tmp_path)
+
+        assert result is False
+
+
+class TestForceCommitE2E:
+    """End-to-end tests using real git repos to verify the salvage-commit flow."""
+
+    @pytest.mark.asyncio
+    async def test_force_commit_clean_repo_no_corruption(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """No corruption + no dirty files = no commit, returns False."""
+        import subprocess
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", repo], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (repo / "README.md").write_text("# Hello")
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "Initial commit"],
+            check=True,
+            capture_output=True,
+        )
+
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=42, title="Fix the bug")
+
+        committed = await runner._force_commit_uncommitted(task, repo)
+
+        assert committed is False
+
+    @pytest.mark.asyncio
+    async def test_force_commit_dirty_without_corruption(
+        self, config, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """Dirty files without Docker corruption should still be committed."""
+        import subprocess
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", repo], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+        )
+        (repo / "README.md").write_text("# Hello")
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "Initial commit"],
+            check=True,
+            capture_output=True,
+        )
+
+        # Add a dirty file (no Docker corruption)
+        (repo / "new_file.py").write_text("print('hello')\n")
+
+        runner = AgentRunner(config, event_bus)
+        task = TaskFactory.create(id=42, title="Add greeting")
+
+        committed = await runner._force_commit_uncommitted(task, repo)
+
+        assert committed is True
+
+        log = subprocess.run(
+            ["git", "-C", str(repo), "log", "--oneline"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "Add greeting" in log.stdout
 
 
 # ---------------------------------------------------------------------------

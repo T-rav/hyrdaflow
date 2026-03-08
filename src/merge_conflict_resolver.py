@@ -21,7 +21,7 @@ from pr_manager import PRManager
 from prompt_stats import build_prompt_stats
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
-from worktree import WorktreeManager
+from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.merge_conflict_resolver")
 
@@ -32,7 +32,7 @@ class MergeConflictResolver:
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorktreeManager,
+        worktrees: WorkspaceManager,
         agents: AgentRunner | None,
         prs: PRManager,
         event_bus: EventBus,
@@ -79,7 +79,7 @@ class MergeConflictResolver:
             if used_rebuild:
                 # Branch history was rewritten — need force-push
                 new_wt = self._config.worktree_path_for_issue(pr.issue_number)
-                await self._prs.force_push_branch(new_wt, pr.branch)
+                await self._prs.push_branch(new_wt, pr.branch, force=True)
             else:
                 await self._prs.push_branch(wt_path, pr.branch)
             return True

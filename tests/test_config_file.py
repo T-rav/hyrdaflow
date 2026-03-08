@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
 
 from config import HydraFlowConfig, load_config_file, save_config_file
+
+# All worker count fields that must round-trip through save/load
+_ALL_WORKER_FIELDS = {
+    "max_workers": 3,
+    "max_planners": 4,
+    "max_reviewers": 5,
+    "max_triagers": 2,
+    "max_hitl_workers": 2,
+}
 
 # ---------------------------------------------------------------------------
 # load_config_file
@@ -207,3 +217,104 @@ class TestConfigFileMergePriority:
         )
 
         assert cfg.docker_cpu_limit == pytest.approx(5.0)
+
+
+# ---------------------------------------------------------------------------
+# Round-trip persistence for ALL worker count fields
+# ---------------------------------------------------------------------------
+
+
+class TestWorkerCountRoundTrip:
+    """Regression tests ensuring all worker count fields survive save → load."""
+
+    def test_all_worker_counts_round_trip(self, tmp_path: Path) -> None:
+        """Every worker count field should survive a save → load cycle."""
+        config_path = tmp_path / "config.json"
+
+        save_config_file(config_path, _ALL_WORKER_FIELDS)
+        loaded = load_config_file(config_path)
+
+        for field, expected in _ALL_WORKER_FIELDS.items():
+            assert loaded[field] == expected, f"{field} lost during round-trip"
+
+    def test_max_reviewers_persists_after_incremental_save(
+        self, tmp_path: Path
+    ) -> None:
+        """max_reviewers should not be lost when another field is saved later."""
+        config_path = tmp_path / "config.json"
+
+        # First save: set reviewers
+        save_config_file(config_path, {"max_reviewers": 5})
+        # Second save: update a different field
+        save_config_file(config_path, {"max_workers": 3})
+
+        loaded = load_config_file(config_path)
+        assert loaded["max_reviewers"] == 5
+        assert loaded["max_workers"] == 3
+
+    def test_all_worker_counts_applied_to_config_model(self, tmp_path: Path) -> None:
+        """Worker counts from config file should be applied to HydraFlowConfig."""
+        config_path = tmp_path / "config.json"
+        save_config_file(config_path, _ALL_WORKER_FIELDS)
+
+        file_values = load_config_file(config_path)
+        cfg = HydraFlowConfig(
+            **file_values,
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+
+        assert cfg.max_workers == 3
+        assert cfg.max_planners == 4
+        assert cfg.max_reviewers == 5
+        assert cfg.max_triagers == 2
+        assert cfg.max_hitl_workers == 2
+
+
+# ---------------------------------------------------------------------------
+# Atomic write and logging in save_config_file
+# ---------------------------------------------------------------------------
+
+
+class TestSaveConfigFileAtomicAndLogging:
+    """Tests for atomic write behaviour and logging in save_config_file."""
+
+    def test_save_uses_atomic_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """save_config_file should use atomic_write instead of direct write."""
+        config_path = tmp_path / "config.json"
+        calls: list[tuple[Path, str]] = []
+
+        def fake_atomic_write(path: Path, data: str) -> None:
+            calls.append((path, data))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(data)
+
+        import file_util  # noqa: PLC0415
+
+        monkeypatch.setattr(file_util, "atomic_write", fake_atomic_write)
+
+        save_config_file(config_path, {"max_reviewers": 3})
+
+        assert len(calls) == 1
+        assert calls[0][0] == config_path
+        data = json.loads(calls[0][1])
+        assert data["max_reviewers"] == 3
+
+    def test_logs_warning_on_corrupt_json(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Corrupt JSON in config file should log a warning and start fresh."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text("not-valid-json")
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.config"):
+            save_config_file(config_path, {"max_reviewers": 3})
+
+        assert any("Failed to read" in r.message for r in caplog.records)
+        loaded = load_config_file(config_path)
+        assert loaded["max_reviewers"] == 3

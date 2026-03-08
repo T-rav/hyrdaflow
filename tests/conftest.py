@@ -52,6 +52,17 @@ def setup_test_environment():
         for key in list(os.environ)
         if key.startswith(("HYDRAFLOW_", "HYDRA_"))
     }
+    git_keys = {}
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    ):
+        if key in os.environ:
+            git_keys[key] = os.environ.pop(key)
     for key in hydra_keys:
         os.environ.pop(key, None)
     try:
@@ -59,6 +70,16 @@ def setup_test_environment():
             yield
     finally:
         os.environ.update(hydra_keys)
+        os.environ.update(git_keys)
+
+
+@pytest.fixture(autouse=True)
+def _reset_gh_semaphore():
+    """Reset the global gh semaphore between tests to avoid stale event-loop binding."""
+    import subprocess_util
+
+    subprocess_util._gh_semaphore = None
+    subprocess_util._rate_limit_until = None
 
 
 # --- Config Fixtures ---

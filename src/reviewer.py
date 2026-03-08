@@ -284,6 +284,101 @@ class ReviewRunner(BaseRunner):
         result.duration_seconds = time.monotonic() - start
         return result
 
+    async def fix_review_findings(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        worktree_path: Path,
+        review_summary: str,
+        worker_id: int = 0,
+    ) -> ReviewResult:
+        """Spin up a sub-agent to fix issues found during review.
+
+        Takes the review feedback and asks the agent to fix the identified
+        issues, commit the fixes, and report whether it succeeded.
+        """
+        start = time.monotonic()
+        result = ReviewResult(
+            pr_number=pr.number,
+            issue_number=issue.id,
+        )
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.REVIEW_UPDATE,
+                data={
+                    "pr": pr.number,
+                    "issue": issue.id,
+                    "worker": worker_id,
+                    "status": "fixing_review_findings",
+                    "role": "reviewer",
+                },
+            )
+        )
+
+        if self._config.dry_run:
+            logger.info("[dry-run] Would fix review findings for PR #%d", pr.number)
+            result.verdict = ReviewVerdict.APPROVE
+            result.summary = "Dry-run: review fix skipped"
+            result.duration_seconds = time.monotonic() - start
+            return result
+
+        try:
+            cmd = self._build_command(worktree_path)
+            prompt = self._build_review_fix_prompt(pr, issue, review_summary)
+            before_sha = await self._get_head_sha(worktree_path)
+            transcript = await self._execute(
+                cmd,
+                prompt,
+                worktree_path,
+                {"pr": pr.number, "issue": issue.id, "source": "review_fixer"},
+            )
+            result.transcript = transcript
+            result.verdict = self._parse_verdict(transcript)
+            result.summary = self._extract_summary(transcript)
+            result.fixes_made = await self._has_changes(worktree_path, before_sha)
+            self._save_transcript("review-fix", pr.number, transcript)
+        except CreditExhaustedError:
+            raise
+        except Exception as exc:
+            result.verdict = ReviewVerdict.REQUEST_CHANGES
+            result.summary = f"Review fix failed: {exc}"
+            logger.error("Review fix failed for PR #%d: %s", pr.number, exc)
+
+        result.duration_seconds = time.monotonic() - start
+        return result
+
+    def _build_review_fix_prompt(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        review_summary: str,
+    ) -> str:
+        """Build a prompt to fix issues identified during review."""
+        test_cmd = self._config.test_command
+        return f"""You are fixing review findings on PR #{pr.number} (issue #{issue.id}: {issue.title}).
+
+## Review Feedback
+
+{review_summary}
+
+## Instructions
+
+1. Read the review feedback above carefully.
+2. Fix every issue identified by the reviewer.
+3. Run `make lint` and `{test_cmd}` to verify your fixes pass.
+4. Commit fixes with message: "review-fix: address review feedback (PR #{pr.number})"
+5. Do NOT introduce new features or refactor beyond what the review requested.
+
+## Required Output
+
+End your response with EXACTLY one of these verdict lines:
+- VERDICT: APPROVE   (if all review findings are fixed)
+- VERDICT: REQUEST_CHANGES  (if you could not fix them)
+
+Then a brief summary on the next line starting with "SUMMARY: ".
+"""
+
     def _build_ci_fix_prompt(
         self,
         pr: PRInfo,
@@ -590,18 +685,20 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
 ## Review Instructions
 
-1. Evaluate three dimensions: correctness, completeness, and quality.
-2. Look for edge cases, missing error handling, security risks, test gaps, and style violations.
-3. You MUST find at least {min_findings} issues across all categories. If you find fewer, re-examine the code more carefully.
-4. If you genuinely find fewer than {min_findings} issues, include THOROUGH_REVIEW_COMPLETE:
+1. Evaluate four dimensions: **scope**, correctness, completeness, and quality.
+2. **Scope check (mandatory first step):** Compare every changed file against the issue title and description. Flag any file or change that is unrelated to the stated goal. Unrelated test files, docs, or config changes are scope creep — reject them. Follow CLAUDE.md rules strictly (e.g., never add tests for ADR markdown content).
+3. Look for edge cases, missing error handling, security risks, test gaps, and style violations.
+4. You MUST find at least {min_findings} issues across all categories. If you find fewer, re-examine the code more carefully.
+5. If you genuinely find fewer than {min_findings} issues, include THOROUGH_REVIEW_COMPLETE:
 ```
 THOROUGH_REVIEW_COMPLETE
+Scope: No issues — <justification>
 Correctness: No issues — <justification>
 Completeness: No issues — <justification>
 Quality: No issues — <justification>
 ```
 {verify_step}
-6. Run project audits on changed code:
+7. Run project audits on changed code:
    - Review code quality patterns (SRP, type hints, naming, complexity)
    - Review test quality (3As structure, factories, edge cases)
    - Check for security issues (injection, crypto, auth)

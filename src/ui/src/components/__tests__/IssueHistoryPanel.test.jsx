@@ -1,6 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { OutcomesPanel } from '../IssueHistoryPanel'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+
+const mockUseHydraFlow = vi.fn()
+vi.mock('../../context/HydraFlowContext', () => ({
+  useHydraFlow: (...args) => mockUseHydraFlow(...args),
+}))
+
+const { OutcomesPanel } = await import('../IssueHistoryPanel')
 
 function makePayload() {
   return {
@@ -59,33 +65,21 @@ function makePayload() {
 
 describe('OutcomesPanel (merged History+Outcomes)', () => {
   beforeEach(() => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => makePayload(),
-    })
+    mockUseHydraFlow.mockReturnValue({ issueHistory: makePayload() })
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('fetches and renders issue rows with compact summary', async () => {
+  it('renders issue rows with compact summary', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
+    expect(screen.getByText('Fix auth cache')).toBeInTheDocument()
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
     // Summary row uses compact format
     expect(screen.getByText('2 issues')).toBeInTheDocument()
     expect(screen.getByText('1.3K tok')).toBeInTheDocument()
     expect(screen.getByText('500 saved')).toBeInTheDocument()
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    const [url] = global.fetch.mock.calls[0]
-    expect(url).toContain('/api/issues/history?')
-    expect(url).toContain('limit=500')
   })
 
-  it('filters by status and search text client-side', async () => {
+  it('filters by status and search text client-side', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
     // Target the status dropdown specifically (first combobox; outcome filter is second)
     const selects = screen.getAllByRole('combobox')
@@ -97,9 +91,8 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('No issues match this filter.')).toBeInTheDocument()
   })
 
-  it('expands an issue row to show rollup details with kind-aware linked issues', async () => {
+  it('expands an issue row to show rollup details with kind-aware linked issues', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('Toggle issue 10'))
     expect(screen.getByText('Linked Issues')).toBeInTheDocument()
@@ -111,17 +104,15 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText(/1,600 tokens w\/o pruning \(est\)/)).toBeInTheDocument()
   })
 
-  it('renders outcome badges in summary rows', async () => {
+  it('renders outcome badges in summary rows', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     // "failed" appears as both status and outcome badge, "merged" likewise
     expect(screen.getAllByText('failed').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('merged').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows outcome details in expanded view', async () => {
+  it('shows outcome details in expanded view', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
     fireEvent.click(screen.getByLabelText('Toggle issue 10'))
     // 'Outcome' appears as both a column header and expanded detail label
@@ -131,23 +122,18 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('PR #501')).toBeInTheDocument()
   })
 
-  it('renders plain-int linked issues for backward compatibility', async () => {
+  it('renders plain-int linked issues for backward compatibility', () => {
     const payload = makePayload()
     payload.items[0].linked_issues = [3, 4]
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => payload,
-    })
+    mockUseHydraFlow.mockReturnValue({ issueHistory: payload })
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('Toggle issue 10'))
     expect(screen.getByText('#3')).toBeInTheDocument()
     expect(screen.getByText('#4')).toBeInTheDocument()
   })
 
-  it('toggles epic grouping with collapsible sections', async () => {
+  it('toggles epic grouping with collapsible sections', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
     // Enable group-by-epic via select dropdown
     const groupSelect = screen.getAllByRole('combobox').find(
@@ -170,18 +156,16 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
   })
 
-  it('renders outcome filter dropdown', async () => {
+  it('renders outcome filter dropdown', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
     const outcomeSelect = screen.getByTestId('outcome-filter')
     expect(outcomeSelect).toBeInTheDocument()
     expect(outcomeSelect.value).toBe('all')
   })
 
-  it('filters by outcome type', async () => {
+  it('filters by outcome type', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
 
     const outcomeSelect = screen.getByTestId('outcome-filter')
     fireEvent.change(outcomeSelect, { target: { value: 'merged' } })
@@ -190,16 +174,14 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
   })
 
-  it('renders outcome summary pills in the summary row', async () => {
+  it('renders outcome summary pills in the summary row', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     // Summary row should have outcome counts — 1 failed, 1 merged
     expect(screen.getByText('2 issues')).toBeInTheDocument()
   })
 
-  it('renders column headers in the table', async () => {
+  it('renders column headers in the table', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     expect(screen.getByText('Title')).toBeInTheDocument()
     expect(screen.getByText('Stage')).toBeInTheDocument()
     expect(screen.getByText('Outcome')).toBeInTheDocument()
@@ -207,22 +189,14 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('Last Seen')).toBeInTheDocument()
   })
 
-  it('shows compact token values in issue rows', async () => {
+  it('shows compact token values in issue rows', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     // Issue 10 has 1200 tokens → "1.2K" in the row
     expect(screen.getByText('1.2K')).toBeInTheDocument()
   })
 
-  it('shows error message when fetch fails', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 })
+  it('filters by epicOnly checkbox', () => {
     render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Could not load issue history')).toBeInTheDocument())
-  })
-
-  it('filters by epicOnly checkbox', async () => {
-    render(<OutcomesPanel />)
-    await waitFor(() => expect(screen.getByText('Fix auth cache')).toBeInTheDocument())
     fireEvent.click(screen.getByLabelText('Epic only'))
     // Issue 10 has epic='epic:auth', issue 11 has epic=''
     expect(screen.getByText('Fix auth cache')).toBeInTheDocument()

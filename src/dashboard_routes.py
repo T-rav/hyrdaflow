@@ -33,6 +33,7 @@ from models import (
     BackgroundWorkerState,
     BackgroundWorkerStatus,
     BGWorkerHealth,
+    ControlStatus,
     ControlStatusConfig,
     ControlStatusResponse,
     CrateCreateRequest,
@@ -255,6 +256,29 @@ def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str 
     elif event_type == EventType.PR_CREATED:
         result = "in_review"
     return result
+
+
+_HISTORY_STATUSES = {
+    "unknown",
+    "triaged",
+    "planned",
+    "implemented",
+    "in_review",
+    "reviewed",
+    "hitl",
+    "active",
+    "failed",
+    "merged",
+}
+
+
+def _coerce_history_status(value: str) -> str:
+    """Normalize dashboard history statuses and default to ``unknown``."""
+    cleaned = str(value).strip().lower()
+    if cleaned in _HISTORY_STATUSES:
+        return cleaned
+    logger.warning("Unknown history status %r; falling back to 'unknown'", value)
+    return "unknown"
 
 
 def _status_rank(status: str) -> int:
@@ -593,10 +617,19 @@ def create_router(
         )
 
     def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
+        repo_slug = (config.repo or "").strip()
+        if repo_slug.startswith("https://github.com/"):
+            repo_slug = repo_slug[len("https://github.com/") :]
+        elif repo_slug.startswith("http://github.com/"):
+            repo_slug = repo_slug[len("http://github.com/") :]
+        repo_slug = repo_slug.strip("/")
+        issue_url = (
+            f"https://github.com/{repo_slug}/issues/{issue_number}" if repo_slug else ""
+        )
         return {
             "issue_number": issue_number,
             "title": f"Issue #{issue_number}",
-            "issue_url": "",
+            "issue_url": issue_url,
             "status": "unknown",
             "epic": "",
             "crate_number": None,
@@ -1762,8 +1795,12 @@ def create_router(
             if orch and orch.credits_paused_until
             else None
         )
+        try:
+            control_status = ControlStatus(status)
+        except ValueError:
+            control_status = ControlStatus.IDLE
         response = ControlStatusResponse(
-            status=status,
+            status=control_status,
             credits_paused_until=credits_until,
             config=ControlStatusConfig(
                 app_version=get_app_version(),

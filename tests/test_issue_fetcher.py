@@ -1025,6 +1025,40 @@ class TestFetchIssuesByLabels:
         assert issues[0].number == 1
         assert issues[-1].number == 150
 
+    @pytest.mark.asyncio
+    async def test_gh_api_calls_include_cache_flag(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """The gh api calls should include --cache to enable ETag caching."""
+        fetcher = IssueFetcher(config)
+        raw = json.dumps(
+            [
+                {
+                    "number": 1,
+                    "title": "Test",
+                    "body": "",
+                    "labels": [{"name": "ready"}],
+                    "comments": [],
+                    "url": "https://github.com/test-org/test-repo/issues/1",
+                }
+            ]
+        )
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_proc
+        ) as mock_exec:
+            await fetcher.fetch_issues_by_labels(["ready"], limit=10)
+
+        # Verify --cache flag was passed to gh api
+        call_args = mock_exec.call_args_list[0]
+        cmd = list(call_args.args)
+        assert "--cache" in cmd
+        cache_idx = cmd.index("--cache")
+        assert cmd[cache_idx + 1] == f"{config.data_poll_interval}s"
+
 
 # ---------------------------------------------------------------------------
 # fetch_all_hydraflow_issues

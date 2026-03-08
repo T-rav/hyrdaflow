@@ -1705,3 +1705,23 @@ def test_build_ci_fix_prompt_excludes_code_scanning_when_none(config, event_bus)
     )
 
     assert "## Code Scanning Alerts" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# fix_review_findings
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_fix_prompt_contains_feedback(config, event_bus):
+    """Review fix prompt should contain the review summary and instructions."""
+    from tests.conftest import PRInfoFactory, TaskFactory
+
+    runner = _make_runner(config, event_bus)
+    pr = PRInfoFactory.create()
+    issue = TaskFactory.create()
+
+    prompt = runner._build_review_fix_prompt(pr, issue, "Missing null check in foo()")
+
+    assert "Missing null check in foo()" in prompt
+    assert "review-fix:" in prompt
+    assert "VERDICT:" in prompt
