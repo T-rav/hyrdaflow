@@ -512,8 +512,10 @@ class DockerRunner:
             )
             return cast(asyncio.subprocess.Process, proc)
         except Exception:
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
+            except Exception:
+                logger.debug("Failed to remove container during cleanup", exc_info=True)
             self._containers.discard(container)
             raise
 
@@ -590,22 +592,28 @@ class DockerRunner:
                 returncode=result["StatusCode"],
             )
         except TimeoutError:
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(None, container.kill)
+            except Exception:
+                logger.debug("Failed to kill container on timeout", exc_info=True)
             raise
         finally:
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
+            except Exception:
+                logger.debug("Failed to remove container during cleanup", exc_info=True)
             self._containers.discard(container)
 
     async def cleanup(self) -> None:
         """Remove all tracked containers."""
         loop = asyncio.get_running_loop()
         for container in list(self._containers):
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(
                     None, lambda c=container: c.remove(force=True)
                 )
+            except Exception:
+                logger.debug("Failed to remove container during cleanup", exc_info=True)
         self._containers.clear()
 
 
