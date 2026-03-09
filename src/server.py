@@ -7,11 +7,12 @@ import logging
 import os
 import signal
 
+from config import HydraFlowConfig
 from log import setup_logging
 from runtime_config import DEFAULT_LOG_FILE, load_runtime_config
 
 
-async def _run_with_dashboard(config):
+async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     from dashboard import HydraFlowDashboard  # noqa: PLC0415
     from events import EventBus, EventLog, EventType, HydraFlowEvent  # noqa: PLC0415
     from models import Phase  # noqa: PLC0415
@@ -53,7 +54,7 @@ async def _run_with_dashboard(config):
         await dashboard.stop()
 
 
-async def _run_headless(config):
+async def _run_headless(config: HydraFlowConfig) -> None:
     from repo_runtime import RepoRuntime  # noqa: PLC0415
 
     runtime = await RepoRuntime.create(config)
@@ -65,7 +66,7 @@ async def _run_headless(config):
     await runtime.run()
 
 
-async def _run(config):
+async def _run(config: HydraFlowConfig) -> None:
     if config.dashboard_enabled:
         await _run_with_dashboard(config)
     else:

@@ -121,6 +121,10 @@ class TestCreateRouter:
             "/api/epics",
             "/api/epics/{epic_number}",
             "/api/epics/{epic_number}/release",
+            "/api/admin/prep",
+            "/api/admin/scaffold",
+            "/api/admin/clean",
+            "/api/admin/ensure-labels",
             "/ws",
             "/{path:path}",
         }
@@ -4120,6 +4124,34 @@ class TestAdminTaskEndpoints:
         assert data["status"] == "ok"
         assert data["result"] == result.as_dict()
         mock_labels.assert_awaited_once_with(config)
+
+    @pytest.mark.asyncio
+    async def test_admin_task_exception_returns_500(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """When the task function raises, the endpoint returns 500."""
+        import json
+
+        with patch(
+            "dashboard_routes.run_clean",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ):
+            router = self._make_router(config, event_bus, state, tmp_path)
+            endpoint = self._find_post_endpoint(router, "/api/admin/clean")
+            response = await endpoint(repo=None)
+        data = json.loads(response.body)
+        assert response.status_code == 500
+        assert "clean failed" in data["error"]
+
+    def test_admin_routes_registered(self, config, event_bus, state, tmp_path) -> None:
+        """All four admin task endpoints should be registered."""
+        router = self._make_router(config, event_bus, state, tmp_path)
+        paths = {route.path for route in router.routes}
+        assert "/api/admin/prep" in paths
+        assert "/api/admin/scaffold" in paths
+        assert "/api/admin/clean" in paths
+        assert "/api/admin/ensure-labels" in paths
 
 
 # ---------------------------------------------------------------------------

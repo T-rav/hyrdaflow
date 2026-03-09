@@ -47,7 +47,7 @@ help:
 	@echo "  make run            Start HydraFlow (backend + Vite frontend dev server)"
 	@echo "  make dev            Alias for make run"
 	@echo "  make dry-run        Dry run (log actions without executing)"
-	@echo "  make clean          Remove all worktrees and state"
+	@echo "  make clean          Remove all worktrees and state (API with offline fallback)"
 	@echo "  make status         Show current HydraFlow state"
 	@echo "  make coverage [MIN] Run coverage-focused test command (default 70)"
 	@echo "  make cover [MIN]    Short alias for make coverage [MIN]"
@@ -60,9 +60,9 @@ help:
 	@echo "  make security       Run Bandit security scan"
 	@echo "  make quality-lite   Lint + typecheck + security (parallel)"
 	@echo "  make quality        quality-lite + test (parallel)"
-	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
-	@echo "  make prep           Sync agent assets then run full prep (labels, audit, CI/tests)"
-	@echo "  make scaffold       Generate baseline tests and CI configuration only"
+	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo (API with offline fallback)"
+	@echo "  make prep           Sync agent assets then run full prep (API with offline fallback)"
+	@echo "  make scaffold       Generate baseline tests and CI configuration (API with offline fallback)"
 	@echo "  make setup          Install hooks/assets for target repo ($(TARGET_REPO_ROOT))"
 	@echo "  make install        Install dashboard dependencies"
 	@echo "  make ui             Build React dashboard (src/ui/dist/)"
@@ -105,8 +105,9 @@ dry-run:
 
 clean:
 	@echo "$(YELLOW)Cleaning up all HydraFlow worktrees and state...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py clean
-	@echo "$(GREEN)Cleanup finished$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/clean" 2>/dev/null \
+		&& echo "$(GREEN)Cleanup finished (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py clean && echo "$(GREEN)Cleanup finished$(RESET)")
 
 status:
 	@echo "$(BLUE)HydraFlow State:$(RESET)"
@@ -391,18 +392,21 @@ prep: deps
 	@echo "$(BLUE)Ensuring target repo has latest agent assets first...$(RESET)"
 	@$(MAKE) setup TARGET_REPO_ROOT="$(TARGET_REPO_ROOT)"
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py prep
-	@echo "$(GREEN)Prep complete$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/prep" 2>/dev/null \
+		&& echo "$(GREEN)Prep complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py prep && echo "$(GREEN)Prep complete$(RESET)")
 
 scaffold: deps
 	@echo "$(BLUE)Generating baseline tests and CI configuration...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py scaffold
-	@echo "$(GREEN)Scaffold complete$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/scaffold" 2>/dev/null \
+		&& echo "$(GREEN)Scaffold complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py scaffold && echo "$(GREEN)Scaffold complete$(RESET)")
 
 ensure-labels: deps
 	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels
-	@echo "$(GREEN)Label sync complete$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/ensure-labels" 2>/dev/null \
+		&& echo "$(GREEN)Label sync complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels && echo "$(GREEN)Label sync complete$(RESET)")
 
 hot:
 	@echo "$(BLUE)Sending config update to running HydraFlow instance on :$(PORT)...$(RESET)"

@@ -2840,3 +2840,26 @@ class TestRegistryForwarding:
 
         dashboard = HydraFlowDashboard(config, event_bus, state)
         assert dashboard._registry is None
+
+
+# ---------------------------------------------------------------------------
+# serve() module-level entry point
+# ---------------------------------------------------------------------------
+
+
+class TestServeEntryPoint:
+    """Tests for the module-level serve() function."""
+
+    def test_serve_delegates_to_server_main(self) -> None:
+        """serve() should call server.main() with no arguments."""
+        with patch("server.main") as mock_main:
+            from dashboard import serve
+
+            serve()
+            mock_main.assert_called_once_with()
+
+    def test_serve_is_importable(self) -> None:
+        """serve() should be importable from the dashboard module."""
+        from dashboard import serve
+
+        assert callable(serve)
