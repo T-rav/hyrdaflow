@@ -2644,6 +2644,68 @@ class TestIssueOutcomeTracking:
         assert outcome is not None
         assert outcome.outcome == IssueOutcomeType.MERGED
 
+    def test_record_outcome_verify_pending_increments_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """VERIFY_PENDING should increment total_outcomes_verify_pending."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1,
+            IssueOutcomeType.VERIFY_PENDING,
+            "verification issue created",
+            pr_number=10,
+            phase="review",
+            verification_issue_number=50,
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_verify_pending == 1
+
+    def test_record_outcome_stores_verification_issue_number(
+        self, tmp_path: Path
+    ) -> None:
+        """record_outcome should persist verification_issue_number on the outcome."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42,
+            IssueOutcomeType.VERIFY_PENDING,
+            "verify",
+            pr_number=5,
+            phase="review",
+            verification_issue_number=99,
+        )
+        outcome = tracker.get_outcome(42)
+        assert outcome is not None
+        assert outcome.verification_issue_number == 99
+
+    def test_link_verification_issue_updates_existing_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """link_verification_issue should attach a verification issue to an outcome."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42, IssueOutcomeType.MERGED, "merged", pr_number=5, phase="review"
+        )
+        assert tracker.get_outcome(42).verification_issue_number is None
+
+        tracker.link_verification_issue(42, 100)
+        outcome = tracker.get_outcome(42)
+        assert outcome is not None
+        assert outcome.verification_issue_number == 100
+
+    def test_link_verification_issue_noop_for_missing_outcome(
+        self, tmp_path: Path
+    ) -> None:
+        """link_verification_issue should be a no-op when no outcome exists."""
+        tracker = make_tracker(tmp_path)
+        tracker.link_verification_issue(999, 100)  # should not raise
+        assert tracker.get_outcome(999) is None
+
 
 # ---------------------------------------------------------------------------
 # Hook Failure Tracking

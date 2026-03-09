@@ -211,6 +211,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
+    "HYDRAFLOW_LABEL_VERIFY": ("verify_label", ["hydraflow-verify"]),
 }
 
 
@@ -378,6 +379,10 @@ class HydraFlowConfig(BaseModel):
     fixed_label: list[str] = Field(
         default=["hydraflow-fixed"],
         description="Labels applied after PR is merged (OR logic)",
+    )
+    verify_label: list[str] = Field(
+        default=["hydraflow-verify"],
+        description="Labels for post-merge verification issues (OR logic)",
     )
     improve_label: list[str] = Field(
         default=["hydraflow-improve"],
@@ -1213,6 +1218,7 @@ class HydraFlowConfig(BaseModel):
         "epic_child_label",
         "find_label",
         "planner_label",
+        "verify_label",
     )
     @classmethod
     def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:
@@ -1258,6 +1264,7 @@ class HydraFlowConfig(BaseModel):
             self.hitl_active_label,
             self.hitl_autofix_label,
             self.fixed_label,
+            self.verify_label,
             self.improve_label,
             self.transcript_label,
         ):
@@ -1349,6 +1356,7 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_HITL_ACTIVE  → hitl_active_label
             HYDRAFLOW_LABEL_HITL_AUTOFIX → hitl_autofix_label
             HYDRAFLOW_LABEL_FIXED       → fixed_label
+            HYDRAFLOW_LABEL_VERIFY      → verify_label
             HYDRAFLOW_LABEL_IMPROVE     → improve_label
             HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label

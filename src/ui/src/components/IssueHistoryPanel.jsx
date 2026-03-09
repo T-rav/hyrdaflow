@@ -28,6 +28,7 @@ const STATUS_OPTIONS = [
 const OUTCOME_TYPES = [
   'all', 'merged', 'already_satisfied', 'hitl_closed',
   'hitl_skipped', 'hitl_approved', 'failed', 'manual_close',
+  'verify_pending',
 ]
 
 const OUTCOME_COLORS = {
@@ -38,6 +39,7 @@ const OUTCOME_COLORS = {
   failed: { color: theme.red, bg: theme.redSubtle },
   hitl_approved: { color: theme.green, bg: theme.greenSubtle },
   manual_close: { color: theme.textMuted, bg: theme.surfaceInset },
+  verify_pending: { color: theme.accent, bg: theme.accentSubtle },
   pending: { color: theme.textMuted, bg: theme.surfaceInset },
 }
 
@@ -408,6 +410,9 @@ export function OutcomesPanel() {
                   )}
                   {item.outcome.closed_at && (
                     <span style={{ color: theme.textMuted }}>closed: {formatTs(item.outcome.closed_at)}</span>
+                  )}
+                  {item.outcome.verification_issue_number != null && (
+                    <span style={{ color: theme.accent }}>verify: #{item.outcome.verification_issue_number}</span>
                   )}
                 </span>
               </div>

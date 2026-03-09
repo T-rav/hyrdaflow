@@ -396,6 +396,7 @@ class StateTracker:
         reason: str,
         pr_number: int | None = None,
         phase: str = "",
+        verification_issue_number: int | None = None,
     ) -> None:
         """Store an :class:`IssueOutcome` and increment the matching lifetime counter.
 
@@ -411,6 +412,7 @@ class StateTracker:
             IssueOutcomeType.FAILED: "total_outcomes_failed",
             IssueOutcomeType.MANUAL_CLOSE: "total_outcomes_manual_close",
             IssueOutcomeType.HITL_APPROVED: "total_outcomes_hitl_approved",
+            IssueOutcomeType.VERIFY_PENDING: "total_outcomes_verify_pending",
         }
 
         key = str(issue_number)
@@ -427,6 +429,7 @@ class StateTracker:
             closed_at=datetime.now(UTC).isoformat(),
             pr_number=pr_number,
             phase=phase,
+            verification_issue_number=verification_issue_number,
         )
         attr = counter_map.get(outcome)
         if attr:
@@ -446,6 +449,16 @@ class StateTracker:
         return {
             k: v.model_copy(deep=True) for k, v in self._data.issue_outcomes.items()
         }
+
+    def link_verification_issue(
+        self, issue_number: int, verification_issue_number: int
+    ) -> None:
+        """Attach a verification issue number to an existing outcome."""
+        key = str(issue_number)
+        outcome = self._data.issue_outcomes.get(key)
+        if outcome is not None:
+            outcome.verification_issue_number = verification_issue_number
+            self.save()
 
     # --- hook failure tracking ---
 
