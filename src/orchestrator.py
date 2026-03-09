@@ -26,6 +26,7 @@ from models import (
 from phase_utils import (
     is_adr_issue_title,
     is_likely_bug,
+    log_exception_with_bug_classification,
     release_batch_in_flight,
     safe_file_memory_suggestion,
 )
@@ -1034,21 +1035,13 @@ class HydraFlowOrchestrator:
                     consecutive_failures = 1
                     last_exc_type = exc_type
 
-                # Use higher severity for likely-bug exceptions
+                # Classify for event bus data; severity handled inside helper
                 exc_is_bug = is_likely_bug(exc)
-                if exc_is_bug:
-                    logger.critical(
-                        "%s loop hit likely bug (%s) — will retry but "
-                        "this probably needs a code fix",
-                        display,
-                        exc_type.__name__,
-                        exc_info=True,
-                    )
-                else:
-                    logger.exception(
-                        "%s loop iteration failed — will retry next cycle",
-                        display,
-                    )
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"{display} loop iteration failed — will retry next cycle",
+                )
 
                 error_data: dict[str, Any] = {
                     "message": f"{display} loop error",
@@ -1198,18 +1191,11 @@ class HydraFlowOrchestrator:
                     log_file=log_file,
                 )
             except Exception as exc:
-                if is_likely_bug(exc):
-                    logger.critical(
-                        "Failed to post transcript summary for issue #%d — likely bug (%s)",
-                        issue_number,
-                        type(exc).__name__,
-                        exc_info=True,
-                    )
-                else:
-                    logger.exception(
-                        "Failed to post transcript summary for issue #%d",
-                        issue_number,
-                    )
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"Failed to post transcript summary for issue #{issue_number}",
+                )
 
     def _log_reference(self, filename: str) -> str:
         """Return a repo- or data-relative log reference for display."""

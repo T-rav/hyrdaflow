@@ -623,18 +623,3 @@ class PlanPhase:
         )
 
         return epic_results + standalone_results
-
-    def _record_harness_failure(
-        self,
-        issue_number: int,
-        category: FailureCategory,
-        details: str,
-    ) -> None:
-        """Delegate to :func:`phase_utils.record_harness_failure` (backward compat)."""
-        record_harness_failure(
-            self._harness_insights,
-            issue_number,
-            category,
-            details,
-            stage=PipelineStage.PLAN,
-        )

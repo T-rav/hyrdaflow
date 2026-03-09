@@ -11,7 +11,10 @@ from events import EventBus, EventType, HydraFlowEvent
 from hitl_runner import HITLRunner
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
-from phase_utils import safe_file_memory_suggestion
+from phase_utils import (
+    log_exception_with_bug_classification,
+    safe_file_memory_suggestion,
+)
 from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
@@ -313,8 +316,12 @@ class HITLPhase:
                         )
             except (AuthenticationError, CreditExhaustedError, MemoryError):
                 raise
-            except Exception:
-                logger.exception("HITL processing failed for issue #%d", issue_number)
+            except Exception as exc:
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"HITL processing failed for issue #{issue_number}",
+                )
             finally:
                 self._active_hitl_issues.discard(issue_number)
                 self._notify_active_issues()
