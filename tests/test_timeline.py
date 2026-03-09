@@ -684,7 +684,7 @@ class TestTimelineEndpoints:
 
         router = self._make_router(config, event_bus, tmp_path)
         get_timeline_issue = self._find_endpoint(
-            router, "/api/timeline/issue/{issue_num}"
+            router, "/api/timeline/issue/{issue_number}"
         )
         assert get_timeline_issue is not None
 
@@ -698,7 +698,7 @@ class TestTimelineEndpoints:
     ) -> None:
         router = self._make_router(config, event_bus, tmp_path)
         get_timeline_issue = self._find_endpoint(
-            router, "/api/timeline/issue/{issue_num}"
+            router, "/api/timeline/issue/{issue_number}"
         )
         assert get_timeline_issue is not None
 
@@ -713,4 +713,4 @@ class TestTimelineEndpoints:
         router = self._make_router(config, event_bus, tmp_path)
         paths = {route.path for route in router.routes if hasattr(route, "path")}
         assert "/api/timeline" in paths
-        assert "/api/timeline/issue/{issue_num}" in paths
+        assert "/api/timeline/issue/{issue_number}" in paths

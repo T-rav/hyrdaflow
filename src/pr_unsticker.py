@@ -194,12 +194,12 @@ class PRUnsticker:
                 stats["failed"] += 1
 
             action = "unstick_resolved" if success else "unstick_failed"
-            issue_num = item.issue if not isinstance(result, BaseException) else 0
+            issue_number = item.issue if not isinstance(result, BaseException) else 0
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.HITL_UPDATE,
                     data={
-                        "issue": issue_num,
+                        "issue": issue_number,
                         "action": action,
                         "source": "pr_unsticker",
                     },
@@ -366,7 +366,8 @@ class PRUnsticker:
         if cause == FailureCause.MERGE_CONFLICT:
             if self._resolver is None:
                 logger.error(
-                    "#%d: no resolver configured, cannot resolve conflict", issue_number
+                    "#%d: no resolver configured, cannot resolve conflict",
+                    issue_number,
                 )
                 return ConflictResolutionResult(success=False, used_rebuild=False)
             from models import PRInfo
@@ -382,12 +383,22 @@ class PRUnsticker:
             )
         if cause == FailureCause.CI_TIMEOUT:
             success = await self._resolve_ci_timeout(
-                issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
+                issue_number,
+                issue,
+                wt_path,
+                branch,
+                pr_url=pr_url,
+                pr_number=pr_number,
             )
             return ConflictResolutionResult(success=success, used_rebuild=False)
         if cause in (FailureCause.CI_FAILURE, FailureCause.REVIEW_FIX_CAP):
             success = await self._resolve_ci_or_quality(
-                issue_number, issue, wt_path, branch, pr_url=pr_url, pr_number=pr_number
+                issue_number,
+                issue,
+                wt_path,
+                branch,
+                pr_url=pr_url,
+                pr_number=pr_number,
             )
             return ConflictResolutionResult(success=success, used_rebuild=False)
         success = await self._resolve_generic(issue_number, issue, wt_path, branch)
@@ -597,7 +608,11 @@ diff — you may catch things `make quality` won't.
                 )
                 if self._resolver is not None:
                     self._resolver.save_conflict_transcript(
-                        pr_number, issue_number, attempt, transcript, source="unsticker"
+                        pr_number,
+                        issue_number,
+                        attempt,
+                        transcript,
+                        source="unsticker",
                     )
 
                 await safe_file_memory_suggestion(

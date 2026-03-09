@@ -93,7 +93,7 @@ class TestCreateRouter:
             "/api/hitl/{issue_number}/close",
             "/api/issues/outcomes",
             "/api/timeline",
-            "/api/timeline/issue/{issue_num}",
+            "/api/timeline/issue/{issue_number}",
             "/api/intent",
             "/api/report",
             "/api/review-insights",
