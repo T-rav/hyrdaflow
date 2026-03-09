@@ -755,6 +755,7 @@ class TestReviewerStatus:
             (ReviewerStatus.DONE, "done"),
             (ReviewerStatus.FAILED, "failed"),
             (ReviewerStatus.FIXING, "fixing"),
+            (ReviewerStatus.FIXING_REVIEW_FINDINGS, "fixing_review_findings"),
             (ReviewerStatus.FIX_DONE, "fix_done"),
         ],
     )
@@ -765,7 +766,7 @@ class TestReviewerStatus:
         assert isinstance(ReviewerStatus.DONE, str)
 
     def test_all_members_present(self) -> None:
-        assert len(ReviewerStatus) == 5
+        assert len(ReviewerStatus) == 6
 
     def test_lookup_by_value(self) -> None:
         status = ReviewerStatus("reviewing")
