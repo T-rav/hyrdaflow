@@ -914,7 +914,7 @@ async def test_plan_failure_on_exception(config, event_bus, issue, tmp_path):
         result = await runner.plan(task, worker_id=0)
 
     assert result.success is False
-    assert result.error == "subprocess crashed"
+    assert result.error == "RuntimeError('subprocess crashed')"
 
 
 # ---------------------------------------------------------------------------

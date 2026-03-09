@@ -1767,21 +1767,6 @@ class PRManager:
         items = json.loads(raw) if raw.strip() else []
         return [self._parse_milestone(m) for m in items]
 
-    async def get_milestone(self, milestone_number: int) -> Crate | None:
-        """Fetch a single milestone by number."""
-        self._assert_repo()
-        try:
-            raw = await self._run_gh(
-                "gh",
-                "api",
-                f"repos/{self._repo}/milestones/{milestone_number}",
-            )
-            return self._parse_milestone(json.loads(raw))
-        except RuntimeError as exc:
-            if "HTTP 404" in str(exc).upper() or "Not Found" in str(exc):
-                return None
-            raise
-
     async def create_milestone(
         self, title: str, description: str = "", due_on: str | None = None
     ) -> Crate:

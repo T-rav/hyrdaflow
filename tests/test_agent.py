@@ -1407,7 +1407,7 @@ class TestPreQualityReviewLoop:
                 runner,
                 "_execute",
                 new_callable=AsyncMock,
-                side_effect=ValueError("unexpected value"),
+                side_effect=RuntimeError("unexpected value"),
             ),
             patch.object(runner, "_save_transcript"),
         ):

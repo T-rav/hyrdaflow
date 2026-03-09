@@ -212,7 +212,7 @@ class ImplementPhase:
                 if plan_text:
                     ctx.save_plan(plan_text)
                 ctx.save_config(self._config.model_dump(mode="json"))
-            except Exception:
+            except (RuntimeError, OSError):
                 logger.debug("Run recording setup failed", exc_info=True)
                 ctx = None
 
@@ -226,7 +226,7 @@ class ImplementPhase:
                         ctx.append_transcript(line)
                 outcome = "success" if result.success else "failed"
                 ctx.finalize(outcome, error=result.error)
-            except Exception:
+            except (RuntimeError, OSError):
                 logger.debug("Run recording finalize failed", exc_info=True)
 
         is_retry = bool(review_feedback)
@@ -299,7 +299,7 @@ class ImplementPhase:
                 )
                 try:
                     await self._worktrees.reset_to_main(wt_path)
-                except Exception:
+                except (RuntimeError, OSError):
                     logger.warning(
                         "Worktree reset failed for issue #%d — continuing with existing state",
                         issue.id,

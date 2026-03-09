@@ -235,6 +235,7 @@ class TestPostMergeConflictFix:
         """When merge fails and agent can't resolve, should escalate to HITL."""
         mock_agents = AsyncMock()
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
+        mock_agents._execute = AsyncMock(return_value="conflict resolution transcript")
         phase = make_review_phase(config, agents=mock_agents)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()

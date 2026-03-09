@@ -1497,26 +1497,6 @@ class WorkerUpdatePayload(TypedDict, total=False):
     repo: str
 
 
-class PlannerUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.PLANNER_UPDATE``."""
-
-    issue: int
-    worker: int
-    status: str
-    role: str
-    repo: str
-
-
-class TriageUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.TRIAGE_UPDATE``."""
-
-    issue: int
-    worker: int
-    status: str
-    role: str
-    repo: str
-
-
 class ReviewUpdatePayload(TypedDict, total=False):
     """Payload for ``EventType.REVIEW_UPDATE``."""
 
@@ -1538,14 +1518,6 @@ class PRCreatedPayload(TypedDict, total=False):
     branch: str
     draft: bool
     url: str
-    repo: str
-
-
-class MergeUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.MERGE_UPDATE``."""
-
-    pr: int
-    status: str
     repo: str
 
 
@@ -1787,6 +1759,31 @@ class CrateCompletedPayload(TypedDict, total=False):
 
     crate_number: int
     repo: str
+
+
+class PlannerUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.PLANNER_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
+
+
+class MergeUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.MERGE_UPDATE``."""
+
+    pr: int
+    status: str
+
+
+class TriageUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.TRIAGE_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
 
 
 class PipelineSnapshotEntry(TypedDict):

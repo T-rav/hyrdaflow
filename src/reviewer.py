@@ -762,18 +762,6 @@ SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
         }
         return prompt, stats
 
-    def _build_subskill_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.subskill_tool,
-            model=self._config.subskill_model,
-        )
-
-    def _build_debug_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.debug_tool,
-            model=self._config.debug_model,
-        )
-
     def _build_precheck_prompt(self, pr: PRInfo, issue: Task, diff: str) -> str:
         max_diff = min(len(diff), 3000, self._config.max_review_diff_chars)
         diff_snippet = diff[:max_diff]

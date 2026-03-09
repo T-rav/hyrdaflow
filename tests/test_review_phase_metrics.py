@@ -145,6 +145,7 @@ class TestLifecycleMetricRecording:
     ) -> None:
         """Merge conflict HITL escalation should increment the hitl counter."""
         mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(False, ""))
         phase = make_review_phase(config, agents=mock_agents, default_mocks=True)
         issue = TaskFactory.create()

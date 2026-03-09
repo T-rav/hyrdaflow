@@ -353,7 +353,7 @@ class TestRunExecution:
         result = await runner.run(issue, "fix the test", "CI failed", Path("/tmp/wt"))
 
         assert result.success is False
-        assert result.error == "boom"
+        assert result.error == "RuntimeError('boom')"
 
     @pytest.mark.asyncio
     async def test_run_publishes_start_and_end_events(self, config, event_bus) -> None:
