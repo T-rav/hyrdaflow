@@ -326,7 +326,7 @@ class PostMergeHandler:
         )
         try:
             await self._prs.post_comment(issue.id, body)
-        except RuntimeError:
+        except (RuntimeError, OSError):
             logger.warning(
                 "Could not post inference usage comment for issue #%d (PR #%d)",
                 issue.id,
@@ -387,7 +387,7 @@ class PostMergeHandler:
                     f"Error: {error_msg}\n\n"
                     f"---\n*HydraFlow PostMergeHandler*",
                 )
-            except RuntimeError:
+            except (RuntimeError, OSError, ValueError):
                 logger.warning(
                     "Could not post hook-failure comment for issue #%d",
                     issue_number,

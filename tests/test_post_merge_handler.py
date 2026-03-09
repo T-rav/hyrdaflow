@@ -1431,3 +1431,63 @@ class TestNarrowedExceptionHandling:
                 escalate_fn=AsyncMock(),
                 publish_fn=AsyncMock(),
             )
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_inner_post_comment_catches_os_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError from post_comment inside _safe_hook must not propagate."""
+        handler = _make_handler(config)
+        handler._prs.post_comment = AsyncMock(side_effect=OSError("broken pipe"))
+
+        async def _fail() -> str:
+            raise RuntimeError("hook failure")
+
+        # Should not raise even though post_comment raises OSError
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_post_inference_comment_catches_os_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError in post_comment during inference totals should be caught."""
+        handler = _make_handler(config)
+        handler._prompt_telemetry.get_pr_totals = lambda _pr: {
+            "inference_calls": 1,
+            "total_tokens": 100,
+            "total_est_tokens": 100,
+            "actual_usage_calls": 0,
+        }
+        handler._prs.post_comment = AsyncMock(side_effect=OSError("connection reset"))
+        pr = PRInfoFactory.create(number=10, issue_number=5)
+        issue = TaskFactory.create(id=5)
+
+        # Should not raise — OSError is now caught
+        await handler._post_inference_totals_comment(pr, issue)
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_chain_isolation(self, config: HydraFlowConfig) -> None:
+        """When record_hook_failure fails, bus.publish and post_comment still run."""
+        state_mock = MagicMock()
+        state_mock.record_hook_failure = MagicMock(side_effect=RuntimeError("db down"))
+        bus_mock = AsyncMock()
+        prs_mock = AsyncMock()
+        handler = PostMergeHandler(
+            config=config,
+            state=state_mock,
+            prs=prs_mock,
+            event_bus=bus_mock,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+
+        async def _fail() -> str:
+            raise RuntimeError("hook failed")
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+        bus_mock.publish.assert_awaited_once()
+        prs_mock.post_comment.assert_awaited_once()
