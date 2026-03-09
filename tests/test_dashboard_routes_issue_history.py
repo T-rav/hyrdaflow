@@ -153,7 +153,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_history.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -213,7 +213,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_history.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -270,7 +270,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_history.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -330,7 +330,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_history.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -564,7 +564,7 @@ class TestIssueHistoryEndpoint:
         )()
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=mock_issue)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_history.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)

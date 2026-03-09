@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import copy
 import json
 import logging
 import os
 import sys
 import tempfile
-import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Annotated, Any
@@ -33,7 +31,6 @@ from admin_tasks import TaskResult, run_clean, run_ensure_labels, run_prep, run_
 from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
-from issue_fetcher import IssueFetcher
 from issue_store import IssueStoreStage
 from metrics_manager import get_metrics_cache_dir
 from models import (
@@ -44,22 +41,9 @@ from models import (
     ControlStatus,
     ControlStatusConfig,
     ControlStatusResponse,
-    CrateCreateRequest,
-    CrateItemsRequest,
-    CrateUpdateRequest,
-    GitHubIssue,
-    HITLCloseRequest,
     HITLEscalationPayload,
-    HITLSkipRequest,
-    HITLUpdatePayload,
     IntentRequest,
     IntentResponse,
-    IssueHistoryEntry,
-    IssueHistoryLink,
-    IssueHistoryPR,
-    IssueHistoryResponse,
-    IssueOutcome,
-    IssueOutcomeType,
     MetricsHistoryResponse,
     MetricsResponse,
     MetricsSnapshot,
@@ -71,18 +55,16 @@ from models import (
     QueueStats,
     ReportIssueRequest,
     ReportIssueResponse,
-    parse_task_links,
 )
 from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from state import StateTracker
 from timeline import TimelineBuilder
-from transcript_summarizer import TranscriptSummarizer
 from update_check import load_cached_update_result
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
-from repo_runtime import RepoRuntime, RepoRuntimeRegistry
+from repo_runtime import RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
 
 logger = logging.getLogger("hydraflow.dashboard")
@@ -600,7 +582,35 @@ def create_router(
     backward compatibility.
     """
     router = APIRouter()
-    hitl_summary_cooldown_seconds = 300
+
+    # Build shared dependency container for sub-routers.
+    from dashboard_crate_routes import create_crate_router
+    from dashboard_history import create_history_router
+    from dashboard_hitl_routes import create_hitl_router
+    from dashboard_router_deps import RouterDeps
+
+    deps = RouterDeps(
+        config=config,
+        event_bus=event_bus,
+        state=state,
+        pr_manager=pr_manager,
+        get_orchestrator=get_orchestrator,
+        set_orchestrator=set_orchestrator,
+        set_run_task=set_run_task,
+        ui_dist_dir=ui_dist_dir,
+        template_dir=template_dir,
+        registry=registry,
+        repo_store=repo_store,
+        register_repo_cb=register_repo_cb,
+        remove_repo_cb=remove_repo_cb,
+        list_repos_cb=list_repos_cb,
+        default_repo_slug=default_repo_slug,
+    )
+
+    # Compose sub-routers for extracted domains.
+    router.include_router(create_crate_router(deps))
+    router.include_router(create_hitl_router(deps))
+    router.include_router(create_history_router(deps))
 
     def _resolve_runtime(
         slug: str | None,
@@ -610,17 +620,8 @@ def create_router(
         EventBus,
         Callable[[], HydraFlowOrchestrator | None],
     ]:
-        """Resolve per-repo dependencies from the registry.
-
-        When *slug* is ``None`` or no registry is configured, returns the
-        single-repo closure defaults for backward compatibility.
-        """
-        if registry is not None and slug is not None:
-            rt: RepoRuntime | None = registry.get(slug)
-            if rt is None:
-                raise HTTPException(status_code=404, detail=f"Unknown repo: {slug}")
-            return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
-        return config, state, event_bus, get_orchestrator
+        """Resolve per-repo dependencies from the registry."""
+        return deps.resolve_runtime(slug)
 
     async def _execute_admin_task(
         task_name: str,
@@ -645,9 +646,7 @@ def create_router(
 
     def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
         """Return the shared PRManager when config matches; otherwise create a new one."""
-        if cfg is config and bus is event_bus:
-            return pr_manager
-        return PRManager(cfg, bus)
+        return deps.pr_manager_for(cfg, bus)
 
     def _list_repo_records() -> list[RepoRecord]:
         """Return repo records from the callback or store, with error fallback."""
@@ -667,10 +666,6 @@ def create_router(
     # Supervisor endpoints now return graceful "unavailable" responses.
     supervisor_client = None
     supervisor_manager = None
-    issue_fetcher = IssueFetcher(config)
-    hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
-    hitl_summary_inflight: set[int] = set()
-    hitl_summary_slots = asyncio.Semaphore(3)
 
     def _serve_spa_index() -> HTMLResponse:
         """Serve the SPA index.html, falling back to template or placeholder."""
@@ -715,527 +710,6 @@ def create_router(
             )
             return []
         return snapshots[-limit:]
-
-    def _build_history_links(
-        raw: dict[int, dict[str, Any]] | Iterable[Any],
-    ) -> list[IssueHistoryLink]:
-        """Convert the internal linked_issues accumulator to a sorted list."""
-        if isinstance(raw, dict):
-            return sorted(
-                (
-                    IssueHistoryLink(
-                        target_id=int(v["target_id"]),
-                        kind=v.get("kind", "relates_to"),
-                        target_url=v.get("target_url"),
-                    )
-                    for v in raw.values()
-                    if isinstance(v, dict) and _coerce_int(v.get("target_id")) > 0
-                ),
-                key=lambda lnk: lnk.target_id,
-            )
-        # Legacy fallback: bare set of ints
-        return sorted(
-            (IssueHistoryLink(target_id=int(v)) for v in raw if _coerce_int(v) > 0),
-            key=lambda lnk: lnk.target_id,
-        )
-
-    def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
-        """Create a blank history aggregation row for an issue."""
-        repo_slug = (config.repo or "").strip()
-        if repo_slug.startswith("https://github.com/"):
-            repo_slug = repo_slug[len("https://github.com/") :]
-        elif repo_slug.startswith("http://github.com/"):
-            repo_slug = repo_slug[len("http://github.com/") :]
-        repo_slug = repo_slug.strip("/")
-        issue_url = (
-            f"https://github.com/{repo_slug}/issues/{issue_number}" if repo_slug else ""
-        )
-        return {
-            "issue_number": issue_number,
-            "title": f"Issue #{issue_number}",
-            "issue_url": issue_url,
-            "status": "unknown",
-            "epic": "",
-            "crate_number": None,
-            "crate_title": "",
-            "linked_issues": {},
-            "prs": {},
-            "session_ids": set(),
-            "source_calls": {},
-            "model_calls": {},
-            "inference": dict.fromkeys(_INFERENCE_COUNTER_KEYS, 0),
-            "first_seen": None,
-            "last_seen": None,
-            "status_updated_at": None,
-        }
-
-    def _touch_issue_timestamps(row: dict[str, Any], timestamp: str | None) -> None:
-        """Update the first_seen / last_seen bounds of a history row."""
-        if not timestamp:
-            return
-        current_first = row.get("first_seen")
-        current_last = row.get("last_seen")
-        if not isinstance(current_first, str) or timestamp < current_first:
-            row["first_seen"] = timestamp
-        if not isinstance(current_last, str) or timestamp > current_last:
-            row["last_seen"] = timestamp
-
-    def _build_issue_history_entry(
-        row: dict[str, Any],
-        outcome: IssueOutcome | None,
-    ) -> IssueHistoryEntry:
-        """Build an ``IssueHistoryEntry`` from a raw aggregation row."""
-        issue_number = int(row["issue_number"])
-        title = str(row.get("title", f"Issue #{issue_number}"))
-        row_status = str(row.get("status", "unknown")).lower()
-
-        linked_issues = _build_history_links(row.get("linked_issues", {}))
-        prs_map = row.get("prs", {})
-        if not isinstance(prs_map, dict):
-            prs_map = {}
-        pr_rows = sorted(
-            (
-                IssueHistoryPR(
-                    number=int(pr_data["number"]),
-                    url=str(pr_data.get("url", "")),
-                    merged=bool(pr_data.get("merged", False)),
-                )
-                for pr_data in prs_map.values()
-                if isinstance(pr_data, dict) and _coerce_int(pr_data.get("number")) > 0
-            ),
-            key=lambda p: p.number,
-            reverse=True,
-        )
-
-        return IssueHistoryEntry(
-            issue_number=issue_number,
-            title=title,
-            issue_url=str(row.get("issue_url", "")),
-            status=_coerce_history_status(row_status),
-            epic=str(row.get("epic", "")),
-            crate_number=row.get("crate_number"),
-            crate_title=str(row.get("crate_title", "")),
-            linked_issues=linked_issues,
-            prs=pr_rows,
-            session_ids=sorted(str(s) for s in row.get("session_ids", set()) if str(s)),
-            source_calls=dict(sorted(row.get("source_calls", {}).items())),
-            model_calls=dict(sorted(row.get("model_calls", {}).items())),
-            inference={k: _coerce_int(v) for k, v in row.get("inference", {}).items()},
-            first_seen=row.get("first_seen"),
-            last_seen=row.get("last_seen"),
-            outcome=outcome,
-        )
-
-    def _aggregate_telemetry_record(
-        row: dict[str, Any],
-        record: dict[str, Any],
-        pr_to_issue: dict[int, int],
-        *,
-        sum_counters: bool = False,
-    ) -> None:
-        """Extract shared metadata from a telemetry record into *row*.
-
-        When *sum_counters* is True the inference counter keys are also
-        accumulated (used in the per-record path).  The rollup path only
-        needs metadata so it passes ``sum_counters=False``.
-        """
-        issue_number = int(row["issue_number"])
-        timestamp = record.get("timestamp")
-        _touch_issue_timestamps(row, timestamp if isinstance(timestamp, str) else None)
-
-        session_id = str(record.get("session_id", "")).strip()
-        if session_id:
-            row["session_ids"].add(session_id)
-
-        source = str(record.get("source", "")).strip()
-        if source:
-            row["source_calls"][source] = row["source_calls"].get(source, 0) + 1
-
-        model = str(record.get("model", "")).strip()
-        if model:
-            row["model_calls"][model] = row["model_calls"].get(model, 0) + 1
-
-        if sum_counters:
-            for key in _INFERENCE_COUNTER_KEYS:
-                row["inference"][key] += _coerce_int(record.get(key))
-
-        pr_number = _coerce_int(record.get("pr_number"))
-        if pr_number > 0:
-            prs: dict[int, dict[str, Any]] = row["prs"]
-            if pr_number not in prs:
-                prs[pr_number] = {
-                    "number": pr_number,
-                    "url": "",
-                    "merged": False,
-                }
-            pr_to_issue.setdefault(pr_number, issue_number)
-
-    def _process_events_into_rows(
-        events: list[Any],
-        issue_rows: dict[int, dict[str, Any]],
-        pr_to_issue: dict[int, int],
-        since_dt: datetime | None,
-        until_dt: datetime | None,
-    ) -> None:
-        """Process event-bus events into *issue_rows* in place."""
-        for event in events:
-            timestamp = event.timestamp
-            if not _is_timestamp_in_range(timestamp, since_dt, until_dt):
-                continue
-
-            issue_number = _event_issue_number(event.data)
-            if issue_number is None and event.type == EventType.MERGE_UPDATE:
-                pr_num = _coerce_int(event.data.get("pr"))
-                issue_number = pr_to_issue.get(pr_num)
-
-            if issue_number is None or issue_number <= 0:
-                continue
-
-            row = issue_rows.setdefault(
-                issue_number, _new_issue_history_entry(issue_number)
-            )
-            _touch_issue_timestamps(row, timestamp)
-
-            maybe_title = str(event.data.get("title", "")).strip()
-            if maybe_title:
-                row["title"] = maybe_title
-
-            maybe_url = str(event.data.get("url", "")).strip()
-            if maybe_url.startswith(("http://", "https://")):
-                row["issue_url"] = maybe_url
-
-            if event.type == EventType.ISSUE_CREATED:
-                labels = event.data.get("labels", [])
-                if isinstance(labels, list) and not row.get("epic"):
-                    for lbl in labels:
-                        s = str(lbl).strip()
-                        if (
-                            s
-                            and "epic" in s.lower()
-                            and s.lower() not in _EPIC_INTERNAL_LABELS
-                        ):
-                            row["epic"] = s
-                            break
-                milestone_num = _coerce_int(event.data.get("milestone_number"))
-                if milestone_num > 0 and not row.get("crate_number"):
-                    row["crate_number"] = milestone_num
-
-            if event.type == EventType.PR_CREATED:
-                pr_number = _coerce_int(event.data.get("pr"))
-                if pr_number > 0:
-                    pr_to_issue[pr_number] = issue_number
-                    prs = row["prs"]
-                    payload = prs.get(
-                        pr_number,
-                        {"number": pr_number, "url": "", "merged": False},
-                    )
-                    url = str(event.data.get("url", "")).strip()
-                    if url.startswith(("http://", "https://")):
-                        payload["url"] = url
-                    prs[pr_number] = payload
-
-            if event.type == EventType.MERGE_UPDATE:
-                pr_number = _coerce_int(event.data.get("pr"))
-                if pr_number > 0:
-                    prs = row["prs"]
-                    payload = prs.get(
-                        pr_number,
-                        {"number": pr_number, "url": "", "merged": False},
-                    )
-                    if str(event.data.get("status", "")).lower() == "merged":
-                        payload["merged"] = True
-                    prs[pr_number] = payload
-
-            normalised = _normalise_event_status(event.type, event.data)
-            if normalised:
-                current = str(row.get("status", "unknown"))
-                current_ts = (
-                    row.get("status_updated_at")
-                    if isinstance(row.get("status_updated_at"), str)
-                    else None
-                )
-                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
-                    current, current_ts
-                ):
-                    row["status"] = normalised
-                    row["status_updated_at"] = timestamp
-
-    def _filter_rows_to_items(
-        issue_rows: dict[int, dict[str, Any]],
-        requested_status: str,
-        query_text: str,
-    ) -> list[IssueHistoryEntry]:
-        """Filter *issue_rows* and convert to ``IssueHistoryEntry`` objects."""
-        items: list[IssueHistoryEntry] = []
-        for row in issue_rows.values():
-            row_status = str(row.get("status", "unknown")).lower()
-            if requested_status and row_status != requested_status:
-                continue
-
-            issue_number = int(row["issue_number"])
-            title = str(row.get("title", f"Issue #{issue_number}"))
-            if (
-                query_text
-                and query_text not in title.lower()
-                and query_text not in str(issue_number)
-            ):
-                continue
-
-            items.append(
-                _build_issue_history_entry(row, state.get_outcome(issue_number))
-            )
-        return items
-
-    async def _apply_enrichment_and_crate_titles(
-        items: list[IssueHistoryEntry],
-        issue_rows: dict[int, dict[str, Any]],
-        requested_status: str,
-        query_text: str,
-        use_unfiltered: bool,
-    ) -> list[IssueHistoryEntry]:
-        """Enrich items via GitHub and backfill crate titles from milestones.
-
-        Returns a (potentially rebuilt) items list.
-        """
-        already_enriched: set[int] = _history_cache.get("enriched_issues", set())
-        issue_lookup = {
-            item.issue_number: issue_rows[item.issue_number] for item in items
-        }
-        enrich_candidates = [
-            item.issue_number
-            for item in items
-            if item.issue_number not in already_enriched
-            and (
-                not item.issue_url
-                or item.title.startswith("Issue #")
-                or (not item.epic and not item.linked_issues)
-            )
-        ][:40]
-        if enrich_candidates:
-            await _enrich_issue_history_with_github(
-                {k: issue_lookup[k] for k in enrich_candidates}
-            )
-            already_enriched.update(enrich_candidates)
-            _history_cache["enriched_issues"] = already_enriched
-            if use_unfiltered and _history_cache["issue_rows"] is not None:
-                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                _save_history_cache()
-            # Rebuild items from enriched rows.
-            items = _filter_rows_to_items(issue_rows, requested_status, query_text)
-
-        # Sort before crate-title backfill so milestone fetches are done
-        # after ordering.  The caller applies the page limit after returning.
-        items.sort(
-            key=lambda item: (
-                item.last_seen or "",
-                item.inference.get("total_tokens", 0),
-                item.issue_number,
-            ),
-            reverse=True,
-        )
-
-        # Populate crate titles from milestones for items that have a
-        # crate_number but no title yet.
-        needs_title = any(i.crate_number and not i.crate_title for i in items)
-        if needs_title:
-            try:
-                milestones = await pr_manager.list_milestones(state="all")
-                title_map = {m.number: m.title for m in milestones}
-                items = [
-                    i.model_copy(
-                        update={"crate_title": title_map.get(i.crate_number, "")}
-                    )
-                    if i.crate_number and not i.crate_title
-                    else i
-                    for i in items
-                ]
-                # Also backfill into the raw rows so the cache carries titles.
-                backfilled = False
-                for i in items:
-                    if i.crate_number and i.crate_title:
-                        raw = issue_rows.get(i.issue_number)
-                        if raw is not None and raw.get("crate_title") != i.crate_title:
-                            raw["crate_title"] = i.crate_title
-                            backfilled = True
-                if (
-                    backfilled
-                    and use_unfiltered
-                    and _history_cache.get("issue_rows") is not None
-                ):
-                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                    _save_history_cache()
-            except Exception:
-                logger.warning(
-                    "Failed to fetch milestones for crate titles", exc_info=True
-                )
-
-        # Backfill epic field from state's epic tracking when not already set.
-        epic_states = state.get_all_epic_states()
-        if epic_states:
-            child_to_epic: dict[int, str] = {}
-            for es in epic_states.values():
-                title = es.title or f"Epic #{es.epic_number}"
-                for child in es.child_issues:
-                    child_to_epic[child] = title
-            if child_to_epic:
-                items = [
-                    i.model_copy(update={"epic": child_to_epic[i.issue_number]})
-                    if not i.epic and i.issue_number in child_to_epic
-                    else i
-                    for i in items
-                ]
-
-        # Derive outcome for issues that completed the pipeline (have a
-        # merged PR) but were never given an explicit record_outcome() call.
-        items = [
-            i.model_copy(
-                update={
-                    "outcome": IssueOutcome(
-                        outcome=IssueOutcomeType.MERGED,
-                        reason="Derived from merged PR",
-                        closed_at=i.last_seen or "",
-                        pr_number=next((p.number for p in i.prs if p.merged), None),
-                        phase="review",
-                    )
-                }
-            )
-            if not i.outcome and any(p.merged for p in i.prs)
-            else i
-            for i in items
-        ]
-
-        return items
-
-    async def _enrich_issue_history_with_github(
-        entries: dict[int, dict[str, Any]], limit: int = 150
-    ) -> None:
-        """Concurrently fetch GitHub metadata and apply it to history entries."""
-        if not entries:
-            return
-
-        fetcher = IssueFetcher(config)
-        issue_numbers = sorted(entries.keys(), reverse=True)[:limit]
-        sem = asyncio.Semaphore(6)
-
-        async def _fetch_and_apply(issue_number: int) -> None:
-            """Fetch one issue under the semaphore and apply fields to its entry."""
-            async with sem:
-                issue = await fetcher.fetch_issue_by_number(issue_number)
-            if issue is None:
-                return
-            row = entries.get(issue_number)
-            if row is None:
-                return
-            row["title"] = issue.title or row.get("title") or f"Issue #{issue_number}"
-            row["issue_url"] = issue.url or row.get("issue_url", "")
-            labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
-            if not row.get("epic"):
-                # Skip internal pipeline labels (e.g. hydraflow-epic-child);
-                # only keep labels that look like actual epic names.
-                epic = next(
-                    (
-                        lbl
-                        for lbl in labels
-                        if "epic" in lbl.lower()
-                        and lbl.lower() not in _EPIC_INTERNAL_LABELS
-                    ),
-                    "",
-                )
-                row["epic"] = epic
-            ms_num = _coerce_int(getattr(issue, "milestone_number", None))
-            if ms_num > 0 and not row.get("crate_number"):
-                row["crate_number"] = ms_num
-            for link in parse_task_links(issue.body or ""):
-                tid = int(link.target_id)
-                row["linked_issues"][tid] = {
-                    "target_id": tid,
-                    "kind": str(link.kind),
-                    "target_url": link.target_url or None,
-                }
-
-        await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
-
-    def _build_hitl_context(
-        issue: GitHubIssue, *, cause: str, origin: str | None
-    ) -> str:
-        """Build a text context block for HITL summary generation."""
-        body = issue.body.strip()
-        comments = issue.comments
-        recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
-        comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
-        origin_text = origin or "unknown"
-        return (
-            f"Issue #{issue.number}: {issue.title}\n"
-            f"Escalation cause: {cause or 'not recorded'}\n"
-            f"Escalation origin: {origin_text}\n\n"
-            f"Issue body:\n{body[:6000]}\n\n"
-            f"Recent comments:\n{comments_block[:3000]}"
-        )
-
-    def _normalise_summary_lines(raw: str) -> str:
-        """Strip bullet prefixes and cap a summary to 8 lines."""
-        lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
-        return "\n".join(lines[:8]).strip()
-
-    def _hitl_summary_retry_due(issue_number: int) -> bool:
-        """Return True if enough time has passed to retry a failed HITL summary."""
-        failed_at, _ = state.get_hitl_summary_failure(issue_number)
-        failed_dt = _parse_iso_or_none(failed_at)
-        if failed_dt is None:
-            return True
-        age = (datetime.now(UTC) - failed_dt).total_seconds()
-        return age >= hitl_summary_cooldown_seconds
-
-    async def _compute_hitl_summary(
-        issue_number: int, *, cause: str, origin: str | None
-    ) -> str | None:
-        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
-        if (
-            not config.transcript_summarization_enabled
-            or config.dry_run
-            or not config.gh_token
-        ):
-            return None
-        issue = await issue_fetcher.fetch_issue_by_number(issue_number)
-        if issue is None:
-            state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
-            return None
-        context = _build_hitl_context(issue, cause=cause, origin=origin)
-        generated = await hitl_summarizer.summarize_hitl_context(context)
-        if not generated:
-            state.set_hitl_summary_failure(issue_number, "Summary model returned empty")
-            return None
-        summary = _normalise_summary_lines(generated)
-        if not summary:
-            state.set_hitl_summary_failure(
-                issue_number, "Summary normalization produced empty output"
-            )
-            return None
-        state.set_hitl_summary(issue_number, summary)
-        state.clear_hitl_summary_failure(issue_number)
-        return summary
-
-    async def _warm_hitl_summary(
-        issue_number: int, *, cause: str, origin: str | None
-    ) -> None:
-        """Schedule background HITL summary generation, guarded by inflight tracking."""
-        if issue_number in hitl_summary_inflight:
-            return
-        hitl_summary_inflight.add(issue_number)
-        try:
-            async with hitl_summary_slots:
-                await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
-        except Exception as exc:
-            state.set_hitl_summary_failure(
-                issue_number,
-                f"{type(exc).__name__}: {exc}",
-            )
-            logger.exception(
-                "Failed to warm HITL summary for issue #%d",
-                issue_number,
-            )
-        finally:
-            hitl_summary_inflight.discard(issue_number)
 
     @router.get("/healthz")
     def get_health() -> JSONResponse:
@@ -1543,503 +1017,6 @@ def create_router(
         return JSONResponse(result)
 
     # --- Crate (milestone) routes ---
-
-    @router.get("/api/crates")
-    async def get_crates() -> JSONResponse:
-        """List all milestones as crates with enriched progress data."""
-        try:
-            crates = await pr_manager.list_milestones()
-            result = []
-            for crate in crates:
-                data = crate.model_dump()
-                data["total_issues"] = crate.open_issues + crate.closed_issues
-                data["progress"] = (
-                    round(
-                        crate.closed_issues
-                        / (crate.open_issues + crate.closed_issues)
-                        * 100
-                    )
-                    if (crate.open_issues + crate.closed_issues) > 0
-                    else 0
-                )
-                result.append(data)
-            return JSONResponse(result)
-        except RuntimeError as exc:
-            logger.error("Failed to fetch crates: %s", exc)
-            return JSONResponse({"error": "Failed to fetch crates"}, status_code=500)
-
-    @router.post("/api/crates")
-    async def create_crate(body: CrateCreateRequest) -> JSONResponse:
-        """Create a new milestone (crate)."""
-        if not body.title.strip():
-            return JSONResponse({"error": "title is required"}, status_code=400)
-        try:
-            crate = await pr_manager.create_milestone(
-                title=body.title.strip(),
-                description=body.description,
-                due_on=body.due_on,
-            )
-            return JSONResponse(crate.model_dump())
-        except RuntimeError as exc:
-            logger.error("Failed to create crate: %s", exc)
-            return JSONResponse({"error": "Failed to create crate"}, status_code=500)
-
-    @router.patch("/api/crates/{crate_number}")
-    async def update_crate(crate_number: int, body: CrateUpdateRequest) -> JSONResponse:
-        """Update a milestone (crate).
-
-        Only fields present in the request JSON are forwarded.  Sending
-        ``"due_on": null`` clears the milestone due date.
-        """
-        fields = {k: body.model_dump()[k] for k in body.model_fields_set}
-        if not fields:
-            return JSONResponse({"error": "no fields to update"}, status_code=400)
-        try:
-            crate = await pr_manager.update_milestone(crate_number, **fields)
-            return JSONResponse(crate.model_dump())
-        except RuntimeError as exc:
-            logger.error("Failed to update crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": "Failed to update crate"}, status_code=500)
-
-    @router.delete("/api/crates/{crate_number}")
-    async def delete_crate(crate_number: int) -> JSONResponse:
-        """Delete a milestone (crate)."""
-        try:
-            await pr_manager.delete_milestone(crate_number)
-            return JSONResponse({"ok": True})
-        except RuntimeError as exc:
-            logger.error("Failed to delete crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": "Failed to delete crate"}, status_code=500)
-
-    @router.post("/api/crates/{crate_number}/items")
-    async def add_crate_items(
-        crate_number: int, body: CrateItemsRequest
-    ) -> JSONResponse:
-        """Assign issues to a milestone (crate)."""
-        try:
-            for issue_number in body.issue_numbers:
-                await pr_manager.set_issue_milestone(issue_number, crate_number)
-            return JSONResponse({"ok": True, "added": len(body.issue_numbers)})
-        except RuntimeError as exc:
-            logger.error("Failed to add items to crate #%d: %s", crate_number, exc)
-            return JSONResponse(
-                {"error": "Failed to add items to crate"}, status_code=500
-            )
-
-    @router.delete("/api/crates/{crate_number}/items")
-    async def remove_crate_items(
-        crate_number: int, body: CrateItemsRequest
-    ) -> JSONResponse:
-        """Remove issues from a milestone (crate) by clearing their milestone.
-
-        Only clears the milestone if the issue is currently assigned to the
-        specified crate (milestone), avoiding unintended removal from a
-        different milestone.
-        """
-        try:
-            current_issues = await pr_manager.list_milestone_issues(crate_number)
-            current_nums = {i.get("number") for i in current_issues}
-            removed = 0
-            for issue_number in body.issue_numbers:
-                if issue_number in current_nums:
-                    await pr_manager.set_issue_milestone(issue_number, None)
-                    removed += 1
-            return JSONResponse({"ok": True, "removed": removed})
-        except RuntimeError as exc:
-            logger.error("Failed to remove items from crate #%d: %s", crate_number, exc)
-            return JSONResponse(
-                {"error": "Failed to remove items from crate"}, status_code=500
-            )
-
-    @router.get("/api/crates/active")
-    async def get_active_crate() -> JSONResponse:
-        """Return the active crate number, title, progress, and auto_crate flag."""
-        orch = get_orchestrator()
-        active_number = state.get_active_crate_number()
-        result: dict[str, Any] = {
-            "crate_number": active_number,
-            "title": None,
-            "progress": 0,
-            "open_issues": 0,
-            "closed_issues": 0,
-            "total_issues": 0,
-            "auto_crate": config.auto_crate,
-        }
-        if active_number is not None and orch is not None:
-            try:
-                crates = await pr_manager.list_milestones(state="all")
-                active = next((c for c in crates if c.number == active_number), None)
-                if active:
-                    total = active.open_issues + active.closed_issues
-                    result["title"] = active.title
-                    result["open_issues"] = active.open_issues
-                    result["closed_issues"] = active.closed_issues
-                    result["total_issues"] = total
-                    result["progress"] = (
-                        round(active.closed_issues / total * 100) if total > 0 else 0
-                    )
-            except Exception:
-                logger.warning("Failed to enrich active crate details", exc_info=True)
-        return JSONResponse(result)
-
-    @router.post("/api/crates/active")
-    async def set_active_crate(body: dict[str, Any]) -> JSONResponse:
-        """Set the active crate. Body: ``{"crate_number": N}`` or ``{"crate_number": null}``."""
-        crate_number = body.get("crate_number")
-        if crate_number is not None and not isinstance(crate_number, int):
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "detail": "crate_number must be an integer or null",
-                },
-                status_code=400,
-            )
-        orch = get_orchestrator()
-        if orch is None:
-            # Fallback: update state directly when orchestrator isn't running
-            state.set_active_crate_number(crate_number)
-            return JSONResponse({"status": "ok", "crate_number": crate_number})
-        if crate_number is not None:
-            await orch.crate_manager.activate_crate(crate_number)
-        else:
-            state.set_active_crate_number(None)
-        return JSONResponse({"status": "ok", "crate_number": crate_number})
-
-    @router.post("/api/crates/advance")
-    async def advance_crate() -> JSONResponse:
-        """Advance past the current active crate to the next open one.
-
-        Calls ``check_and_advance()`` which completes the active crate
-        and activates the next milestone with open issues.  If the
-        current crate still has open issues, it is force-cleared first
-        so the pipeline moves forward regardless.
-        """
-        orch = get_orchestrator()
-        cm = orch.crate_manager if orch is not None else None
-        if cm is None:
-            state.set_active_crate_number(None)
-            return JSONResponse({"status": "ok", "previous": None, "next": None})
-        previous = cm.active_crate_number
-        # Force-clear first so check_and_advance will see no active
-        # crate (if it still has open issues, check_and_advance would
-        # be a no-op otherwise).
-        state.set_active_crate_number(None)
-        # Now find the next open crate
-        try:
-            crates = await pr_manager.list_milestones(state="open")
-            candidates = sorted(
-                (c for c in crates if c.open_issues > 0 and c.number != previous),
-                key=lambda c: c.number,
-            )
-            if candidates:
-                await cm.activate_crate(candidates[0].number)
-                return JSONResponse(
-                    {
-                        "status": "ok",
-                        "previous": previous,
-                        "next": candidates[0].number,
-                    }
-                )
-        except Exception:
-            logger.warning("Failed to find next crate during advance", exc_info=True)
-        return JSONResponse({"status": "ok", "previous": previous, "next": None})
-
-    @router.get("/api/hitl")
-    async def get_hitl(
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        hitl_labels = list(dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label]))
-        manager = _pr_manager_for(_cfg, _bus)
-        items = await manager.list_hitl_items(hitl_labels)
-        orch = _get_orch()
-        enriched = []
-        for item in items:
-            data = item.model_dump()
-            if orch:
-                data["status"] = orch.get_hitl_status(item.issue)
-            cause = _state.get_hitl_cause(item.issue)
-            origin = _state.get_hitl_origin(item.issue)
-            if not cause and origin:
-                if origin in _cfg.improve_label:
-                    cause = "Self-improvement proposal"
-                elif origin in _cfg.review_label:
-                    cause = "Review escalation"
-                elif origin in _cfg.find_label:
-                    cause = "Triage escalation"
-                else:
-                    cause = "Escalation (reason not recorded)"
-            if cause:
-                data["cause"] = cause
-            if origin and origin in _cfg.improve_label:
-                data["isMemorySuggestion"] = True
-            # Flag items held for issue type review
-            if cause and (
-                "epic detected" in cause.lower()
-                or "bug report detected" in cause.lower()
-            ):
-                data["issueTypeReview"] = True
-            cached_summary = state.get_hitl_summary(item.issue)
-            data["llmSummary"] = cached_summary or ""
-            data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
-            visual_ev = state.get_hitl_visual_evidence(item.issue)
-            if visual_ev:
-                data["visualEvidence"] = visual_ev.model_dump()
-            if (
-                not cached_summary
-                and config.transcript_summarization_enabled
-                and not config.dry_run
-                and bool(config.gh_token)
-                and _hitl_summary_retry_due(item.issue)
-            ):
-                asyncio.create_task(
-                    _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
-                )
-            enriched.append(data)
-
-        # When memory auto-approve is on, filter out memory suggestions that
-        # were queued before the setting was enabled.
-        if config.memory_auto_approve:
-            enriched = [d for d in enriched if not d.get("isMemorySuggestion")]
-
-        return JSONResponse(enriched)
-
-    @router.get("/api/hitl/{issue_number}/summary")
-    async def get_hitl_summary(issue_number: int) -> JSONResponse:
-        """Return cached HITL summary, generating one if missing."""
-        cached = state.get_hitl_summary(issue_number)
-        if cached:
-            return JSONResponse(
-                {
-                    "issue": issue_number,
-                    "summary": cached,
-                    "updated_at": state.get_hitl_summary_updated_at(issue_number),
-                    "cached": True,
-                }
-            )
-
-        cause = state.get_hitl_cause(issue_number) or ""
-        origin = state.get_hitl_origin(issue_number)
-        summary = await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
-        if summary:
-            return JSONResponse(
-                {
-                    "issue": issue_number,
-                    "summary": summary,
-                    "updated_at": state.get_hitl_summary_updated_at(issue_number),
-                    "cached": False,
-                }
-            )
-        return JSONResponse(
-            {
-                "issue": issue_number,
-                "summary": "",
-                "updated_at": None,
-                "cached": False,
-            }
-        )
-
-    @router.post("/api/hitl/{issue_number}/correct")
-    async def hitl_correct(issue_number: int, body: dict[str, Any]) -> JSONResponse:
-        """Submit a correction for a HITL issue to guide retry."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse({"status": "no orchestrator"}, status_code=400)
-        correction = body.get("correction") or ""
-        if not correction.strip():
-            return JSONResponse(
-                {"status": "error", "detail": "Correction text must not be empty"},
-                status_code=400,
-            )
-        orch.submit_hitl_correction(issue_number, correction)
-
-        # Swap labels for immediate dashboard feedback
-        await pr_manager.swap_pipeline_labels(issue_number, config.hitl_active_label[0])
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data=HITLUpdatePayload(
-                    issue=issue_number,
-                    status="processing",
-                    action="correct",
-                ),
-            )
-        )
-        return JSONResponse({"status": "ok"})
-
-    # ------------------------------------------------------------------
-    # HITL helpers
-    # ------------------------------------------------------------------
-
-    def _clear_hitl_state(
-        orch: HydraFlowOrchestrator | None,
-        issue_number: int,
-    ) -> None:
-        """Clear all HITL tracking state for an issue.
-
-        Consolidates the repeated skip + remove pattern used by every
-        HITL resolution endpoint.
-        """
-        if orch:
-            orch.skip_hitl_issue(issue_number)
-        state.remove_hitl_origin(issue_number)
-        state.remove_hitl_cause(issue_number)
-        state.remove_hitl_summary(issue_number)
-
-    async def _resolve_hitl_item(
-        issue_number: int,
-        orch: HydraFlowOrchestrator,
-        *,
-        action: str,
-        comment_heading: str,
-        comment_body: str,
-        outcome_type: IssueOutcomeType,
-        reason: str,
-    ) -> JSONResponse:
-        """Clear HITL state, record outcome, post comment, and publish event.
-
-        Shared implementation for hitl_skip, hitl_close, and
-        hitl_approve_process which all follow the same
-        cleanup → outcome → comment → event → response pattern.
-
-        ``orch`` must be the already-fetched, non-None orchestrator from the
-        caller so that state cleanup is always paired with the side effects the
-        caller already performed (label swaps, issue close, etc.).
-        """
-        _clear_hitl_state(orch, issue_number)
-        state.record_outcome(
-            issue_number,
-            outcome_type,
-            reason=reason,
-            phase="hitl",
-        )
-
-        try:
-            await pr_manager.post_comment(
-                issue_number,
-                f"**{comment_heading}** — {comment_body}\n\n---\n*HydraFlow Dashboard*",
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to post %s comment for issue #%d",
-                action,
-                issue_number,
-                exc_info=True,
-            )
-
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data=HITLUpdatePayload(
-                    issue=issue_number,
-                    status="resolved",
-                    action=action,
-                    reason=reason,
-                ),
-            )
-        )
-        return JSONResponse({"status": "ok"})
-
-    # ------------------------------------------------------------------
-    # HITL route handlers
-    # ------------------------------------------------------------------
-
-    @router.post("/api/hitl/{issue_number}/skip")
-    async def hitl_skip(issue_number: int, body: HITLSkipRequest) -> JSONResponse:
-        """Remove a HITL issue from the queue without action (reason required)."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse({"status": "no orchestrator"}, status_code=400)
-
-        # Read origin before clearing state
-        origin = state.get_hitl_origin(issue_number)
-
-        # If this was an improve issue, transition to triage for implementation
-        if origin and origin in config.improve_label and config.find_label:
-            await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
-        else:
-            # Just remove all pipeline labels
-            for lbl in config.all_pipeline_labels:
-                await pr_manager.remove_label(issue_number, lbl)
-
-        return await _resolve_hitl_item(
-            issue_number,
-            orch,
-            action="skip",
-            comment_heading="HITL Skip",
-            comment_body=f"Operator skipped this issue.\n\n**Reason:** {body.reason}",
-            outcome_type=IssueOutcomeType.HITL_SKIPPED,
-            reason=body.reason,
-        )
-
-    @router.post("/api/hitl/{issue_number}/close")
-    async def hitl_close(issue_number: int, body: HITLCloseRequest) -> JSONResponse:
-        """Close a HITL issue on GitHub (reason required)."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse({"status": "no orchestrator"}, status_code=400)
-        await pr_manager.close_issue(issue_number)
-
-        return await _resolve_hitl_item(
-            issue_number,
-            orch,
-            action="close",
-            comment_heading="HITL Close",
-            comment_body=f"Operator closed this issue.\n\n**Reason:** {body.reason}",
-            outcome_type=IssueOutcomeType.HITL_CLOSED,
-            reason=body.reason,
-        )
-
-    @router.post("/api/hitl/{issue_number}/approve-memory")
-    async def hitl_approve_memory(issue_number: int) -> JSONResponse:
-        """Approve a HITL item as a memory suggestion, relabeling for sync."""
-        # Remove all pipeline labels and add memory label
-        for lbl in config.all_pipeline_labels:
-            await pr_manager.remove_label(issue_number, lbl)
-        await pr_manager.add_labels(issue_number, config.memory_label)
-        _clear_hitl_state(get_orchestrator(), issue_number)
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data=HITLUpdatePayload(
-                    issue=issue_number,
-                    status="resolved",
-                    action="approved_as_memory",
-                ),
-            )
-        )
-        return JSONResponse({"status": "ok"})
-
-    @router.post("/api/hitl/{issue_number}/approve-process")
-    async def hitl_approve_process(issue_number: int) -> JSONResponse:
-        """Approve a HITL item held for issue type review.
-
-        All issue types (bugs, epics, etc.) route to triage first.
-        """
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse({"status": "no orchestrator"}, status_code=400)
-
-        target_label = config.find_label[0]
-        target_stage = "triage"
-
-        await pr_manager.swap_pipeline_labels(issue_number, target_label)
-
-        return await _resolve_hitl_item(
-            issue_number,
-            orch,
-            action="approved_for_processing",
-            comment_heading="Approved for processing",
-            comment_body=(
-                f"Operator approved this issue.\n\n"
-                f"Routing to **{target_stage}** (`{target_label}`)."
-            ),
-            outcome_type=IssueOutcomeType.HITL_APPROVED,
-            reason=f"Operator approved issue type for processing ({target_stage})",
-        )
-
     @router.get("/api/human-input")
     async def get_human_input_requests(
         repo: RepoSlugParam = None,
@@ -2266,85 +1243,22 @@ def create_router(
 
         return JSONResponse({"status": "ok", "updated": applied})
 
-    # Known workers with human-friendly labels (pipeline loops + background)
-    _bg_worker_defs = [
-        (
-            "triage",
-            "Triage",
-            "Classifies freshly discovered issues and routes them into the pipeline.",
-        ),
-        (
-            "plan",
-            "Plan",
-            "Builds implementation plans for triaged issues that are ready to execute.",
-        ),
-        (
-            "implement",
-            "Implement",
-            "Runs coding agents to implement planned issues and open pull requests.",
-        ),
-        (
-            "review",
-            "Review",
-            "Reviews PRs, applies fixes, and merges approved work when checks pass.",
-        ),
-        (
-            "memory_sync",
-            "Memory Manager",
-            "Ingests memory and transcript issues into durable learnings and proposals.",
-        ),
-        (
-            "retrospective",
-            "Retrospective",
-            "Captures post-merge outcomes and identifies recurring delivery patterns.",
-        ),
-        (
-            "metrics",
-            "Metrics",
-            "Refreshes operational metrics and dashboards from state and GitHub data.",
-        ),
-        (
-            "review_insights",
-            "Review Insights",
-            "Aggregates recurring review feedback into improvement opportunities.",
-        ),
-        (
-            "pipeline_poller",
-            "Pipeline Poller",
-            "Refreshes live pipeline snapshots for dashboard queue/status rendering.",
-        ),
-        (
-            "pr_unsticker",
-            "PR Unsticker",
-            "Requeues stalled HITL PRs by validating requirements and reopening flow.",
-        ),
-        (
-            "report_issue",
-            "Report Issue",
-            "Processes queued bug reports into GitHub issues via the configured agent.",
-        ),
-        (
-            "adr_reviewer",
-            "ADR Reviewer",
-            "Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.",
-        ),
-    ]
-
-    # Workers that have independent configurable intervals
-    _INTERVAL_WORKERS = {
-        "memory_sync",
-        "metrics",
-        "pr_unsticker",
-        "pipeline_poller",
-        "report_issue",
-    }
-    # Pipeline loops share poll_interval (read-only display)
-    _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}
-    _WORKER_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
-        "plan": ("planner",),
-        "implement": ("agent",),
-        "review": ("reviewer", "merge_conflict", "fresh_rebuild"),
-    }
+    # Import worker definitions from extracted module.
+    from dashboard_worker_defs import (
+        BG_WORKER_DEFS as _bg_worker_defs,
+    )
+    from dashboard_worker_defs import (
+        INTERVAL_BOUNDS as _INTERVAL_BOUNDS,
+    )
+    from dashboard_worker_defs import (
+        INTERVAL_WORKERS as _INTERVAL_WORKERS,
+    )
+    from dashboard_worker_defs import (
+        PIPELINE_WORKERS as _PIPELINE_WORKERS,
+    )
+    from dashboard_worker_defs import (
+        WORKER_SOURCE_ALIASES as _WORKER_SOURCE_ALIASES,
+    )
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
         """Aggregate prompt-telemetry inference stats keyed by worker name."""
@@ -2496,17 +1410,6 @@ def create_router(
             return JSONResponse({"error": f"unknown worker '{name}'"}, status_code=404)
         return JSONResponse({"status": "ok", "name": name})
 
-    # Interval bounds per editable worker.
-    # memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
-    # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
-    _INTERVAL_BOUNDS = {
-        "memory_sync": (10, 14400),
-        "metrics": (30, 14400),
-        "pr_unsticker": (60, 86400),
-        "pipeline_poller": (5, 14400),
-        "adr_reviewer": (28800, 432000),
-    }
-
     @router.post("/api/control/bg-worker/interval")
     async def set_bg_worker_interval(body: dict[str, Any]) -> JSONResponse:
         """Update the polling interval for a background worker."""
@@ -2538,238 +1441,6 @@ def create_router(
         orch.set_bg_worker_interval(name, interval)
         return JSONResponse(
             {"status": "ok", "name": name, "interval_seconds": interval}
-        )
-
-    @router.get("/api/issues/outcomes")
-    async def get_issue_outcomes() -> JSONResponse:
-        """Return all recorded issue outcomes."""
-        outcomes = state.get_all_outcomes()
-        return JSONResponse({k: v.model_dump() for k, v in outcomes.items()})
-
-    # --- Issue history cache ---
-    # Cache the aggregated issue_rows + pr_to_issue for the unfiltered case.
-    # Persisted to disk so the first request after restart is fast.
-    # Invalidated when the event count or telemetry file changes.
-    _history_cache_file = config.data_path("metrics", "history_cache.json")
-    _HISTORY_CACHE_TTL = 30  # seconds
-
-    _history_cache: dict[str, Any] = {
-        "event_count": -1,
-        "telemetry_mtime": 0.0,
-        "issue_rows": None,
-        "pr_to_issue": None,
-        "enriched_issues": set(),
-    }
-    _history_cache_ts: list[float] = [0.0]
-
-    def _save_history_cache() -> None:
-        """Persist in-memory history cache to disk."""
-        import json
-
-        rows = _history_cache.get("issue_rows")
-        if rows is None:
-            return
-        serialisable_rows: dict[str, Any] = {}
-        for k, v in rows.items():
-            entry = dict(v)
-            # Convert sets to lists for JSON serialisation.
-            entry["session_ids"] = sorted(entry.get("session_ids") or [])
-            serialisable_rows[str(k)] = entry
-        payload = {
-            "event_count": _history_cache.get("event_count", -1),
-            "telemetry_mtime": _history_cache.get("telemetry_mtime", 0.0),
-            "issue_rows": serialisable_rows,
-            "pr_to_issue": {
-                str(k): v for k, v in (_history_cache.get("pr_to_issue") or {}).items()
-            },
-            "enriched_issues": sorted(_history_cache.get("enriched_issues") or []),
-        }
-        try:
-            _history_cache_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = _history_cache_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload))
-            tmp.replace(_history_cache_file)
-        except OSError:
-            logger.debug("Could not persist history cache", exc_info=True)
-
-    def _load_history_cache() -> None:
-        """Load persisted history cache from disk into memory."""
-        import json
-
-        if not _history_cache_file.is_file():
-            return
-        try:
-            raw = json.loads(_history_cache_file.read_text())
-        except (OSError, json.JSONDecodeError, ValueError):
-            logger.debug("Corrupt history cache, ignoring", exc_info=True)
-            return
-        if not isinstance(raw, dict) or "issue_rows" not in raw:
-            return
-        rows: dict[int, dict[str, Any]] = {}
-        for k, v in raw.get("issue_rows", {}).items():
-            if not isinstance(v, dict):
-                continue
-            entry = dict(v)
-            # Restore session_ids to a set.
-            entry["session_ids"] = set(entry.get("session_ids") or [])
-            # JSON keys are always strings — restore int keys for sub-dicts
-            # so enrichment lookups (which use int keys) don't create dupes.
-            if isinstance(entry.get("prs"), dict):
-                entry["prs"] = {int(pk): pv for pk, pv in entry["prs"].items()}
-            if isinstance(entry.get("linked_issues"), dict):
-                entry["linked_issues"] = {
-                    int(lk): lv for lk, lv in entry["linked_issues"].items()
-                }
-            rows[int(k)] = entry
-        _history_cache["issue_rows"] = rows
-        _history_cache["pr_to_issue"] = {
-            int(k): int(v) for k, v in raw.get("pr_to_issue", {}).items()
-        }
-        _history_cache["event_count"] = raw.get("event_count", -1)
-        _history_cache["telemetry_mtime"] = raw.get("telemetry_mtime", 0.0)
-        _history_cache["enriched_issues"] = set(raw.get("enriched_issues") or [])
-        # Set timestamp so TTL check works (treat as "just loaded").
-        _history_cache_ts[0] = time.monotonic()
-
-    # Warm the in-memory cache from disk on startup.
-    try:
-        _load_history_cache()
-    except Exception:
-        logger.warning("History cache warm-up failed", exc_info=True)
-
-    @router.get("/api/issues/history")
-    async def get_issue_history(
-        since: str | None = None,
-        until: str | None = None,
-        status: str | None = None,
-        query: str | None = None,
-        limit: int = 300,
-    ) -> JSONResponse:
-        """Return issue lifecycle history with inference rollups."""
-        since_dt = _parse_iso_or_none(since)
-        until_dt = _parse_iso_or_none(until)
-        requested_status = (status or "").strip().lower()
-        query_text = (query or "").strip().lower()
-        clamped_limit = max(1, min(limit, 1000))
-
-        telemetry = PromptTelemetry(config)
-        all_events = event_bus.get_history()
-
-        # Check if we can reuse cached aggregation for the unfiltered case.
-        use_unfiltered = since_dt is None and until_dt is None
-        event_count = len(all_events)
-        telem_mtime = telemetry.get_mtime()
-        now = time.monotonic()
-        cache_hit = (
-            use_unfiltered
-            and _history_cache["issue_rows"] is not None
-            and _history_cache["event_count"] == event_count
-            and _history_cache["telemetry_mtime"] == telem_mtime
-            and (now - _history_cache_ts[0]) < _HISTORY_CACHE_TTL
-        )
-
-        if cache_hit:
-            issue_rows: dict[int, dict[str, Any]] = copy.deepcopy(
-                _history_cache["issue_rows"]
-            )
-            pr_to_issue: dict[int, int] = dict(_history_cache["pr_to_issue"])
-        else:
-            issue_rows = {}
-            pr_to_issue = {}
-
-            # Build PR→issue mapping from all in-memory events first so merge
-            # events in the selected range still resolve when PR creation
-            # happened earlier.
-            for event in all_events:
-                if event.type != EventType.PR_CREATED:
-                    continue
-                mapped_issue = _event_issue_number(event.data)
-                mapped_pr = _coerce_int(event.data.get("pr"))
-                if mapped_issue is not None and mapped_issue > 0 and mapped_pr > 0:
-                    pr_to_issue[mapped_pr] = mapped_issue
-
-        use_issue_rollups = (
-            since_dt is None
-            and until_dt is None
-            and not query_text
-            and not requested_status
-        )
-        if cache_hit:
-            pass  # aggregation already done
-        elif use_issue_rollups:
-            for issue_number, counters in telemetry.get_issue_totals().items():
-                row = issue_rows.setdefault(
-                    issue_number, _new_issue_history_entry(issue_number)
-                )
-                for key in _INFERENCE_COUNTER_KEYS:
-                    row["inference"][key] = _coerce_int(counters.get(key, 0))
-            # Keep metadata (sessions/model/source/pr links) from recent rows
-            # without re-summing counters that already came from rollups.
-            for record in telemetry.load_inferences(limit=5000):
-                issue_number = _coerce_int(record.get("issue_number"))
-                if issue_number <= 0:
-                    continue
-                row = issue_rows.get(issue_number)
-                if row is None:
-                    continue
-                _aggregate_telemetry_record(
-                    row, record, pr_to_issue, sum_counters=False
-                )
-        else:
-            inference_rows = telemetry.load_inferences(limit=50000)
-            for record in inference_rows:
-                timestamp = record.get("timestamp")
-                if not _is_timestamp_in_range(
-                    timestamp if isinstance(timestamp, str) else None,
-                    since_dt,
-                    until_dt,
-                ):
-                    continue
-                issue_number = _coerce_int(record.get("issue_number"))
-                if issue_number <= 0:
-                    continue
-                row = issue_rows.setdefault(
-                    issue_number, _new_issue_history_entry(issue_number)
-                )
-                _aggregate_telemetry_record(row, record, pr_to_issue, sum_counters=True)
-
-        if not cache_hit:
-            _process_events_into_rows(
-                all_events, issue_rows, pr_to_issue, since_dt, until_dt
-            )
-
-            # Store in cache if this was an unfiltered aggregation.
-            if use_unfiltered:
-                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                _history_cache["pr_to_issue"] = dict(pr_to_issue)
-                _history_cache["event_count"] = event_count
-                _history_cache["telemetry_mtime"] = telem_mtime
-                _history_cache_ts[0] = now
-                _save_history_cache()
-
-        items = _filter_rows_to_items(issue_rows, requested_status, query_text)
-
-        # Enrich via GitHub, backfill crate titles, sort.
-        items = await _apply_enrichment_and_crate_titles(
-            items, issue_rows, requested_status, query_text, use_unfiltered
-        )
-        items = items[:clamped_limit]
-
-        totals = {
-            "issues": len(items),
-            "inference_calls": sum(
-                i.inference.get("inference_calls", 0) for i in items
-            ),
-            "total_tokens": sum(i.inference.get("total_tokens", 0) for i in items),
-        }
-
-        return JSONResponse(
-            IssueHistoryResponse(
-                items=items,
-                totals=totals,
-                since=since_dt.isoformat() if since_dt else None,
-                until=until_dt.isoformat() if until_dt else None,
-            ).model_dump()
         )
 
     @router.get("/api/metrics")
