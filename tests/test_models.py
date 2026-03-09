@@ -3189,6 +3189,20 @@ class TestWorkerResultValidators:
         with pytest.raises(ValidationError, match="pre_quality_review_attempts"):
             WorkerResult(issue_number=1, branch="b", pre_quality_review_attempts=-1)
 
+    def test_ge0_fields_accept_zero(self) -> None:
+        result = WorkerResult(
+            issue_number=1,
+            branch="b",
+            duration_seconds=0.0,
+            commits=0,
+            quality_fix_attempts=0,
+            pre_quality_review_attempts=0,
+        )
+        assert result.duration_seconds == pytest.approx(0.0)
+        assert result.commits == 0
+        assert result.quality_fix_attempts == 0
+        assert result.pre_quality_review_attempts == 0
+
     def test_field_descriptions_present(self) -> None:
         fields = WorkerResult.model_fields
         for name, info in fields.items():
@@ -3222,6 +3236,13 @@ class TestReviewResultValidators:
     def test_ci_fix_attempts_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="ci_fix_attempts"):
             ReviewResult(pr_number=1, issue_number=1, ci_fix_attempts=-1)
+
+    def test_ge0_fields_accept_zero(self) -> None:
+        result = ReviewResult(
+            pr_number=1, issue_number=1, duration_seconds=0.0, ci_fix_attempts=0
+        )
+        assert result.duration_seconds == pytest.approx(0.0)
+        assert result.ci_fix_attempts == 0
 
     def test_field_descriptions_present(self) -> None:
         fields = ReviewResult.model_fields
