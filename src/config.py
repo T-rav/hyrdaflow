@@ -20,6 +20,7 @@ logger = logging.getLogger("hydraflow.config")
 # Data-driven env-var override tables.
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
+    ("dashboard_port", "HYDRAFLOW_DASHBOARD_PORT", 5555),
     ("min_plan_words", "HYDRAFLOW_MIN_PLAN_WORDS", 200),
     (
         "max_pre_quality_review_attempts",
@@ -118,6 +119,7 @@ _ENV_FLOAT_RATIO_OVERRIDES: list[tuple[str, str, float]] = [
 ]
 
 _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
+    ("dry_run", "HYDRAFLOW_DRY_RUN", False),
     ("docker_read_only_root", "HYDRAFLOW_DOCKER_READ_ONLY_ROOT", True),
     ("docker_no_new_privileges", "HYDRAFLOW_DOCKER_NO_NEW_PRIVILEGES", True),
     (

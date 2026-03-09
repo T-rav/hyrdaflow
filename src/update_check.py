@@ -1,4 +1,4 @@
-"""Lightweight update checks for the hf CLI."""
+"""Lightweight HydraFlow update check helpers."""
 
 from __future__ import annotations
 
@@ -20,8 +20,6 @@ _CACHE_PATH = _CACHE_DIR / "update-check.json"
 
 @dataclass(frozen=True)
 class UpdateCheckResult:
-    """Result from checking for CLI updates."""
-
     current_version: str
     latest_version: str | None
     update_available: bool
@@ -58,7 +56,6 @@ def load_cached_update_result(
     current_version: str | None = None,
     path: Path = _CACHE_PATH,
 ) -> UpdateCheckResult | None:
-    """Return cached update result without making any network requests."""
     cached = _read_cache(path)
     if cached is None:
         return None
@@ -99,7 +96,6 @@ def _fetch_latest_pypi_version(timeout_seconds: float) -> str:
 
 
 def check_for_updates(timeout_seconds: float = 2.0) -> UpdateCheckResult:
-    """Perform a live update check against PyPI."""
     current = get_app_version()
     try:
         latest = _fetch_latest_pypi_version(timeout_seconds)
@@ -129,7 +125,6 @@ def check_for_updates_cached(
     max_age_seconds: int = _CACHE_MAX_AGE_SECONDS,
     path: Path = _CACHE_PATH,
 ) -> UpdateCheckResult:
-    """Perform update checks with a local cache to avoid frequent network calls."""
     now = int(time.time())
     current = get_app_version()
     cached = _read_cache(path)
@@ -160,3 +155,11 @@ def check_for_updates_cached(
             path,
         )
     return result
+
+
+__all__ = [
+    "UpdateCheckResult",
+    "check_for_updates",
+    "check_for_updates_cached",
+    "load_cached_update_result",
+]

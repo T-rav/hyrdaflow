@@ -19,7 +19,8 @@ HydraFlow runs five concurrent async loops from `orchestrator.py`:
 ### Key Files
 
 **Core infrastructure:**
-- `cli.py` — CLI entry point (run, dry-run, clean, prep, scaffold)
+- `server.py` — Server entry point (`python -m server`)
+- `scripts/run_admin_task.py` — Admin task runner (clean, prep, scaffold, ensure-labels)
 - `orchestrator.py` — Main coordinator (five async polling loops)
 - `config.py` — `HydraFlowConfig` Pydantic model (50+ env-var overrides)
 - `models.py` — Pydantic data models (Phase, SessionLog, ReviewResult, etc.)
@@ -94,7 +95,7 @@ make run            # Start backend + Vite frontend dev server
 make dry-run        # Dry run (log actions without executing)
 make clean          # Remove all worktrees and state
 make status         # Show current HydraFlow state
-make test           # Run unit tests (parallel)
+make test           # Run unit tests (fail-fast)
 make test-fast      # Quick test run (-x --tb=short)
 make test-cov       # Run tests with coverage report (70% threshold)
 make lint           # Auto-fix linting
@@ -103,9 +104,12 @@ make typecheck      # Run Pyright type checks
 make security       # Run Bandit security scan
 make quality        # Lint + typecheck + security + test (parallel)
 make quality-lite   # Lint + typecheck + security (no tests)
-make setup          # Install hooks, CLI, config, labels
-make prep           # Scan + scaffold CI/tests for target repo
+make setup          # Install hooks, assets, config, labels
+make prep           # Sync agent assets + run full repo prep (labels, audit, CI/tests)
+make scaffold       # Generate baseline tests and CI configuration only (no asset sync)
 make ensure-labels  # Create HydraFlow lifecycle labels
+make integration    # Run integration tests
+make soak           # Run soak/load tests
 make hot            # Send config update to running instance
 make ui             # Build React dashboard
 make ui-dev         # Start React dashboard dev server

@@ -43,7 +43,7 @@ Each loop independently:
 - No global scheduler means the orchestrator cannot prioritize high-severity issues
   across stages (stages are FIFO within their own queue).
 - A crashed loop is not automatically restarted (the orchestrator must be restarted
-  via the supervisor / `hf run`).
+  by restarting the HydraFlow server, e.g., `make run`).
 
 ## Alternatives considered
 

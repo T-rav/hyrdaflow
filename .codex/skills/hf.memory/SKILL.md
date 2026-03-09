@@ -55,7 +55,7 @@ Scan the full conversation history (or filter to `$ARGUMENTS` topic if provided)
 
 4. **Codebase patterns** — recurring patterns that future agents should follow
    - Example: "worker concurrency uses asyncio.Semaphore pattern in phase modules"
-   - Example: "all label fields need config.py + cli.py + Makefile + ensure-labels"
+   - Example: "all label fields need config.py + server.py + Makefile + ensure-labels"
 
 5. **Workflow preferences** — how the developer wants things done
    - Example: "always run make quality before committing"

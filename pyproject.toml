@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hf = "hf_cli.__main__:entrypoint"
+hydraflow = "server:main"
 
 [project.optional-dependencies]
 test = [
