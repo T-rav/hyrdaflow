@@ -1527,8 +1527,8 @@ class TestMetricsState:
 
     def test_get_metrics_state_default(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        issue_num, hash_val, synced = tracker.get_metrics_state()
-        assert issue_num is None
+        issue_number, hash_val, synced = tracker.get_metrics_state()
+        assert issue_number is None
         assert hash_val == ""
         assert synced is None
 
@@ -1536,8 +1536,8 @@ class TestMetricsState:
         tracker = make_tracker(tmp_path)
         tracker.set_metrics_issue_number(99)
         tracker.update_metrics_state("abc123")
-        issue_num, hash_val, synced = tracker.get_metrics_state()
-        assert issue_num == 99
+        issue_number, hash_val, synced = tracker.get_metrics_state()
+        assert issue_number == 99
         assert hash_val == "abc123"
         assert synced is not None
 
@@ -1547,8 +1547,8 @@ class TestMetricsState:
         tracker.update_metrics_state("def456")
 
         tracker2 = make_tracker(tmp_path)
-        issue_num, hash_val, synced = tracker2.get_metrics_state()
-        assert issue_num == 77
+        issue_number, hash_val, synced = tracker2.get_metrics_state()
+        assert issue_number == 77
         assert hash_val == "def456"
         assert synced is not None
 

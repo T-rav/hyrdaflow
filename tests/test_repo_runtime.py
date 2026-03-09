@@ -12,6 +12,19 @@ from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from tests.helpers import ConfigFactory
 
 
+def _runtime_patches():
+    """Context manager stack for patching RepoRuntime dependencies."""
+    mock_bus = MagicMock()
+    mock_bus.rotate_log = AsyncMock()
+    mock_bus.load_history_from_disk = AsyncMock()
+    return (
+        patch("repo_runtime.EventLog"),
+        patch("repo_runtime.EventBus", return_value=mock_bus),
+        patch("repo_runtime.StateTracker"),
+        patch("repo_runtime.HydraFlowOrchestrator"),
+    )
+
+
 class TestRepoRuntimeInfo:
     def test_runtime_info_has_expected_defaults(self):
         info = RepoRuntimeInfo(slug="owner-repo")

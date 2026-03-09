@@ -1250,6 +1250,20 @@ def test_build_review_prompt_no_make_test_fast(config, event_bus, pr_info, task)
     assert "make test-fast" not in prompt
 
 
+def test_build_review_prompt_includes_test_coverage_audit(
+    config, event_bus, pr_info, task
+):
+    """Reviewer prompt should include expanded test coverage audit criteria."""
+    runner = _make_runner(config, event_bus)
+    prompt = runner._build_review_prompt(pr_info, task, "diff")
+
+    assert "Test coverage audit" in prompt
+    assert "issue requirements" in prompt
+    assert "dead code" in prompt
+    assert "Failure and error paths" in prompt
+    assert "New branches/conditions" in prompt
+
+
 # ---------------------------------------------------------------------------
 # _get_head_sha — timeout
 # ---------------------------------------------------------------------------
@@ -1725,3 +1739,128 @@ def test_build_review_fix_prompt_contains_feedback(config, event_bus):
     assert "Missing null check in foo()" in prompt
     assert "review-fix:" in prompt
     assert "VERDICT:" in prompt
+
+
+# ---------------------------------------------------------------------------
+# is_likely_bug re-raise — review()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_reraises_likely_bug_exceptions(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """Code bugs (TypeError, KeyError, etc.) must propagate, not be swallowed."""
+    runner = _make_runner(config, event_bus)
+
+    for exc_cls in (TypeError, KeyError, AttributeError):
+        mock_execute = AsyncMock(side_effect=exc_cls("code bug"))
+        with (
+            patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+            patch.object(runner, "_execute", mock_execute),
+            pytest.raises(exc_cls, match="code bug"),
+        ):
+            await runner.review(pr_info, task, tmp_path, "some diff")
+
+
+@pytest.mark.asyncio
+async def test_review_still_catches_runtime_errors(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """RuntimeError (subprocess failures) should still be caught gracefully."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(
+            runner, "_execute", AsyncMock(side_effect=RuntimeError("subprocess boom"))
+        ),
+    ):
+        result = await runner.review(pr_info, task, tmp_path, "diff")
+
+    assert result.verdict == ReviewVerdict.COMMENT
+    assert "subprocess boom" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# is_likely_bug re-raise — fix_ci()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_ci_reraises_likely_bug_exceptions(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """Code bugs in fix_ci must propagate."""
+    runner = _make_runner(config, event_bus)
+
+    for exc_cls in (TypeError, AttributeError, ValueError):
+        mock_execute = AsyncMock(side_effect=exc_cls("code bug"))
+        with (
+            patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+            patch.object(runner, "_execute", mock_execute),
+            pytest.raises(exc_cls, match="code bug"),
+        ):
+            await runner.fix_ci(pr_info, task, tmp_path, "Failed: ci", attempt=1)
+
+
+@pytest.mark.asyncio
+async def test_fix_ci_still_catches_runtime_errors(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """RuntimeError in fix_ci should still be caught gracefully."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(
+            runner, "_execute", AsyncMock(side_effect=RuntimeError("agent crashed"))
+        ),
+    ):
+        result = await runner.fix_ci(pr_info, task, tmp_path, "Failed: ci", attempt=1)
+
+    assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+    assert "CI fix failed" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# is_likely_bug re-raise — fix_review_findings()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_reraises_likely_bug_exceptions(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """Code bugs in fix_review_findings must propagate."""
+    runner = _make_runner(config, event_bus)
+
+    for exc_cls in (TypeError, KeyError, IndexError):
+        mock_execute = AsyncMock(side_effect=exc_cls("code bug"))
+        with (
+            patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+            patch.object(runner, "_execute", mock_execute),
+            pytest.raises(exc_cls, match="code bug"),
+        ):
+            await runner.fix_review_findings(
+                pr_info, task, tmp_path, "Missing null check"
+            )
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_still_catches_runtime_errors(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """RuntimeError in fix_review_findings should still be caught gracefully."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+    assert "Review fix failed" in result.summary

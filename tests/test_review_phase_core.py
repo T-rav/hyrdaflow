@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from events import EventType
 from models import (
+    BaselineApprovalResult,
     ConflictResolutionResult,
     CriterionResult,
     CriterionVerdict,
@@ -26,8 +27,10 @@ from models import (
     ReviewResult,
     ReviewVerdict,
     Task,
+    VisualValidationDecision,
+    VisualValidationPolicy,
 )
-from review_phase import ReviewPhase
+from review_phase import PreReviewContext, ReviewGuardContext, ReviewPhase
 from tests.conftest import (
     PRInfoFactory,
     ReviewResultFactory,
@@ -1644,6 +1647,115 @@ class TestHandleRejectedReview:
 
 
 # ---------------------------------------------------------------------------
+# _attempt_review_fix
+# ---------------------------------------------------------------------------
+
+
+class TestAttemptReviewFix:
+    """Tests for _attempt_review_fix — sub-agent fix then re-review."""
+
+    def _setup(self, config: HydraFlowConfig) -> tuple[ReviewPhase, PRInfo, Task, Path]:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+        phase._prs.get_pr_diff = AsyncMock(return_value="updated diff")
+        phase._prs.push_branch = AsyncMock(return_value=True)
+        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt.mkdir(parents=True, exist_ok=True)
+        return phase, pr, issue, wt
+
+    @pytest.mark.asyncio
+    async def test_fix_then_approve_upgrades_result(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Fix agent fixes, re-review approves -> return approved result."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        fix_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=True
+        )
+        approved = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=False
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(return_value=fix_result)
+        phase._reviewers.review = AsyncMock(return_value=approved)
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.APPROVE
+        phase._reviewers.fix_review_findings.assert_awaited_once()
+        phase._prs.push_branch.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fix_no_changes_falls_through(self, config: HydraFlowConfig) -> None:
+        """Fix agent makes no changes -> return original result."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        fix_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(return_value=fix_result)
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+        # Should NOT have called review since no fixes were made
+        phase._reviewers.review = AsyncMock()
+        phase._reviewers.review.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retries_up_to_two_times(self, config: HydraFlowConfig) -> None:
+        """Should try fix+review up to 2 times before giving up."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        fix_result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.APPROVE, fixes_made=True
+        )
+        still_rejected = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=False,
+            summary="still bad",
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(return_value=fix_result)
+        phase._reviewers.review = AsyncMock(return_value=still_rejected)
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+        assert phase._reviewers.fix_review_findings.await_count == 2
+        assert phase._reviewers.review.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_exception_falls_through(self, config: HydraFlowConfig) -> None:
+        """Exception during fix should fall back to original result."""
+        phase, pr, issue, wt = self._setup(config)
+        original = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
+        )
+        phase._reviewers.fix_review_findings = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+
+        result, diff = await phase._attempt_review_fix(
+            pr, issue, wt, original, "old diff", 0
+        )
+
+        assert result is original
+
+
+# ---------------------------------------------------------------------------
 # _handle_self_fix_re_review — extracted helper
 # ---------------------------------------------------------------------------
 
@@ -2223,3 +2335,454 @@ class TestADRReviewPath:
         assert len(results) == 1
         assert results[0].verdict == ReviewVerdict.REQUEST_CHANGES
         phase._prs.transition.assert_awaited_once_with(711, "hitl", pr_number=None)
+
+
+# ---------------------------------------------------------------------------
+# _run_initial_guards
+# ---------------------------------------------------------------------------
+
+
+class TestRunInitialGuards:
+    """Tests for the refactored _run_initial_guards helper."""
+
+    @pytest.mark.asyncio
+    async def test_returns_context_when_all_guards_pass(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create(issue_number=issue.id)
+
+        wt_path = config.worktree_path_for_issue(issue.id)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        phase._prepare_review_worktree = AsyncMock(return_value=wt_path)
+
+        guards = await phase._run_initial_guards(0, pr, {issue.id: issue})
+
+        assert isinstance(guards, ReviewGuardContext)
+        assert guards.task == issue
+        assert guards.worktree_path == wt_path
+        phase._prepare_review_worktree.assert_awaited_once_with(pr, issue, 0)
+
+
+# ---------------------------------------------------------------------------
+# _run_pre_review_checks
+# ---------------------------------------------------------------------------
+
+
+class TestPreReviewChecks:
+    """Tests for the _run_pre_review_checks helper."""
+
+    @pytest.mark.asyncio
+    async def test_baseline_violation_returns_review_result(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create(issue_number=issue.id)
+
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        violation = BaselineApprovalResult(
+            approved=False,
+            requires_approval=True,
+            changed_files=["snap.png"],
+            reason="missing approval",
+        )
+        phase._check_baseline_policy = AsyncMock(return_value=violation)
+        phase._escalate_to_hitl = AsyncMock()
+
+        result = await phase._run_pre_review_checks(pr, issue)
+
+        assert isinstance(result, ReviewResult)
+        assert "Baseline" in result.summary
+        phase._escalate_to_hitl.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_context_and_posts_visual_comment(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create(issue_number=issue.id)
+
+        phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
+        phase._check_baseline_policy = AsyncMock(return_value=None)
+        decision = VisualValidationDecision(
+            policy=VisualValidationPolicy.REQUIRED,
+            reason="Triggered",
+            triggered_patterns=["apps/*"],
+        )
+        phase._compute_visual_validation = MagicMock(return_value=decision)
+        alerts = [{"id": 1}]
+        phase._fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
+        phase._run_delta_verification = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+
+        context = await phase._run_pre_review_checks(pr, issue)
+
+        assert isinstance(context, PreReviewContext)
+        assert context.diff == "diff text"
+        assert context.visual_decision == decision
+        assert context.code_scanning_alerts == alerts
+        phase._prs.post_pr_comment.assert_awaited_once()
+        phase._run_delta_verification.assert_awaited_once_with(pr, "diff text")
+
+
+# ---------------------------------------------------------------------------
+# _run_post_review_actions
+# ---------------------------------------------------------------------------
+
+
+class TestRunPostReviewActions:
+    """Tests for the _run_post_review_actions helper."""
+
+    @pytest.mark.asyncio
+    async def test_self_fix_re_review_and_merge_flow(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create(issue_number=issue.id)
+        wt_path = config.worktree_path_for_issue(issue.id)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        initial = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=True,
+        )
+        upgraded = ReviewResultFactory.create(verdict=ReviewVerdict.APPROVE)
+        phase._handle_self_fix_re_review = AsyncMock(
+            return_value=(upgraded, "new diff")
+        )
+        phase._run_visual_validation = AsyncMock(return_value=None)
+        phase._handle_visual_failure = AsyncMock()
+        phase._record_review_outcome = AsyncMock()
+        phase._handle_approved_merge = AsyncMock()
+        phase._handle_rejected_review = AsyncMock(return_value=False)
+        phase._cleanup_worktree = AsyncMock()
+
+        context = PreReviewContext(
+            diff="orig diff",
+            visual_decision=None,
+            code_scanning_alerts=[{"id": 1}],
+        )
+
+        result = await phase._run_post_review_actions(
+            pr,
+            issue,
+            wt_path,
+            initial,
+            context,
+            worker_id=0,
+        )
+
+        assert result == upgraded
+        phase._handle_self_fix_re_review.assert_awaited_once()
+        phase._handle_approved_merge.assert_awaited_once()
+        phase._cleanup_worktree.assert_awaited_once_with(pr, upgraded, False)
+
+    @pytest.mark.asyncio
+    async def test_rejected_path_preserves_worktree_when_requested(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create(issue_number=issue.id)
+        wt_path = config.worktree_path_for_issue(issue.id)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        result = ReviewResultFactory.create(
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            fixes_made=False,
+        )
+        report = MagicMock(has_failures=False)
+
+        phase._handle_self_fix_re_review = AsyncMock()
+        phase._run_visual_validation = AsyncMock(return_value=report)
+        phase._handle_visual_failure = AsyncMock()
+        phase._record_review_outcome = AsyncMock()
+        phase._handle_approved_merge = AsyncMock()
+        phase._handle_rejected_review = AsyncMock(return_value=True)
+        phase._cleanup_worktree = AsyncMock()
+
+        context = PreReviewContext(
+            diff="diff text",
+            visual_decision=None,
+            code_scanning_alerts=None,
+        )
+
+        final = await phase._run_post_review_actions(
+            pr,
+            issue,
+            wt_path,
+            result,
+            context,
+            worker_id=1,
+        )
+
+        assert final == result
+        phase._handle_rejected_review.assert_awaited_once()
+        phase._cleanup_worktree.assert_awaited_once_with(pr, result, True)
+        phase._handle_self_fix_re_review.assert_not_awaited()
+        phase._handle_visual_failure.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Baseline policy integration in _review_one_inner
+# ---------------------------------------------------------------------------
+
+
+class TestBaselinePolicyIntegration:
+    """Integration tests for baseline policy enforcement in _review_one_inner."""
+
+    @pytest.mark.asyncio
+    async def test_no_policy_configured_continues_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When no baseline_policy is set, review proceeds normally."""
+        phase = make_review_phase(config, default_mocks=True)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        # Should complete normally without escalation
+        assert result.merged is True
+
+    @pytest.mark.asyncio
+    async def test_baseline_denied_escalates_to_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When baseline policy denies approval, escalate to HITL and return early."""
+        from baseline_policy import BaselinePolicy
+        from models import BaselineApprovalResult
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(
+            return_value=BaselineApprovalResult(
+                approved=False,
+                requires_approval=True,
+                changed_files=["tests/__snapshots__/home.snap.png"],
+                reason="No authorized approver",
+            )
+        )
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        assert "Baseline" in result.summary
+        assert result.merged is False
+        # Escalation should post a PR comment
+        phase._prs.post_pr_comment.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_baseline_approved_continues_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When baseline policy approves, review proceeds normally."""
+        from baseline_policy import BaselinePolicy
+        from models import BaselineApprovalResult
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(
+            return_value=BaselineApprovalResult(
+                approved=True,
+                requires_approval=True,
+                approver="alice",
+                changed_files=["tests/__snapshots__/home.snap.png"],
+                reason="Approved by alice",
+            )
+        )
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        # Approved baseline should not block merge
+        assert result.merged is True
+
+    @pytest.mark.asyncio
+    async def test_baseline_policy_exception_fails_closed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When the baseline policy check raises an exception, fail closed (deny)."""
+        from baseline_policy import BaselinePolicy
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(side_effect=RuntimeError("gh api error"))
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        wt = config.worktree_path_for_issue(42)
+        wt.mkdir(parents=True, exist_ok=True)
+
+        result = await phase._review_one_inner(0, pr, {42: issue})
+
+        # Fail closed: should escalate to HITL
+        assert result.merged is False
+        assert "Baseline" in result.summary
+
+    @pytest.mark.asyncio
+    async def test_baseline_policy_oserror_fails_closed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError during baseline policy check should also fail closed."""
+        from baseline_policy import BaselinePolicy
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(side_effect=OSError("connection reset"))
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+
+        result = await phase._check_baseline_policy(pr, task)
+
+        assert result is not None
+        assert result.approved is False
+        assert result.requires_approval is True
+
+    @pytest.mark.asyncio
+    async def test_baseline_policy_code_bug_propagates(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError/KeyError in baseline policy must propagate, not be caught."""
+        from baseline_policy import BaselinePolicy
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(side_effect=TypeError("unexpected None"))
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+
+        with pytest.raises(TypeError, match="unexpected None"):
+            await phase._check_baseline_policy(pr, task)
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling — code bugs propagate
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowedExceptionHandling:
+    """Verify that narrowed except clauses let code bugs propagate."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_code_scanning_alerts_catches_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """RuntimeError from subprocess is still caught gracefully."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=RuntimeError("gh CLI failed")
+        )
+        pr = PRInfoFactory.create()
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_code_scanning_alerts_catches_oserror(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError (e.g., network failure) is caught gracefully."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=OSError("network unreachable")
+        )
+        pr = PRInfoFactory.create()
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_code_scanning_alerts_propagates_type_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError (code bug) must propagate through narrowed handler."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=TypeError("bad arg")
+        )
+        pr = PRInfoFactory.create()
+
+        with pytest.raises(TypeError, match="bad arg"):
+            await phase._fetch_code_scanning_alerts(pr)
+
+    @pytest.mark.asyncio
+    async def test_visual_validation_catches_runtime_error(
+        self, config: HydraFlowConfig, tmp_path: Path
+    ) -> None:
+        """RuntimeError during visual validation is caught gracefully."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._visual_validator = MagicMock()
+        phase._visual_validator.validate_screens = AsyncMock(
+            side_effect=RuntimeError("visual tool crashed")
+        )
+        pr = PRInfoFactory.create()
+
+        result = await phase._run_visual_validation(pr, tmp_path, worker_id=0)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_visual_validation_propagates_attribute_error(
+        self, config: HydraFlowConfig, tmp_path: Path
+    ) -> None:
+        """AttributeError (code bug) in visual validation must propagate."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._visual_validator = MagicMock()
+        phase._visual_validator.validate_screens = AsyncMock(
+            side_effect=AttributeError("missing attr")
+        )
+        pr = PRInfoFactory.create()
+
+        with pytest.raises(AttributeError, match="missing attr"):
+            await phase._run_visual_validation(pr, tmp_path, worker_id=0)
+
+    @pytest.mark.asyncio
+    async def test_ci_log_fetch_propagates_key_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """KeyError (code bug) during CI log fetch must propagate.
+
+        The CI log fetch handler in review_phase.py now catches only
+        (RuntimeError, OSError), so code bugs like KeyError propagate.
+        """
+        phase = make_review_phase(config, default_mocks=True)
+        phase._prs.fetch_ci_failure_logs = AsyncMock(
+            side_effect=KeyError("missing key")
+        )
+
+        with pytest.raises(KeyError, match="missing key"):
+            await phase._prs.fetch_ci_failure_logs(42)

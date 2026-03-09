@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const mockUseHydraFlow = vi.fn()
 
@@ -209,15 +209,56 @@ describe('SessionSidebar supervised repo state', () => {
     expect(screen.getByText('/repos/demo')).toBeDefined()
   })
 
-  it('does not show per-repo Start/Stop controls', () => {
+  it('shows Start control when repo is stopped', () => {
     mockUseHydraFlow.mockReturnValue(
       defaultContext({
         supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
       })
     )
     render(<SessionSidebar />)
-    expect(screen.queryByText('Start')).toBeNull()
-    expect(screen.queryByText('Stop')).toBeNull()
+    expect(screen.getByText('Start')).toBeInTheDocument()
+  })
+})
+
+describe('SessionSidebar repo runtime controls', () => {
+  it('invokes startRuntime when clicking Start', async () => {
+    const startRuntime = vi.fn().mockResolvedValue({ ok: true })
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        startRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByText('Start'))
+    expect(startRuntime).toHaveBeenCalledWith('demo', '/repos/demo')
+  })
+
+  it('invokes stopRuntime when clicking Stop', () => {
+    const stopRuntime = vi.fn().mockResolvedValue({ ok: true })
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [SUPERVISED_REPO],
+        runtimes: [{ slug: 'demo', running: true }],
+        stopRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByText('Stop'))
+    expect(stopRuntime).toHaveBeenCalledWith('demo', '/repos/demo')
+  })
+
+  it('shows error message when runtime action fails', async () => {
+    const startRuntime = vi.fn().mockResolvedValue({ ok: false, error: 'boom' })
+    mockUseHydraFlow.mockReturnValue(
+      defaultContext({
+        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
+        startRuntime,
+      })
+    )
+    render(<SessionSidebar />)
+    fireEvent.click(screen.getByText('Start'))
+    await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument())
   })
 })
 
@@ -255,14 +296,14 @@ describe('SessionSidebar selection', () => {
     expect(selectSession).toHaveBeenCalledWith(SESSION_A.id)
   })
 
-  it('calls selectRepo with canonical slug when clicking repo header', () => {
+  it('calls selectRepo with raw slug when clicking repo header', () => {
     const selectRepo = vi.fn()
     mockUseHydraFlow.mockReturnValue(
       defaultContext({ sessions: [SESSION_A], selectRepo })
     )
     render(<SessionSidebar />)
     fireEvent.click(screen.getByText('org/repo'))
-    expect(selectRepo).toHaveBeenCalledWith('org-repo')
+    expect(selectRepo).toHaveBeenCalledWith('org/repo')
   })
 })
 

@@ -239,6 +239,7 @@ class ConfigFactory:
         git_user_email: str = "",
         dashboard_enabled: bool = False,
         dashboard_port: int = 15555,
+        dashboard_host: str = "127.0.0.1",
         review_insight_window: int = 10,
         review_pattern_threshold: int = 3,
         subskill_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -356,7 +357,10 @@ class ConfigFactory:
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
         adr_review_enabled: bool = False,
+        adr_review_auto_triage: bool = False,
         adr_review_model: str = "sonnet",
+        adr_auto_triage: bool = False,
+        adr_pre_review: bool = True,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -444,6 +448,7 @@ class ConfigFactory:
                 git_user_email=git_user_email,
                 dashboard_enabled=dashboard_enabled,
                 dashboard_port=dashboard_port,
+                dashboard_host=dashboard_host,
                 ac_model=ac_model,
                 ac_tool=ac_tool,
                 verification_judge_tool=verification_judge_tool,
@@ -576,7 +581,10 @@ class ConfigFactory:
                 adr_review_approval_threshold=adr_review_approval_threshold,
                 adr_review_max_rounds=adr_review_max_rounds,
                 adr_review_enabled=adr_review_enabled,
+                adr_review_auto_triage=adr_review_auto_triage,
                 adr_review_model=adr_review_model,
+                adr_auto_triage=adr_auto_triage,
+                adr_pre_review=adr_pre_review,
             )
 
 
@@ -772,7 +780,7 @@ class PipelineHarness:
     async def run_full_lifecycle(
         self,
         *,
-        task_id: int,
+        issue_number: int,
         seed_stage: str = "find",
         tags: list[str] | None = None,
         triage_result=None,
@@ -791,7 +799,7 @@ class PipelineHarness:
         )
 
         tag_list = tags or [self.config.find_label[0]]
-        task = TaskFactory.create(id=task_id, tags=tag_list)
+        task = TaskFactory.create(id=issue_number, tags=tag_list)
         self.seed_issue(task, seed_stage)
 
         triage_return = (
@@ -1021,6 +1029,7 @@ def make_implement_phase(
             branch: str,
             worker_id: int = 0,
             review_feedback: str = "",
+            prior_failure: str = "",
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,

@@ -15,7 +15,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -78,7 +78,8 @@ from update_check import load_cached_update_result
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
-    from repo_runtime import RepoRuntime, RepoRuntimeRegistry
+from repo_runtime import RepoRuntime, RepoRuntimeRegistry
+from repo_store import RepoRecord, RepoStore
 
 logger = logging.getLogger("hydraflow.dashboard")
 
@@ -89,6 +90,16 @@ _SUPERVISOR_UNAVAILABLE_PREFIXES: tuple[str, ...] = (
 _SUPERVISOR_UNAVAILABLE_MESSAGE = (
     "HydraFlow supervisor is not running. "
     "Start HydraFlow inside the target repository with `make run`."
+)
+
+RepoSlugParam = Annotated[
+    str | None,
+    Query(description="Repo slug to scope the request"),
+]
+
+# Internal pipeline labels that must not be treated as epic names in the history panel.
+_EPIC_INTERNAL_LABELS: frozenset[str] = frozenset(
+    {"hydraflow-epic-child", "hydraflow-epic"}
 )
 
 # Backend stage keys → frontend stage names
@@ -220,6 +231,7 @@ def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | Non
 
 
 def _parse_iso_or_none(raw: str | None) -> datetime | None:
+    """Parse an ISO 8601 string to datetime, returning None on failure."""
     if not raw:
         return None
     try:
@@ -232,6 +244,7 @@ def _parse_iso_or_none(raw: str | None) -> datetime | None:
 
 
 def _event_issue_number(data: dict[str, Any]) -> int | None:
+    """Extract the issue number from an event data dict, coercing strings."""
     value = data.get("issue")
     if isinstance(value, int):
         return value
@@ -241,6 +254,7 @@ def _event_issue_number(data: dict[str, Any]) -> int | None:
 
 
 def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str | None:
+    """Map an event type and its data to a normalised history status string."""
     status = str(data.get("status", "")).lower()
     result: str | None = None
     if event_type == EventType.MERGE_UPDATE:
@@ -301,6 +315,7 @@ def _coerce_history_status(value: str) -> str:
 
 
 def _status_rank(status: str) -> int:
+    """Return a numeric rank for a history status used for ordering."""
     ranks = {
         "unknown": 0,
         "triaged": 1,
@@ -317,6 +332,7 @@ def _status_rank(status: str) -> int:
 
 
 def _coerce_int(value: object) -> int:
+    """Coerce a value to int, returning 0 for unconvertible inputs."""
     if isinstance(value, bool):
         return int(value)
     if isinstance(value, int):
@@ -334,6 +350,7 @@ def _coerce_int(value: object) -> int:
 def _is_timestamp_in_range(
     raw: str | None, since: datetime | None, until: datetime | None
 ) -> bool:
+    """Return True if the ISO timestamp falls within the [since, until] window."""
     if raw is None:
         return since is None and until is None
     parsed = _parse_iso_or_none(raw)
@@ -345,6 +362,7 @@ def _is_timestamp_in_range(
 
 
 def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]:
+    """Build a sort key from a timestamp and status rank for ordering updates."""
     parsed = _parse_iso_or_none(timestamp)
     if parsed is None:
         parsed = datetime.min.replace(tzinfo=UTC)
@@ -540,6 +558,14 @@ def create_router(
     template_dir: Path,
     *,
     registry: RepoRuntimeRegistry | None = None,
+    repo_store: RepoStore | None = None,
+    register_repo_cb: Callable[
+        [Path, str | None], Awaitable[tuple[RepoRecord, HydraFlowConfig]]
+    ]
+    | None = None,
+    remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
+    list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
+    default_repo_slug: str | None = None,
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers.
 
@@ -565,10 +591,10 @@ def create_router(
         When *slug* is ``None`` or no registry is configured, returns the
         single-repo closure defaults for backward compatibility.
         """
-        if slug and registry is not None:
+        if registry is not None and slug is not None:
             rt: RepoRuntime | None = registry.get(slug)
             if rt is None:
-                raise HTTPException(status_code=404, detail="Unknown repo")
+                raise HTTPException(status_code=404, detail=f"Unknown repo: {slug}")
             return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
         return config, state, event_bus, get_orchestrator
 
@@ -593,6 +619,26 @@ def create_router(
             status_code = 500
         return JSONResponse(payload, status_code=status_code)
 
+    def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
+        """Return the shared PRManager when config matches; otherwise create a new one."""
+        if cfg is config and bus is event_bus:
+            return pr_manager
+        return PRManager(cfg, bus)
+
+    def _list_repo_records() -> list[RepoRecord]:
+        """Return repo records from the callback or store, with error fallback."""
+        if list_repos_cb is not None:
+            try:
+                return list_repos_cb()
+            except Exception:  # noqa: BLE001
+                logger.warning("list_repos callback failed", exc_info=True)
+        if repo_store is not None:
+            try:
+                return repo_store.list()
+            except Exception:  # noqa: BLE001
+                logger.warning("repo_store.list failed", exc_info=True)
+        return []
+
     # Supervisor client/manager removed with hf_cli package (issue #2205).
     # Supervisor endpoints now return graceful "unavailable" responses.
     supervisor_client = None
@@ -615,10 +661,11 @@ def create_router(
         )
 
     def _load_local_metrics_cache(
+        target_config: HydraFlowConfig,
         limit: int = 100,
     ) -> list[MetricsSnapshot]:
         """Load metrics snapshots from local disk cache without requiring the orchestrator."""
-        cache_file = get_metrics_cache_dir(config) / "snapshots.jsonl"
+        cache_file = get_metrics_cache_dir(target_config) / "snapshots.jsonl"
         if not cache_file.exists():
             return []
         snapshots: list[MetricsSnapshot] = []
@@ -669,6 +716,7 @@ def create_router(
         )
 
     def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
+        """Create a blank history aggregation row for an issue."""
         repo_slug = (config.repo or "").strip()
         if repo_slug.startswith("https://github.com/"):
             repo_slug = repo_slug[len("https://github.com/") :]
@@ -698,6 +746,7 @@ def create_router(
         }
 
     def _touch_issue_timestamps(row: dict[str, Any], timestamp: str | None) -> None:
+        """Update the first_seen / last_seen bounds of a history row."""
         if not timestamp:
             return
         current_first = row.get("first_seen")
@@ -836,7 +885,11 @@ def create_router(
                 if isinstance(labels, list) and not row.get("epic"):
                     for lbl in labels:
                         s = str(lbl).strip()
-                        if s and "epic" in s.lower():
+                        if (
+                            s
+                            and "epic" in s.lower()
+                            and s.lower() not in _EPIC_INTERNAL_LABELS
+                        ):
                             row["epic"] = s
                             break
                 milestone_num = _coerce_int(event.data.get("milestone_number"))
@@ -990,11 +1043,47 @@ def create_router(
             except Exception:
                 logger.debug("Failed to fetch milestones for crate titles")
 
+        # Backfill epic field from state's epic tracking when not already set.
+        epic_states = state.get_all_epic_states()
+        if epic_states:
+            child_to_epic: dict[int, str] = {}
+            for es in epic_states.values():
+                title = es.title or f"Epic #{es.epic_number}"
+                for child in es.child_issues:
+                    child_to_epic[child] = title
+            if child_to_epic:
+                items = [
+                    i.model_copy(update={"epic": child_to_epic[i.issue_number]})
+                    if not i.epic and i.issue_number in child_to_epic
+                    else i
+                    for i in items
+                ]
+
+        # Derive outcome for issues that completed the pipeline (have a
+        # merged PR) but were never given an explicit record_outcome() call.
+        items = [
+            i.model_copy(
+                update={
+                    "outcome": IssueOutcome(
+                        outcome=IssueOutcomeType.MERGED,
+                        reason="Derived from merged PR",
+                        closed_at=i.last_seen or "",
+                        pr_number=next((p.number for p in i.prs if p.merged), None),
+                        phase="review",
+                    )
+                }
+            )
+            if not i.outcome and any(p.merged for p in i.prs)
+            else i
+            for i in items
+        ]
+
         return items
 
     async def _enrich_issue_history_with_github(
         entries: dict[int, dict[str, Any]], limit: int = 150
     ) -> None:
+        """Concurrently fetch GitHub metadata and apply it to history entries."""
         if not entries:
             return
 
@@ -1003,6 +1092,7 @@ def create_router(
         sem = asyncio.Semaphore(6)
 
         async def _fetch_and_apply(issue_number: int) -> None:
+            """Fetch one issue under the semaphore and apply fields to its entry."""
             async with sem:
                 issue = await fetcher.fetch_issue_by_number(issue_number)
             if issue is None:
@@ -1014,7 +1104,17 @@ def create_router(
             row["issue_url"] = issue.url or row.get("issue_url", "")
             labels = [str(lbl).strip() for lbl in issue.labels if str(lbl).strip()]
             if not row.get("epic"):
-                epic = next((lbl for lbl in labels if "epic" in lbl.lower()), "")
+                # Skip internal pipeline labels (e.g. hydraflow-epic-child);
+                # only keep labels that look like actual epic names.
+                epic = next(
+                    (
+                        lbl
+                        for lbl in labels
+                        if "epic" in lbl.lower()
+                        and lbl.lower() not in _EPIC_INTERNAL_LABELS
+                    ),
+                    "",
+                )
                 row["epic"] = epic
             ms_num = _coerce_int(getattr(issue, "milestone_number", None))
             if ms_num > 0 and not row.get("crate_number"):
@@ -1030,6 +1130,7 @@ def create_router(
         await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
 
     def _build_hitl_context(issue: Any, *, cause: str, origin: str | None) -> str:
+        """Build a text context block for HITL summary generation."""
         body = str(getattr(issue, "body", "") or "").strip()
         comments = list(getattr(issue, "comments", []) or [])
         recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
@@ -1044,10 +1145,12 @@ def create_router(
         )
 
     def _normalise_summary_lines(raw: str) -> str:
+        """Strip bullet prefixes and cap a summary to 8 lines."""
         lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
         return "\n".join(lines[:8]).strip()
 
     def _hitl_summary_retry_due(issue_number: int) -> bool:
+        """Return True if enough time has passed to retry a failed HITL summary."""
         failed_at, _ = state.get_hitl_summary_failure(issue_number)
         failed_dt = _parse_iso_or_none(failed_at)
         if failed_dt is None:
@@ -1058,6 +1161,7 @@ def create_router(
     async def _compute_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> str | None:
+        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
         if (
             not config.transcript_summarization_enabled
             or config.dry_run
@@ -1086,6 +1190,7 @@ def create_router(
     async def _warm_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> None:
+        """Schedule background HITL summary generation, guarded by inflight tracking."""
         if issue_number in hitl_summary_inflight:
             return
         hitl_summary_inflight.add(issue_number)
@@ -1103,25 +1208,128 @@ def create_router(
         finally:
             hitl_summary_inflight.discard(issue_number)
 
+    @router.get("/healthz")
+    def get_health() -> JSONResponse:
+        """Lightweight readiness response for load balancers and monitors."""
+        orchestrator = get_orchestrator()
+        orchestrator_running = bool(getattr(orchestrator, "running", False))
+        worker_states = state.get_bg_worker_states()
+        session_counters = state.get_session_counters()
+        session_started_at: str | None = session_counters.session_start or None
+        uptime_seconds: int | None = None
+        if session_started_at:
+            try:
+                started_dt = datetime.fromisoformat(session_started_at)
+            except (ValueError, TypeError):
+                session_started_at = None
+            else:
+                uptime_seconds = max(
+                    int((datetime.now(UTC) - started_dt).total_seconds()),
+                    0,
+                )
+
+        def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+            """Coerce a raw status value to a BGWorkerHealth enum member."""
+            if isinstance(raw_status, BGWorkerHealth):
+                return raw_status
+            try:
+                return BGWorkerHealth(str(raw_status or "").lower())
+            except ValueError:
+                return BGWorkerHealth.DISABLED
+
+        worker_count = len(worker_states)
+        worker_errors = sorted(
+            name
+            for name, heartbeat in worker_states.items()
+            if _normalise_worker_health(heartbeat.get("status")) == BGWorkerHealth.ERROR
+        )
+        if orchestrator is None:
+            orchestrator_running = False
+        orchestrator_status = "missing"
+        if orchestrator is not None and orchestrator_running:
+            orchestrator_status = "running"
+        elif orchestrator is not None:
+            orchestrator_status = "idle"
+
+        worker_status = "disabled"
+        if worker_count > 0:
+            worker_status = "degraded" if worker_errors else "ok"
+
+        status = "ok"
+        if orchestrator_status == "missing":
+            status = "starting"
+        elif orchestrator_status == "idle":
+            status = "idle"
+        if worker_status == "degraded":
+            status = "degraded"
+
+        def _is_loopback_host(host: str) -> bool:
+            """Return True if the host resolves to localhost or 127.x.x.x."""
+            host_lower = (host or "").lower()
+            return host_lower == "localhost" or host_lower.startswith("127.")
+
+        dashboard_binding = {
+            "host": config.dashboard_host,
+            "port": config.dashboard_port,
+        }
+        dashboard_public = not _is_loopback_host(config.dashboard_host)
+
+        checks = {
+            "orchestrator": {
+                "status": orchestrator_status,
+                "running": orchestrator_running,
+                "session_started_at": session_started_at,
+            },
+            "workers": {
+                "status": worker_status,
+                "count": worker_count,
+                "errors": worker_errors,
+            },
+            "dashboard": {
+                "status": "ok" if config.dashboard_enabled else "disabled",
+                "host": config.dashboard_host,
+                "port": config.dashboard_port,
+                "public": dashboard_public,
+            },
+        }
+        ready = checks["orchestrator"]["status"] == "running" and checks["workers"][
+            "status"
+        ] in {"ok", "disabled"}
+        payload = {
+            "status": status,
+            "version": get_app_version(),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "orchestrator_running": orchestrator_running,
+            "active_issue_count": len(state.get_active_issue_numbers()),
+            "active_worktrees": len(state.get_active_worktrees()),
+            "worker_count": worker_count,
+            "worker_errors": worker_errors,
+            "dashboard": dashboard_binding,
+            "session_started_at": session_started_at,
+            "uptime_seconds": uptime_seconds,
+            "ready": ready,
+            "checks": checks,
+        }
+        return JSONResponse(payload)
+
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
+        """Serve the single-page application root."""
         return _serve_spa_index()
 
     @router.get("/api/state")
     async def get_state(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return the full state tracker snapshot as JSON."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         return JSONResponse(_state.to_dict())
 
     @router.get("/api/stats")
     async def get_stats(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return lifetime stats and optional queue depths."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         data: dict[str, Any] = _state.get_lifetime_stats().model_dump()
         orch = _get_orch()
@@ -1131,9 +1339,7 @@ def create_router(
 
     @router.get("/api/queue")
     async def get_queue(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Return current queue depths, active counts, and throughput."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
@@ -1151,7 +1357,10 @@ def create_router(
 
         if not isinstance(issue_number, int) or issue_number < 1 or not feedback:
             return JSONResponse(
-                {"status": "error", "detail": "issue_number and feedback are required"},
+                {
+                    "status": "error",
+                    "detail": "issue_number and feedback are required",
+                },
                 status_code=400,
             )
 
@@ -1185,9 +1394,7 @@ def create_router(
 
     @router.get("/api/pipeline")
     async def get_pipeline(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Return current pipeline snapshot with issues per stage."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
@@ -1209,9 +1416,7 @@ def create_router(
 
     @router.get("/api/pipeline/stats")
     async def get_pipeline_stats(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Return lightweight pipeline stats (counts only, no issue details)."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
@@ -1223,6 +1428,7 @@ def create_router(
 
     @router.get("/api/events")
     async def get_events(since: str | None = None) -> JSONResponse:
+        """Return event history, optionally filtered by a since timestamp."""
         if since is not None:
             from datetime import datetime
 
@@ -1239,35 +1445,46 @@ def create_router(
         return JSONResponse([e.model_dump() for e in history])
 
     @router.get("/api/prs")
-    async def get_prs() -> JSONResponse:
+    async def get_prs(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Fetch all open HydraFlow PRs from GitHub."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        manager = _pr_manager_for(_cfg, _bus)
         all_labels = list(
             {
-                *config.ready_label,
-                *config.review_label,
-                *config.fixed_label,
-                *config.hitl_label,
-                *config.hitl_active_label,
-                *config.planner_label,
-                *config.improve_label,
+                *_cfg.ready_label,
+                *_cfg.review_label,
+                *_cfg.fixed_label,
+                *_cfg.hitl_label,
+                *_cfg.hitl_active_label,
+                *_cfg.planner_label,
+                *_cfg.improve_label,
             }
         )
-        items = await pr_manager.list_open_prs(all_labels)
+        items = await manager.list_open_prs(all_labels)
         return JSONResponse([item.model_dump() for item in items])
 
     @router.get("/api/epics")
-    async def get_epics() -> JSONResponse:
+    async def get_epics(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Return all tracked epics with enriched sub-issue progress."""
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch is None:
             return JSONResponse([])
         details = await orch._epic_manager.get_all_detail()
         return JSONResponse([d.model_dump() for d in details])
 
     @router.get("/api/epics/{epic_number}")
-    async def get_epic_detail(epic_number: int) -> JSONResponse:
+    async def get_epic_detail(
+        epic_number: int,
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Return full detail for a single epic including child issue info."""
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch is None:
             return JSONResponse({"error": "orchestrator not running"}, status_code=503)
         detail = await orch._epic_manager.get_detail(epic_number)
@@ -1276,13 +1493,17 @@ def create_router(
         return JSONResponse(detail.model_dump())
 
     @router.post("/api/epics/{epic_number}/release")
-    async def trigger_epic_release(epic_number: int) -> JSONResponse:
+    async def trigger_epic_release(
+        epic_number: int,
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Trigger async merge sequence and release creation for an epic.
 
         Returns a job_id. Completion is signalled via the EPIC_RELEASED WebSocket
         event — there is no REST polling endpoint for job status.
         """
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch is None:
             return JSONResponse({"error": "orchestrator not running"}, status_code=503)
         result = await orch._epic_manager.trigger_release(epic_number)
@@ -1365,8 +1586,8 @@ def create_router(
     ) -> JSONResponse:
         """Assign issues to a milestone (crate)."""
         try:
-            for issue_num in body.issue_numbers:
-                await pr_manager.set_issue_milestone(issue_num, crate_number)
+            for issue_number in body.issue_numbers:
+                await pr_manager.set_issue_milestone(issue_number, crate_number)
             return JSONResponse({"ok": True, "added": len(body.issue_numbers)})
         except RuntimeError as exc:
             logger.error("Failed to add items to crate #%d: %s", crate_number, exc)
@@ -1388,9 +1609,9 @@ def create_router(
             current_issues = await pr_manager.list_milestone_issues(crate_number)
             current_nums = {i.get("number") for i in current_issues}
             removed = 0
-            for issue_num in body.issue_numbers:
-                if issue_num in current_nums:
-                    await pr_manager.set_issue_milestone(issue_num, None)
+            for issue_number in body.issue_numbers:
+                if issue_number in current_nums:
+                    await pr_manager.set_issue_milestone(issue_number, None)
                     removed += 1
             return JSONResponse({"ok": True, "removed": removed})
         except RuntimeError as exc:
@@ -1494,34 +1715,33 @@ def create_router(
 
     @router.get("/api/hitl")
     async def get_hitl(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         hitl_labels = list(dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label]))
-        items = await pr_manager.list_hitl_items(hitl_labels)
+        manager = _pr_manager_for(_cfg, _bus)
+        items = await manager.list_hitl_items(hitl_labels)
         orch = _get_orch()
         enriched = []
         for item in items:
             data = item.model_dump()
             if orch:
                 data["status"] = orch.get_hitl_status(item.issue)
-            cause = state.get_hitl_cause(item.issue)
-            origin = state.get_hitl_origin(item.issue)
+            cause = _state.get_hitl_cause(item.issue)
+            origin = _state.get_hitl_origin(item.issue)
             if not cause and origin:
-                if origin in config.improve_label:
+                if origin in _cfg.improve_label:
                     cause = "Self-improvement proposal"
-                elif origin in config.review_label:
+                elif origin in _cfg.review_label:
                     cause = "Review escalation"
-                elif origin in config.find_label:
+                elif origin in _cfg.find_label:
                     cause = "Triage escalation"
                 else:
                     cause = "Escalation (reason not recorded)"
             if cause:
                 data["cause"] = cause
-            if origin and origin in config.improve_label:
+            if origin and origin in _cfg.improve_label:
                 data["isMemorySuggestion"] = True
             # Flag items held for issue type review
             if cause and (
@@ -1581,7 +1801,12 @@ def create_router(
                 }
             )
         return JSONResponse(
-            {"issue": issue_number, "summary": "", "updated_at": None, "cached": False}
+            {
+                "issue": issue_number,
+                "summary": "",
+                "updated_at": None,
+                "cached": False,
+            }
         )
 
     @router.post("/api/hitl/{issue_number}/correct")
@@ -1785,17 +2010,25 @@ def create_router(
         )
 
     @router.get("/api/human-input")
-    async def get_human_input_requests() -> JSONResponse:
-        orch = get_orchestrator()
+    async def get_human_input_requests(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Return pending human-input prompts from the orchestrator."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch:
             return JSONResponse(orch.human_input_requests)
         return JSONResponse({})
 
     @router.post("/api/human-input/{issue_number}")
     async def provide_human_input(
-        issue_number: int, body: dict[str, Any]
+        issue_number: int,
+        body: dict[str, Any],
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
-        orch = get_orchestrator()
+        """Submit an operator answer to a pending human-input request."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch:
             answer = body.get("answer", "")
             orch.provide_human_input(issue_number, answer)
@@ -1804,6 +2037,7 @@ def create_router(
 
     @router.post("/api/control/start")
     async def start_orchestrator() -> JSONResponse:
+        """Create and start a new orchestrator instance."""
         orch = get_orchestrator()
         if orch and orch.running:
             return JSONResponse({"error": "already running"}, status_code=409)
@@ -1827,6 +2061,7 @@ def create_router(
 
     @router.post("/api/control/stop")
     async def stop_orchestrator() -> JSONResponse:
+        """Request a graceful stop of the running orchestrator."""
         orch = get_orchestrator()
         if not orch or not orch.running:
             return JSONResponse({"error": "not running"}, status_code=400)
@@ -1835,10 +2070,9 @@ def create_router(
 
     @router.get("/api/control/status")
     async def get_control_status(
-        repo: str | None = Query(
-            default=None, description="Repo slug to scope the request"
-        ),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return orchestrator run status, config summary, and version info."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         status = "idle"
@@ -1948,15 +2182,24 @@ def create_router(
     }
 
     @router.patch("/api/control/config")
-    async def patch_config(body: dict[str, Any]) -> JSONResponse:
-        """Update runtime config fields. Pass ``persist: true`` to save to disk."""
+    async def patch_config(
+        body: dict[str, Any],
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Update runtime config fields. Pass ``persist: true`` to save to disk.
+
+        When *repo* is provided, updates are scoped to that runtime's config and
+        persisted as overrides in the repo store.
+        """
         persist = body.pop("persist", False)
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+
         updates: dict[str, Any] = {}
 
         for key, value in body.items():
             if key not in _MUTABLE_FIELDS:
                 continue
-            if not hasattr(config, key):
+            if not hasattr(_cfg, key):
                 continue
             updates[key] = value
 
@@ -1964,7 +2207,7 @@ def create_router(
             return JSONResponse({"status": "ok", "updated": {}})
 
         # Validate updates through Pydantic field constraints
-        test_values = config.model_dump()
+        test_values = _cfg.model_dump()
         test_values.update(updates)
         try:
             validated = HydraFlowConfig.model_validate(test_values)
@@ -1982,11 +2225,13 @@ def create_router(
         applied: dict[str, Any] = {}
         for key in updates:
             validated_value = getattr(validated, key)
-            object.__setattr__(config, key, validated_value)
+            object.__setattr__(_cfg, key, validated_value)
             applied[key] = validated_value
 
-        if persist and applied:
-            save_config_file(config.config_file, applied)
+        if repo and repo_store is not None and applied:
+            repo_store.update_overrides(repo, applied)
+        elif persist and applied:
+            save_config_file(_cfg.config_file, applied)
 
         return JSONResponse({"status": "ok", "updated": applied})
 
@@ -2071,6 +2316,7 @@ def create_router(
     }
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
+        """Aggregate prompt-telemetry inference stats keyed by worker name."""
         telemetry = PromptTelemetry(config)
         source_totals = telemetry.get_source_totals()
 
@@ -2118,14 +2364,17 @@ def create_router(
             return None
 
     @router.get("/api/system/workers")
-    async def get_system_workers() -> JSONResponse:
+    async def get_system_workers(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Return last known status of each background worker."""
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         bg_states = orch.get_bg_worker_states() if orch else {}
         persisted_states: dict[str, BackgroundWorkerState] = {}
         if not orch:
             try:
-                persisted_states = state.get_bg_worker_states()
+                persisted_states = _state.get_bg_worker_states()
             except Exception:  # pragma: no cover - defensive guard
                 logger.exception("Failed to load persisted bg worker states")
         inference_by_worker = _build_system_worker_inference_stats()
@@ -2139,15 +2388,15 @@ def create_router(
                 interval = orch.get_bg_worker_interval(name)
             elif name in _INTERVAL_WORKERS:
                 if name == "memory_sync":
-                    interval = config.memory_sync_interval
+                    interval = _cfg.memory_sync_interval
                 elif name == "metrics":
-                    interval = config.metrics_sync_interval
+                    interval = _cfg.metrics_sync_interval
                 elif name == "pr_unsticker":
-                    interval = config.pr_unstick_interval
+                    interval = _cfg.pr_unstick_interval
                 elif name == "pipeline_poller":
                     interval = 5
             elif name in _PIPELINE_WORKERS:
-                interval = config.poll_interval
+                interval = _cfg.poll_interval
 
             entry = bg_states.get(name) or persisted_states.get(name)
             if entry:
@@ -2493,9 +2742,12 @@ def create_router(
         )
 
     @router.get("/api/metrics")
-    async def get_metrics() -> JSONResponse:
+    async def get_metrics(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Return lifetime stats, derived rates, time-to-merge, and thresholds."""
-        lifetime = state.get_lifetime_stats()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        lifetime = _state.get_lifetime_stats()
         rates: dict[str, float] = {}
         total_reviews = (
             lifetime.total_review_approvals + lifetime.total_review_request_changes
@@ -2516,19 +2768,19 @@ def create_router(
                 lifetime.total_review_approvals / total_reviews
             )
             rates["reviewer_fix_rate"] = lifetime.total_reviewer_fixes / total_reviews
-        time_to_merge = state.get_merge_duration_stats()
-        thresholds = state.check_thresholds(
-            config.quality_fix_rate_threshold,
-            config.approval_rate_threshold,
-            config.hitl_rate_threshold,
+        time_to_merge = _state.get_merge_duration_stats()
+        thresholds = _state.check_thresholds(
+            _cfg.quality_fix_rate_threshold,
+            _cfg.approval_rate_threshold,
+            _cfg.hitl_rate_threshold,
         )
-        retries = state.get_retries_summary()
+        retries = _state.get_retries_summary()
         if retries:
             rates["retries_per_stage"] = sum(retries.values())
 
-        telemetry = PromptTelemetry(config)
+        telemetry = PromptTelemetry(_cfg)
         inference_lifetime = telemetry.get_lifetime_totals()
-        orch = get_orchestrator()
+        orch = _get_orch()
         session_id = orch.current_session_id if orch else ""
         inference_session = (
             telemetry.get_session_totals(session_id) if session_id else {}
@@ -2546,21 +2798,28 @@ def create_router(
         )
 
     @router.get("/api/metrics/github")
-    async def get_github_metrics() -> JSONResponse:
+    async def get_github_metrics(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Query GitHub for issue/PR counts by label state."""
-        counts = await pr_manager.get_label_counts(config)
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        manager = _pr_manager_for(_cfg, _bus)
+        counts = await manager.get_label_counts(_cfg)
         return JSONResponse(counts)
 
     @router.get("/api/metrics/history")
-    async def get_metrics_history() -> JSONResponse:
+    async def get_metrics_history(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Historical snapshots from the metrics issue + current in-memory snapshot.
 
         Falls back to local disk cache when the orchestrator is not running.
         """
-        orch = get_orchestrator()
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
         if orch is None:
             # Serve from local cache without requiring the orchestrator
-            snapshots = _load_local_metrics_cache()
+            snapshots = _load_local_metrics_cache(_cfg)
             return JSONResponse(
                 MetricsHistoryResponse(snapshots=snapshots).model_dump()
             )
@@ -2811,14 +3070,16 @@ def create_router(
 
     @router.get("/api/timeline")
     async def get_timeline() -> JSONResponse:
+        """Return timelines for all tracked issues."""
         builder = TimelineBuilder(event_bus)
         timelines = builder.build_all()
         return JSONResponse([t.model_dump() for t in timelines])
 
-    @router.get("/api/timeline/issue/{issue_num}")
-    async def get_timeline_issue(issue_num: int) -> JSONResponse:
+    @router.get("/api/timeline/issue/{issue_number}")
+    async def get_timeline_issue(issue_number: int) -> JSONResponse:
+        """Return the event timeline for a single issue."""
         builder = TimelineBuilder(event_bus)
-        timeline = builder.build_for_issue(issue_num)
+        timeline = builder.build_for_issue(issue_number)
         if timeline is None:
             return JSONResponse({"error": "Issue not found"}, status_code=404)
         return JSONResponse(timeline.model_dump())
@@ -2906,14 +3167,29 @@ def create_router(
         rt = registry.get(slug)
         if rt is None:
             return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
+        if remove_repo_cb is not None:
+            try:
+                await remove_repo_cb(slug)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("remove_repo callback failed for %s: %s", slug, exc)
+                return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
+            return JSONResponse({"status": "removed", "slug": slug})
         if rt.running:
             await rt.stop()
         registry.remove(slug)
+        if repo_store is not None:
+            try:
+                repo_store.remove(slug)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to remove repo %s from store", slug, exc_info=True
+                )
         return JSONResponse({"status": "removed", "slug": slug})
 
     # --- Multi-repo supervisor endpoints ---
 
     async def _call_supervisor(func: Callable, *args, **kwargs) -> Any:
+        """Run a supervisor client function in a thread."""
         if supervisor_client is None:
             raise RuntimeError(
                 "HydraFlow supervisor client unavailable in this environment"
@@ -2922,6 +3198,24 @@ def create_router(
 
     @router.get("/api/repos")
     async def list_supervised_repos() -> JSONResponse:
+        """List repos from the store, callback, or supervisor."""
+        if repo_store is not None or list_repos_cb is not None:
+            records = _list_repo_records()
+            payload: list[dict[str, Any]] = []
+            for rec in records:
+                runtime = registry.get(rec.slug) if registry else None
+                payload.append(
+                    {
+                        "slug": rec.slug,
+                        "repo": rec.repo,
+                        "path": rec.path,
+                        "running": bool(runtime.running) if runtime else False,
+                        "session_id": runtime.orchestrator.current_session_id
+                        if runtime and runtime.running
+                        else None,
+                    }
+                )
+            return JSONResponse({"repos": payload})
         if supervisor_client is None:
             return JSONResponse({"repos": []})
         try:
@@ -3004,8 +3298,9 @@ def create_router(
         req: dict[str, Any] | None = Body(default=None),
         req_query: str | None = Query(default=None, alias="req"),
         slug: str | None = Query(default=None),
-        repo: str | None = Query(default=None),
+        repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Ensure a repo is registered with the supervisor by slug."""
         error_payload: tuple[str, int] | None = None
         if supervisor_client is None:
             error_payload = ("supervisor unavailable", 503)
@@ -3051,6 +3346,16 @@ def create_router(
 
     @router.delete("/api/repos/{slug}")
     async def remove_repo(slug: str) -> JSONResponse:
+        """Remove a repo via the callback or supervisor."""
+        if remove_repo_cb is not None:
+            try:
+                removed = await remove_repo_cb(slug)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("remove_repo callback failed: %s", exc)
+                return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
+            if not removed:
+                return JSONResponse({"error": "Repo not found"}, status_code=404)
+            return JSONResponse({"status": "ok"})
         if supervisor_client is None:
             return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
         try:
@@ -3152,7 +3457,35 @@ def create_router(
             )
         # Detect slug
         slug = await _detect_repo_slug_from_path(repo_path)
-        # Register with supervisor
+        if register_repo_cb is not None:
+            try:
+                record, repo_cfg = await register_repo_cb(repo_path, slug)
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("register_repo callback failed: %s", exc)
+                return JSONResponse(
+                    {"error": "Failed to register repo"}, status_code=500
+                )
+            labels_created = False
+            if slug:
+                try:
+                    from prep import ensure_labels  # noqa: PLC0415
+
+                    await ensure_labels(repo_cfg)
+                    labels_created = True
+                except Exception:  # noqa: BLE001
+                    logger.warning("Label creation failed for %s", slug, exc_info=True)
+            return JSONResponse(
+                {
+                    "status": "ok",
+                    "slug": record.slug,
+                    "path": record.path,
+                    "labels_created": labels_created,
+                }
+            )
+
+        # Register with supervisor fallback
         if supervisor_client is None:
             return JSONResponse(
                 {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
@@ -3272,19 +3605,34 @@ def create_router(
         return JSONResponse(response.model_dump())
 
     @router.get("/api/sessions")
-    async def get_sessions(repo: str | None = None) -> JSONResponse:
-        """Return session logs, optionally filtered by repo."""
-        sessions = state.load_sessions(repo=repo)
+    async def get_sessions(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Return session logs for the selected repo."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        sessions = _state.load_sessions()
+        repo_filter = (repo or "").strip()
+        if repo_filter and registry is None:
+            normalized = repo_filter.lower()
+            sessions = [
+                session
+                for session in sessions
+                if (session.repo or "").lower() == normalized
+            ]
         return JSONResponse([s.model_dump() for s in sessions])
 
     @router.get("/api/sessions/{session_id}")
-    async def get_session_detail(session_id: str) -> JSONResponse:
+    async def get_session_detail(
+        session_id: str,
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Return a single session by ID with associated events."""
-        session = state.get_session(session_id)
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        session = _state.get_session(session_id)
         if session is None:
             return JSONResponse({"error": "Session not found"}, status_code=404)
         # Include events tagged with this session_id
-        all_events = event_bus.get_history()
+        all_events = _bus.get_history()
         session_events = [
             e.model_dump() for e in all_events if e.session_id == session_id
         ]
@@ -3293,10 +3641,14 @@ def create_router(
         return JSONResponse(data)
 
     @router.delete("/api/sessions/{session_id}")
-    async def delete_session(session_id: str) -> JSONResponse:
+    async def delete_session(
+        session_id: str,
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
         """Delete a session by ID. Returns 400 if active, 404 if not found."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         try:
-            deleted = state.delete_session(session_id)
+            deleted = _state.delete_session(session_id)
         except ValueError as exc:
             logger.warning("Failed to delete session %s: %s", session_id, exc)
             return JSONResponse(
@@ -3308,14 +3660,25 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        """Stream event history then live events over a WebSocket connection."""
+        repo_slug: str | None = ws.query_params.get("repo")
+
+        # Resolve the correct event bus for the requested repo.
+        try:
+            _cfg, _state, bus, _get_orch = _resolve_runtime(repo_slug)
+        except (ValueError, HTTPException):
+            await ws.accept()
+            await ws.close(code=1008, reason=f"Unknown repo: {repo_slug}")
+            return
+
         await ws.accept()
 
         # Snapshot history BEFORE subscribing to avoid duplicates.
         # Events published between snapshot and subscribe are picked
         # up by the live queue, never sent twice.
-        history = event_bus.get_history()
+        history = bus.get_history()
 
-        async with event_bus.subscription() as queue:
+        async with bus.subscription() as queue:
             # Send history on connect
             for event in history:
                 try:
@@ -3344,6 +3707,7 @@ def create_router(
     # This must be registered LAST so it doesn't shadow API/WS routes.
     @router.get("/{path:path}", response_model=None)
     async def spa_catchall(path: str) -> Response:
+        """Catch-all route: serve static assets or fall back to the SPA index."""
         # Don't catch API, WebSocket, or static-asset paths
         if path.startswith(("api/", "ws/", "assets/", "static/")) or path == "ws":
             return JSONResponse({"detail": "Not Found"}, status_code=404)

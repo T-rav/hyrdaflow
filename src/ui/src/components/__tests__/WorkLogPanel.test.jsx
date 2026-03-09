@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { WorkLogPanel } from '../WorkLogPanel'
+
+const mockUseHydraFlow = vi.fn()
+
+vi.mock('../../context/HydraFlowContext', () => ({
+  useHydraFlow: (...args) => mockUseHydraFlow(...args),
+}))
+
+const { WorkLogPanel } = await import('../WorkLogPanel')
 
 const mockCrates = [
   {
@@ -33,6 +40,7 @@ const mockCrates = [
 
 describe('WorkLogPanel', () => {
   beforeEach(() => {
+    mockUseHydraFlow.mockReturnValue({ selectedRepoSlug: 'acme/repo' })
     global.fetch = vi.fn((url) => {
       if (url === '/api/crates') {
         return Promise.resolve({ ok: true, json: async () => mockCrates })

@@ -183,15 +183,15 @@ async def file_memory_suggestion(
         labels = list(config.improve_label)
         hitl_cause = None
 
-    issue_num = await prs.create_issue(title, body, labels)
-    if issue_num:
+    issue_number = await prs.create_issue(title, body, labels)
+    if issue_number:
         if hitl_cause is not None:
-            state.set_hitl_origin(issue_num, config.improve_label[0])
-            state.set_hitl_cause(issue_num, hitl_cause)
+            state.set_hitl_origin(issue_number, config.improve_label[0])
+            state.set_hitl_cause(issue_number, hitl_cause)
         logger.info(
             "Filed %s memory suggestion as issue #%d: %s",
             memory_type.value,
-            issue_num,
+            issue_number,
             suggestion["title"],
         )
 
@@ -458,12 +458,12 @@ class MemorySyncWorker:
                 )
                 continue
 
-            issue_num = await self._prs.create_issue(
+            issue_number = await self._prs.create_issue(
                 adr_title,
                 adr_body,
                 list(self._config.find_label[:1]),
             )
-            if issue_num:
+            if issue_number:
                 seen.add(source_id)
                 batch_topics.add(topic_key)
                 created += 1

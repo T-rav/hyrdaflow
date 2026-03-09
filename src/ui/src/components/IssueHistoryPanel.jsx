@@ -38,6 +38,7 @@ const OUTCOME_COLORS = {
   failed: { color: theme.red, bg: theme.redSubtle },
   hitl_approved: { color: theme.green, bg: theme.greenSubtle },
   manual_close: { color: theme.textMuted, bg: theme.surfaceInset },
+  pending: { color: theme.textMuted, bg: theme.surfaceInset },
 }
 
 const LINK_KIND_META = {
@@ -201,7 +202,7 @@ function formatDuration(firstSeen, lastSeen) {
 const GRID_COLUMNS = '26px 52px minmax(220px, 3fr) minmax(80px, 1fr) 84px 100px 40px 60px 90px'
 
 export function OutcomesPanel() {
-  const { issueHistory } = useHydraFlow()
+  const { issueHistory, selectedRepoSlug } = useHydraFlow()
   const [preset, setPreset] = useState('all')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -225,10 +226,16 @@ export function OutcomesPanel() {
   )
 
   const filtered = useMemo(() => {
+    const slug = selectedRepoSlug
     const q = search.trim().toLowerCase()
     const since = timeRange.since ? new Date(timeRange.since).getTime() : null
     const until = timeRange.until ? new Date(timeRange.until).getTime() : null
     return (payload.items || []).filter(item => {
+      if (slug) {
+        const sessions = Array.isArray(item.session_ids) ? item.session_ids : []
+        const matchesRepo = sessions.some((id) => typeof id === 'string' && id.startsWith(slug))
+        if (!matchesRepo) return false
+      }
       if (since || until) {
         const ts = item.last_seen ? new Date(item.last_seen).getTime() : 0
         if (since && ts < since) return false
@@ -243,12 +250,21 @@ export function OutcomesPanel() {
       if ((item.epic || '').toLowerCase().includes(q)) return true
       if ((item.crate_title || '').toLowerCase().includes(q)) return true
       if (item.crate_number != null && String(item.crate_number).includes(q)) return true
-      const slug = extractRepoSlug(item.issue_url)
-      if (slug && slug.toLowerCase().includes(q)) return true
+      const repoSlug = extractRepoSlug(item.issue_url)
+      if (repoSlug && repoSlug.toLowerCase().includes(q)) return true
       if ((item.outcome?.reason || '').toLowerCase().includes(q)) return true
       return false
     })
-  }, [payload.items, statusFilter, outcomeFilter, epicOnly, search, timeRange.since, timeRange.until])
+  }, [
+    payload.items,
+    statusFilter,
+    outcomeFilter,
+    epicOnly,
+    search,
+    selectedRepoSlug,
+    timeRange.since,
+    timeRange.until,
+  ])
 
   const grouped = useMemo(() => {
     if (groupBy === 'none') return null
@@ -319,7 +335,7 @@ export function OutcomesPanel() {
     const issueActualTokens = Number(item.inference?.total_tokens || 0)
     const issueSavedTokens = estimateSavedTokens(item.inference?.pruned_chars_total || 0)
     const issueUnprunedTokens = issueActualTokens + issueSavedTokens
-    const outcomeType = item.outcome?.outcome
+    const outcomeType = item.outcome?.outcome || 'pending'
     const title = item.title || ''
     const outcomeReason = item.outcome?.reason || ''
     const repoSlug = extractRepoSlug(item.issue_url)
@@ -364,9 +380,7 @@ export function OutcomesPanel() {
           </span>
           <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
           <span style={styles.outcomeCell}>
-            {outcomeType
-              ? <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.manual_close}>{outcomeType.replace(/_/g, ' ')}</span>
-              : <span style={styles.dimText}>{'\u2014'}</span>}
+            <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.pending}>{(outcomeType || 'pending').replace(/_/g, ' ')}</span>
           </span>
           <span style={styles.metaCell}>{item.prs?.length || 0}</span>
           <span style={styles.tokenCell} title={`${formatNumber(issueActualTokens)} actual · ${formatNumber(issueSavedTokens)} saved`}>

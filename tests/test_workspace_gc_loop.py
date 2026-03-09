@@ -476,10 +476,10 @@ class TestWorktreeGCOrphanedDirsErrors:
 
         call_count = 0
 
-        async def fail_then_succeed(issue_num: int) -> None:
+        async def fail_then_succeed(issue_number: int) -> None:
             nonlocal call_count
             call_count += 1
-            if issue_num == 50:
+            if issue_number == 50:
                 raise RuntimeError("destroy failed")
 
         loop._worktrees.destroy = fail_then_succeed  # type: ignore[method-assign]

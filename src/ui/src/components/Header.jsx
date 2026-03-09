@@ -3,6 +3,8 @@ import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { PIPELINE_STAGES, SENSITIVE_SELECTORS } from '../constants'
 import { ReportIssueModal } from './ReportIssueModal'
+import { RepoSelector } from './RepoSelector'
+import { RegisterRepoDialog } from './RegisterRepoDialog'
 
 function isCrossOriginImage(el) {
   if (!el || el.tagName !== 'IMG') return false
@@ -194,6 +196,7 @@ export function Header({ connected, orchestratorStatus }) {
   const updateAvailable = Boolean(config?.update_available && latestVersion)
 
   const [reportModalOpen, setReportModalOpen] = useState(false)
+  const [registerModalOpen, setRegisterModalOpen] = useState(false)
   const [screenshotDataUrl, setScreenshotDataUrl] = useState(null)
 
   const handleReportClick = useCallback(async () => {
@@ -214,6 +217,14 @@ export function Header({ connected, orchestratorStatus }) {
   const handleReportSubmit = useCallback(async (data) => {
     if (submitReport) await submitReport(data)
   }, [submitReport])
+
+  const openRegister = useCallback(() => {
+    setRegisterModalOpen(true)
+  }, [])
+
+  const closeRegister = useCallback(() => {
+    setRegisterModalOpen(false)
+  }, [])
 
   const sessionStages = PIPELINE_STAGES.map((stage) => ({
     key: stage.key,
@@ -259,6 +270,9 @@ export function Header({ connected, orchestratorStatus }) {
           </div>
         </div>
       </div>
+      <div style={styles.selectorWrap}>
+        <RepoSelector onOpenRegister={openRegister} />
+      </div>
       <div style={styles.controls}>
         {orchestratorStatus === 'running' ? (
           <button
@@ -300,6 +314,10 @@ export function Header({ connected, orchestratorStatus }) {
         onSubmit={handleReportSubmit}
         onClose={() => setReportModalOpen(false)}
       />
+      <RegisterRepoDialog
+        isOpen={registerModalOpen}
+        onClose={closeRegister}
+      />
     </header>
   )
 }
@@ -328,6 +346,12 @@ const styles = {
     gap: 14,
     minWidth: 0,
     overflow: 'hidden',
+  },
+  selectorWrap: {
+    width: 220,
+    paddingLeft: 12,
+    paddingRight: 12,
+    flexShrink: 0,
   },
   sessionBox: {
     display: 'flex',

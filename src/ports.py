@@ -123,8 +123,8 @@ class PRPort(Protocol):
 
     # --- Comments / review ---
 
-    async def post_comment(self, task_id: int, body: str) -> None:
-        """Post *body* as a comment on issue *task_id*."""
+    async def post_comment(self, issue_number: int, body: str) -> None:
+        """Post *body* as a comment on issue *issue_number*."""
         ...
 
     async def submit_review(

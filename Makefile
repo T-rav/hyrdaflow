@@ -156,7 +156,13 @@ smoke: deps
 	@echo "$(BLUE)Running HydraFlow smoke tests...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest \
 		tests/test_dashboard.py \
-		tests/test_dashboard_routes.py \
+		tests/test_dashboard_routes_control.py \
+		tests/test_dashboard_routes_core.py \
+		tests/test_dashboard_routes_hitl.py \
+		tests/test_dashboard_routes_issue_history.py \
+		tests/test_dashboard_routes_metrics.py \
+		tests/test_dashboard_routes_repo.py \
+		tests/test_dashboard_routes_state.py \
 		tests/test_runner_utils.py \
 		tests/test_stream_parser.py -q
 	@if [ -x "$(HYDRAFLOW_DIR)scripts/ui-npm.sh" ]; then \

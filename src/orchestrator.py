@@ -24,10 +24,11 @@ from models import (
     WorkFn,
 )
 from phase_utils import (
+    MemorySuggester,
     is_adr_issue_title,
     is_likely_bug,
+    log_exception_with_bug_classification,
     release_batch_in_flight,
-    safe_file_memory_suggestion,
 )
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
@@ -154,6 +155,7 @@ class HydraFlowOrchestrator:
         self._runs_gc_loop = svc.runs_gc_loop
         self._adr_reviewer_loop = svc.adr_reviewer_loop
         self._crate_manager = svc.crate_manager
+        self._suggest_memory = MemorySuggester(config, self._prs, self._state)
 
         # Registry of triggerable background loop instances
         self._bg_loop_registry: dict[str, BaseBackgroundLoop] = {
@@ -316,18 +318,18 @@ class HydraFlowOrchestrator:
         async with self._active_issues_lock:
             interrupted: dict[int, str] = {}
             # Use IssueStore active tracking as the primary source
-            for issue_num, stage in self._store.get_active_issues().items():
-                interrupted[issue_num] = stage
+            for issue_number, stage in self._store.get_active_issues().items():
+                interrupted[issue_number] = stage
             # Also check in-memory tracking sets for issues not yet in the store
-            for issue_num in self._active_impl_issues:
-                if issue_num not in interrupted:
-                    interrupted[issue_num] = "implement"
-            for issue_num in self._active_review_issues:
-                if issue_num not in interrupted:
-                    interrupted[issue_num] = "review"
-            for issue_num in self._hitl_phase.active_hitl_issues:
-                if issue_num not in interrupted:
-                    interrupted[issue_num] = "hitl"
+            for issue_number in self._active_impl_issues:
+                if issue_number not in interrupted:
+                    interrupted[issue_number] = "implement"
+            for issue_number in self._active_review_issues:
+                if issue_number not in interrupted:
+                    interrupted[issue_number] = "review"
+            for issue_number in self._hitl_phase.active_hitl_issues:
+                if issue_number not in interrupted:
+                    interrupted[issue_number] = "hitl"
             return interrupted
 
     # Alias for backward compatibility
@@ -623,11 +625,11 @@ class HydraFlowOrchestrator:
         """Remove interrupted issues from crash-recovery sets so they re-route normally."""
         interrupted = self._state.get_interrupted_issues()
         if interrupted:
-            for issue_num in interrupted:
-                self._recovered_issues.discard(issue_num)
-                self._active_impl_issues.discard(issue_num)
-                self._active_review_issues.discard(issue_num)
-                self._hitl_phase.active_hitl_issues.discard(issue_num)
+            for issue_number in interrupted:
+                self._recovered_issues.discard(issue_number)
+                self._active_impl_issues.discard(issue_number)
+                self._active_review_issues.discard(issue_number)
+                self._hitl_phase.active_hitl_issues.discard(issue_number)
             logger.info(
                 "Restored %d interrupted issue(s) for re-processing: %s",
                 len(interrupted),
@@ -1034,21 +1036,13 @@ class HydraFlowOrchestrator:
                     consecutive_failures = 1
                     last_exc_type = exc_type
 
-                # Use higher severity for likely-bug exceptions
+                # Classify for event bus data; severity handled inside helper
                 exc_is_bug = is_likely_bug(exc)
-                if exc_is_bug:
-                    logger.critical(
-                        "%s loop hit likely bug (%s) — will retry but "
-                        "this probably needs a code fix",
-                        display,
-                        exc_type.__name__,
-                        exc_info=True,
-                    )
-                else:
-                    logger.exception(
-                        "%s loop iteration failed — will retry next cycle",
-                        display,
-                    )
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"{display} loop iteration failed — will retry next cycle",
+                )
 
                 error_data: dict[str, Any] = {
                     "message": f"{display} loop error",
@@ -1179,14 +1173,7 @@ class HydraFlowOrchestrator:
         log_file: str,
     ) -> None:
         """Run memory-suggestion filing and transcript summarization for a completed run."""
-        await safe_file_memory_suggestion(
-            transcript,
-            source,
-            reference,
-            self._config,
-            self._prs,
-            self._state,
-        )
+        await self._suggest_memory(transcript, source, reference)
         if issue_number > 0:
             try:
                 await self._summarizer.summarize_and_comment(
@@ -1198,18 +1185,11 @@ class HydraFlowOrchestrator:
                     log_file=log_file,
                 )
             except Exception as exc:
-                if is_likely_bug(exc):
-                    logger.critical(
-                        "Failed to post transcript summary for issue #%d — likely bug (%s)",
-                        issue_number,
-                        type(exc).__name__,
-                        exc_info=True,
-                    )
-                else:
-                    logger.exception(
-                        "Failed to post transcript summary for issue #%d",
-                        issue_number,
-                    )
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"Failed to post transcript summary for issue #{issue_number}",
+                )
 
     def _log_reference(self, filename: str) -> str:
         """Return a repo- or data-relative log reference for display."""

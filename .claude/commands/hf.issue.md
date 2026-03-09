@@ -23,6 +23,13 @@ Before doing anything else, resolve these three values. Use the EXACT fallback l
 2. **ASSIGNEE**: Run `echo "$HYDRAFLOW_GITHUB_ASSIGNEE"`. If the output is empty, extract the owner from the repo slug (the part before `/`).
 3. **LABEL**: Run `echo "$HYDRAFLOW_LABEL_FIND"`. If the output is empty, **hardcode `hydraflow-find`**. NEVER pass an empty `--label` flag.
 
+### Phase 0.5: Check for Screenshot
+
+If `$ARGUMENTS` mentions a screenshot file path (e.g. `/tmp/hydraflow-report-*.png`):
+1. **Read the image** with the Read tool to understand what the user saw
+2. **Save the path** — you MUST include `![Screenshot](<path>)` in the issue body so `gh issue create` auto-uploads it
+3. Use what you see in the screenshot to inform your understanding of the bug
+
 ### Phase 1: Understand the Request
 
 Parse `$ARGUMENTS` to understand what the user wants filed as an issue. Identify:
@@ -114,6 +121,10 @@ _Include this section only when the issue involves frontend/UI changes. Skip ent
 
 ### Shared code:
 - Constants, types, or styles to import from centralized modules (`constants.js`, `types.js`, `theme.js`)
+
+## Screenshot (if provided)
+
+![Screenshot](<path from $ARGUMENTS>)
 
 ## Acceptance Criteria
 

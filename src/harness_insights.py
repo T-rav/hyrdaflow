@@ -458,12 +458,12 @@ async def file_harness_suggestions(
             else improve_label[:1] + hitl_label[:1]
         )
         issue_title = f"[Memory] {title}" if use_memory_flow else title
-        issue_num = await prs.create_issue(issue_title, body, labels)
-        if issue_num:
+        issue_number = await prs.create_issue(issue_title, body, labels)
+        if issue_number:
             if improve_label and not use_memory_flow:
-                state.set_hitl_origin(issue_num, improve_label[0])
+                state.set_hitl_origin(issue_number, improve_label[0])
             if not use_memory_flow:
-                state.set_hitl_cause(issue_num, f"Harness pattern detected: {desc}")
+                state.set_hitl_cause(issue_number, f"Harness pattern detected: {desc}")
             store.mark_pattern_proposed(key)
             filed += 1
 

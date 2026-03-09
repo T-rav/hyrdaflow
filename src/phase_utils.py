@@ -15,7 +15,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
-from models import PipelineStage, PRInfo
+from models import PipelineStage, PRInfo, Task
 from ports import PRPort
 from state import StateTracker
 
@@ -126,14 +126,14 @@ async def run_refilling_pool(
     return results
 
 
-def release_batch_in_flight(store: IssueStore, task_ids: set[int]) -> None:
+def release_batch_in_flight(store: IssueStore, issue_numbers: set[int]) -> None:
     """Release in-flight protection for a batch of issues.
 
     Should be called in a ``finally`` block after ``run_concurrent_batch``
     to ensure no orphaned in-flight entries survive if a worker exits
     without reaching ``mark_active`` / ``mark_complete``.
     """
-    store.release_in_flight(task_ids)
+    store.release_in_flight(issue_numbers)
 
 
 async def escalate_to_hitl(
@@ -226,6 +226,11 @@ async def store_lifecycle(
     stage: str,
 ):
     """Mark an issue active on enter and complete on exit.
+
+    Args:
+        store: The issue store that tracks active/complete status.
+        issue_number: GitHub issue number to mark.
+        stage: Pipeline stage name (e.g. ``"plan"``, ``"review"``).
 
     Usage::
 
@@ -331,6 +336,158 @@ LIKELY_BUG_EXCEPTIONS: tuple[type[BaseException], ...] = (
 def is_likely_bug(exc: BaseException) -> bool:
     """Return True if *exc* is likely a code bug rather than a transient failure."""
     return isinstance(exc, LIKELY_BUG_EXCEPTIONS)
+
+
+def log_exception_with_bug_classification(
+    log: logging.Logger,
+    exc: BaseException,
+    context: str,
+) -> None:
+    """Log *exc* at the appropriate severity based on :func:`is_likely_bug`.
+
+    If the exception is likely a code bug, log at ``CRITICAL`` with a
+    "needs code fix" hint; otherwise log at ``WARNING`` with ``exc_info``.
+    """
+    exc_type_name = type(exc).__name__
+    if is_likely_bug(exc):
+        log.critical(
+            "%s — likely bug (%s), needs code fix",
+            context,
+            exc_type_name,
+            exc_info=True,
+        )
+    else:
+        log.warning("%s — %s", context, exc_type_name, exc_info=True)
+
+
+async def run_with_fatal_guard(
+    coro: Coroutine[Any, Any, T],
+    *,
+    on_failure: Callable[[str], T],
+    context: str,
+    log: logging.Logger,
+) -> T:
+    """Await *coro*, re-raising fatal errors and classifying the rest.
+
+    Fatal errors (``AuthenticationError``, ``CreditExhaustedError``,
+    ``MemoryError``) propagate immediately.  All other exceptions are
+    logged via :func:`log_exception_with_bug_classification` and
+    ``on_failure(exc_type_name)`` is returned as the result.
+    """
+    from subprocess_util import (  # noqa: PLC0415 — deferred to avoid circular import
+        AuthenticationError,
+        CreditExhaustedError,
+    )
+
+    try:
+        return await coro
+    except (AuthenticationError, CreditExhaustedError, MemoryError):
+        raise
+    except Exception as exc:
+        log_exception_with_bug_classification(log, exc, context)
+        return on_failure(type(exc).__name__)
+
+
+class MemorySuggester:
+    """Pre-bound callable for :func:`safe_file_memory_suggestion`.
+
+    Stores the ``(config, prs, state)`` triple so call sites only need to
+    pass ``(transcript, source, reference)``.
+
+    Usage::
+
+        suggest = MemorySuggester(config, prs, state)
+        await suggest(transcript, "planner", f"issue #{issue.id}")
+    """
+
+    __slots__ = ("_config", "_prs", "_state")
+
+    def __init__(
+        self, config: HydraFlowConfig, prs: PRPort, state: StateTracker
+    ) -> None:
+        self._config = config
+        self._prs = prs
+        self._state = state
+
+    async def __call__(self, transcript: str, source: str, reference: str) -> None:
+        await safe_file_memory_suggestion(
+            transcript, source, reference, self._config, self._prs, self._state
+        )
+
+
+class PipelineEscalator:
+    """Bundles ``escalate_to_hitl`` + ``enqueue_transition`` + ``record_harness_failure``.
+
+    The plan and implement phases repeat this trio at every escalation
+    site.  This helper encapsulates the three calls so each call site
+    collapses to a single ``await escalator(...)`` invocation.
+
+    Usage::
+
+        escalator = PipelineEscalator(
+            state, prs, store, harness_insights,
+            origin_label=config.planner_label[0],
+            hitl_label=config.hitl_label[0],
+            stage=PipelineStage.PLAN,
+        )
+        await escalator(issue, cause="...", details="...", category=FailureCategory.PLAN_VALIDATION)
+    """
+
+    __slots__ = (
+        "_state",
+        "_prs",
+        "_store",
+        "_harness_insights",
+        "_origin_label",
+        "_hitl_label",
+        "_stage",
+    )
+
+    def __init__(
+        self,
+        state: StateTracker,
+        prs: PRPort,
+        store: IssueStore,
+        harness_insights: HarnessInsightStore | None,
+        *,
+        origin_label: str,
+        hitl_label: str,
+        stage: PipelineStage,
+    ) -> None:
+        self._state = state
+        self._prs = prs
+        self._store = store
+        self._harness_insights = harness_insights
+        self._origin_label = origin_label
+        self._hitl_label = hitl_label
+        self._stage = stage
+
+    async def __call__(
+        self,
+        issue: Task,
+        *,
+        cause: str,
+        details: str,
+        category: FailureCategory,
+    ) -> None:
+        """Escalate *issue* to HITL, enqueue transition, and record failure."""
+        issue_number = issue.id
+        await escalate_to_hitl(
+            self._state,
+            self._prs,
+            issue_number,
+            cause=cause,
+            origin_label=self._origin_label,
+            hitl_label=self._hitl_label,
+        )
+        self._store.enqueue_transition(issue, "hitl")
+        record_harness_failure(
+            self._harness_insights,
+            issue_number,
+            category,
+            details,
+            stage=self._stage,
+        )
 
 
 def next_adr_number(adr_dir: Path) -> int:

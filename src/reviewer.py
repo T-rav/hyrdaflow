@@ -17,6 +17,7 @@ from models import (
     ReviewVerdict,
     Task,
 )
+from phase_utils import is_likely_bug
 from precheck import run_precheck_context
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
@@ -171,6 +172,8 @@ class ReviewRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.verdict = ReviewVerdict.COMMENT
             result.summary = f"Review failed: {exc}"
             logger.error("Review failed for PR #%d: %s", pr.number, exc)
@@ -263,6 +266,8 @@ class ReviewRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"CI fix failed: {exc}"
             logger.error("CI fix failed for PR #%d: %s", pr.number, exc)
@@ -341,6 +346,8 @@ class ReviewRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"Review fix failed: {exc}"
             logger.error("Review fix failed for PR #%d: %s", pr.number, exc)
@@ -701,6 +708,11 @@ Quality: No issues — <justification>
 7. Run project audits on changed code:
    - Review code quality patterns (SRP, type hints, naming, complexity)
    - Review test quality (3As structure, factories, edge cases)
+   - **Test coverage audit** — verify:
+     - Tests cover the specific issue requirements, not just helper/utility functions
+     - Failure and error paths have explicit tests, not only happy paths
+     - Every new public function/method is actually called from production code (flag dead code that is tested but never invoked)
+     - New branches/conditions introduced by the PR have corresponding test cases
    - Check for security issues (injection, crypto, auth)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
 {ui_criteria}

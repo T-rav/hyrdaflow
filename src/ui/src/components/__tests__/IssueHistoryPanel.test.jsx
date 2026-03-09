@@ -22,7 +22,7 @@ function makePayload() {
           { target_id: 4, kind: 'duplicates', target_url: null },
         ],
         prs: [{ number: 501, url: 'https://example.com/pull/501', merged: false }],
-        session_ids: ['sess-1'],
+        session_ids: ['acme-app-20260220T000000'],
         source_calls: { implementer: 2 },
         model_calls: { 'gpt-5': 2 },
         inference: { inference_calls: 2, total_tokens: 1200, input_tokens: 800, output_tokens: 400, pruned_chars_total: 1600 },
@@ -44,7 +44,7 @@ function makePayload() {
         epic: '',
         linked_issues: [],
         prs: [{ number: 777, url: 'https://example.com/pull/777', merged: true }],
-        session_ids: ['sess-2'],
+        session_ids: ['other-repo-20260221T000000'],
         source_calls: { reviewer: 1 },
         model_calls: { sonnet: 1 },
         inference: { inference_calls: 1, total_tokens: 100, input_tokens: 70, output_tokens: 30, pruned_chars_total: 400 },
@@ -65,7 +65,7 @@ function makePayload() {
 
 describe('OutcomesPanel (merged History+Outcomes)', () => {
   beforeEach(() => {
-    mockUseHydraFlow.mockReturnValue({ issueHistory: makePayload() })
+    mockUseHydraFlow.mockReturnValue({ issueHistory: makePayload(), selectedRepoSlug: null })
   })
 
   it('renders issue rows with compact summary', () => {
@@ -89,6 +89,13 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
 
     fireEvent.change(screen.getByPlaceholderText('Search issue #, title, repo, epic, crate, reason'), { target: { value: 'auth' } })
     expect(screen.getByText('No issues match this filter.')).toBeInTheDocument()
+  })
+
+  it('filters rows by selected repo slug based on session ids', () => {
+    mockUseHydraFlow.mockReturnValue({ issueHistory: makePayload(), selectedRepoSlug: 'acme-app' })
+    render(<OutcomesPanel />)
+    expect(screen.getByText('Fix auth cache')).toBeInTheDocument()
+    expect(screen.queryByText('Merge docs')).toBeNull()
   })
 
   it('expands an issue row to show rollup details with kind-aware linked issues', () => {
@@ -126,7 +133,7 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
   it('renders plain-int linked issues for backward compatibility', () => {
     const payload = makePayload()
     payload.items[0].linked_issues = [3, 4]
-    mockUseHydraFlow.mockReturnValue({ issueHistory: payload })
+    mockUseHydraFlow.mockReturnValue({ issueHistory: payload, selectedRepoSlug: null })
     render(<OutcomesPanel />)
     fireEvent.click(screen.getByLabelText('Toggle issue 10'))
     expect(screen.getByText('#3')).toBeInTheDocument()

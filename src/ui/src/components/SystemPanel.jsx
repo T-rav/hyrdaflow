@@ -267,7 +267,7 @@ const NON_SYSTEM_WORKERS = BACKGROUND_WORKERS.filter(w => !w.system)
 const SYSTEM_WORKERS = BACKGROUND_WORKERS.filter(w => w.system)
 
 function MemoryAutoApproveToggle() {
-  const { config } = useHydraFlow()
+  const { config, selectedRepoSlug } = useHydraFlow()
   const [localEnabled, setLocalEnabled] = useState(null)
 
   const isEnabled = localEnabled !== null ? localEnabled : (config?.memory_auto_approve ?? false)
@@ -276,7 +276,10 @@ function MemoryAutoApproveToggle() {
     const newValue = !isEnabled
     setLocalEnabled(newValue)
     try {
-      const resp = await fetch('/api/control/config', {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const resp = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memory_auto_approve: newValue, persist: true }),
@@ -287,7 +290,7 @@ function MemoryAutoApproveToggle() {
     } catch {
       setLocalEnabled(isEnabled)
     }
-  }, [isEnabled])
+  }, [isEnabled, selectedRepoSlug])
 
   return (
     <div style={styles.autoApproveRow}>
@@ -309,7 +312,7 @@ function MemoryAutoApproveToggle() {
 }
 
 function UnstickWorkersDropdown() {
-  const { config } = useHydraFlow()
+  const { config, selectedRepoSlug } = useHydraFlow()
   const [localValue, setLocalValue] = useState(null)
 
   const currentValue = localValue !== null ? localValue : (config?.pr_unstick_batch_size ?? 3)
@@ -318,7 +321,10 @@ function UnstickWorkersDropdown() {
     const newValue = parseInt(e.target.value, 10)
     setLocalValue(newValue)
     try {
-      const resp = await fetch('/api/control/config', {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const resp = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pr_unstick_batch_size: newValue, persist: true }),
@@ -329,7 +335,7 @@ function UnstickWorkersDropdown() {
     } catch {
       setLocalValue(currentValue)
     }
-  }, [currentValue])
+  }, [currentValue, selectedRepoSlug])
 
   return (
     <div style={styles.autoApproveRow}>
