@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import ConflictResolutionResult, GitHubIssue, HITLItem
+from models import ConflictResolutionResult, GitHubIssue, HITLItem, LoopResult
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
 from tests.conftest import make_state
 from tests.helpers import ConfigFactory
@@ -429,7 +429,9 @@ class TestCIFailureResolution:
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = capture_execute
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
 
         prs.push_branch = AsyncMock(return_value=True)
 
@@ -719,7 +721,9 @@ class TestPromptTelemetry:
         wt.start_merge_main = AsyncMock(return_value=True)
         agents._build_command = MagicMock(return_value=["cmd"])
         agents._execute = AsyncMock(return_value="done")
-        agents._verify_result = AsyncMock(return_value=(True, ""))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
 
         ok = await unsticker._resolve_ci_or_quality(
             42,
@@ -989,7 +993,9 @@ def _setup_ci_fix_memory_test(tmp_path: Path, *, transcript: str = "transcript")
 
     agents._build_command = MagicMock(return_value=["claude", "-p"])
     agents._execute = AsyncMock(return_value=transcript)
-    agents._verify_result = AsyncMock(return_value=(True, "OK"))
+    agents._verify_result = AsyncMock(
+        return_value=LoopResult(passed=True, summary="OK")
+    )
 
     prs.push_branch = AsyncMock(return_value=True)
 
@@ -1054,7 +1060,9 @@ class TestCITimeoutResolution:
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = capture_execute
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
 
         prs.push_branch = AsyncMock(return_value=True)
 
@@ -1144,7 +1152,9 @@ class TestCITimeoutResolution:
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = capture_execute
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1190,7 +1200,9 @@ class TestCITimeoutResolution:
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = AsyncMock(return_value="transcript")
         # Verification always fails
-        agents._verify_result = AsyncMock(return_value=(False, "tests still hang"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="tests still hang")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1270,7 +1282,9 @@ class TestCITimeoutResolution:
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = capture_execute
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1333,7 +1347,9 @@ Done."""
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = AsyncMock(return_value=transcript_with_pattern)
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1383,7 +1399,9 @@ Done."""
         agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = AsyncMock(return_value="transcript")
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1457,7 +1475,9 @@ Done."""
         agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = AsyncMock(return_value=transcript_no_block)
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1530,7 +1550,9 @@ TROUBLESHOOTING_PATTERN_END
         agents._runner = MagicMock()
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = AsyncMock(return_value="Fixed by setting return_value.")
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)
@@ -1591,7 +1613,9 @@ TROUBLESHOOTING_PATTERN_END
         agents._runner = MagicMock()
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = AsyncMock(return_value="Fixed it.")
-        agents._verify_result = AsyncMock(return_value=(True, "OK"))
+        agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )
         prs.push_branch = AsyncMock(return_value=True)
 
         wt_dir = unsticker._config.worktree_path_for_issue(42)

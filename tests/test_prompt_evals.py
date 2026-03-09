@@ -38,7 +38,7 @@ def test_planner_prompt_eval_normal(tmp_path: Path) -> None:
         tags=["bug"],
     )
 
-    prompt = runner._build_prompt(task, scale="full")
+    prompt, _ = runner._build_prompt_with_stats(task, scale="full")
 
     assert "PLAN_START" in prompt
     assert "PLAN_END" in prompt
@@ -56,7 +56,7 @@ def test_planner_prompt_eval_error_oversized_input(tmp_path: Path) -> None:
         comments=["C" * 8000 for _ in range(10)],
     )
 
-    prompt = runner._build_prompt(task, scale="full")
+    prompt, _ = runner._build_prompt_with_stats(task, scale="full")
 
     assert "…(truncated)" in prompt
     assert "more comments omitted" in prompt
@@ -68,7 +68,7 @@ def test_planner_prompt_eval_edge_empty_inputs(tmp_path: Path) -> None:
     runner = PlannerRunner(cfg, EventBus())
     task = TaskFactory.create(body="", comments=[], tags=[])
 
-    prompt = runner._build_prompt(task, scale="lite")
+    prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
 
     assert "LITE" in prompt
     assert "PLAN_START" in prompt
@@ -83,7 +83,7 @@ def test_implementer_prompt_eval_normal(tmp_path: Path) -> None:
         comments=["## Implementation Plan\n\n1. Add handler\n2. Add tests\n"],
     )
 
-    prompt = runner._build_prompt(task)
+    prompt, _ = runner._build_prompt_with_stats(task)
 
     assert "## Implementation Plan" in prompt
     assert "Follow this plan closely" in prompt
@@ -101,7 +101,7 @@ def test_implementer_prompt_eval_error_oversized_sections(tmp_path: Path) -> Non
     )
     review_feedback = "feedback\n" * 5000
 
-    prompt = runner._build_prompt(task, review_feedback=review_feedback)
+    prompt, _ = runner._build_prompt_with_stats(task, review_feedback=review_feedback)
 
     assert "summarized from" in prompt
     assert "more comments omitted" in prompt
@@ -113,7 +113,7 @@ def test_implementer_prompt_eval_edge_no_plan(tmp_path: Path) -> None:
     runner = AgentRunner(cfg, EventBus())
     task = TaskFactory.create(body="Short body", comments=[])
 
-    prompt = runner._build_prompt(task)
+    prompt, _ = runner._build_prompt_with_stats(task)
 
     assert "Follow this plan closely" not in prompt
     assert "## Rules" in prompt
@@ -126,7 +126,7 @@ def test_reviewer_prompt_eval_normal(tmp_path: Path) -> None:
     pr = PRInfoFactory.create()
     diff = "diff --git a/foo.py b/foo.py\n+added line\n"
 
-    prompt = runner._build_review_prompt(pr, issue, diff)
+    prompt, _ = runner._build_review_prompt_with_stats(pr, issue, diff)
 
     assert "## PR Diff" in prompt
     assert diff in prompt
@@ -140,7 +140,7 @@ def test_reviewer_prompt_eval_error_large_payload(tmp_path: Path) -> None:
     pr = PRInfoFactory.create()
     diff = "diff --git a/a.py b/a.py\n" + ("+x\n-y\n" * 12000)
 
-    prompt = runner._build_review_prompt(pr, issue, diff)
+    prompt, _ = runner._build_review_prompt_with_stats(pr, issue, diff)
 
     assert "Issue body summarized for token efficiency" in prompt
     assert "### Diff Summary" in prompt
@@ -155,7 +155,7 @@ def test_reviewer_prompt_eval_edge_malformed_diff(tmp_path: Path) -> None:
     pr = PRInfoFactory.create()
     diff = "x" * 10000  # no diff headers
 
-    prompt = runner._build_review_prompt(pr, issue, diff)
+    prompt, _ = runner._build_review_prompt_with_stats(pr, issue, diff)
 
     assert "### Diff Summary" in prompt
     assert "(could not detect files)" in prompt
@@ -167,7 +167,7 @@ def test_triage_prompt_eval_normal(tmp_path: Path) -> None:
     runner = TriageRunner(cfg, EventBus())
     task = TaskFactory.create(body="Need to fix login bug with repro steps.")
 
-    prompt = runner._build_prompt(task, max_body=2000)
+    prompt, _ = runner._build_prompt_with_stats(task, max_body=2000)
 
     assert '"ready": true' in prompt
     assert "Evaluation Criteria" in prompt
@@ -178,7 +178,7 @@ def test_triage_prompt_eval_error_oversized_issue_body(tmp_path: Path) -> None:
     runner = TriageRunner(cfg, EventBus())
     task = TaskFactory.create(body="T" * 12000)
 
-    prompt = runner._build_prompt(task, max_body=1500)
+    prompt, _ = runner._build_prompt_with_stats(task, max_body=1500)
 
     assert "T" * 1500 in prompt
     assert "T" * 1600 not in prompt
@@ -189,7 +189,7 @@ def test_triage_prompt_eval_edge_empty_body(tmp_path: Path) -> None:
     runner = TriageRunner(cfg, EventBus())
     task = TaskFactory.create(body="")
 
-    prompt = runner._build_prompt(task, max_body=1200)
+    prompt, _ = runner._build_prompt_with_stats(task, max_body=1200)
 
     assert f"## Issue #{task.id}" in prompt
     assert "**Body:**" in prompt
@@ -215,8 +215,8 @@ def test_planner_prompt_eval_edge_full_vs_lite_schema(tmp_path: Path) -> None:
     runner = PlannerRunner(cfg, EventBus())
     task = TaskFactory.create(tags=["bug"])
 
-    full_prompt = runner._build_prompt(task, scale="full")
-    lite_prompt = runner._build_prompt(task, scale="lite")
+    full_prompt, _ = runner._build_prompt_with_stats(task, scale="full")
+    lite_prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
 
     assert "REQUIRED SCHEMA" in full_prompt
     assert "LITE SCHEMA" in lite_prompt
@@ -298,7 +298,7 @@ def test_triage_prompt_eval_edge_json_contract_markers(tmp_path: Path) -> None:
     runner = TriageRunner(cfg, EventBus())
     task = TaskFactory.create()
 
-    prompt = runner._build_prompt(task, max_body=1000)
+    prompt, _ = runner._build_prompt_with_stats(task, max_body=1000)
 
     assert '"ready": true' in prompt
     assert '"enrichment"' in prompt

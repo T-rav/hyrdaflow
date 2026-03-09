@@ -601,12 +601,19 @@ class PostMergeHandler:
             title = title[:253] + "..."
 
         body = format_verification_issue_body(judge_result, issue, pr)
-        label = self._config.hitl_label[0]
+        label = self._config.verify_label[0]
         issue_number = await self._prs.create_issue(title, body, [label])
 
         if issue_number > 0:
             self._state.set_verification_issue(issue.id, issue_number)
-            self._state.set_hitl_origin(issue_number, self._config.review_label[0])
+            self._state.record_outcome(
+                issue.id,
+                IssueOutcomeType.VERIFY_PENDING,
+                reason=f"Post-merge verification issue #{issue_number} created",
+                pr_number=pr.number,
+                phase="review",
+                verification_issue_number=issue_number,
+            )
             logger.info(
                 "Created verification issue #%d for issue #%d (PR #%d)",
                 issue_number,

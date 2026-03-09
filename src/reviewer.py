@@ -597,24 +597,6 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             f"{truncated_note}"
         )
 
-    def _build_review_prompt(
-        self,
-        pr: PRInfo,
-        issue: Task,
-        diff: str,
-        precheck_context: str = "",
-        code_scanning_alerts: list[dict] | None = None,
-    ) -> str:
-        """Build the review prompt for the agent."""
-        prompt, _stats = self._build_review_prompt_with_stats(
-            pr,
-            issue,
-            diff,
-            precheck_context=precheck_context,
-            code_scanning_alerts=code_scanning_alerts,
-        )
-        return prompt
-
     def _build_review_prompt_with_stats(
         self,
         pr: PRInfo,

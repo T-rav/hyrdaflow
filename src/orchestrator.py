@@ -156,6 +156,7 @@ class HydraFlowOrchestrator:
         self._epic_manager = svc.epic_manager
         self._epic_monitor_loop = svc.epic_monitor_loop
         self._epic_sweeper_loop = svc.epic_sweeper_loop
+        self._verify_monitor_loop = svc.verify_monitor_loop
         self._worktree_gc_loop = svc.worktree_gc_loop
         self._runs_gc_loop = svc.runs_gc_loop
         self._adr_reviewer_loop = svc.adr_reviewer_loop
@@ -171,6 +172,7 @@ class HydraFlowOrchestrator:
             "report_issue": self._report_issue_loop,
             "epic_monitor": self._epic_monitor_loop,
             "epic_sweeper": self._epic_sweeper_loop,
+            "verify_monitor": self._verify_monitor_loop,
             "worktree_gc": self._worktree_gc_loop,
             "runs_gc": self._runs_gc_loop,
             "adr_reviewer": self._adr_reviewer_loop,
@@ -966,6 +968,7 @@ class HydraFlowOrchestrator:
             ("report_issue", self._report_issue_loop.run),
             ("epic_monitor", self._epic_monitor_loop.run),
             ("epic_sweeper", self._epic_sweeper_loop.run),
+            ("verify_monitor", self._verify_monitor_loop.run),
             ("worktree_gc", self._worktree_gc_loop.run),
             ("runs_gc", self._runs_gc_loop.run),
             ("adr_reviewer", self._adr_reviewer_loop.run),

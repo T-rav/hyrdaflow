@@ -14,6 +14,7 @@ from base_runner import BaseRunner
 from config import HydraFlowConfig
 from events import EventBus, EventType
 from hitl_runner import HITLRunner, _classify_cause
+from models import LoopResult
 from tests.conftest import HITLResultFactory, IssueFactory
 
 
@@ -106,30 +107,32 @@ class TestClassifyCause:
 
 
 class TestBuildPrompt:
-    """Tests for HITLRunner._build_prompt."""
+    """Tests for HITLRunner._build_prompt_with_stats."""
 
     def test_prompt_includes_issue_title(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42, title="Fix the widget")
-        prompt = hitl_runner._build_prompt(issue, "Try mocking the DB", "CI failed")
+        prompt, _ = hitl_runner._build_prompt_with_stats(
+            issue, "Try mocking the DB", "CI failed"
+        )
         assert "Fix the widget" in prompt
 
     def test_prompt_includes_correction_text(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(
+        prompt, _ = hitl_runner._build_prompt_with_stats(
             issue, "Mock the database layer", "CI failed"
         )
         assert "Mock the database layer" in prompt
 
     def test_prompt_includes_cause(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(
+        prompt, _ = hitl_runner._build_prompt_with_stats(
             issue, "Fix it", "CI failed after 2 attempts"
         )
         assert "CI failed after 2 attempts" in prompt
 
     def test_prompt_uses_ci_instructions_for_ci_cause(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(
+        prompt, _ = hitl_runner._build_prompt_with_stats(
             issue, "Fix", "CI failed after 2 fix attempt(s)"
         )
         assert "make quality" in prompt
@@ -139,7 +142,7 @@ class TestBuildPrompt:
         self, hitl_runner
     ) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(
+        prompt, _ = hitl_runner._build_prompt_with_stats(
             issue, "Fix", "Merge conflict with main branch"
         )
         assert "git status" in prompt
@@ -147,7 +150,7 @@ class TestBuildPrompt:
 
     def test_prompt_uses_needs_info_instructions(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(
+        prompt, _ = hitl_runner._build_prompt_with_stats(
             issue, "Add logging", "Insufficient issue detail for triage"
         )
         assert "comprehensive tests" in prompt
@@ -156,7 +159,7 @@ class TestBuildPrompt:
         self, hitl_runner
     ) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(
+        prompt, _ = hitl_runner._build_prompt_with_stats(
             issue, "Fix the button", "Visual validation failed on login screen"
         )
         assert "visual" in prompt.lower()
@@ -165,17 +168,17 @@ class TestBuildPrompt:
 
     def test_prompt_includes_issue_number_in_commit_message(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=99)
-        prompt = hitl_runner._build_prompt(issue, "Fix it", "Unknown")
+        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix it", "Unknown")
         assert "#99" in prompt
 
     def test_prompt_includes_no_push_rule(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(issue, "Fix", "CI failed")
+        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "Do NOT push to remote" in prompt
 
     def test_prompt_includes_memory_suggestion_block(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(issue, "Fix", "CI failed")
+        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "MEMORY_SUGGESTION_START" in prompt
         assert "MEMORY_SUGGESTION_END" in prompt
 
@@ -190,14 +193,14 @@ class TestBuildPrompt:
 
         runner = HITLRunner(config, event_bus)
         issue = IssueFactory.create(number=42)
-        prompt = runner._build_prompt(issue, "Fix", "CI failed")
+        prompt, _ = runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Project Context" in prompt
         assert "python, make, pytest" in prompt
 
     def test_prompt_omits_project_context_when_no_manifest(self, hitl_runner) -> None:
         """Without a manifest file, ## Project Context is not in the prompt."""
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(issue, "Fix", "CI failed")
+        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Project Context" not in prompt
 
     def test_prompt_includes_accumulated_learnings_when_digest_exists(
@@ -211,7 +214,7 @@ class TestBuildPrompt:
 
         runner = HITLRunner(config, event_bus)
         issue = IssueFactory.create(number=42)
-        prompt = runner._build_prompt(issue, "Fix", "CI failed")
+        prompt, _ = runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Accumulated Learnings" in prompt
         assert "Always check edge cases" in prompt
 
@@ -220,7 +223,7 @@ class TestBuildPrompt:
     ) -> None:
         """Without a digest file, ## Accumulated Learnings is not in the prompt."""
         issue = IssueFactory.create(number=42)
-        prompt = hitl_runner._build_prompt(issue, "Fix", "CI failed")
+        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Accumulated Learnings" not in prompt
 
 
@@ -302,7 +305,9 @@ class TestRunExecution:
         issue = IssueFactory.create(number=42)
 
         runner._execute = AsyncMock(return_value="transcript text")  # type: ignore[method-assign]
-        runner._verify_quality = AsyncMock(return_value=(True, "OK"))  # type: ignore[method-assign]
+        runner._verify_quality = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )  # type: ignore[method-assign]
         runner._save_transcript = lambda *a: None  # type: ignore[method-assign]
 
         result = await runner.run(issue, "fix the test", "CI failed", Path("/tmp/wt"))
@@ -321,7 +326,9 @@ class TestRunExecution:
 
         runner._execute = AsyncMock(return_value="transcript text")  # type: ignore[method-assign]
         runner._verify_quality = AsyncMock(  # type: ignore[method-assign]
-            return_value=(False, "`make quality` failed:\ntest_foo FAILED")
+            return_value=LoopResult(
+                passed=False, summary="`make quality` failed:\ntest_foo FAILED"
+            )
         )
         runner._save_transcript = lambda *a: None  # type: ignore[method-assign]
 
@@ -361,7 +368,9 @@ class TestRunExecution:
         issue = IssueFactory.create(number=42)
 
         runner._execute = AsyncMock(return_value="transcript")  # type: ignore[method-assign]
-        runner._verify_quality = AsyncMock(return_value=(True, "OK"))  # type: ignore[method-assign]
+        runner._verify_quality = AsyncMock(
+            return_value=LoopResult(passed=True, summary="OK")
+        )  # type: ignore[method-assign]
         runner._save_transcript = lambda *a: None  # type: ignore[method-assign]
 
         await runner.run(issue, "fix it", "CI failed", Path("/tmp/wt"))
@@ -380,7 +389,7 @@ class TestRunExecution:
 
         runner._execute = AsyncMock(return_value="transcript")  # type: ignore[method-assign]
         runner._verify_quality = AsyncMock(  # type: ignore[method-assign]
-            return_value=(False, "quality failed")
+            return_value=LoopResult(passed=False, summary="quality failed")
         )
         runner._save_transcript = lambda *a: None  # type: ignore[method-assign]
 
@@ -472,7 +481,7 @@ class TestVerifyQualityTimeout:
     async def test_verify_quality_timeout_returns_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        """_verify_quality should return (False, ...) when make quality times out."""
+        """_verify_quality should return LoopResult(passed=False, ...) when make quality times out."""
         runner = HITLRunner(config, EventBus())
 
         mock_proc = MagicMock()
@@ -484,10 +493,10 @@ class TestVerifyQualityTimeout:
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
             patch("asyncio.wait_for", side_effect=TimeoutError),
         ):
-            success, msg = await runner._verify_quality(Path("/tmp/wt"))
+            result = await runner._verify_quality(Path("/tmp/wt"))
 
-        assert success is False
-        assert "timed out" in msg
+        assert result.passed is False
+        assert "timed out" in result.summary
 
     @pytest.mark.asyncio
     async def test_verify_quality_timeout_kills_process(

@@ -1677,6 +1677,7 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         dup_label=["custom-dup"],
         epic_label=["custom-epic"],
         epic_child_label=["custom-epic-child"],
+        verify_label=["custom-verify"],
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
@@ -1724,6 +1725,7 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         "custom-dup",
         "custom-epic",
         "custom-epic-child",
+        "custom-verify",
     }
 
 

@@ -333,14 +333,6 @@ class PlannerRunner(BaseRunner):
                 lines.append(f"- `{header}` \u2014 {desc}")
         return "\n".join(lines)
 
-    def _build_prompt(self, issue: Task, *, scale: PlanScale = "full") -> str:
-        """Build the planning prompt for the agent.
-
-        Compatibility wrapper that returns only the prompt string.
-        """
-        prompt, _stats = self._build_prompt_with_stats(issue, scale=scale)
-        return prompt
-
     def _build_prompt_with_stats(
         self, issue: Task, *, scale: PlanScale = "full"
     ) -> tuple[str, dict[str, object]]:
