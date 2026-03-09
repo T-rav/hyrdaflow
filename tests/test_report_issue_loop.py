@@ -6,6 +6,7 @@ import asyncio
 import base64
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -667,7 +668,18 @@ class TestSaveScreenshotResourceManagement:
         raw = b"\x89PNG\r\n"
         b64 = base64.b64encode(raw).decode()
 
-        with patch("report_issue_loop.os.fdopen") as mock_fdopen:
+        captured_path: list[str] = []
+        original_mkstemp = tempfile.mkstemp
+
+        def capturing_mkstemp(**kwargs: object) -> tuple[int, str]:
+            fd, path = original_mkstemp(**kwargs)
+            captured_path.append(path)
+            return fd, path
+
+        with (
+            patch("report_issue_loop.tempfile.mkstemp", side_effect=capturing_mkstemp),
+            patch("report_issue_loop.os.fdopen") as mock_fdopen,
+        ):
             mock_ctx = MagicMock()
             mock_ctx.__enter__ = MagicMock(side_effect=OSError("disk full"))
             mock_ctx.__exit__ = MagicMock(return_value=False)
@@ -675,6 +687,12 @@ class TestSaveScreenshotResourceManagement:
 
             with pytest.raises(OSError, match="disk full"):
                 ReportIssueLoop._save_screenshot(b64)
+
+        # The temp file must have been unlinked on failure
+        assert captured_path, "mkstemp was not called"
+        assert not Path(captured_path[0]).exists(), (
+            "temp file was not cleaned up on failure"
+        )
 
     def test_no_fd_leak_on_successful_write(self) -> None:
         """After a successful write, no file descriptors are leaked."""

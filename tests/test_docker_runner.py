@@ -1452,9 +1452,8 @@ class TestContainerCleanupLogging:
         with patch("docker_runner.logger") as mock_logger:
             await runner.cleanup()
 
-        mock_logger.debug.assert_called()
-        log_msg = mock_logger.debug.call_args[0][0]
-        assert "Failed to remove container" in log_msg
+        debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
+        assert any("Failed to remove container" in msg for msg in debug_calls)
         # Containers set should still be cleared
         assert len(runner._containers) == 0
 
@@ -1479,3 +1478,24 @@ class TestContainerCleanupLogging:
         # Should have logged the kill failure
         debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
         assert any("Failed to kill container" in msg for msg in debug_calls)
+
+    @pytest.mark.asyncio
+    async def test_run_simple_logs_remove_failure_in_finally(
+        self, tmp_path: Path
+    ) -> None:
+        """run_simple logs DEBUG when container.remove fails in the finally block."""
+        container = _make_mock_container()
+        container.wait.return_value = {"StatusCode": 0}
+        container.logs.return_value = b""
+        container.remove.side_effect = RuntimeError("cannot remove")
+        client = _make_mock_docker_client(container=container)
+        runner, _ = _make_runner(
+            repo_root=tmp_path, log_dir=tmp_path / "logs", mock_client=client
+        )
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch("docker_runner.logger") as mock_logger:
+            await runner.run_simple(["echo", "hi"])
+
+        debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
+        assert any("Failed to remove container" in msg for msg in debug_calls)
