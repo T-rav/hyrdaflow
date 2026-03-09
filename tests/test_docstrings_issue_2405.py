@@ -30,6 +30,11 @@ class TestDashboardRoutesDocstrings:
     @pytest.fixture(autouse=True)
     def _load_docstrings(self) -> None:
         self.docstrings = _get_function_docstrings(SRC / "dashboard_routes.py")
+        # Merge in docstrings from extracted sub-modules (refactored in #2389)
+        self.docstrings.update(_get_function_docstrings(SRC / "dashboard_history.py"))
+        self.docstrings.update(
+            _get_function_docstrings(SRC / "dashboard_hitl_routes.py")
+        )
 
     @pytest.mark.parametrize(
         "func_name",
