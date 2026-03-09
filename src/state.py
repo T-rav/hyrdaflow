@@ -450,20 +450,6 @@ class StateTracker:
             k: v.model_copy(deep=True) for k, v in self._data.issue_outcomes.items()
         }
 
-    def link_verification_issue(
-        self, issue_number: int, verification_issue_number: int
-    ) -> None:
-        """Attach a verification issue number to an existing outcome.
-
-        No-op if no outcome has been recorded for *issue_number*.
-        """
-        key = str(issue_number)
-        existing = self._data.issue_outcomes.get(key)
-        if existing is None:
-            return
-        existing.verification_issue_number = verification_issue_number
-        self.save()
-
     # --- hook failure tracking ---
 
     _MAX_HOOK_FAILURES = 500

@@ -2681,31 +2681,6 @@ class TestIssueOutcomeTracking:
         assert outcome is not None
         assert outcome.verification_issue_number == 99
 
-    def test_link_verification_issue_updates_existing_outcome(
-        self, tmp_path: Path
-    ) -> None:
-        """link_verification_issue should attach a verification issue to an outcome."""
-        from models import IssueOutcomeType
-
-        tracker = make_tracker(tmp_path)
-        tracker.record_outcome(
-            42, IssueOutcomeType.MERGED, "merged", pr_number=5, phase="review"
-        )
-        assert tracker.get_outcome(42).verification_issue_number is None
-
-        tracker.link_verification_issue(42, 100)
-        outcome = tracker.get_outcome(42)
-        assert outcome is not None
-        assert outcome.verification_issue_number == 100
-
-    def test_link_verification_issue_noop_for_missing_outcome(
-        self, tmp_path: Path
-    ) -> None:
-        """link_verification_issue should be a no-op when no outcome exists."""
-        tracker = make_tracker(tmp_path)
-        tracker.link_verification_issue(999, 100)  # should not raise
-        assert tracker.get_outcome(999) is None
-
 
 # ---------------------------------------------------------------------------
 # Hook Failure Tracking
