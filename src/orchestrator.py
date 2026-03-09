@@ -856,14 +856,14 @@ class HydraFlowOrchestrator:
 
         AGENTS.md documents the prompt contracts for all agent roles.  Its
         absence means agent behaviour is undocumented and harder to audit or
-        adapt.  Run ``hf init`` or copy AGENTS.md from the HydraFlow repo to
-        resolve this.
+        adapt.  Run ``make setup`` (copies AGENTS.md into the target repo) or
+        copy AGENTS.md from the HydraFlow repo to resolve this.
         """
         agents_md = self._config.repo_root / "AGENTS.md"
         if not agents_md.is_file():
             logger.warning(
                 "AGENTS.md not found in %s — agent prompt contracts are "
-                "undocumented. Run `hf init` to scaffold it.",
+                "undocumented. Run `make setup` to sync it from HydraFlow.",
                 self._config.repo_root,
             )
 

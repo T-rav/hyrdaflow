@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
-import importlib
 import json
 import logging
 import os
@@ -30,10 +29,10 @@ from fastapi import (
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
+from admin_tasks import TaskResult, run_clean, run_ensure_labels, run_prep, run_scaffold
 from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
-from hf_cli.update_check import load_cached_update_result
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStoreStage
 from metrics_manager import get_metrics_cache_dir
@@ -75,6 +74,7 @@ from prompt_telemetry import PromptTelemetry
 from state import StateTracker
 from timeline import TimelineBuilder
 from transcript_summarizer import TranscriptSummarizer
+from update_check import load_cached_update_result
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
@@ -82,6 +82,15 @@ from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
 
 logger = logging.getLogger("hydraflow.dashboard")
+
+_SUPERVISOR_UNAVAILABLE_PREFIXES: tuple[str, ...] = (
+    "hydraflow supervisor is not running.",
+    "hf supervisor is not running.",
+)
+_SUPERVISOR_UNAVAILABLE_MESSAGE = (
+    "HydraFlow supervisor is not running. "
+    "Start HydraFlow inside the target repository with `make run`."
+)
 
 RepoSlugParam = Annotated[
     str | None,
@@ -363,7 +372,7 @@ def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]
 def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
     """Return True for the expected local-dev supervisor-down condition."""
     text = str(exc).strip().lower()
-    return text.startswith("hf supervisor is not running.")
+    return any(text.startswith(prefix) for prefix in _SUPERVISOR_UNAVAILABLE_PREFIXES)
 
 
 def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -589,6 +598,27 @@ def create_router(
             return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
         return config, state, event_bus, get_orchestrator
 
+    async def _execute_admin_task(
+        task_name: str,
+        task_fn: Callable[[HydraFlowConfig], Awaitable[TaskResult]],
+        slug: str | None,
+    ) -> JSONResponse:
+        try:
+            runtime_config, _, _, _ = _resolve_runtime(slug)
+        except HTTPException:
+            return JSONResponse({"error": "Unknown repo"}, status_code=404)
+        try:
+            result = await task_fn(runtime_config)
+        except Exception:  # noqa: BLE001
+            logger.exception("%s task failed", task_name)
+            return JSONResponse({"error": f"{task_name} failed"}, status_code=500)
+        payload = {"status": "ok", "result": result.as_dict()}
+        status_code = 200
+        if not result.success:
+            payload["status"] = "error"
+            status_code = 500
+        return JSONResponse(payload, status_code=status_code)
+
     def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
         """Return the shared PRManager when config matches; otherwise create a new one."""
         if cfg is config and bus is event_bus:
@@ -609,14 +639,10 @@ def create_router(
                 logger.warning("repo_store.list failed", exc_info=True)
         return []
 
-    try:
-        supervisor_client = importlib.import_module("hf_cli.supervisor_client")
-    except ImportError:  # pragma: no cover - env missing CLI
-        supervisor_client = None  # type: ignore[assignment]
-    try:
-        supervisor_manager = importlib.import_module("hf_cli.supervisor_manager")
-    except ImportError:  # pragma: no cover - env missing CLI
-        supervisor_manager = None  # type: ignore[assignment]
+    # Supervisor client/manager removed with hf_cli package (issue #2205).
+    # Supervisor endpoints now return graceful "unavailable" responses.
+    supervisor_client = None
+    supervisor_manager = None
     issue_fetcher = IssueFetcher(config)
     hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
     hitl_summary_inflight: set[int] = set()
@@ -2103,6 +2129,30 @@ def create_router(
         data["current_session_id"] = current_session
         return JSONResponse(data)
 
+    @router.post("/api/admin/prep")
+    async def admin_prep(
+        repo: str | None = Query(default=None, description="Repo slug to target"),
+    ) -> JSONResponse:
+        return await _execute_admin_task("prep", run_prep, repo)
+
+    @router.post("/api/admin/scaffold")
+    async def admin_scaffold(
+        repo: str | None = Query(default=None, description="Repo slug to target"),
+    ) -> JSONResponse:
+        return await _execute_admin_task("scaffold", run_scaffold, repo)
+
+    @router.post("/api/admin/clean")
+    async def admin_clean(
+        repo: str | None = Query(default=None, description="Repo slug to target"),
+    ) -> JSONResponse:
+        return await _execute_admin_task("clean", run_clean, repo)
+
+    @router.post("/api/admin/ensure-labels")
+    async def admin_ensure_labels(
+        repo: str | None = Query(default=None, description="Repo slug to target"),
+    ) -> JSONResponse:
+        return await _execute_admin_task("ensure-labels", run_ensure_labels, repo)
+
     # Mutable fields that can be changed at runtime via PATCH
     _MUTABLE_FIELDS = {
         "max_triagers",
@@ -3141,7 +3191,9 @@ def create_router(
     async def _call_supervisor(func: Callable, *args, **kwargs) -> Any:
         """Run a supervisor client function in a thread."""
         if supervisor_client is None:
-            raise RuntimeError("hf supervisor client unavailable in this environment")
+            raise RuntimeError(
+                "HydraFlow supervisor client unavailable in this environment"
+            )
         return await asyncio.to_thread(func, *args, **kwargs)
 
     @router.get("/api/repos")
@@ -3436,12 +3488,7 @@ def create_router(
         # Register with supervisor fallback
         if supervisor_client is None:
             return JSONResponse(
-                {
-                    "error": (
-                        "hf supervisor is not running. "
-                        "Run `hf run` inside a repo to start it."
-                    )
-                },
+                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
                 status_code=503,
             )
         try:
@@ -3463,12 +3510,7 @@ def create_router(
                     except Exception as retry_exc:  # noqa: BLE001
                         if _is_expected_supervisor_unavailable(retry_exc):
                             return JSONResponse(
-                                {
-                                    "error": (
-                                        "hf supervisor is not running. "
-                                        "Run `hf run` inside a repo to start it."
-                                    )
-                                },
+                                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
                                 status_code=503,
                             )
                         logger.warning(
@@ -3481,12 +3523,7 @@ def create_router(
                         )
                 else:
                     return JSONResponse(
-                        {
-                            "error": (
-                                "hf supervisor is not running. "
-                                "Run `hf run` inside a repo to start it."
-                            )
-                        },
+                        {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
                         status_code=503,
                     )
             else:

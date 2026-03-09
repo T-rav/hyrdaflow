@@ -1070,7 +1070,7 @@ class TestMemorySyncWorkerSync:
             {
                 "number": 1,
                 "title": "A",
-                "body": "## Memory Suggestion\n\n**Learning:** Use hf prep\n\n**Type:** knowledge",
+                "body": "## Memory Suggestion\n\n**Learning:** Use make prep\n\n**Type:** knowledge",
                 "createdAt": "2024-06-01T00:00:00Z",
             }
         ]
@@ -1363,27 +1363,6 @@ class TestMemoryConfig:
         monkeypatch.setenv("HYDRAFLOW_MEMORY_AUTO_APPROVE", "false")
         config = HydraFlowConfig(repo="test/repo")
         assert config.memory_auto_approve is False
-
-
-# --- CLI tests ---
-
-
-class TestMemoryCLI:
-    """Tests for memory-related CLI arguments."""
-
-    def test_memory_label_arg_parsed(self) -> None:
-        from cli import build_config, parse_args
-
-        args = parse_args(["--memory-label", "custom-mem"])
-        config = build_config(args)
-        assert config.memory_label == ["custom-mem"]
-
-    def test_memory_sync_interval_arg_parsed(self) -> None:
-        from cli import build_config, parse_args
-
-        args = parse_args(["--memory-sync-interval", "60"])
-        config = build_config(args)
-        assert config.memory_sync_interval == 60
 
 
 # --- Models tests ---

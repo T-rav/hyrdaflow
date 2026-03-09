@@ -2,7 +2,6 @@
 
 HYDRAFLOW_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PROJECT_ROOT := $(abspath $(HYDRAFLOW_DIR))
-HYDRAFLOW_CLI := $(PROJECT_ROOT)/src/cli.py
 TARGET_REPO_ROOT ?= $(shell python3 -c 'from pathlib import Path; cur=Path.cwd().resolve(); roots=[p for p in [cur,*cur.parents] if (p/".git").exists()]; print((roots[-1] if roots else cur).as_posix())')
 
 # Load .env if present (export all variables)
@@ -14,17 +13,15 @@ UV := VIRTUAL_ENV=$(VENV) UV_CACHE_DIR=$(PROJECT_ROOT)/.uv-cache uv run --active
 # Stamp file to track when deps were last synced
 DEPS_STAMP := $(VENV)/.deps-synced
 
-# CLI argument passthrough
-READY_LABEL ?= hydraflow-ready
+# Runtime overrides (used by `make hot`)
 WORKERS ?= 3
 MODEL ?= opus
 REVIEW_MODEL ?= sonnet
-IMPLEMENTATION_TOOL ?= claude
 BATCH_SIZE ?= 15
-PLANNER_LABEL ?= hydraflow-plan
-PLANNER_MODEL ?= opus
 REVIEWERS ?= 5
 HITL_WORKERS ?= 1
+PLANNERS ?= 2
+PLANNER_MODEL ?= opus
 PORT ?= 5555
 LOG_DIR ?= $(PROJECT_ROOT)/.hydraflow/logs
 
@@ -38,7 +35,7 @@ RESET := \033[0m
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 
-.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep hot docker-build docker-test deps bundle-assets embed-assets cli-release screenshot screenshot-update check-node-ui
+.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-test deps integration soak screenshot screenshot-update check-node-ui
 
 check-node-ui:
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh --version >/dev/null
@@ -47,11 +44,13 @@ help:
 	@echo "$(BLUE)HydraFlow — Intent in. Software out.$(RESET)"
 	@echo ""
 	@echo "$(GREEN)Commands:$(RESET)"
-	@echo "  make dev            Start backend + Vite frontend dev server"
-	@echo "  make run            Run HydraFlow (processes issues with agents)"
+	@echo "  make run            Start HydraFlow (backend + Vite frontend dev server)"
+	@echo "  make dev            Alias for make run"
 	@echo "  make dry-run        Dry run (log actions without executing)"
-	@echo "  make clean          Remove all worktrees and state"
+	@echo "  make clean          Remove all worktrees and state (API with offline fallback)"
 	@echo "  make status         Show current HydraFlow state"
+	@echo "  make test           Run unit tests"
+	@echo "  make test-fast      Run unit tests (-x --tb=short)"
 	@echo "  make coverage [MIN] Run coverage-focused test command (default 70)"
 	@echo "  make cover [MIN]    Short alias for make coverage [MIN]"
 	@echo "  make smoke          Run critical cross-system smoke tests"
@@ -61,32 +60,37 @@ help:
 	@echo "  make lint-fix       Auto-repair formatting/lint issues"
 	@echo "  make typecheck      Run Pyright type checks"
 	@echo "  make security       Run Bandit security scan"
-	@echo "  make bundle-assets  Generate hf init asset bundle (dist/hf_cli-assets.tar.gz)"
 	@echo "  make quality-lite   Lint + typecheck + security (parallel)"
 	@echo "  make quality        quality-lite + test (parallel)"
-	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo"
-	@echo "  make prep           Quick prep/scaffold of CI + baseline tests"
+	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo (API with offline fallback)"
+	@echo "  make prep           Sync agent assets then run full prep (API with offline fallback)"
+	@echo "  make scaffold       Generate baseline tests and CI configuration (API with offline fallback)"
 	@echo "  make setup          Install hooks/assets for target repo ($(TARGET_REPO_ROOT))"
 	@echo "  make install        Install dashboard dependencies"
 	@echo "  make ui             Build React dashboard (src/ui/dist/)"
 	@echo "  make ui-dev         Start React dashboard dev server"
 	@echo "  make ui-clean       Remove src/ui/dist and node_modules"
+	@echo "  make integration    Run multi-repo integration tests"
+	@echo "  make soak           Run soak/load tests"
 	@echo "  make hot            Send config update to running instance"
+	@echo "  make deps           Sync dependencies via uv"
 	@echo "  make docker-build   Build Hydra agent Docker image"
 	@echo "  make docker-test    Build + smoke-test the agent image"
 	@echo ""
-	@echo "$(GREEN)Options (override with make run LABEL=bug WORKERS=3):$(RESET)"
-	@echo "  READY_LABEL      GitHub issue label (default: hydraflow-ready)"
-	@echo "  WORKERS          Max concurrent agents (default: 2)"
-	@echo "  MODEL            Implementation model (default: opus)"
-	@echo "  IMPLEMENTATION_TOOL Implementation backend: claude|codex|pi (default: claude)"
-	@echo "  REVIEW_MODEL     Review model (default: sonnet)"
-	@echo "  BATCH_SIZE       Issues per batch (default: 15)"
-	@echo "  PLANNER_LABEL    Planner issue label (default: hydraflow-plan)"
-	@echo "  PLANNER_MODEL    Planner model (default: opus)"
-	@echo "  HITL_WORKERS     Max concurrent HITL agents (default: 1)"
+	@echo "$(GREEN)Options (make run):$(RESET)"
 	@echo "  PORT             Dashboard port (default: 5555)"
 	@echo "  LOG_DIR          Log directory (default: .hydraflow/logs)"
+	@echo "  WORKERS/MODEL/etc: set via .env or HYDRAFLOW_* env vars; use 'make hot' to update a live instance"
+	@echo ""
+	@echo "$(GREEN)Options (make hot — live config update):$(RESET)"
+	@echo "  WORKERS          Max concurrent agents (default: 3)"
+	@echo "  MODEL            Implementation model (default: opus)"
+	@echo "  REVIEW_MODEL     Review model (default: sonnet)"
+	@echo "  BATCH_SIZE       Issue batch size (default: 15)"
+	@echo "  REVIEWERS        Max concurrent reviewers (default: 5)"
+	@echo "  HITL_WORKERS     Max concurrent HITL workers (default: 1)"
+	@echo "  PLANNERS         Max concurrent planners (default: 2)"
+	@echo "  PLANNER_MODEL    Planner model (default: opus)"
 
 run: check-node-ui
 	@mkdir -p $(LOG_DIR)
@@ -94,35 +98,21 @@ run: check-node-ui
 	@echo "$(GREEN)Open http://localhost:5556 to use the dashboard$(RESET)"
 	@trap 'kill 0' EXIT; \
 	cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh install --silent 2>/dev/null && $(HYDRAFLOW_DIR)scripts/ui-npm.sh run dev 2>&1 | tee $(LOG_DIR)/vite.log & \
-	cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli \
-		--ready-label $(READY_LABEL) \
-		--max-workers $(WORKERS) \
-		--implementation-tool $(IMPLEMENTATION_TOOL) \
-		--model $(MODEL) \
-		--review-model $(REVIEW_MODEL) \
-		--batch-size $(BATCH_SIZE) \
-		--planner-label $(PLANNER_LABEL) \
-		--planner-model $(PLANNER_MODEL) \
-		--max-reviewers $(REVIEWERS) \
-		--max-hitl-workers $(HITL_WORKERS) \
-		--dashboard-port $(PORT) & \
+	cd $(HYDRAFLOW_DIR) && HYDRAFLOW_LOG_FILE=$(LOG_DIR)/server.log HYDRAFLOW_DASHBOARD_PORT=$(PORT) PYTHONPATH=src $(UV) python -m server & \
 	wait
 
 dev: run
 
 dry-run:
-	@echo "$(BLUE)HydraFlow dry run — label=$(READY_LABEL)$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli \
-		--ready-label $(READY_LABEL) \
-		--max-workers $(WORKERS) \
-		--batch-size $(BATCH_SIZE) \
-		--dry-run --verbose
-	@echo "$(GREEN)Dry run complete$(RESET)"
+	@echo "$(BLUE)HydraFlow dry run (server mode)$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && HYDRAFLOW_DRY_RUN=1 HYDRAFLOW_VERBOSE_LOGS=1 PYTHONPATH=src $(UV) python -m server
+	@echo "$(GREEN)Dry run session exited$(RESET)"
 
 clean:
-	@echo "$(YELLOW)Cleaning up HydraFlow worktrees and state...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python -m cli --clean
-	@echo "$(GREEN)Cleanup complete$(RESET)"
+	@echo "$(YELLOW)Cleaning up all HydraFlow worktrees and state...$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/clean" 2>/dev/null \
+		&& echo "$(GREEN)Cleanup finished (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py clean && echo "$(GREEN)Cleanup finished$(RESET)")
 
 status:
 	@echo "$(BLUE)HydraFlow State:$(RESET)"
@@ -131,23 +121,6 @@ status:
 	else \
 		echo "$(YELLOW)No state file found (HydraFlow has not run yet)$(RESET)"; \
 	fi
-
-bundle-assets:
-	@echo "$(BLUE)Bundling HydraFlow assets for hf init...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && mkdir -p dist && $(UV) python scripts/bundle_assets.py --output dist/hf_cli-assets.tar.gz --root $(PROJECT_ROOT)
-	@echo "$(GREEN)Generated dist/hf_cli-assets.tar.gz$(RESET)"
-
-embed-assets: bundle-assets
-	@echo "$(BLUE)Embedding HydraFlow assets into src/hf_cli/embedded_assets.py...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && $(UV) python scripts/embed_assets.py --root $(PROJECT_ROOT)
-	@echo "$(GREEN)Embedded assets module refreshed$(RESET)"
-
-cli-release: deps
-	@echo "$(BLUE)Preparing CLI release artifacts...$(RESET)"
-	@$(MAKE) embed-assets
-	@$(MAKE) test
-	@cd $(HYDRAFLOW_DIR) && uv build
-	@echo "$(GREEN)Built CLI artifacts under dist/$(RESET)"
 
 $(DEPS_STAMP): pyproject.toml
 	@echo "$(BLUE)Syncing dependencies...$(RESET)"
@@ -187,9 +160,6 @@ test: deps
 smoke: deps
 	@echo "$(BLUE)Running HydraFlow smoke tests...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest \
-		tests/hf_cli/test_main_entrypoint.py \
-		tests/hf_cli/test_supervisor_client.py \
-		tests/hf_cli/test_supervisor_manager.py \
 		tests/test_dashboard.py \
 		tests/test_dashboard_routes_control.py \
 		tests/test_dashboard_routes_core.py \
@@ -308,8 +278,24 @@ setup: deps
 	else \
 		echo "  .env.sample not found: skipping .env bootstrap"; \
 	fi
+	@if [ -f "$(PROJECT_ROOT)/AGENTS.md" ]; then \
+		if [ ! -f "$(TARGET_REPO_ROOT)/AGENTS.md" ]; then \
+			cp "$(PROJECT_ROOT)/AGENTS.md" "$(TARGET_REPO_ROOT)/AGENTS.md"; \
+			echo "  AGENTS.md copied to target repo"; \
+		else \
+			echo "  AGENTS.md found in target repo; leaving existing file unchanged"; \
+		fi; \
+	else \
+		echo "  AGENTS.md source not found: skipping copy"; \
+	fi
 	@echo "$(BLUE)Bootstrapping agent assets into target repo (.claude/.codex/.pi/.githooks)...$(RESET)"
-	@cd $(PROJECT_ROOT) && $(UV) python -m hf_cli init --target "$(TARGET_REPO_ROOT)"
+	@for ASSET in .claude .codex .pi .githooks; do \
+		if [ -d "$(PROJECT_ROOT)/$$ASSET" ]; then \
+			rm -rf "$(TARGET_REPO_ROOT)/$$ASSET"; \
+			cp -R "$(PROJECT_ROOT)/$$ASSET" "$(TARGET_REPO_ROOT)/$$ASSET"; \
+			echo "  synced $$ASSET"; \
+		fi; \
+	done
 	@echo "$(BLUE)Setting up git hooks...$(RESET)"
 	@if [ "$(TARGET_REPO_ROOT)" != "$(PROJECT_ROOT)" ]; then \
 		mkdir -p "$(TARGET_REPO_ROOT)/.githooks"; \
@@ -329,7 +315,7 @@ setup: deps
 	fi
 	@echo "$(BLUE)Ensuring HydraFlow lifecycle labels...$(RESET)"
 	@echo "  target repo: $(TARGET_REPO_ROOT)"
-	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --ensure-labels
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels || echo "$(YELLOW)  Label sync skipped (check gh auth and repo access)$(RESET)"
 	@echo "$(BLUE)Detecting local agent assets (Claude/Codex/Pi)...$(RESET)"
 	@if [ -d "$(PROJECT_ROOT)/.claude/hooks" ]; then \
 		for HOOK in "$(PROJECT_ROOT)"/.claude/hooks/*.sh; do \
@@ -417,15 +403,21 @@ prep: deps
 	@echo "$(BLUE)Ensuring target repo has latest agent assets first...$(RESET)"
 	@$(MAKE) setup TARGET_REPO_ROOT="$(TARGET_REPO_ROOT)"
 	@echo "$(BLUE)Scanning repo and scaffolding CI/tests...$(RESET)"
-	@echo "  target repo: $(TARGET_REPO_ROOT)"
-	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --prep
-	@echo "$(GREEN)Prep complete$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/prep" 2>/dev/null \
+		&& echo "$(GREEN)Prep complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py prep && echo "$(GREEN)Prep complete$(RESET)")
+
+scaffold: deps
+	@echo "$(BLUE)Generating baseline tests and CI configuration...$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/scaffold" 2>/dev/null \
+		&& echo "$(GREEN)Scaffold complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py scaffold && echo "$(GREEN)Scaffold complete$(RESET)")
 
 ensure-labels: deps
 	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"
-	@echo "  target repo: $(TARGET_REPO_ROOT)"
-	@cd $(TARGET_REPO_ROOT) && $(UV) python "$(HYDRAFLOW_CLI)" --ensure-labels
-	@echo "$(GREEN)Labels ensured$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/ensure-labels" 2>/dev/null \
+		&& echo "$(GREEN)Label sync complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels && echo "$(GREEN)Label sync complete$(RESET)")
 
 hot:
 	@echo "$(BLUE)Sending config update to running HydraFlow instance on :$(PORT)...$(RESET)"
@@ -436,6 +428,7 @@ hot:
 	[ "$(origin REVIEWERS)" = "command line" ] && JSON="$$JSON, \"max_reviewers\": $(REVIEWERS)"; \
 	[ "$(origin REVIEW_MODEL)" = "command line" ] && JSON="$$JSON, \"review_model\": \"$(REVIEW_MODEL)\""; \
 	[ "$(origin PLANNERS)" = "command line" ] && JSON="$$JSON, \"max_planners\": $(PLANNERS)"; \
+	[ "$(origin PLANNER_MODEL)" = "command line" ] && JSON="$$JSON, \"planner_model\": \"$(PLANNER_MODEL)\""; \
 	[ "$(origin HITL_WORKERS)" = "command line" ] && JSON="$$JSON, \"max_hitl_workers\": $(HITL_WORKERS)"; \
 	JSON="$$JSON}"; \
 	curl -s -X PATCH "http://localhost:$(PORT)/api/control/config" \
