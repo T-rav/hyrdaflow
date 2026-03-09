@@ -6,11 +6,11 @@ import asyncio
 import contextlib
 import itertools
 import logging
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -103,7 +103,7 @@ class HydraFlowEvent(BaseModel):
     id: int = Field(default_factory=lambda: next(_event_counter))
     type: EventType
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    data: Mapping[str, Any] = Field(default_factory=dict)
+    data: EventData = Field(default_factory=dict)
     session_id: str | None = None
 
     def typed_data(self, cls: type[_T]) -> _T:
@@ -114,7 +114,7 @@ class HydraFlowEvent(BaseModel):
         cast at runtime — no validation is performed — but gives the caller
         full type-checker support for the returned dict keys.
         """
-        return cls(self.data)  # type: ignore[call-arg]
+        return cast(cls, self.data)
 
 
 class EventLog:
