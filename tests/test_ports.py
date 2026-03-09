@@ -28,6 +28,26 @@ from ports import PRPort, WorkspacePort
 # ---------------------------------------------------------------------------
 
 
+class TestPortsModuleDocstring:
+    """The ports.py module docstring must reference the correct protocol names."""
+
+    def test_no_task_source_reference(self) -> None:
+        """The removed TaskSource protocol must not appear in the docstring."""
+        import ports
+
+        assert "TaskSource" not in (ports.__doc__ or ""), (
+            "ports.py docstring still references the removed TaskSource protocol"
+        )
+
+    def test_task_fetcher_transitioner_in_docstring(self) -> None:
+        """The diagram must reference TaskFetcher / TaskTransitioner."""
+        import ports
+
+        assert "TaskFetcher / TaskTransitioner" in (ports.__doc__ or ""), (
+            "ports.py docstring is missing TaskFetcher / TaskTransitioner"
+        )
+
+
 class TestPRPortConformance:
     """PRManager must satisfy the PRPort protocol."""
 

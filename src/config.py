@@ -86,6 +86,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
+    ("dashboard_host", "HYDRAFLOW_DASHBOARD_HOST", "127.0.0.1"),
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
     ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
@@ -96,7 +97,7 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
     ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
-    ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "haiku"),
+    ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "opus"),
     ("adr_review_model", "HYDRAFLOW_ADR_REVIEW_MODEL", "sonnet"),
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
@@ -147,6 +148,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
     ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
     ("adr_review_enabled", "HYDRAFLOW_ADR_REVIEW_ENABLED", False),
+    ("adr_review_auto_triage", "HYDRAFLOW_ADR_REVIEW_AUTO_TRIAGE", False),
     (
         "screenshot_redaction_enabled",
         "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED",
@@ -876,8 +878,8 @@ class HydraFlowConfig(BaseModel):
         description="CLI backend for report-issue worker",
     )
     report_issue_model: str = Field(
-        default="haiku",
-        description="Model for report-issue worker (formatting task, cheap)",
+        default="opus",
+        description="Model for report-issue worker (codebase research + structured issue creation)",
     )
     report_issue_interval: int = Field(
         default=30,
@@ -931,6 +933,16 @@ class HydraFlowConfig(BaseModel):
         default=None,
         description="Path to JSON config file for persisting runtime changes",
     )
+    repo_config_file: Path | None = Field(
+        default=None,
+        description="Repo-scoped config file path (defaults to data_root/config.json)",
+        exclude=True,
+    )
+    cli_explicit_fields: frozenset[str] = Field(
+        default_factory=frozenset,
+        description="Fields explicitly set via CLI args (internal use)",
+        exclude=True,
+    )
 
     # Changelog
     changelog_file: str = Field(
@@ -940,6 +952,11 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Dashboard
+    dashboard_host: str = Field(
+        default="127.0.0.1",
+        min_length=1,
+        description="Interface/IP to bind the dashboard web server to",
+    )
     dashboard_port: int = Field(
         default=5555, ge=1024, le=65535, description="Dashboard web UI port"
     )
@@ -1017,6 +1034,10 @@ class HydraFlowConfig(BaseModel):
     adr_review_enabled: bool = Field(
         default=False,
         description="Enable the ADR council review background loop",
+    )
+    adr_review_auto_triage: bool = Field(
+        default=False,
+        description="Route non-accepted council outcomes to triage instead of HITL",
     )
     adr_review_model: str = Field(
         default="sonnet",
@@ -1245,9 +1266,9 @@ class HydraFlowConfig(BaseModel):
 
     @property
     def memory_sync_labels(self) -> list[str]:
-        """Return labels fetched by memory sync (memory + transcript summaries)."""
+        """Return labels fetched by memory sync (memory + improve + transcript)."""
         result: list[str] = []
-        for label in [*self.memory_label, *self.transcript_label]:
+        for label in [*self.memory_label, *self.improve_label, *self.transcript_label]:
             if label not in result:
                 result.append(label)
         return result

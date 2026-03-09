@@ -117,10 +117,14 @@ class RepoRuntimeRegistry:
     """Manages multiple :class:`RepoRuntime` instances by slug.
 
     Provides lookup, lifecycle management, and graceful shutdown ordering.
+    Persistence of registered repos is handled externally by
+    :class:`~repo_store.RepoRegistryStore`.
     """
 
     def __init__(self) -> None:
         self._runtimes: dict[str, RepoRuntime] = {}
+
+    # --- Registration ---
 
     async def register(self, config: HydraFlowConfig) -> RepoRuntime:
         """Create and register a runtime for the given config.

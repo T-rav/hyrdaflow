@@ -92,7 +92,7 @@ function AppContent() {
   const {
     connected, orchestratorStatus, workers, prs,
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
-    backgroundWorkers, systemAlert, intents, toggleBgWorker, updateBgWorkerInterval,
+    backgroundWorkers, systemAlert, intents, toggleBgWorker, triggerBgWorker, updateBgWorkerInterval,
     selectedSession, selectSession,
     currentSessionId,
     stageStatus,
@@ -177,6 +177,7 @@ function AppContent() {
             <SystemPanel
               backgroundWorkers={backgroundWorkers}
               onToggleBgWorker={toggleBgWorker}
+              onTriggerBgWorker={triggerBgWorker}
               onUpdateInterval={updateBgWorkerInterval}
             />
           )}

@@ -96,7 +96,7 @@ function PipelineWorkerCard({ workerKey, worker }) {
 }
 
 export function PipelineControlPanel({ onToggleBgWorker }) {
-  const { workers, stageStatus, hitlItems, refreshControlStatus } = useHydraFlow()
+  const { workers, stageStatus, hitlItems, refreshControlStatus, selectedRepoSlug } = useHydraFlow()
   const workerCaps = stageStatus?.workerCaps || {}
 
   const [localCaps, setLocalCaps] = useState({})
@@ -119,7 +119,10 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
   const updateWorkerCount = useCallback(async (loopKey, configKey, newValue) => {
     setLocalCaps(caps => ({ ...caps, [loopKey]: newValue }))
     try {
-      const res = await fetch('/api/control/config', {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const res = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [configKey]: newValue, persist: true }),
@@ -140,7 +143,7 @@ export function PipelineControlPanel({ onToggleBgWorker }) {
         return next
       })
     }
-  }, [refreshControlStatus])
+  }, [refreshControlStatus, selectedRepoSlug])
 
   const pipelineWorkers = Object.entries(workers || {}).filter(
     ([, w]) => w.role && ACTIVE_STATUSES.includes(w.status)

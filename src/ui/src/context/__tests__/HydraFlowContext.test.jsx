@@ -44,6 +44,7 @@ const initialState = {
   selectedSessionId: null,
   selectedRepoSlug: null,
   supervisedRepos: [],
+  selectedRepoSlugRaw: null,
   runtimes: [],
   issueHistory: null,
   harnessInsights: null,
@@ -1058,6 +1059,126 @@ describe('startRuntime compatibility flow', () => {
   })
 })
 
+describe('start/stop orchestrator with repo selection', () => {
+  afterEach(() => {
+    delete window.__HYDRAFLOW_SEED_STATE__
+  })
+
+  it('startOrchestrator delegates to runtime endpoint when repo selected', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle', selectedRepoSlug: 'demo' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.startsWith('/api/runtimes')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        })
+      }
+      if (url === '/api/control/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'idle', credits_paused_until: null }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let captured = null
+    function Capture() {
+      captured = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <Capture />
+        </HydraFlowProvider>
+      )
+    })
+
+    fetchSpy.mockClear()
+    await captured.startOrchestrator()
+
+    const calledUrls = fetchSpy.mock.calls.map(([url]) => (typeof url === 'string' ? url : String(url)))
+    expect(calledUrls).toContain('/api/runtimes/demo/start')
+    expect(calledUrls).not.toContain('/api/control/start')
+  })
+
+  it('stopOrchestrator delegates to runtime endpoint when repo selected', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle', selectedRepoSlug: 'demo' }
+    vi.resetModules()
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.startsWith('/api/runtimes')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        })
+      }
+      if (url === '/api/control/status') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: 'running', credits_paused_until: null }),
+        })
+      }
+      if (url === '/api/repos') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ repos: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      })
+    })
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+    let captured = null
+    function Capture() {
+      captured = useHydraFlow()
+      return <div>ready</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <Capture />
+        </HydraFlowProvider>
+      )
+    })
+
+    fetchSpy.mockClear()
+    await captured.stopOrchestrator()
+
+    const calledUrls = fetchSpy.mock.calls.map(([url]) => (typeof url === 'string' ? url : String(url)))
+    expect(calledUrls).toContain('/api/runtimes/demo/stop')
+    expect(calledUrls).not.toContain('/api/control/stop')
+  })
+})
+
 describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {
   afterEach(() => {
     delete window.__HYDRAFLOW_SEED_STATE__
@@ -1459,7 +1580,125 @@ describe('SELECT_REPO reducer', () => {
       data: { slug: '8thlight/insightmesh' },
     })
     expect(result.selectedRepoSlug).toBe('8thlight-insightmesh')
+     expect(result.selectedRepoSlugRaw).toBe('8thlight/insightmesh')
     expect(result.selectedSessionId).toBeNull()
+  })
+
+  it('clears raw slug when deselecting', () => {
+    const state = { ...initialState, selectedRepoSlug: 'demo', selectedRepoSlugRaw: 'demo/repo' }
+    const result = reducer(state, {
+      type: 'SELECT_REPO',
+      data: { slug: null },
+    })
+    expect(result.selectedRepoSlug).toBeNull()
+    expect(result.selectedRepoSlugRaw).toBeNull()
+  })
+
+  it('resets stale pipeline data when switching to a different repo', () => {
+    const state = {
+      ...initialState,
+      selectedRepoSlug: 'org-repo-a',
+      selectedRepoSlugRaw: 'org/repo-a',
+      pipelineIssues: {
+        triage: [{ issue_number: 1, title: 'T1', status: 'queued' }],
+        plan: [],
+        implement: [{ issue_number: 2, title: 'I2', status: 'active' }],
+        review: [],
+        hitl: [],
+        merged: [{ issue_number: 3, title: 'M3', status: 'done' }],
+      },
+      hitlItems: [{ issue_number: 10, title: 'H10' }],
+      workers: { 42: { status: 'active', role: 'implementer' } },
+      prs: [{ pr: 99, issue: 42 }],
+      reviews: [{ pr: 99, status: 'done' }],
+      sessionPrsCount: 1,
+      events: [{ type: 'worker_update', timestamp: '2024-01-01T00:00:00Z' }],
+    }
+    const next = reducer(state, {
+      type: 'SELECT_REPO',
+      data: { slug: 'org/repo-b' },
+    })
+    expect(next.selectedRepoSlug).toBe('org-repo-b')
+    expect(next.pipelineIssues).toEqual(emptyPipeline)
+    expect(next.hitlItems).toEqual([])
+    expect(next.workers).toEqual({})
+    expect(next.prs).toEqual([])
+    expect(next.reviews).toEqual([])
+    expect(next.sessionPrsCount).toBe(0)
+    expect(next.events).toEqual([])
+  })
+
+  it('does not reset data when selecting the same repo', () => {
+    const state = {
+      ...initialState,
+      selectedRepoSlug: 'org-repo',
+      selectedRepoSlugRaw: 'org/repo',
+      pipelineIssues: {
+        triage: [{ issue_number: 1 }],
+        plan: [],
+        implement: [],
+        review: [],
+        hitl: [],
+        merged: [],
+      },
+      hitlItems: [{ issue_number: 5 }],
+      workers: { 7: { status: 'done' } },
+    }
+    const next = reducer(state, {
+      type: 'SELECT_REPO',
+      data: { slug: 'org/repo' },
+    })
+    expect(next.pipelineIssues.triage).toHaveLength(1)
+    expect(next.hitlItems).toHaveLength(1)
+    expect(next.workers).toEqual({ 7: { status: 'done' } })
+  })
+
+  it('resets stale data when switching from a repo to All repos (null)', () => {
+    const state = {
+      ...initialState,
+      selectedRepoSlug: 'org-repo',
+      selectedRepoSlugRaw: 'org/repo',
+      pipelineIssues: {
+        triage: [{ issue_number: 1 }],
+        plan: [],
+        implement: [],
+        review: [],
+        hitl: [],
+        merged: [],
+      },
+      workers: { 1: { status: 'active' } },
+    }
+    const next = reducer(state, {
+      type: 'SELECT_REPO',
+      data: { slug: null },
+    })
+    expect(next.selectedRepoSlug).toBeNull()
+    expect(next.pipelineIssues).toEqual(emptyPipeline)
+    expect(next.workers).toEqual({})
+  })
+
+  it('preserves non-pipeline state when switching repos', () => {
+    const state = {
+      ...initialState,
+      selectedRepoSlug: 'org-repo-a',
+      selectedRepoSlugRaw: 'org/repo-a',
+      connected: true,
+      orchestratorStatus: 'running',
+      config: { repo: 'org/repo-a' },
+      supervisedRepos: [{ slug: 'org/repo-a' }],
+      runtimes: [{ slug: 'org-repo-a', running: true }],
+      sessions: [{ id: 's1', repo: 'org/repo-a' }],
+    }
+    const next = reducer(state, {
+      type: 'SELECT_REPO',
+      data: { slug: 'org/repo-b' },
+    })
+    expect(next.connected).toBe(true)
+    expect(next.orchestratorStatus).toBe('running')
+    expect(next.config).toEqual({ repo: 'org/repo-a' })
+    expect(next.supervisedRepos).toHaveLength(1)
+    expect(next.runtimes).toHaveLength(1)
+    expect(next.sessions).toHaveLength(1)
   })
 })
 

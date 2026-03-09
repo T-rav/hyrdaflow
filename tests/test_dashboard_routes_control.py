@@ -410,6 +410,126 @@ class TestPatchConfigMaxTriagers:
         assert config.max_triagers == 3
 
 
+class TestPatchConfigWithRegistry:
+    """Tests that PATCH /api/control/config updates repo-specific configs via registry."""
+
+    def _make_runtime(self, cfg, event_bus, state):
+        class _StubRuntime:
+            def __init__(self, config, bus, tracker):
+                self.config = config
+                self.event_bus = bus
+                self.state = tracker
+                self._orchestrator = None
+                self.slug = config.repo_slug
+                self._running = False
+
+            @property
+            def orchestrator(self):
+                return self._orchestrator
+
+            @property
+            def running(self):
+                return self._running
+
+            async def start(self):
+                self._running = True
+
+            async def stop(self):
+                self._running = False
+
+        return _StubRuntime(cfg, event_bus, state)
+
+    def _make_router(self, config, runtime, repo_store, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        class _StubRegistry:
+            def __init__(self, rt):
+                self._runtime = rt
+
+            def get(self, slug):
+                return self._runtime if slug == self._runtime.slug else None
+
+            @property
+            def all(self):
+                return [self._runtime]
+
+            def remove(self, slug):
+                return None
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            registry=_StubRegistry(runtime),
+            default_repo_slug=runtime.slug,
+            repo_store=repo_store,
+        )
+
+    def _find_endpoint(self, router, path):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_patch_config_updates_repo_store(
+        self, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """PATCH /api/control/config with repo slug should persist overrides."""
+        import json
+
+        from repo_store import RepoRecord, RepoRegistryStore
+        from state import StateTracker
+        from tests.helpers import ConfigFactory
+
+        base_cfg = ConfigFactory.create(
+            repo_root=tmp_path / "base-repo",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        repo_cfg = ConfigFactory.create(
+            repo="acme/widgets",
+            repo_root=tmp_path / "widgets",
+            worktree_base=tmp_path / "widgets-worktrees",
+            state_file=tmp_path / "widgets-state.json",
+        )
+        runtime_state = StateTracker(repo_cfg.state_file)
+        runtime = self._make_runtime(repo_cfg, event_bus, runtime_state)
+
+        repo_store = RepoRegistryStore(tmp_path)
+        repo_store.upsert(
+            RepoRecord(
+                slug=runtime.slug, repo=repo_cfg.repo, path=str(repo_cfg.repo_root)
+            )
+        )
+
+        router = self._make_router(
+            base_cfg, runtime, repo_store, event_bus, runtime_state, tmp_path
+        )
+        patch_config = self._find_endpoint(router, "/api/control/config")
+        assert patch_config is not None
+
+        response = await patch_config({"max_workers": 4}, repo=runtime.slug)
+        data = json.loads(response.body)
+        assert data["status"] == "ok"
+        assert runtime.config.max_workers == 4
+
+        stored = repo_store.load()
+        assert stored[0].overrides["max_workers"] == 4
+
+
 class TestBgWorkerToggleEndpoint:
     """Tests for POST /api/control/bg-worker endpoint."""
 

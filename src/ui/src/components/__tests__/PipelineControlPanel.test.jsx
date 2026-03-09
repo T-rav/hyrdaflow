@@ -287,6 +287,21 @@ describe('PipelineControlPanel', () => {
       })
     })
 
+    it('appends repo slug when selectedRepoSlug is set', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+      vi.stubGlobal('fetch', fetchMock)
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        selectedRepoSlug: 'org-repo',
+      }))
+      render(<PipelineControlPanel />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('inc-implement'))
+      })
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/control/config?repo=org-repo', expect.any(Object))
+    })
+
     it('optimistically updates displayed count on increment click', async () => {
       let resolvePromise
       const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => { resolvePromise = resolve }))

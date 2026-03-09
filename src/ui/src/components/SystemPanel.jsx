@@ -65,8 +65,9 @@ function formatTimestamp(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onUpdateInterval, events, extraContent }) {
+function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onTriggerBgWorker, onUpdateInterval, events, extraContent }) {
   const [showIntervalEditor, setShowIntervalEditor] = useState(false)
+  const [triggerLoading, setTriggerLoading] = useState(false)
   const isPipelinePoller = def.key === 'pipeline_poller'
   const isSystem = def.system === true
   const orchRunning = orchestratorStatus === 'running'
@@ -180,6 +181,23 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
             {enabled ? 'On' : 'Off'}
           </button>
         )}
+        {onTriggerBgWorker && orchRunning && !isPipelinePoller && (
+          <button
+            style={triggerLoading ? styles.runNowLoading : styles.runNow}
+            disabled={triggerLoading}
+            data-testid={`run-now-${def.key}`}
+            onClick={async () => {
+              setTriggerLoading(true)
+              try {
+                await onTriggerBgWorker(def.key)
+              } finally {
+                setTriggerLoading(false)
+              }
+            }}
+          >
+            {triggerLoading ? 'Running\u2026' : 'Run Now'}
+          </button>
+        )}
       </div>
       {description && (
         <div style={styles.description} data-testid={`desc-${def.key}`}>
@@ -249,7 +267,7 @@ const NON_SYSTEM_WORKERS = BACKGROUND_WORKERS.filter(w => !w.system)
 const SYSTEM_WORKERS = BACKGROUND_WORKERS.filter(w => w.system)
 
 function MemoryAutoApproveToggle() {
-  const { config } = useHydraFlow()
+  const { config, selectedRepoSlug } = useHydraFlow()
   const [localEnabled, setLocalEnabled] = useState(null)
 
   const isEnabled = localEnabled !== null ? localEnabled : (config?.memory_auto_approve ?? false)
@@ -258,7 +276,10 @@ function MemoryAutoApproveToggle() {
     const newValue = !isEnabled
     setLocalEnabled(newValue)
     try {
-      const resp = await fetch('/api/control/config', {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const resp = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memory_auto_approve: newValue, persist: true }),
@@ -269,7 +290,7 @@ function MemoryAutoApproveToggle() {
     } catch {
       setLocalEnabled(isEnabled)
     }
-  }, [isEnabled])
+  }, [isEnabled, selectedRepoSlug])
 
   return (
     <div style={styles.autoApproveRow}>
@@ -291,7 +312,7 @@ function MemoryAutoApproveToggle() {
 }
 
 function UnstickWorkersDropdown() {
-  const { config } = useHydraFlow()
+  const { config, selectedRepoSlug } = useHydraFlow()
   const [localValue, setLocalValue] = useState(null)
 
   const currentValue = localValue !== null ? localValue : (config?.pr_unstick_batch_size ?? 3)
@@ -300,7 +321,10 @@ function UnstickWorkersDropdown() {
     const newValue = parseInt(e.target.value, 10)
     setLocalValue(newValue)
     try {
-      const resp = await fetch('/api/control/config', {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const resp = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pr_unstick_batch_size: newValue, persist: true }),
@@ -311,7 +335,7 @@ function UnstickWorkersDropdown() {
     } catch {
       setLocalValue(currentValue)
     }
-  }, [currentValue])
+  }, [currentValue, selectedRepoSlug])
 
   return (
     <div style={styles.autoApproveRow}>
@@ -335,7 +359,7 @@ function UnstickWorkersDropdown() {
   )
 }
 
-export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInterval }) {
+export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWorker, onUpdateInterval }) {
   const { pipelinePollerLastRun, orchestratorStatus, events, pipelineIssues } = useHydraFlow()
   const [activeSubTab, setActiveSubTab] = useState('workers')
 
@@ -370,6 +394,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
                     pipelinePollerLastRun={pipelinePollerLastRun}
                     orchestratorStatus={orchestratorStatus}
                     onToggleBgWorker={onToggleBgWorker}
+                    onTriggerBgWorker={onTriggerBgWorker}
                     onUpdateInterval={onUpdateInterval}
                     events={events}
                   />
@@ -389,6 +414,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onUpdateInter
                     pipelineIssues={pipelineIssues}
                     orchestratorStatus={orchestratorStatus}
                     onToggleBgWorker={onToggleBgWorker}
+                    onTriggerBgWorker={onTriggerBgWorker}
                     onUpdateInterval={onUpdateInterval}
                     events={events}
                     extraContent={
@@ -575,6 +601,28 @@ const styles = {
     background: theme.greenSubtle,
     color: theme.green,
     cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  runNow: {
+    padding: '2px 10px',
+    fontSize: 10,
+    fontWeight: 600,
+    border: `1px solid ${theme.accent}`,
+    borderRadius: 10,
+    background: theme.surface,
+    color: theme.accent,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  runNowLoading: {
+    padding: '2px 10px',
+    fontSize: 10,
+    fontWeight: 600,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 10,
+    background: theme.surface,
+    color: theme.textMuted,
+    cursor: 'not-allowed',
     transition: 'all 0.15s',
   },
   toggleOff: {

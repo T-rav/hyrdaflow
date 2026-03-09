@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
+from repo_store import RepoRecord, RepoRegistryStore
 
 
 @pytest.fixture(autouse=True)
@@ -1042,3 +1044,467 @@ class TestBrowsableFilesystemAPI:
         assert "repo-a" in names
         assert "repo-b" in names
         assert ".hidden" not in names
+
+
+# ---------------------------------------------------------------------------
+# Repo store / runtime integration helpers
+# ---------------------------------------------------------------------------
+
+
+class _StubRuntime:
+    def __init__(self, config):
+        self.config = config
+        self.slug = config.repo_slug
+        self.running = False
+        self.event_bus = MagicMock()
+        self.state = MagicMock()
+        self._orchestrator = MagicMock()
+
+    @property
+    def orchestrator(self):
+        return self._orchestrator
+
+    async def start(self):
+        self.running = True
+
+    async def stop(self):
+        self.running = False
+
+
+class _StubRegistry:
+    def __init__(self):
+        self._items: dict[str, _StubRuntime] = {}
+
+    async def register(self, config):
+        runtime = _StubRuntime(config)
+        self._items[runtime.slug] = runtime
+        return runtime
+
+    def get(self, slug):
+        return self._items.get(slug)
+
+    def remove(self, slug):
+        return self._items.pop(slug, None)
+
+    @property
+    def all(self):
+        return list(self._items.values())
+
+
+class TestRepoStoreRuntimeIntegration:
+    """Ensure repo_store-backed endpoints persist repos and manage runtimes."""
+
+    def _make_router(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+        registry,
+        repo_store,
+        *,
+        register_repo_cb=None,
+        remove_repo_cb=None,
+        list_repos_cb=None,
+    ):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            registry=registry,
+            repo_store=repo_store,
+            register_repo_cb=register_repo_cb,
+            remove_repo_cb=remove_repo_cb,
+            list_repos_cb=list_repos_cb,
+            default_repo_slug=config.repo_slug,
+        )
+
+    def _find_route(self, router, path, method="POST"):
+        for route in router.routes:
+            methods = getattr(route, "methods", set())
+            if (
+                getattr(route, "path", None) == path
+                and method in methods
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        raise AssertionError(f"{method} {path} not found")
+
+    def _init_repo(self, repo_path: Path) -> None:
+        repo_path.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "-C", str(repo_path), "init"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/widgets.git",
+            ],
+            check=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_add_repo_persists_record_and_registers_runtime(
+        self, event_bus: EventBus, state, tmp_path: Path, monkeypatch
+    ) -> None:
+        import re
+
+        from tests.helpers import ConfigFactory
+
+        registry = _StubRegistry()
+        repo_store = RepoRegistryStore(tmp_path / "repos-data")
+        base_config = ConfigFactory.create(
+            repo_root=tmp_path / "base",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+
+        async def _register_repo_cb(repo_path, slug):
+            repo_label = (slug or repo_path.name or "repo").strip()
+            safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", repo_label).strip("-") or "repo"
+            record = RepoRecord(
+                slug=safe_slug, repo=slug or safe_slug, path=str(repo_path)
+            )
+            record = repo_store.upsert(record)
+            cfg = base_config.model_copy(update={"repo": record.repo})
+            await registry.register(cfg)
+            return record, cfg
+
+        router = self._make_router(
+            base_config,
+            event_bus,
+            state,
+            tmp_path,
+            registry,
+            repo_store,
+            register_repo_cb=_register_repo_cb,
+        )
+        add_endpoint = self._find_route(router, "/api/repos/add", method="POST")
+        repo_path = tmp_path / "widgets"
+        self._init_repo(repo_path)
+        import prep
+
+        monkeypatch.setattr(prep, "ensure_labels", AsyncMock())
+
+        response = await add_endpoint(
+            {"path": str(repo_path)},
+            None,
+            None,
+            None,
+        )
+        assert response.status_code == 200
+        stored = repo_store.get("acme-widgets")
+        assert stored is not None
+        assert stored.repo == "acme/widgets"
+
+    @pytest.mark.asyncio
+    async def test_start_runtime_starts_stopped_runtime(
+        self, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        from tests.helpers import ConfigFactory
+
+        registry = _StubRegistry()
+        repo_store = RepoRegistryStore(tmp_path / "repos-data")
+        base_config = ConfigFactory.create(
+            repo_root=tmp_path / "base",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        repo_path = tmp_path / "widgets"
+        self._init_repo(repo_path)
+        repo_store.upsert(
+            RepoRecord(slug="acme-widgets", repo="acme/widgets", path=str(repo_path))
+        )
+        # Pre-register the runtime in stopped state
+        cfg = base_config.model_copy(update={"repo": "acme/widgets"})
+        runtime = await registry.register(cfg)
+        runtime.slug = "acme-widgets"
+        runtime.running = False
+        registry._items["acme-widgets"] = runtime
+
+        router = self._make_router(
+            base_config, event_bus, state, tmp_path, registry, repo_store
+        )
+        start_endpoint = self._find_route(
+            router, "/api/runtimes/{slug}/start", method="POST"
+        )
+
+        response = await start_endpoint("acme-widgets")
+        assert response.status_code == 200
+        assert runtime.running is True
+
+    @pytest.mark.asyncio
+    async def test_remove_repo_stops_runtime_and_updates_store(
+        self, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        from tests.helpers import ConfigFactory
+
+        registry = _StubRegistry()
+        repo_store = RepoRegistryStore(tmp_path / "repos-data")
+        base_config = ConfigFactory.create(
+            repo_root=tmp_path / "base",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        repo_path = tmp_path / "widgets"
+        self._init_repo(repo_path)
+        record = RepoRecord(
+            slug="acme-widgets", repo="acme/widgets", path=str(repo_path)
+        )
+        repo_store.upsert(record)
+        runtime = await registry.register(base_config.model_copy())
+        runtime.slug = "acme-widgets"
+        runtime.running = True
+        registry._items["acme-widgets"] = runtime
+
+        async def _remove_repo_cb(slug):
+            target = registry.get(slug)
+            if target:
+                if target.running:
+                    await target.stop()
+                registry.remove(slug)
+            return repo_store.remove(slug)
+
+        router = self._make_router(
+            base_config,
+            event_bus,
+            state,
+            tmp_path,
+            registry,
+            repo_store,
+            remove_repo_cb=_remove_repo_cb,
+        )
+        delete_endpoint = self._find_route(router, "/api/repos/{slug}", method="DELETE")
+
+        response = await delete_endpoint("acme-widgets")
+        assert response.status_code == 200
+        assert repo_store.get("acme-widgets") is None
+        assert registry.get("acme-widgets") is None
+
+
+# ---------------------------------------------------------------------------
+# POST /api/repos/add — register_repo_cb branch
+# ---------------------------------------------------------------------------
+
+
+class TestAddRepoByPathWithCallback:
+    """Tests for POST /api/repos/add when register_repo_cb is provided."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, *, register_repo_cb):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            register_repo_cb=register_repo_cb,
+        )
+
+    def _get_endpoint(self, router):
+        for route in router.routes:
+            if (
+                hasattr(route, "path")
+                and route.path == "/api/repos/add"
+                and hasattr(route, "endpoint")
+            ):
+                return route.endpoint
+        msg = "add_repo_by_path endpoint not found"
+        raise AssertionError(msg)
+
+    @pytest.mark.asyncio
+    async def test_register_repo_cb_invoked_on_valid_path(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from repo_store import RepoRecord
+
+        repo_dir = tmp_path / "cb-repo"
+        repo_dir.mkdir()
+
+        returned_record = RepoRecord(
+            slug="cb-repo", repo="org/cb-repo", path=str(repo_dir)
+        )
+        cb = AsyncMock(return_value=(returned_record, config))
+
+        class _FakeGitProcess:
+            def __init__(self, stdout: bytes, returncode: int = 0) -> None:
+                self._stdout = stdout
+                self.returncode = returncode
+
+            async def communicate(self):
+                return self._stdout, b""
+
+        async def fake_exec(*cmd, **_):
+            git_args = tuple(cmd[3:])
+            if git_args[:2] == ("rev-parse", "--git-dir"):
+                return _FakeGitProcess(b".git\n")
+            if git_args[:3] == ("remote", "get-url", "origin"):
+                return _FakeGitProcess(b"https://github.com/org/cb-repo.git\n")
+            raise AssertionError(f"unexpected: {cmd}")
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, register_repo_cb=cb
+        )
+        endpoint = self._get_endpoint(router)
+
+        with (
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch("prep.ensure_labels", new_callable=AsyncMock),
+        ):
+            resp = await endpoint({"path": str(repo_dir)})
+
+        data = json.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["status"] == "ok"
+        assert data["slug"] == "cb-repo"
+        cb.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_register_repo_cb_value_error_returns_400(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        repo_dir = tmp_path / "err-repo"
+        repo_dir.mkdir()
+        cb = AsyncMock(side_effect=ValueError("already registered"))
+
+        class _FakeGitProcess:
+            def __init__(self, stdout: bytes, returncode: int = 0) -> None:
+                self._stdout = stdout
+                self.returncode = returncode
+
+            async def communicate(self):
+                return self._stdout, b""
+
+        async def fake_exec(*cmd, **_):
+            git_args = tuple(cmd[3:])
+            if git_args[:2] == ("rev-parse", "--git-dir"):
+                return _FakeGitProcess(b".git\n")
+            if git_args[:3] == ("remote", "get-url", "origin"):
+                return _FakeGitProcess(b"https://github.com/org/err-repo.git\n")
+            raise AssertionError(f"unexpected: {cmd}")
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, register_repo_cb=cb
+        )
+        endpoint = self._get_endpoint(router)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            resp = await endpoint({"path": str(repo_dir)})
+
+        data = json.loads(resp.body)
+        assert resp.status_code == 400
+        assert "already registered" in data["error"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/repos — repo_store branch
+# ---------------------------------------------------------------------------
+
+
+class TestListSupervisedReposWithStore:
+    """Tests for GET /api/repos when repo_store is provided (no supervisor)."""
+
+    def _make_router(self, config, event_bus, state, tmp_path, *, repo_store, registry):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            repo_store=repo_store,
+            registry=registry,
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_store_records_when_repo_store_set(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        from repo_store import RepoRecord, RepoStore
+
+        store = RepoStore(tmp_path)
+        repo_path = tmp_path / "my-repo"
+        repo_path.mkdir()
+        store.upsert(
+            RepoRecord(slug="my-repo", repo="org/my-repo", path=str(repo_path))
+        )
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, repo_store=store, registry=None
+        )
+        endpoint = next(
+            r for r in router.routes if getattr(r, "path", "") == "/api/repos"
+        )
+        resp = await endpoint.endpoint()
+
+        data = json.loads(resp.body)
+        assert resp.status_code == 200
+        assert len(data["repos"]) == 1
+        assert data["repos"][0]["slug"] == "my-repo"
+        assert data["repos"][0]["running"] is False
+
+    @pytest.mark.asyncio
+    async def test_marks_running_when_runtime_active(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        from repo_store import RepoRecord, RepoStore
+
+        store = RepoStore(tmp_path)
+        repo_path = tmp_path / "live-repo"
+        repo_path.mkdir()
+        store.upsert(RepoRecord(slug="live-repo", repo="org/live", path=str(repo_path)))
+
+        mock_orch = MagicMock()
+        mock_orch.current_session_id = "sess-abc"
+        runtime = SimpleNamespace(running=True, orchestrator=mock_orch)
+        mock_registry = MagicMock()
+        mock_registry.get.return_value = runtime
+
+        router = self._make_router(
+            config, event_bus, state, tmp_path, repo_store=store, registry=mock_registry
+        )
+        endpoint = next(
+            r for r in router.routes if getattr(r, "path", "") == "/api/repos"
+        )
+        resp = await endpoint.endpoint()
+
+        data = json.loads(resp.body)
+        assert resp.status_code == 200
+        assert data["repos"][0]["running"] is True
+        assert data["repos"][0]["session_id"] == "sess-abc"

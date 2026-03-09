@@ -316,6 +316,7 @@ class TestParseArgs:
             "transcript_summary_tool",
             "transcript_summary_model",
             "dashboard_port",
+            "dashboard_host",
             "gh_token",
         ]
         for field in none_fields:
@@ -400,6 +401,7 @@ _CLI_DEFAULT_EXPECTATIONS: list[tuple[str, object]] = [
     ("ac_tool", "claude"),
     ("verification_judge_tool", "claude"),
     ("main_branch", "main"),
+    ("dashboard_host", "127.0.0.1"),
     ("dashboard_port", 5555),
     ("dashboard_enabled", True),
     ("dry_run", False),
@@ -653,6 +655,11 @@ class TestBuildConfig:
         cfg = build_config(args)
         assert cfg.dashboard_port == 8080
 
+    def test_dashboard_host_passed_through(self) -> None:
+        args = parse_args(["--dashboard-host", "0.0.0.0"])
+        cfg = build_config(args)
+        assert cfg.dashboard_host == "0.0.0.0"
+
     def test_min_plan_words_passed_through(self) -> None:
         args = parse_args(["--min-plan-words", "300"])
         cfg = build_config(args)
@@ -759,6 +766,15 @@ class TestRunMainSignalHandlers:
         mock_runtime = AsyncMock()
         mock_runtime.run = AsyncMock()
         mock_runtime.stop = AsyncMock()
+        mock_runtime.slug = "test-repo"
+
+        mock_store = MagicMock()
+        mock_store.list.return_value = []
+
+        mock_registry = MagicMock()
+        mock_registry.register = AsyncMock(return_value=mock_runtime)
+        mock_registry.stop_all = AsyncMock()
+        mock_registry.get = MagicMock(return_value=None)
 
         with (
             patch(
@@ -767,6 +783,8 @@ class TestRunMainSignalHandlers:
                 return_value=mock_runtime,
             ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("repo_store.RepoStore", return_value=mock_store),
+            patch("repo_runtime.RepoRuntimeRegistry", return_value=mock_registry),
         ):
             await _run_main(config)
 
@@ -790,6 +808,7 @@ class TestRunMainSignalHandlers:
 
         mock_runtime = AsyncMock()
         mock_runtime.stop = AsyncMock()
+        mock_runtime.slug = "test-repo"
 
         async def fake_run() -> None:
             # Simulate signal arriving during run
@@ -801,6 +820,14 @@ class TestRunMainSignalHandlers:
 
         mock_runtime.run = fake_run
 
+        mock_store = MagicMock()
+        mock_store.list.return_value = []
+
+        mock_registry = MagicMock()
+        mock_registry.register = AsyncMock(return_value=mock_runtime)
+        mock_registry.stop_all = AsyncMock()
+        mock_registry.get = MagicMock(return_value=None)
+
         with (
             patch(
                 "repo_runtime.RepoRuntime.create",
@@ -808,10 +835,14 @@ class TestRunMainSignalHandlers:
                 return_value=mock_runtime,
             ),
             patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("repo_store.RepoStore", return_value=mock_store),
+            patch("repo_runtime.RepoRuntimeRegistry", return_value=mock_registry),
         ):
             await _run_main(config)
 
-        mock_runtime.stop.assert_called_once()
+        # Primary runtime stop() is called exactly once by the signal handler;
+        # the finally block only stops secondary runtimes.
+        assert mock_runtime.stop.call_count == 1
 
     @pytest.mark.asyncio
     async def test_dashboard_registers_signal_handlers(self) -> None:
@@ -874,6 +905,53 @@ class TestRunMainSignalHandlers:
 
         mock_orch.stop.assert_called_once()
         mock_dashboard.stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dashboard_registers_existing_repos_before_dashboard_start(
+        self, tmp_path
+    ) -> None:
+        """_run_main registers existing repos from RepoStore before starting the dashboard.
+
+        Regression guard: the registry used by the dashboard must already contain
+        any repos saved from previous runs so the dashboard can serve them immediately.
+        """
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(dashboard_enabled=True, repo_root=tmp_path)
+
+        call_order: list[str] = []
+
+        mock_registry = MagicMock()
+        mock_registry.register = AsyncMock(
+            side_effect=lambda _cfg: call_order.append("register") or MagicMock()
+        )
+        mock_registry.stop_all = AsyncMock()
+        mock_registry.__contains__ = MagicMock(return_value=False)
+
+        real_loop = asyncio.get_running_loop()
+
+        def trigger_stop(sig: int, cb: object) -> None:
+            if sig == signal.SIGINT and callable(cb):
+                cb()
+
+        mock_dashboard = AsyncMock()
+        mock_dashboard._orchestrator = None
+        mock_dashboard.start = AsyncMock(
+            side_effect=lambda: call_order.append("dashboard_start")
+        )
+        mock_dashboard.stop = AsyncMock()
+
+        with (
+            patch.object(real_loop, "add_signal_handler", side_effect=trigger_stop),
+            patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
+            patch("repo_runtime.RepoRuntimeRegistry", return_value=mock_registry),
+        ):
+            await _run_main(config)
+
+        # repos must be registered before the dashboard starts
+        assert "register" in call_order
+        assert "dashboard_start" in call_order
+        assert call_order.index("register") < call_order.index("dashboard_start")
 
 
 # ---------------------------------------------------------------------------
@@ -1179,3 +1257,42 @@ class TestStartupWorkerCountLogging:
         assert "workers=3" in log_output
         assert "reviewers=5" in log_output
         assert "hitl=2" in log_output
+
+
+class TestRunMainRegistryWiring:
+    """Tests that _run_main wires RepoRuntimeRegistry correctly."""
+
+    @pytest.mark.asyncio
+    async def test_dashboard_creates_registry_and_repo_store(self, tmp_path) -> None:
+        """_run_main creates a single RepoRuntimeRegistry with data_root."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(dashboard_enabled=True, repo_root=tmp_path)
+
+        real_loop = asyncio.get_running_loop()
+
+        mock_dashboard = AsyncMock()
+        mock_dashboard._orchestrator = None
+        mock_dashboard.start = AsyncMock()
+        mock_dashboard.stop = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.stop_all = AsyncMock()
+        mock_registry.register = AsyncMock(return_value=MagicMock())
+        mock_registry.__contains__ = MagicMock(return_value=False)
+
+        def trigger_stop(sig: int, cb: object) -> None:
+            if callable(cb):
+                cb()
+
+        with (
+            patch.object(real_loop, "add_signal_handler", side_effect=trigger_stop),
+            patch("dashboard.HydraFlowDashboard", return_value=mock_dashboard),
+            patch(
+                "repo_runtime.RepoRuntimeRegistry", return_value=mock_registry
+            ) as MockRegistry,
+        ):
+            await _run_main(config)
+
+        # _run_main creates exactly one registry (persistence handled by RepoStore)
+        MockRegistry.assert_called_once_with()

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from events import EventType
 from models import EpicChildInfo, EpicDetail, EpicProgress, EpicReadiness, MergeStrategy
+from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestEpicEventTypes:
@@ -306,41 +307,16 @@ class TestStageFromLabels:
 class TestEpicEndpoints:
     """Tests for epic API endpoint handlers."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path, method="GET"):
-        for route in router.routes:
-            if not hasattr(route, "path") or route.path != path:
-                continue
-            if not hasattr(route, "methods"):
-                continue
-            if method in route.methods:
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_get_epics_returns_empty_when_no_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path, lambda: None)
-        endpoint = self._find_endpoint(router, "/api/epics")
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: None
+        )
+        endpoint = find_endpoint(router, "/api/epics", "GET")
         assert endpoint is not None
 
         response = await endpoint()
@@ -364,10 +340,10 @@ class TestEpicEndpoints:
         mock_orch._epic_manager = MagicMock()
         mock_orch._epic_manager.get_all_detail = AsyncMock(return_value=[mock_detail])
 
-        router = self._make_router(
-            config, event_bus, state, tmp_path, lambda: mock_orch
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/epics")
+        endpoint = find_endpoint(router, "/api/epics", "GET")
 
         response = await endpoint()
         data = json.loads(response.body)
@@ -387,10 +363,10 @@ class TestEpicEndpoints:
         mock_orch._epic_manager = MagicMock()
         mock_orch._epic_manager.get_detail = AsyncMock(return_value=None)
 
-        router = self._make_router(
-            config, event_bus, state, tmp_path, lambda: mock_orch
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/epics/{epic_number}")
+        endpoint = find_endpoint(router, "/api/epics/{epic_number}", "GET")
 
         response = await endpoint(999)
         assert response.status_code == 404
@@ -416,10 +392,10 @@ class TestEpicEndpoints:
         mock_orch._epic_manager = MagicMock()
         mock_orch._epic_manager.get_detail = AsyncMock(return_value=mock_detail)
 
-        router = self._make_router(
-            config, event_bus, state, tmp_path, lambda: mock_orch
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/epics/{epic_number}")
+        endpoint = find_endpoint(router, "/api/epics/{epic_number}", "GET")
 
         response = await endpoint(100)
         data = json.loads(response.body)
@@ -434,10 +410,10 @@ class TestEpicEndpoints:
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path, lambda: None)
-        endpoint = self._find_endpoint(
-            router, "/api/epics/{epic_number}/release", method="POST"
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: None
         )
+        endpoint = find_endpoint(router, "/api/epics/{epic_number}/release", "POST")
         assert endpoint is not None
 
         response = await endpoint(100)
@@ -458,12 +434,10 @@ class TestEpicEndpoints:
             return_value={"job_id": "release-100-123", "status": "started"}
         )
 
-        router = self._make_router(
-            config, event_bus, state, tmp_path, lambda: mock_orch
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(
-            router, "/api/epics/{epic_number}/release", method="POST"
-        )
+        endpoint = find_endpoint(router, "/api/epics/{epic_number}/release", "POST")
 
         response = await endpoint(100)
         data = json.loads(response.body)
@@ -483,12 +457,10 @@ class TestEpicEndpoints:
             return_value={"error": "epic not found", "status": "failed"}
         )
 
-        router = self._make_router(
-            config, event_bus, state, tmp_path, lambda: mock_orch
+        router, _pr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(
-            router, "/api/epics/{epic_number}/release", method="POST"
-        )
+        endpoint = find_endpoint(router, "/api/epics/{epic_number}/release", "POST")
 
         response = await endpoint(999)
         assert response.status_code == 400
