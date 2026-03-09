@@ -209,56 +209,15 @@ describe('SessionSidebar supervised repo state', () => {
     expect(screen.getByText('/repos/demo')).toBeDefined()
   })
 
-  it('shows Start control when repo is stopped', () => {
+  it('does not show per-repo Start/Stop buttons', () => {
     mockUseHydraFlow.mockReturnValue(
       defaultContext({
         supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
       })
     )
     render(<SessionSidebar />)
-    expect(screen.getByText('Start')).toBeInTheDocument()
-  })
-})
-
-describe('SessionSidebar repo runtime controls', () => {
-  it('invokes startRuntime when clicking Start', async () => {
-    const startRuntime = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
-        startRuntime,
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('Start'))
-    expect(startRuntime).toHaveBeenCalledWith('demo', '/repos/demo')
-  })
-
-  it('invokes stopRuntime when clicking Stop', () => {
-    const stopRuntime = vi.fn().mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [SUPERVISED_REPO],
-        runtimes: [{ slug: 'demo', running: true }],
-        stopRuntime,
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('Stop'))
-    expect(stopRuntime).toHaveBeenCalledWith('demo', '/repos/demo')
-  })
-
-  it('shows error message when runtime action fails', async () => {
-    const startRuntime = vi.fn().mockResolvedValue({ ok: false, error: 'boom' })
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
-        startRuntime,
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('Start'))
-    await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument())
+    expect(screen.queryByText('Start')).toBeNull()
+    expect(screen.queryByText('Stop')).toBeNull()
   })
 })
 
@@ -326,17 +285,22 @@ describe('SessionSidebar collapsible repo sections', () => {
 
   it('sessions are hidden after collapsing repo section', () => {
     render(<SessionSidebar />)
-    // Click arrow to collapse (arrow is in its own clickable span)
-    fireEvent.click(screen.getByText('▾'))
+    // Click the repo expand/collapse arrow (not the RepoSelector chevron)
+    const arrows = screen.getAllByText('▾')
+    // The repo section arrow has the arrow style (width: 12px); find the right one
+    const repoArrow = arrows.find(el => el.style.width === '12px')
+    fireEvent.click(repoArrow)
     // Issue count pill should no longer be in the DOM
     expect(screen.queryByText('3')).toBeNull()
   })
 
   it('toggle arrow changes on collapse/expand', () => {
     render(<SessionSidebar />)
-    // Initially expanded — down arrow
-    expect(screen.getByText('▾')).toBeDefined()
-    fireEvent.click(screen.getByText('▾'))
+    // Find the repo section arrow (not the RepoSelector chevron)
+    const arrows = screen.getAllByText('▾')
+    const repoArrow = arrows.find(el => el.style.width === '12px')
+    expect(repoArrow).toBeDefined()
+    fireEvent.click(repoArrow)
     // After collapse — right arrow
     expect(screen.getByText('▸')).toBeDefined()
   })
@@ -585,5 +549,17 @@ describe('SessionSidebar disconnect repo button', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Path-based repo input
+// RepoSelector in sidebar
 // ---------------------------------------------------------------------------
+
+describe('SessionSidebar contains RepoSelector', () => {
+  it('renders repo selector trigger in sidebar', () => {
+    render(<SessionSidebar />)
+    expect(screen.getByTestId('repo-selector-trigger')).toBeInTheDocument()
+  })
+
+  it('shows "All repos" label by default', () => {
+    render(<SessionSidebar />)
+    expect(screen.getByText('All repos')).toBeInTheDocument()
+  })
+})

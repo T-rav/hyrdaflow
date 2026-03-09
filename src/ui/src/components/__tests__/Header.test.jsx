@@ -42,12 +42,6 @@ beforeEach(() => {
     submitReport: vi.fn(),
     startOrchestrator: vi.fn(),
     stopOrchestrator: vi.fn(),
-    supervisedRepos: [],
-    runtimes: [],
-    selectedRepoSlug: null,
-    selectRepo: vi.fn(),
-    addRepoBySlug: vi.fn(),
-    addRepoByPath: vi.fn(),
   })
 })
 

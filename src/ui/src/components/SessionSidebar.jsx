@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
 import { PULSE_ANIMATION, canonicalRepoSlug } from '../constants'
+import { RepoSelector } from './RepoSelector'
+import { RegisterRepoDialog } from './RegisterRepoDialog'
 
 function shortRepo(repo) {
   const parts = (repo || '').split('/')
@@ -20,15 +22,15 @@ export function SessionSidebar() {
     deleteSession,
     supervisedRepos = [],
     runtimes = [],
-    startRuntime,
-    stopRuntime,
     removeRepoShortcut,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
   const [hoveredSession, setHoveredSession] = useState(null)
   const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
-  const [repoActions, setRepoActions] = useState({})
-  const [repoErrors, setRepoErrors] = useState({})
+  const [registerModalOpen, setRegisterModalOpen] = useState(false)
+
+  const openRegister = useCallback(() => setRegisterModalOpen(true), [])
+  const closeRegister = useCallback(() => setRegisterModalOpen(false), [])
 
   const repoEntries = useMemo(() => {
     const entries = new Map()
@@ -122,31 +124,11 @@ export function SessionSidebar() {
     }
   }
 
-  const handleStartStop = async (e, entry, action) => {
-    e.stopPropagation()
-    const slug = entry.repoSlug || entry.displayName || entry.key
-    if (!slug) return
-    const runner = action === 'start' ? startRuntime : stopRuntime
-    if (!runner) return
-    setRepoActions(prev => ({ ...prev, [slug]: action }))
-    setRepoErrors(prev => {
-      const next = { ...prev }
-      delete next[slug]
-      return next
-    })
-    const result = await runner(slug, entry.repoPath || entry.info?.path || null)
-    if (!result?.ok) {
-      setRepoErrors(prev => ({ ...prev, [slug]: result?.error || `Failed to ${action} repo` }))
-    }
-    setRepoActions(prev => {
-      const next = { ...prev }
-      delete next[slug]
-      return next
-    })
-  }
-
   return (
     <div style={styles.sidebar}>
+      <div style={styles.repoSelectorSection}>
+        <RepoSelector onOpenRegister={openRegister} />
+      </div>
       <div style={styles.header}>
         <span style={styles.headerLabel}>Sessions</span>
         {sessions.length > 0 && (
@@ -161,13 +143,6 @@ export function SessionSidebar() {
           const isRepoSelected = selectedRepoSlug === entry.filterSlug
           const rt = entry.runtime
           const isRunning = rt?.running ?? entry.info?.running ?? false
-          const actionKey = entry.repoSlug || entry.filterSlug || entry.key
-          const actionState = repoActions[actionKey]
-          const errorMessage = repoErrors[actionKey]
-          const showControls = Boolean(entry.info || entry.runtime)
-          let actionLabel = isRunning ? 'Stop' : 'Start'
-          if (actionState === 'start') actionLabel = 'Starting…'
-          if (actionState === 'stop') actionLabel = 'Stopping…'
 
           return (
             <div key={entry.key}>
@@ -192,16 +167,6 @@ export function SessionSidebar() {
                 </div>
                 <div style={styles.repoMeta}>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
-                  {showControls && (
-                    <button
-                      onClick={(e) => handleStartStop(e, entry, isRunning ? 'stop' : 'start')}
-                      style={isRunning ? styles.repoStopBtn : styles.repoStartBtn}
-                      disabled={!!actionState}
-                      aria-label={isRunning ? 'Stop repo runtime' : 'Start repo runtime'}
-                    >
-                      {actionLabel}
-                    </button>
-                  )}
                   {entry.info && (
                     <button
                       onClick={(e) => handleDisconnect(e, entry.repoSlug || entry.displayName, isRunning)}
@@ -214,10 +179,6 @@ export function SessionSidebar() {
                   )}
                 </div>
               </div>
-
-              {errorMessage && (
-                <div style={styles.repoError}>{errorMessage}</div>
-              )}
 
               {isExpanded && repoSessions.map(session => {
                 const isActive = session.status === 'active'
@@ -289,6 +250,7 @@ export function SessionSidebar() {
           <div style={styles.empty}>No sessions yet</div>
         )}
       </div>
+      <RegisterRepoDialog isOpen={registerModalOpen} onClose={closeRegister} />
     </div>
   )
 }
@@ -302,6 +264,9 @@ const styles = {
     overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
+  },
+  repoSelectorSection: {
+    padding: '12px 12px 0',
   },
   header: {
     display: 'flex',
@@ -421,11 +386,6 @@ const styles = {
     background: theme.surface,
     border: `1px solid ${theme.border}`,
   },
-  repoError: {
-    fontSize: 10,
-    color: theme.red,
-    padding: '2px 12px 6px 28px',
-  },
   repoMeta: {
     display: 'flex',
     alignItems: 'center',
@@ -446,28 +406,6 @@ const styles = {
     background: theme.textMuted,
     flexShrink: 0,
     marginTop: 2,
-  },
-  repoStartBtn: {
-    fontSize: 9,
-    fontWeight: 700,
-    color: theme.green,
-    background: theme.greenSubtle,
-    border: 'none',
-    borderRadius: 6,
-    padding: '1px 8px',
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
-  },
-  repoStopBtn: {
-    fontSize: 9,
-    fontWeight: 700,
-    color: theme.red,
-    background: theme.redSubtle,
-    border: 'none',
-    borderRadius: 6,
-    padding: '1px 8px',
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
   },
   sessionRow: {
     display: 'flex',

@@ -2,6 +2,38 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
 
+/**
+ * Extract an owner/repo slug from a GitHub URL.
+ * Accepts URLs like:
+ *   https://github.com/owner/repo
+ *   https://github.com/owner/repo.git
+ *   http://github.com/owner/repo/tree/main
+ *   github.com/owner/repo
+ * Returns the slug string or null if the input is not a GitHub URL.
+ */
+export function extractSlugFromUrl(input) {
+  if (!input) return null
+  const trimmed = input.trim()
+  // Quick check: must look like a URL with github in it
+  if (!/github/i.test(trimmed)) return null
+  let url
+  try {
+    // Handle bare "github.com/..." without protocol
+    const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+    url = new URL(withProto)
+  } catch {
+    return null
+  }
+  if (!/github\.com$/i.test(url.hostname) && !/github\.com$/i.test(url.hostname.replace(/^www\./, ''))) {
+    return null
+  }
+  const segments = url.pathname.split('/').filter(Boolean)
+  if (segments.length < 2) return null
+  const owner = segments[0]
+  const repo = segments[1].replace(/\.git$/, '')
+  return `${owner}/${repo}`
+}
+
 export function RegisterRepoDialog({ isOpen, onClose }) {
   const { addRepoBySlug, addRepoByPath } = useHydraFlow()
   const [slug, setSlug] = useState('')
@@ -30,14 +62,16 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
     const trimmedSlug = slug.trim()
     const trimmedPath = path.trim()
     if (!trimmedSlug && !trimmedPath) {
-      setError('Enter a GitHub slug or repo path')
+      setError('Enter a GitHub URL, slug, or repo path')
       return
     }
     setSubmitting(true)
     setError('')
     let result
     if (trimmedSlug) {
-      result = await addRepoBySlug(trimmedSlug)
+      // Try to extract slug from a GitHub URL, otherwise use as-is
+      const resolved = extractSlugFromUrl(trimmedSlug) || trimmedSlug
+      result = await addRepoBySlug(resolved)
     } else {
       result = await addRepoByPath(trimmedPath)
     }
@@ -59,17 +93,17 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
           <button type="button" style={styles.closeBtn} onClick={onClose} aria-label="Close register repo dialog">×</button>
         </div>
         <p style={styles.subtitle}>
-          Provide a GitHub slug (owner/repo) to start an existing repo,
+          Paste a GitHub URL or enter an owner/repo slug,
           or point to a local path to register it with the supervisor.
         </p>
         <form onSubmit={handleSubmit}>
-          <label style={styles.label} htmlFor="register-slug">GitHub slug</label>
+          <label style={styles.label} htmlFor="register-slug">GitHub URL or slug</label>
           <input
             id="register-slug"
             type="text"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
-            placeholder="owner/repo"
+            placeholder="https://github.com/owner/repo or owner/repo"
             style={styles.input}
             autoFocus
           />

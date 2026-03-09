@@ -1026,6 +1026,27 @@ export function HydraFlowProvider({ children }) {
     }
   }, [fetchRepos])
 
+  const addRepoBySlug = useCallback(async (slug) => {
+    const trimmed = (slug || '').trim()
+    if (!trimmed) return { ok: false, error: 'slug required' }
+    try {
+      const res = await fetch('/api/repos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: trimmed }),
+      })
+      if (!res.ok) {
+        let errorMsg = `status ${res.status}`
+        try { const body = await res.json(); if (body.error) errorMsg = body.error } catch { /* ignore */ }
+        return { ok: false, error: errorMsg }
+      }
+      await fetchRepos()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err.message || 'Network error' }
+    }
+  }, [fetchRepos])
+
   const addRepoByPath = useCallback(async (repoPath) => {
     const path = (repoPath || '').trim()
     if (!path) return { ok: false, error: 'path required' }
@@ -1499,6 +1520,7 @@ export function HydraFlowProvider({ children }) {
     selectSession,
     selectRepo,
     deleteSession,
+    addRepoBySlug,
     addRepoByPath,
     removeRepoShortcut,
     startRuntime,
