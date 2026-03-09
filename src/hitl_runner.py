@@ -145,10 +145,10 @@ class HITLRunner(BaseRunner):
             )
             result.transcript = transcript
 
-            success, verify_msg = await self._verify_quality(worktree_path)
-            result.success = success
-            if not success:
-                result.error = verify_msg
+            verify = await self._verify_quality(worktree_path)
+            result.success = verify.passed
+            if not verify.passed:
+                result.error = verify.summary
 
             self._save_transcript("hitl-issue", issue.number, transcript)
 
@@ -241,8 +241,3 @@ class HITLRunner(BaseRunner):
             },
         )
         return prompt, stats
-
-    def _build_prompt(self, issue: GitHubIssue, correction: str, cause: str) -> str:
-        """Build the HITL prompt with cause-specific instructions and human guidance."""
-        prompt, _stats = self._build_prompt_with_stats(issue, correction, cause)
-        return prompt

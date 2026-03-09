@@ -378,6 +378,34 @@ class PlannerStatus(StrEnum):
     FAILED = "failed"
 
 
+class RunnerResult(Protocol):
+    """Common interface shared by all runner result types.
+
+    Every runner (agent, planner, reviewer, HITL) returns a result model
+    that satisfies this protocol, enabling generic handling in telemetry,
+    logging, and state tracking.
+    """
+
+    success: bool
+    error: str | None
+    duration_seconds: float
+    transcript: str
+
+
+@dataclass(frozen=True, slots=True)
+class LoopResult:
+    """Named result from internal agent verification/fix loops.
+
+    Replaces the ambiguous ``tuple[bool, str]`` and ``tuple[bool, str, int]``
+    return types used by ``_run_diff_sanity_loop``, ``_run_test_adequacy_loop``,
+    ``_run_pre_quality_review_loop``, and ``_run_quality_fix_loop``.
+    """
+
+    passed: bool
+    summary: str
+    attempts: int = 0
+
+
 class NewIssueSpec(BaseModel):
     """Specification for a new issue discovered during planning."""
 
@@ -661,7 +689,14 @@ class ReviewResult(BaseModel):
         default=ReviewVerdict.COMMENT,
         description="Review verdict (approve, request-changes, comment)",
     )
+    success: bool = Field(
+        default=False,
+        description="Whether the review completed successfully (fail-safe default)",
+    )
     summary: str = Field(default="", description="Human-readable review summary")
+    error: str | None = Field(
+        default=None, description="Error message if review failed"
+    )
     fixes_made: bool = Field(
         default=False, description="Whether the reviewer applied fixes to the PR"
     )

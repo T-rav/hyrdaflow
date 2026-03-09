@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from events import EventType
 from models import (
+    LoopResult,
     PRInfo,
     ReviewResult,
     ReviewVerdict,
@@ -45,7 +46,9 @@ class TestHITLEscalationEvents:
         """Merge conflict escalation should emit HITL_ESCALATION with cause merge_conflict."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(False, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="")
+        )
         phase = make_review_phase(config, agents=mock_agents, event_bus=event_bus)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()

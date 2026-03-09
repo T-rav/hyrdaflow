@@ -191,22 +191,20 @@ class MergeConflictResolver:
 
                 await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
-                success, error_msg = await self._agents._verify_result(
-                    wt_path, pr.branch
-                )
-                if success:
+                verify = await self._agents._verify_result(wt_path, pr.branch)
+                if verify.passed:
                     await self._maybe_summarize_conflict(
                         transcript, issue.id, pr.number
                     )
                     return ConflictResolutionResult(success=True, used_rebuild=False)
 
-                last_error = error_msg
+                last_error = verify.summary
                 logger.warning(
                     "Conflict resolution attempt %d/%d failed for PR #%d: %s",
                     attempt,
                     max_attempts,
                     pr.number,
-                    error_msg[:200] if error_msg else "",
+                    verify.summary[:200] if verify.summary else "",
                 )
                 # Summarize final failed attempt
                 if attempt == max_attempts:
@@ -321,8 +319,8 @@ class MergeConflictResolver:
 
             await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
-            success, error_msg = await self._agents._verify_result(new_wt, pr.branch)
-            if success:
+            verify = await self._agents._verify_result(new_wt, pr.branch)
+            if verify.passed:
                 await self._maybe_summarize_conflict(transcript, issue.id, pr.number)
                 logger.info("Fresh branch rebuild succeeded for PR #%d", pr.number)
                 return True
@@ -330,7 +328,7 @@ class MergeConflictResolver:
             logger.warning(
                 "Fresh branch rebuild verification failed for PR #%d: %s",
                 pr.number,
-                error_msg[:200] if error_msg else "",
+                verify.summary[:200] if verify.summary else "",
             )
             return False
         except Exception as exc:
