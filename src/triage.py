@@ -15,8 +15,10 @@ from models import (
     IssueType,
     NewIssueSpec,
     Task,
+    TranscriptLinePayload,
     TriageResult,
     TriageStatus,
+    TriageUpdatePayload,
 )
 from phase_utils import is_likely_bug
 from prompt_stats import build_prompt_stats, truncate_with_notice
@@ -365,11 +367,11 @@ or for truly insufficient issues:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.TRANSCRIPT_LINE,
-                data={
-                    "issue": issue_number,
-                    "line": line,
-                    "source": "triage",
-                },
+                data=TranscriptLinePayload(
+                    issue=issue_number,
+                    line=line,
+                    source="triage",
+                ),
             )
         )
 
@@ -380,12 +382,12 @@ or for truly insufficient issues:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.TRIAGE_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "worker": worker_id,
-                    "status": status.value,
-                    "role": "triage",
-                },
+                data=TriageUpdatePayload(
+                    issue=issue_number,
+                    worker=worker_id,
+                    status=status.value,
+                    role="triage",
+                ),
             )
         )
 

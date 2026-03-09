@@ -13,12 +13,17 @@ from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
     BackgroundWorkerState,
+    ErrorPayload,
     GitHubIssue,
+    OrchestratorStatusPayload,
     Phase,
     PipelineStats,
+    SessionEndPayload,
     SessionLog,
+    SessionStartPayload,
     SessionStatus,
     StageStats,
+    SystemAlertPayload,
     Task,
     ThroughputStats,
     WorkFn,
@@ -434,17 +439,13 @@ class HydraFlowOrchestrator:
 
     async def _publish_status(self) -> None:
         """Broadcast the current orchestrator status to all subscribers."""
+        data: OrchestratorStatusPayload = {"status": self.run_status}
+        if self.credits_paused_until:
+            data["credits_paused_until"] = self.credits_paused_until.isoformat()
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.ORCHESTRATOR_STATUS,
-                data={
-                    "status": self.run_status,
-                    **(
-                        {"credits_paused_until": self.credits_paused_until.isoformat()}
-                        if self.credits_paused_until
-                        else {}
-                    ),
-                },
+                data=data,
             )
         )
 
@@ -743,11 +744,15 @@ class HydraFlowOrchestrator:
         self._state.reset_session_counters(session_start_time.isoformat())
         self._state.save_session(self._current_session)
         self._bus.set_session_id(session_id)
+        data: SessionStartPayload = {
+            "session_id": session_id,
+            "repo": self._config.repo,
+        }
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.SESSION_START,
                 session_id=session_id,
-                data={"session_id": session_id, "repo": self._config.repo},
+                data=data,
             )
         )
 
@@ -770,17 +775,18 @@ class HydraFlowOrchestrator:
         self._state.prune_sessions(
             self._config.repo, self._config.max_sessions_per_repo
         )
+        data: SessionEndPayload = {
+            "session_id": self._current_session.id,
+            "status": "completed",
+            "issues_processed": self._current_session.issues_processed,
+            "issues_succeeded": self._current_session.issues_succeeded,
+            "issues_failed": self._current_session.issues_failed,
+        }
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.SESSION_END,
                 session_id=self._current_session.id,
-                data={
-                    "session_id": self._current_session.id,
-                    "status": "completed",
-                    "issues_processed": self._current_session.issues_processed,
-                    "issues_succeeded": self._current_session.issues_succeeded,
-                    "issues_failed": self._current_session.issues_failed,
-                },
+                data=data,
             )
         )
         self._current_session = None
@@ -874,15 +880,16 @@ class HydraFlowOrchestrator:
             loop_name,
         )
         self._auth_failed = True
+        data: SystemAlertPayload = {
+            "message": (
+                "GitHub authentication failed. Check your gh token and restart."
+            ),
+            "source": loop_name,
+        }
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.SYSTEM_ALERT,
-                data={
-                    "message": (
-                        "GitHub authentication failed. Check your gh token and restart."
-                    ),
-                    "source": loop_name,
-                },
+                data=data,
             )
         )
         self._stop_event.set()
@@ -906,13 +913,14 @@ class HydraFlowOrchestrator:
     ) -> None:
         """Log, publish ERROR event, create a new loop task."""
         logger.error("Loop %r crashed — restarting: %s", loop_name, exc)
+        data: ErrorPayload = {
+            "message": f"Loop {loop_name} crashed and was restarted",
+            "source": loop_name,
+        }
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.ERROR,
-                data={
-                    "message": f"Loop {loop_name} crashed and was restarted",
-                    "source": loop_name,
-                },
+                data=data,
             )
         )
         factory_fn = dict(loop_factories)[loop_name]
@@ -1044,7 +1052,7 @@ class HydraFlowOrchestrator:
                     f"{display} loop iteration failed — will retry next cycle",
                 )
 
-                error_data: dict[str, Any] = {
+                error_data: ErrorPayload = {
                     "message": f"{display} loop error",
                     "source": name,
                     "exception_type": exc_type.__name__,
@@ -1067,19 +1075,20 @@ class HydraFlowOrchestrator:
                         consecutive_failures,
                         exc_type.__name__,
                     )
+                    data: SystemAlertPayload = {
+                        "message": (
+                            f"{display} loop circuit breaker: "
+                            f"{consecutive_failures} consecutive "
+                            f"{exc_type.__name__} failures"
+                        ),
+                        "source": name,
+                        "exception_type": exc_type.__name__,
+                        "consecutive_failures": consecutive_failures,
+                    }
                     await self._bus.publish(
                         HydraFlowEvent(
                             type=EventType.SYSTEM_ALERT,
-                            data={
-                                "message": (
-                                    f"{display} loop circuit breaker: "
-                                    f"{consecutive_failures} consecutive "
-                                    f"{exc_type.__name__} failures"
-                                ),
-                                "source": name,
-                                "exception_type": exc_type.__name__,
-                                "consecutive_failures": consecutive_failures,
-                            },
+                            data=data,
                         )
                     )
 
@@ -1411,17 +1420,18 @@ class HydraFlowOrchestrator:
                 pause_seconds / 60,
             )
 
+            data: SystemAlertPayload = {
+                "message": (
+                    f"Credit limit reached. Pausing all loops until "
+                    f"{resume_at.strftime('%H:%M UTC')}. "
+                    f"Will resume automatically."
+                ),
+                "source": source,
+            }
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.SYSTEM_ALERT,
-                    data={
-                        "message": (
-                            f"Credit limit reached. Pausing all loops until "
-                            f"{resume_at.strftime('%H:%M UTC')}. "
-                            f"Will resume automatically."
-                        ),
-                        "source": source,
-                    },
+                    data=data,
                 )
             )
 
@@ -1444,13 +1454,14 @@ class HydraFlowOrchestrator:
         """Clear pause state and restart all loops after credit pause."""
         self._credits_paused_until = None
         logger.info("Credit pause ended — restarting all loops")
+        data: SystemAlertPayload = {
+            "message": "Credit pause ended. Resuming all loops.",
+            "source": source,
+        }
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.SYSTEM_ALERT,
-                data={
-                    "message": "Credit pause ended. Resuming all loops.",
-                    "source": source,
-                },
+                data=data,
             )
         )
         for loop_name, factory in loop_factories:

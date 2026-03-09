@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Annotated, Any
@@ -48,7 +48,9 @@ from models import (
     CrateItemsRequest,
     CrateUpdateRequest,
     HITLCloseRequest,
+    HITLEscalationPayload,
     HITLSkipRequest,
+    HITLUpdatePayload,
     IntentRequest,
     IntentResponse,
     IssueHistoryEntry,
@@ -60,6 +62,7 @@ from models import (
     MetricsHistoryResponse,
     MetricsResponse,
     MetricsSnapshot,
+    OrchestratorStatusPayload,
     PendingReport,
     PipelineIssue,
     PipelineSnapshot,
@@ -243,7 +246,7 @@ def _parse_iso_or_none(raw: str | None) -> datetime | None:
     return parsed
 
 
-def _event_issue_number(data: dict[str, Any]) -> int | None:
+def _event_issue_number(data: Mapping[str, Any]) -> int | None:
     """Extract the issue number from an event data dict, coercing strings."""
     value = data.get("issue")
     if isinstance(value, int):
@@ -253,7 +256,9 @@ def _event_issue_number(data: dict[str, Any]) -> int | None:
     return None
 
 
-def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str | None:
+def _normalise_event_status(
+    event_type: EventType, data: Mapping[str, Any]
+) -> str | None:
     """Map an event type and its data to a normalised history status string."""
     status = str(data.get("status", "")).lower()
     result: str | None = None
@@ -1382,11 +1387,11 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_ESCALATION,
-                data={
-                    "issue": issue_number,
-                    "cause": feedback,
-                    "origin": origin_label,
-                },
+                data=HITLEscalationPayload(
+                    issue=issue_number,
+                    cause=feedback,
+                    origin=origin_label,
+                ),
             )
         )
 
@@ -1829,11 +1834,11 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "processing",
-                    "action": "correct",
-                },
+                data=HITLUpdatePayload(
+                    issue=issue_number,
+                    status="processing",
+                    action="correct",
+                ),
             )
         )
         return JSONResponse({"status": "ok"})
@@ -1901,12 +1906,12 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": action,
-                    "reason": reason,
-                },
+                data=HITLUpdatePayload(
+                    issue=issue_number,
+                    status="resolved",
+                    action=action,
+                    reason=reason,
+                ),
             )
         )
         return JSONResponse({"status": "ok"})
@@ -1972,11 +1977,11 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "approved_as_memory",
-                },
+                data=HITLUpdatePayload(
+                    issue=issue_number,
+                    status="resolved",
+                    action="approved_as_memory",
+                ),
             )
         )
         return JSONResponse({"status": "ok"})
@@ -2054,7 +2059,7 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.ORCHESTRATOR_STATUS,
-                data={"status": "running", "reset": True},
+                data=OrchestratorStatusPayload(status="running", reset=True),
             )
         )
         return JSONResponse({"status": "started"})

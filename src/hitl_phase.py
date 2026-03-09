@@ -11,6 +11,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from hitl_runner import HITLRunner
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
+from models import HITLUpdatePayload
 from phase_utils import (
     MemorySuggester,
     log_exception_with_bug_classification,
@@ -260,11 +261,11 @@ class HITLPhase:
                     await self._bus.publish(
                         HydraFlowEvent(
                             type=EventType.HITL_UPDATE,
-                            data={
-                                "issue": issue_number,
-                                "action": "resolved",
-                                "status": "resolved",
-                            },
+                            data=HITLUpdatePayload(
+                                issue=issue_number,
+                                action="resolved",
+                                status="resolved",
+                            ),
                         )
                     )
                     logger.info(
@@ -286,11 +287,11 @@ class HITLPhase:
                     await self._bus.publish(
                         HydraFlowEvent(
                             type=EventType.HITL_UPDATE,
-                            data={
-                                "issue": issue_number,
-                                "action": "failed",
-                                "status": "pending",
-                            },
+                            data=HITLUpdatePayload(
+                                issue=issue_number,
+                                action="failed",
+                                status="pending",
+                            ),
                         )
                     )
                     logger.warning(

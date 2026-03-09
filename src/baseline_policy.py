@@ -12,6 +12,7 @@ from models import (
     BaselineApprovalResult,
     BaselineAuditRecord,
     BaselineChangeType,
+    BaselineUpdatePayload,
 )
 from state import StateTracker
 
@@ -127,13 +128,13 @@ class BaselinePolicy:
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.BASELINE_UPDATE,
-                        data={
-                            "pr_number": pr_number,
-                            "issue_number": issue_number,
-                            "baseline_files": baseline_files,
-                            "approved": True,
-                            "approver": "",
-                        },
+                        data=BaselineUpdatePayload(
+                            pr_number=pr_number,
+                            issue_number=issue_number,
+                            baseline_files=baseline_files,
+                            approved=True,
+                            approver="",
+                        ),
                     )
                 )
             except Exception:  # noqa: BLE001
@@ -207,13 +208,13 @@ class BaselinePolicy:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.BASELINE_UPDATE,
-                    data={
-                        "pr_number": pr_number,
-                        "issue_number": issue_number,
-                        "baseline_files": baseline_files,
-                        "approved": approved,
-                        "approver": approver,
-                    },
+                    data=BaselineUpdatePayload(
+                        pr_number=pr_number,
+                        issue_number=issue_number,
+                        baseline_files=baseline_files,
+                        approved=approved,
+                        approver=approver,
+                    ),
                 )
             )
         except Exception:  # noqa: BLE001
@@ -269,14 +270,14 @@ class BaselinePolicy:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.BASELINE_UPDATE,
-                    data={
-                        "pr_number": pr_number,
-                        "issue_number": issue_number,
-                        "baseline_files": record.changed_files,
-                        "rollback": True,
-                        "approver": approver,
-                        "reason": reason,
-                    },
+                    data=BaselineUpdatePayload(
+                        pr_number=pr_number,
+                        issue_number=issue_number,
+                        baseline_files=record.changed_files,
+                        rollback=True,
+                        approver=approver,
+                        reason=reason,
+                    ),
                 )
             )
         except Exception:  # noqa: BLE001

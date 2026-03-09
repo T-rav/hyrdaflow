@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from events import EventType, HydraFlowEvent
+from models import CrateActivatedPayload, CrateCompletedPayload
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -62,7 +63,7 @@ class CrateManager:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.CRATE_ACTIVATED,
-                data={"crate_number": number},
+                data=CrateActivatedPayload(crate_number=number),
             )
         )
 
@@ -93,7 +94,7 @@ class CrateManager:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.CRATE_COMPLETED,
-                data={"crate_number": active},
+                data=CrateCompletedPayload(crate_number=active),
             )
         )
 

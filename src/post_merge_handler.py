@@ -28,9 +28,11 @@ from models import (
     PublishFn,
     ReviewResult,
     StatusCallback,
+    SystemAlertPayload,
     Task,
     VerificationCriterion,
     VisualGateFn,
+    VisualGatePayload,
     VisualValidationDecision,
     VisualValidationPolicy,
 )
@@ -190,13 +192,13 @@ class PostMergeHandler:
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.VISUAL_GATE,
-                        data={
-                            "pr": pr.number,
-                            "issue": issue.id,
-                            "worker": worker_id,
-                            "verdict": "blocked",
-                            "reason": "no visual_gate_fn provided to handle_approved",
-                        },
+                        data=VisualGatePayload(
+                            pr=pr.number,
+                            issue=issue.id,
+                            worker=worker_id,
+                            verdict="blocked",
+                            reason="no visual_gate_fn provided to handle_approved",
+                        ),
                     )
                 )
                 return
@@ -250,15 +252,15 @@ class PostMergeHandler:
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.SYSTEM_ALERT,
-                        data={
-                            "message": (
+                        data=SystemAlertPayload(
+                            message=(
                                 f"Threshold breached: {proposal['metric']} "
                                 f"({proposal['value']:.2f} vs {proposal['threshold']:.2f}). "
                                 f"{proposal['action']}"
                             ),
-                            "source": "threshold_check",
-                            "threshold": proposal,
-                        },
+                            source="threshold_check",
+                            threshold=proposal,
+                        ),
                     )
                 )
             self._state.record_outcome(
@@ -362,15 +364,15 @@ class PostMergeHandler:
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.SYSTEM_ALERT,
-                        data={
-                            "message": (
+                        data=SystemAlertPayload(
+                            message=(
                                 f"Post-merge hook '{name}' failed for issue "
                                 f"#{issue_number}: {error_msg}"
                             ),
-                            "source": "post_merge_hook",
-                            "hook_name": name,
-                            "issue": issue_number,
-                        },
+                            source="post_merge_hook",
+                            hook_name=name,
+                            issue=issue_number,
+                        ),
                     )
                 )
             except Exception:  # noqa: BLE001

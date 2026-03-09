@@ -11,7 +11,7 @@ from typing import Literal
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
-from models import NewIssueSpec, PlannerStatus, PlanResult, Task
+from models import NewIssueSpec, PlannerStatus, PlannerUpdatePayload, PlanResult, Task
 from phase_utils import is_likely_bug
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
@@ -1175,12 +1175,12 @@ SUMMARY: <brief one-line description of the plan>
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.PLANNER_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "worker": worker_id,
-                    "status": status.value,
-                    "role": "planner",
-                },
+                data=PlannerUpdatePayload(
+                    issue=issue_number,
+                    worker=worker_id,
+                    status=status.value,
+                    role="planner",
+                ),
             )
         )
 

@@ -15,7 +15,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
-from models import PipelineStage, PRInfo, Task
+from models import PipelineStage, PRInfo, ReviewUpdatePayload, Task
 from ports import PRPort
 from state import StateTracker
 
@@ -251,13 +251,13 @@ async def publish_review_status(
     await bus.publish(
         HydraFlowEvent(
             type=EventType.REVIEW_UPDATE,
-            data={
-                "pr": pr.number,
-                "issue": pr.issue_number,
-                "worker": worker_id,
-                "status": status,
-                "role": "reviewer",
-            },
+            data=ReviewUpdatePayload(
+                pr=pr.number,
+                issue=pr.issue_number,
+                worker=worker_id,
+                status=status,
+                role="reviewer",
+            ),
         )
     )
 

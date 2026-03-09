@@ -19,10 +19,14 @@ from urllib.parse import quote
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
+    CICheckPayload,
     Crate,
     GitHubIssue,
     HITLItem,
+    IssueCreatedPayload,
     LabelCounts,
+    MergeUpdatePayload,
+    PRCreatedPayload,
     PRInfo,
     PRListItem,
     ReviewVerdict,
@@ -290,13 +294,13 @@ class PRManager:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.PR_CREATED,
-                    data={
-                        "pr": pr_number,
-                        "issue": issue.number,
-                        "branch": branch,
-                        "draft": draft,
-                        "url": pr_url,
-                    },
+                    data=PRCreatedPayload(
+                        pr=pr_number,
+                        issue=issue.number,
+                        branch=branch,
+                        draft=draft,
+                        url=pr_url,
+                    ),
                 )
             )
 
@@ -413,7 +417,7 @@ class PRManager:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.MERGE_UPDATE,
-                    data={"pr": pr_number, "status": "merged"},
+                    data=MergeUpdatePayload(pr=pr_number, status="merged"),
                 )
             )
             return True
@@ -755,11 +759,11 @@ class PRManager:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.ISSUE_CREATED,
-                    data={
-                        "number": issue_number,
-                        "title": title,
-                        "labels": labels or [],
-                    },
+                    data=IssueCreatedPayload(
+                        number=issue_number,
+                        title=title,
+                        labels=labels or [],
+                    ),
                 )
             )
             return issue_number
@@ -1105,12 +1109,12 @@ class PRManager:
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.CI_CHECK,
-                        data={
-                            "pr": pr_number,
-                            "status": "pending",
-                            "pending": pending_count,
-                            "total": len(checks),
-                        },
+                        data=CICheckPayload(
+                            pr=pr_number,
+                            status="pending",
+                            pending=pending_count,
+                            total=len(checks),
+                        ),
                     )
                 )
                 try:
@@ -1121,10 +1125,10 @@ class PRManager:
                     continue
 
             passed, msg = verdict
-            data: dict[str, object] = {
-                "pr": pr_number,
-                "status": "passed" if passed else "failed",
-            }
+            data: CICheckPayload = CICheckPayload(
+                pr=pr_number,
+                status="passed" if passed else "failed",
+            )
             if not passed:
                 # Extract failed names from the message for the event
                 data["failed"] = [

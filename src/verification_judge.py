@@ -18,6 +18,7 @@ from models import (
     InstructionsQualityResult,
     JudgeVerdict,
     ParsedCriteria,
+    VerificationJudgePayload,
 )
 from phase_utils import is_likely_bug
 from precheck import run_precheck_context
@@ -183,13 +184,13 @@ class VerificationJudge:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.VERIFICATION_JUDGE,
-                data={
-                    "issue": issue_number,
-                    "pr": pr_number,
-                    "all_criteria_pass": verdict.all_criteria_pass,
-                    "instructions_quality": verdict.instructions_quality.value,
-                    "summary": verdict.summary,
-                },
+                data=VerificationJudgePayload(
+                    issue=issue_number,
+                    pr=pr_number,
+                    all_criteria_pass=verdict.all_criteria_pass,
+                    instructions_quality=verdict.instructions_quality.value,
+                    summary=verdict.summary,
+                ),
             )
         )
 
