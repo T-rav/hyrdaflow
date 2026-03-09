@@ -95,7 +95,7 @@ make run            # Start backend + Vite frontend dev server
 make dry-run        # Dry run (log actions without executing)
 make clean          # Remove all worktrees and state
 make status         # Show current HydraFlow state
-make test           # Run unit tests (parallel)
+make test           # Run unit tests (fail-fast)
 make test-fast      # Quick test run (-x --tb=short)
 make test-cov       # Run tests with coverage report (70% threshold)
 make lint           # Auto-fix linting
