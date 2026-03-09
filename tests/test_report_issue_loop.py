@@ -682,7 +682,6 @@ class TestSaveScreenshotResourceManagement:
         ):
             mock_ctx = MagicMock()
             mock_ctx.__enter__ = MagicMock(side_effect=OSError("disk full"))
-            mock_ctx.__exit__ = MagicMock(return_value=False)
             mock_fdopen.return_value = mock_ctx
 
             with pytest.raises(OSError, match="disk full"):

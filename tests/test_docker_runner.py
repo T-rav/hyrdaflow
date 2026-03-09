@@ -1437,6 +1437,8 @@ class TestContainerCleanupLogging:
         mock_logger.debug.assert_called()
         log_msg = mock_logger.debug.call_args[0][0]
         assert "Failed to remove container" in log_msg
+        _, debug_kwargs = mock_logger.debug.call_args
+        assert debug_kwargs.get("exc_info") is True
 
     @pytest.mark.asyncio
     async def test_cleanup_logs_removal_failure(self, tmp_path: Path) -> None:
@@ -1454,6 +1456,12 @@ class TestContainerCleanupLogging:
 
         debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
         assert any("Failed to remove container" in msg for msg in debug_calls)
+        cleanup_call = next(
+            c
+            for c in mock_logger.debug.call_args_list
+            if "Failed to remove container" in c[0][0]
+        )
+        assert cleanup_call[1].get("exc_info") is True
         # Containers set should still be cleared
         assert len(runner._containers) == 0
 
@@ -1475,9 +1483,12 @@ class TestContainerCleanupLogging:
         with pytest.raises(TimeoutError), patch("docker_runner.logger") as mock_logger:
             await runner.run_simple(["echo", "hi"], timeout=0.01)
 
-        # Should have logged the kill failure
-        debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
-        assert any("Failed to kill container" in msg for msg in debug_calls)
+        # Should have logged the kill failure with exc_info
+        debug_calls = mock_logger.debug.call_args_list
+        kill_call = next(
+            c for c in debug_calls if "Failed to kill container" in c[0][0]
+        )
+        assert kill_call[1].get("exc_info") is True
 
     @pytest.mark.asyncio
     async def test_run_simple_logs_remove_failure_in_finally(
@@ -1497,5 +1508,8 @@ class TestContainerCleanupLogging:
         with patch("docker_runner.logger") as mock_logger:
             await runner.run_simple(["echo", "hi"])
 
-        debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
-        assert any("Failed to remove container" in msg for msg in debug_calls)
+        debug_calls = mock_logger.debug.call_args_list
+        remove_call = next(
+            c for c in debug_calls if "Failed to remove container" in c[0][0]
+        )
+        assert remove_call[1].get("exc_info") is True
