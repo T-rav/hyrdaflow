@@ -723,25 +723,17 @@ class TestListOpenPrsExceptionHandling:
     """Verify list_open_prs logs debug on per-item failures."""
 
     @pytest.mark.asyncio
-    async def test_logs_debug_on_per_item_key_error(
-        self, config, event_bus, caplog
-    ) -> None:
-        """A PR item missing 'number' key should be skipped with debug logging."""
-        import logging
-
+    async def test_skips_items_missing_number_key(self, config, event_bus) -> None:
+        """A PR item missing 'number' key should be silently skipped."""
         mgr = _make_manager(config, event_bus)
         # JSON with one item missing the 'number' key
         pr_json = json.dumps([{"url": "...", "headRefName": "agent/issue-1"}])
         mock_create = SubprocessMockBuilder().with_stdout(pr_json).build()
 
-        with (
-            caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"),
-            patch("asyncio.create_subprocess_exec", mock_create),
-        ):
+        with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.list_open_prs(["label"])
 
         assert result == []
-        assert "Skipping PR in list_open_prs" in caplog.text
 
     @pytest.mark.asyncio
     async def test_logs_debug_on_subprocess_failure(
@@ -762,7 +754,7 @@ class TestListOpenPrsExceptionHandling:
             result = await mgr.list_open_prs(["label"])
 
         assert result == []
-        assert "Skipping PR in list_open_prs" in caplog.text
+        assert "Failed in list_open_prs" in caplog.text
 
 
 class TestListHitlItemsExceptionHandling:
@@ -796,7 +788,7 @@ class TestListHitlItemsExceptionHandling:
             result = await mgr.list_hitl_items(["hydraflow-hitl"])
 
         assert result == []
-        assert "Failed to fetch HITL issues for label" in caplog.text
+        assert "Failed in fetch_hitl_raw_issues" in caplog.text
 
     @pytest.mark.asyncio
     async def test_logs_debug_on_pr_lookup_failure(
@@ -1414,3 +1406,237 @@ class TestCountHelpers:
         assert captured_queries == [
             'repo:test-org/test-repo is:pr is:merged label:"hydraflow-fixed"'
         ]
+
+
+# ---------------------------------------------------------------------------
+# _query_issues_by_labels
+# ---------------------------------------------------------------------------
+
+
+class TestQueryIssuesByLabels:
+    """Tests for the shared _query_issues_by_labels helper."""
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_across_labels(self, event_bus, tmp_path):
+        """Items appearing under multiple labels should only be returned once."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        item = json.dumps([{"number": 7, "title": "Dup", "url": "u"}])
+
+        async def mock_run_gh(*cmd, cwd=None):
+            return item
+
+        mgr._run_gh = mock_run_gh
+
+        results = await mgr._query_issues_by_labels(
+            ["label-a", "label-b"],
+            "[.[] | {number, title, url: .html_url}]",
+        )
+        assert len(results) == 1
+        assert results[0]["number"] == 7
+
+    @pytest.mark.asyncio
+    async def test_skips_items_missing_number(self, event_bus, tmp_path):
+        """Items without a 'number' key should be silently skipped."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        items = json.dumps([{"title": "No num"}, {"number": 5, "title": "OK"}])
+
+        async def mock_run_gh(*cmd, cwd=None):
+            return items
+
+        mgr._run_gh = mock_run_gh
+
+        results = await mgr._query_issues_by_labels(["lbl"], "[.[] | {number, title}]")
+        assert len(results) == 1
+        assert results[0]["number"] == 5
+
+    @pytest.mark.asyncio
+    async def test_logs_at_specified_error_level(self, event_bus, tmp_path, caplog):
+        """Failures should be logged at the given error_level."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        async def mock_run_gh(*cmd, cwd=None):
+            raise RuntimeError("api down")
+
+        mgr._run_gh = mock_run_gh
+
+        with caplog.at_level(logging.WARNING):
+            results = await mgr._query_issues_by_labels(
+                ["lbl"],
+                ".",
+                error_context="test_ctx",
+                error_level="warning",
+            )
+
+        assert results == []
+        assert "test_ctx" in caplog.text
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_skips_label_on_json_decode_error(self, event_bus, tmp_path):
+        """A JSONDecodeError for one label should be caught and skipped."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        call_idx = 0
+
+        async def mock_run_gh(*cmd, cwd=None):
+            nonlocal call_idx
+            call_idx += 1
+            if call_idx == 1:
+                return "not valid json{"
+            return json.dumps([{"number": 9, "title": "OK"}])
+
+        mgr._run_gh = mock_run_gh
+
+        results = await mgr._query_issues_by_labels(
+            ["bad-json-label", "good-label"], "."
+        )
+        assert len(results) == 1
+        assert results[0]["number"] == 9
+
+    @pytest.mark.asyncio
+    async def test_skips_label_on_attribute_error(self, event_bus, tmp_path):
+        """A non-list jq result (e.g. dict) causes AttributeError and is skipped."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        call_idx = 0
+
+        async def mock_run_gh(*cmd, cwd=None):
+            nonlocal call_idx
+            call_idx += 1
+            if call_idx == 1:
+                # Dict instead of list — iterating yields string keys, .get() raises AttributeError
+                return '{"error": "api error"}'
+            return json.dumps([{"number": 9, "title": "OK"}])
+
+        mgr._run_gh = mock_run_gh
+
+        results = await mgr._query_issues_by_labels(
+            ["bad-response-label", "good-label"], "."
+        )
+        assert len(results) == 1
+        assert results[0]["number"] == 9
+
+    @pytest.mark.asyncio
+    async def test_empty_labels_returns_empty(self, event_bus, tmp_path):
+        """No labels means no API calls and empty results."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        call_count = 0
+
+        async def mock_run_gh(*cmd, cwd=None):
+            nonlocal call_count
+            call_count += 1
+            return "[]"
+
+        mgr._run_gh = mock_run_gh
+
+        results = await mgr._query_issues_by_labels([], ".")
+        assert results == []
+        assert call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_continues_after_one_label_fails(self, event_bus, tmp_path):
+        """A failure for one label should not prevent results from other labels."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        call_idx = 0
+
+        async def mock_run_gh(*cmd, cwd=None):
+            nonlocal call_idx
+            call_idx += 1
+            if call_idx == 1:
+                raise RuntimeError("fail")
+            return json.dumps([{"number": 3, "title": "OK"}])
+
+        mgr._run_gh = mock_run_gh
+
+        results = await mgr._query_issues_by_labels(["bad-label", "good-label"], ".")
+        assert len(results) == 1
+        assert results[0]["number"] == 3
+
+    @pytest.mark.asyncio
+    async def test_list_open_prs_uses_query_helper(self, event_bus, tmp_path):
+        """list_open_prs should delegate to _query_issues_by_labels."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        helper_called = False
+
+        async def mock_query(labels, jq, **kwargs):
+            nonlocal helper_called
+            helper_called = True
+            return [{"number": 1, "url": "https://github.com/o/r/pull/1", "title": "t"}]
+
+        mgr._query_issues_by_labels = mock_query
+        # Mock the per-PR branch lookup
+        mgr._get_pr_branch_and_draft = AsyncMock(return_value=("agent/issue-1", False))
+
+        await mgr.list_open_prs(["label"])
+        assert helper_called
+
+    @pytest.mark.asyncio
+    async def test_fetch_hitl_uses_query_helper(self, event_bus, tmp_path):
+        """_fetch_hitl_raw_issues should delegate to _query_issues_by_labels."""
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+
+        helper_called = False
+        captured_level = None
+
+        async def mock_query(labels, jq, **kwargs):
+            nonlocal helper_called, captured_level
+            helper_called = True
+            captured_level = kwargs.get("error_level")
+            return [{"number": 10, "title": "Fix", "url": "u"}]
+
+        mgr._query_issues_by_labels = mock_query
+
+        result = await mgr._fetch_hitl_raw_issues(["hitl-label"])
+        assert helper_called
+        assert captured_level == "warning"
+        assert len(result) == 1

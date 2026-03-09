@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from models import ConflictResolutionResult, HITLUpdatePayload
-from phase_utils import safe_file_memory_suggestion
+from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
 
 if TYPE_CHECKING:
@@ -123,6 +123,7 @@ class PRUnsticker:
         self._stop_event = stop_event or asyncio.Event()
         self._resolver = resolver
         self._troubleshooting_store = troubleshooting_store
+        self._suggest_memory = MemorySuggester(config, pr_manager, state)
 
     async def unstick(self, hitl_items: list[HITLItem]) -> UnstickResult:
         """Process HITL items and return stats.
@@ -337,7 +338,7 @@ class PRUnsticker:
                 )
                 return False
 
-        except Exception:
+        except (RuntimeError, OSError, ValueError, asyncio.CancelledError):
             logger.exception("PR Unsticker failed for issue #%d", issue_number)
             await self._release_back_to_hitl(
                 issue_number,
@@ -440,13 +441,8 @@ class PRUnsticker:
                     issue_number,
                 )
 
-            await safe_file_memory_suggestion(
-                transcript,
-                "pr_unsticker",
-                f"issue #{issue_number}",
-                self._config,
-                self._prs,
-                self._state,
+            await self._suggest_memory(
+                transcript, "pr_unsticker", f"issue #{issue_number}"
             )
 
             success, error_msg = await self._agents._verify_result(wt_path, branch)
@@ -459,7 +455,7 @@ class PRUnsticker:
                 error_msg[:200] if error_msg else "",
             )
             return False
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError, asyncio.CancelledError) as exc:
             logger.error(
                 "Unsticker CI fix agent failed for issue #%d: %s",
                 issue_number,
@@ -611,13 +607,8 @@ diff — you may catch things `make quality` won't.
                         source="unsticker",
                     )
 
-                await safe_file_memory_suggestion(
-                    transcript,
-                    "pr_unsticker",
-                    f"issue #{issue_number}",
-                    self._config,
-                    self._prs,
-                    self._state,
+                await self._suggest_memory(
+                    transcript, "pr_unsticker", f"issue #{issue_number}"
                 )
 
                 success, error_msg = await self._agents._verify_result(wt_path, branch)
@@ -635,7 +626,7 @@ diff — you may catch things `make quality` won't.
                     issue_number,
                     error_msg[:200] if error_msg else "",
                 )
-            except Exception as exc:
+            except (RuntimeError, OSError, ValueError, asyncio.CancelledError) as exc:
                 logger.error(
                     "Unsticker CI timeout agent failed for issue #%d (attempt %d): %s",
                     issue_number,
@@ -651,7 +642,7 @@ diff — you may catch things `make quality` won't.
             from polyglot_prep import detect_prep_stack
 
             return detect_prep_stack(wt_path)
-        except Exception as exc:  # noqa: BLE001
+        except (RuntimeError, OSError, ImportError) as exc:
             logger.warning(
                 "Falling back to 'general' language classification for %s: %s",
                 wt_path,
@@ -697,7 +688,7 @@ diff — you may catch things `make quality` won't.
                     pattern.pattern_name,
                     issue_number,
                 )
-        except Exception as exc:  # noqa: BLE001
+        except (RuntimeError, OSError, ImportError) as exc:
             logger.warning(
                 "Failed to persist troubleshooting pattern for issue #%d: %s",
                 issue_number,
@@ -853,7 +844,7 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
                 "tests are hanging. Check the test output for the last test "
                 "that started running before the timeout."
             )
-        except Exception as exc:
+        except (RuntimeError, OSError) as exc:
             return f"Test isolation failed ({test_cmd}): {exc}"
 
     def _build_ci_timeout_fix_prompt(
@@ -1049,7 +1040,7 @@ TROUBLESHOOTING_PATTERN_END
                         issue_number,
                         "Cascade conflict: merge main after sibling PR merged",
                     )
-            except Exception:
+            except (RuntimeError, OSError):
                 logger.warning(
                     "Re-rebase failed for issue #%d after merge",
                     issue_number,

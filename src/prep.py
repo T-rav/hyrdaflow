@@ -781,7 +781,7 @@ class RepoAuditor:
             return AuditCheck(
                 name="AGENTS.md",
                 status=AuditCheckStatus.PARTIAL,
-                detail="AGENTS.md exists as a directory, not a file — remove it and run `hf init`",
+                detail="AGENTS.md exists as a directory, not a file — remove it and run `make setup`",
             )
 
         if agents_md.is_file():
@@ -797,7 +797,7 @@ class RepoAuditor:
             detail=(
                 "missing AGENTS.md — agent roles, output markers, and prompt "
                 "contracts are undocumented; copy from the HydraFlow repo or run "
-                "`hf init` to scaffold"
+                "`make setup` to sync it"
             ),
         )
 

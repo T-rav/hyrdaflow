@@ -13,8 +13,8 @@ from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
 from models import HITLUpdatePayload
 from phase_utils import (
+    MemorySuggester,
     log_exception_with_bug_classification,
-    safe_file_memory_suggestion,
 )
 from pr_manager import PRManager
 from state import StateTracker
@@ -57,6 +57,7 @@ class HITLPhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._active_issues_cb = active_issues_cb
+        self._suggest_memory = MemorySuggester(config, prs, state)
         # HITL corrections: {issue_number: correction_text}
         self._hitl_corrections: dict[int, str] = {}
         # In-memory tracking of active HITL issues
@@ -217,13 +218,8 @@ class HITLPhase:
 
                 # File memory suggestion if present in transcript
                 if result.transcript:
-                    await safe_file_memory_suggestion(
-                        result.transcript,
-                        "hitl",
-                        f"issue #{issue_number}",
-                        self._config,
-                        self._prs,
-                        self._state,
+                    await self._suggest_memory(
+                        result.transcript, "hitl", f"issue #{issue_number}"
                     )
 
                 if result.success:

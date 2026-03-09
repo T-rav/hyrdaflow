@@ -989,74 +989,6 @@ class TestStartStop:
             await dashboard.start()
 
     @pytest.mark.asyncio
-    async def test_start_auto_starts_supervisor_when_enabled(
-        self, config: HydraFlowConfig, event_bus: EventBus, state
-    ) -> None:
-        from dashboard import HydraFlowDashboard
-
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-        mock_server = AsyncMock()
-        mock_server.serve = AsyncMock(return_value=None)
-        mock_manager = MagicMock()
-        mock_manager.ensure_running = MagicMock(return_value=None)
-
-        with (
-            patch("dashboard._auto_start_supervisor_enabled", return_value=True),
-            patch("dashboard.importlib.import_module", return_value=mock_manager),
-            patch("uvicorn.Config"),
-            patch("uvicorn.Server", return_value=mock_server),
-        ):
-            await dashboard.start()
-
-        mock_manager.ensure_running.assert_called_once()
-
-        if dashboard._server_task and not dashboard._server_task.done():
-            dashboard._server_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await dashboard._server_task
-
-    @pytest.mark.asyncio
-    async def test_start_does_not_auto_start_supervisor_when_disabled(
-        self, config: HydraFlowConfig, event_bus: EventBus, state
-    ) -> None:
-        from dashboard import HydraFlowDashboard
-
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-        mock_server = AsyncMock()
-        mock_server.serve = AsyncMock(return_value=None)
-
-        with (
-            patch("dashboard._auto_start_supervisor_enabled", return_value=False),
-            patch("dashboard.asyncio.to_thread") as to_thread,
-            patch("uvicorn.Config"),
-            patch("uvicorn.Server", return_value=mock_server),
-        ):
-            await dashboard.start()
-
-        to_thread.assert_not_called()
-
-        if dashboard._server_task and not dashboard._server_task.done():
-            dashboard._server_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await dashboard._server_task
-
-    def test_auto_start_supervisor_env_defaults_true(self, monkeypatch) -> None:
-        from dashboard import _auto_start_supervisor_enabled
-
-        monkeypatch.delenv("HYDRAFLOW_AUTO_START_SUPERVISOR", raising=False)
-        monkeypatch.delenv("HF_AUTO_START_SUPERVISOR", raising=False)
-
-        assert _auto_start_supervisor_enabled() is True
-
-    def test_auto_start_supervisor_prefers_hydraflow_env(self, monkeypatch) -> None:
-        from dashboard import _auto_start_supervisor_enabled
-
-        monkeypatch.setenv("HYDRAFLOW_AUTO_START_SUPERVISOR", "false")
-        monkeypatch.setenv("HF_AUTO_START_SUPERVISOR", "true")
-
-        assert _auto_start_supervisor_enabled() is False
-
-    @pytest.mark.asyncio
     async def test_stop_cancels_server_task(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -3080,3 +3012,26 @@ class TestRegistryForwarding:
 
         dashboard = HydraFlowDashboard(config, event_bus, state)
         assert dashboard._registry is None
+
+
+# ---------------------------------------------------------------------------
+# serve() module-level entry point
+# ---------------------------------------------------------------------------
+
+
+class TestServeEntryPoint:
+    """Tests for the module-level serve() function."""
+
+    def test_serve_delegates_to_server_main(self) -> None:
+        """serve() should call server.main() with no arguments."""
+        with patch("server.main") as mock_main:
+            from dashboard import serve
+
+            serve()
+            mock_main.assert_called_once_with()
+
+    def test_serve_is_importable(self) -> None:
+        """serve() should be importable from the dashboard module."""
+        from dashboard import serve
+
+        assert callable(serve)

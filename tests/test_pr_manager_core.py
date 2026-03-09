@@ -1779,8 +1779,8 @@ async def test_ensure_labels_exist_handles_individual_failures(event_bus, tmp_pa
     assert create_count == len(PRManager._HYDRAFLOW_LABELS)
 
 
-def test_makefile_ensure_labels_runs_cli_prep() -> None:
-    """Makefile ensure-labels target should call ``cli.py --ensure-labels`` directly."""
+def test_makefile_ensure_labels_calls_dedicated_task() -> None:
+    """Makefile ensure-labels target should invoke the label-only admin task directly."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1788,13 +1788,17 @@ def test_makefile_ensure_labels_runs_cli_prep() -> None:
 
     match = re.search(r"^ensure-labels:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "ensure-labels target block not found in Makefile"
-    assert "--ensure-labels" in match.group(1), (
-        "ensure-labels target must call cli.py --ensure-labels"
+    block = match.group(1)
+    assert "run_admin_task.py" in block and "ensure-labels" in block, (
+        "ensure-labels target must invoke scripts/run_admin_task.py ensure-labels directly"
+    )
+    assert "/api/admin/prep" not in block, (
+        "ensure-labels must not call the full /api/admin/prep endpoint"
     )
 
 
 def test_makefile_prep_runs_cli_scaffold() -> None:
-    """Makefile prep target should call ``cli.py --prep``."""
+    """Makefile prep target should run setup then invoke the prep task directly."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1805,11 +1809,13 @@ def test_makefile_prep_runs_cli_scaffold() -> None:
     assert "$(MAKE) setup" in match.group(1), (
         "prep target must run setup first to bootstrap agent assets"
     )
-    assert "--prep" in match.group(1), "prep target must call cli.py --prep"
+    assert "run_admin_task.py" in match.group(1) and "prep" in match.group(1), (
+        "prep target must invoke scripts/run_admin_task.py prep directly (no server required)"
+    )
 
 
 def test_makefile_setup_runs_label_bootstrap() -> None:
-    """Makefile setup target should run ``cli.py --ensure-labels`` to ensure labels."""
+    """Makefile setup target should copy agent assets and configure managed Codex skills."""
     from pathlib import Path
 
     makefile = Path(__file__).resolve().parent.parent / "Makefile"
@@ -1817,11 +1823,8 @@ def test_makefile_setup_runs_label_bootstrap() -> None:
 
     match = re.search(r"^setup:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "setup target block not found in Makefile"
-    assert "--ensure-labels" in match.group(1), (
-        "setup target must ensure labels via cli.py --ensure-labels"
-    )
-    assert "python -m hf_cli init --target" in match.group(1), (
-        "setup target must bootstrap .claude/.codex/.pi/.githooks via hf init"
+    assert "synced $$ASSET" in match.group(1), (
+        "setup target must copy .claude/.codex/.pi/.githooks assets"
     )
     assert ".hydraflow-managed" in match.group(1), (
         "setup target should mark managed Codex skills to enable safe stale-skill pruning"
@@ -1956,6 +1959,123 @@ async def test_run_with_body_file_cleans_up_on_error(event_bus, tmp_path):
 
     assert temp_file_path is not None
     assert not Path(temp_file_path).exists(), "Temp file should be cleaned up on error"
+
+
+@pytest.mark.asyncio
+async def test_run_with_body_file_custom_file_flag(event_bus, tmp_path):
+    """_run_with_body_file should use the custom file_flag when provided."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout("ok").build()
+    captured_flag = None
+
+    original_mock = mock_create
+
+    async def capture_flag(*args, **kwargs):
+        nonlocal captured_flag
+        cmd = args
+        for i, arg in enumerate(cmd):
+            if arg == "--notes-file" and i + 1 < len(cmd):
+                captured_flag = arg
+                break
+        return await original_mock(*args, **kwargs)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=capture_flag):
+        await mgr._run_with_body_file(
+            "gh",
+            "release",
+            "create",
+            "v1.0",
+            body="Release notes",
+            file_flag="--notes-file",
+        )
+
+    assert captured_flag == "--notes-file"
+
+
+@pytest.mark.asyncio
+async def test_run_with_body_file_defaults_cwd_to_repo_root(event_bus, tmp_path):
+    """_run_with_body_file should default cwd to config.repo_root when omitted."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout("ok").build()
+    captured_cwd = None
+
+    original_mock = mock_create
+
+    async def capture_cwd(*args, **kwargs):
+        nonlocal captured_cwd
+        captured_cwd = kwargs.get("cwd")
+        return await original_mock(*args, **kwargs)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=capture_cwd):
+        await mgr._run_with_body_file("gh", "issue", "comment", "1", body="content")
+
+    assert str(captured_cwd) == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# create_release delegates to _run_with_body_file
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_release_uses_notes_file_flag(event_bus, tmp_path):
+    """create_release should delegate to _run_with_body_file with --notes-file."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+
+    with patch.object(
+        mgr, "_run_with_body_file", new_callable=AsyncMock, return_value=""
+    ) as mock_rwbf:
+        result = await mgr.create_release("v1.0.0", "Release Title", "Notes body")
+
+    assert result is True
+    mock_rwbf.assert_called_once()
+    call_kwargs = mock_rwbf.call_args
+    assert call_kwargs.kwargs["body"] == "Notes body"
+    assert call_kwargs.kwargs["file_flag"] == "--notes-file"
+    assert "--title" in call_kwargs.args
+    assert "Release Title" in call_kwargs.args
+
+
+@pytest.mark.asyncio
+async def test_update_issue_body_delegates_to_run_with_body_file(event_bus, tmp_path):
+    """update_issue_body should delegate to _run_with_body_file."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+
+    with patch.object(
+        mgr, "_run_with_body_file", new_callable=AsyncMock, return_value=""
+    ) as mock_rwbf:
+        await mgr.update_issue_body(42, "New body")
+
+    mock_rwbf.assert_called_once()
+    call_kwargs = mock_rwbf.call_args
+    assert call_kwargs.kwargs["body"] == "New body"
+    assert "42" in call_kwargs.args
+    assert "issue" in call_kwargs.args
+    assert "edit" in call_kwargs.args
 
 
 # ---------------------------------------------------------------------------

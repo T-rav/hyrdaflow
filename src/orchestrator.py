@@ -29,11 +29,11 @@ from models import (
     WorkFn,
 )
 from phase_utils import (
+    MemorySuggester,
     is_adr_issue_title,
     is_likely_bug,
     log_exception_with_bug_classification,
     release_batch_in_flight,
-    safe_file_memory_suggestion,
 )
 from service_registry import OrchestratorCallbacks, build_services
 from state import StateTracker
@@ -160,6 +160,7 @@ class HydraFlowOrchestrator:
         self._runs_gc_loop = svc.runs_gc_loop
         self._adr_reviewer_loop = svc.adr_reviewer_loop
         self._crate_manager = svc.crate_manager
+        self._suggest_memory = MemorySuggester(config, self._prs, self._state)
 
         # Registry of triggerable background loop instances
         self._bg_loop_registry: dict[str, BaseBackgroundLoop] = {
@@ -861,14 +862,14 @@ class HydraFlowOrchestrator:
 
         AGENTS.md documents the prompt contracts for all agent roles.  Its
         absence means agent behaviour is undocumented and harder to audit or
-        adapt.  Run ``hf init`` or copy AGENTS.md from the HydraFlow repo to
-        resolve this.
+        adapt.  Run ``make setup`` (copies AGENTS.md into the target repo) or
+        copy AGENTS.md from the HydraFlow repo to resolve this.
         """
         agents_md = self._config.repo_root / "AGENTS.md"
         if not agents_md.is_file():
             logger.warning(
                 "AGENTS.md not found in %s — agent prompt contracts are "
-                "undocumented. Run `hf init` to scaffold it.",
+                "undocumented. Run `make setup` to sync it from HydraFlow.",
                 self._config.repo_root,
             )
 
@@ -1181,14 +1182,7 @@ class HydraFlowOrchestrator:
         log_file: str,
     ) -> None:
         """Run memory-suggestion filing and transcript summarization for a completed run."""
-        await safe_file_memory_suggestion(
-            transcript,
-            source,
-            reference,
-            self._config,
-            self._prs,
-            self._state,
-        )
+        await self._suggest_memory(transcript, source, reference)
         if issue_number > 0:
             try:
                 await self._summarizer.summarize_and_comment(

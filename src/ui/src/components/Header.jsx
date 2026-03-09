@@ -242,7 +242,7 @@ export function Header({ connected, orchestratorStatus }) {
           {appVersion && <span style={styles.version}>v{appVersion}</span>}
           {updateAvailable && (
             <span style={styles.updateNotice}>
-              Update available: v{latestVersion} (`hf check-update`)
+              Update available: v{latestVersion} (`uv pip install --upgrade hydraflow`)
             </span>
           )}
         </div>

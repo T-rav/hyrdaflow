@@ -323,12 +323,22 @@ class TriageStatus(StrEnum):
 class TriageResult(BaseModel):
     """Outcome of evaluating a single issue for readiness."""
 
-    issue_number: int
-    ready: bool = False
-    reasons: list[str] = Field(default_factory=list)
-    complexity_score: int = 0
-    issue_type: IssueType = IssueType.FEATURE
-    enrichment: str = ""
+    issue_number: int = Field(description="GitHub issue number that was triaged")
+    ready: bool = Field(
+        default=False, description="Whether the issue is ready for planning"
+    )
+    reasons: list[str] = Field(
+        default_factory=list, description="Reasons for the readiness decision"
+    )
+    complexity_score: int = Field(
+        default=0, ge=0, le=10, description="Complexity score 0-10"
+    )
+    issue_type: IssueType = Field(
+        default=IssueType.FEATURE, description="Classified issue type"
+    )
+    enrichment: str = Field(
+        default="", description="Additional context gathered during triage"
+    )
 
     @field_validator("issue_type", mode="before")
     @classmethod
@@ -379,20 +389,41 @@ class NewIssueSpec(BaseModel):
 class PlanResult(BaseModel):
     """Outcome of a planner agent run."""
 
-    issue_number: int
-    success: bool = False
-    plan: str = ""
-    summary: str = ""
-    error: str | None = None
-    transcript: str = ""
-    duration_seconds: float = 0.0
-    new_issues: list[NewIssueSpec] = Field(default_factory=list)
-    validation_errors: list[str] = Field(default_factory=list)
-    actionability_score: int = 0
-    actionability_rank: str = "unknown"
-    retry_attempted: bool = False
-    already_satisfied: bool = False
-    epic_number: int = 0
+    issue_number: int = Field(description="GitHub issue number that was planned")
+    success: bool = Field(
+        default=False, description="Whether planning succeeded (fail-safe default)"
+    )
+    plan: str = Field(default="", description="Full implementation plan text")
+    summary: str = Field(default="", description="Short summary of the plan")
+    error: str | None = Field(
+        default=None, description="Error message if planning failed"
+    )
+    transcript: str = Field(default="", description="Raw agent transcript")
+    duration_seconds: float = Field(
+        default=0.0, ge=0, description="Wall-clock seconds for the planner run"
+    )
+    new_issues: list[NewIssueSpec] = Field(
+        default_factory=list, description="Sub-issues discovered during planning"
+    )
+    validation_errors: list[str] = Field(
+        default_factory=list, description="Plan validation errors found"
+    )
+    actionability_score: int = Field(
+        default=0, description="Actionability score from plan validation"
+    )
+    actionability_rank: str = Field(
+        default="unknown", description="Actionability rank label"
+    )
+    retry_attempted: bool = Field(
+        default=False,
+        description="Whether a retry was attempted after validation failure",
+    )
+    already_satisfied: bool = Field(
+        default=False, description="Whether the issue was already resolved"
+    )
+    epic_number: int = Field(
+        default=0, description="Parent epic issue number, 0 if standalone"
+    )
 
 
 class EpicGapReview(BaseModel):
@@ -506,17 +537,32 @@ class WorkerStatus(StrEnum):
 class WorkerResult(BaseModel):
     """Outcome of an implementation worker run."""
 
-    issue_number: int
-    branch: str
-    worktree_path: str = ""
-    success: bool = False
-    error: str | None = None
-    transcript: str = ""
-    commits: int = 0
-    duration_seconds: float = 0.0
-    pre_quality_review_attempts: int = 0
-    quality_fix_attempts: int = 0
-    pr_info: PRInfo | None = None
+    issue_number: int = Field(description="GitHub issue number being implemented")
+    branch: str = Field(description="Git branch name for the implementation")
+    worktree_path: str = Field(
+        default="", description="Path to the git worktree directory"
+    )
+    success: bool = Field(
+        default=False,
+        description="Whether implementation succeeded (fail-safe default)",
+    )
+    error: str | None = Field(
+        default=None, description="Error message if implementation failed"
+    )
+    transcript: str = Field(default="", description="Raw agent transcript")
+    commits: int = Field(default=0, ge=0, description="Number of commits created")
+    duration_seconds: float = Field(
+        default=0.0, ge=0, description="Wall-clock seconds for the worker run"
+    )
+    pre_quality_review_attempts: int = Field(
+        default=0, ge=0, description="Number of pre-quality review attempts"
+    )
+    quality_fix_attempts: int = Field(
+        default=0, ge=0, description="Number of quality fix attempts"
+    )
+    pr_info: PRInfo | None = Field(
+        default=None, description="Pull request info if a PR was created"
+    )
 
 
 # --- Pull Requests ---
@@ -525,11 +571,13 @@ class WorkerResult(BaseModel):
 class PRInfo(BaseModel):
     """Metadata for a created pull request."""
 
-    number: int
-    issue_number: int
-    branch: str
-    url: HttpUrl = ""
-    draft: bool = False
+    number: int = Field(description="Pull request number")
+    issue_number: int = Field(description="GitHub issue number this PR addresses")
+    branch: str = Field(description="Git branch name for the PR")
+    url: HttpUrl = Field(default="", description="URL of the pull request")
+    draft: bool = Field(
+        default=False, description="Whether the PR was created as a draft"
+    )
 
 
 # --- HITL ---
@@ -538,11 +586,18 @@ class PRInfo(BaseModel):
 class HITLResult(BaseModel):
     """Outcome of an HITL correction agent run."""
 
-    issue_number: int
-    success: bool = False
-    error: str | None = None
-    transcript: str = ""
-    duration_seconds: float = 0.0
+    issue_number: int = Field(description="GitHub issue number being corrected")
+    success: bool = Field(
+        default=False,
+        description="Whether the HITL correction succeeded (fail-safe default)",
+    )
+    error: str | None = Field(
+        default=None, description="Error message if correction failed"
+    )
+    transcript: str = Field(default="", description="Raw agent transcript")
+    duration_seconds: float = Field(
+        default=0.0, ge=0, description="Wall-clock seconds for the HITL run"
+    )
 
 
 class VisualEvidenceItem(BaseModel):
@@ -600,17 +655,33 @@ class ReviewVerdict(StrEnum):
 class ReviewResult(BaseModel):
     """Outcome of a reviewer agent run."""
 
-    pr_number: int
-    issue_number: int
-    verdict: ReviewVerdict = ReviewVerdict.COMMENT
-    summary: str = ""
-    fixes_made: bool = False
-    transcript: str = ""
-    merged: bool = False
-    ci_passed: bool | None = None  # None = not checked, True/False = outcome
-    ci_fix_attempts: int = 0
-    duration_seconds: float = 0.0
-    visual_passed: bool | None = None  # None = not checked, True/False = outcome
+    pr_number: int = Field(description="Pull request number that was reviewed")
+    issue_number: int = Field(description="GitHub issue number the PR addresses")
+    verdict: ReviewVerdict = Field(
+        default=ReviewVerdict.COMMENT,
+        description="Review verdict (approve, request-changes, comment)",
+    )
+    summary: str = Field(default="", description="Human-readable review summary")
+    fixes_made: bool = Field(
+        default=False, description="Whether the reviewer applied fixes to the PR"
+    )
+    transcript: str = Field(default="", description="Raw agent transcript")
+    merged: bool = Field(
+        default=False, description="Whether the PR was merged after review"
+    )
+    ci_passed: bool | None = Field(
+        default=None, description="CI outcome: None=not checked, True/False=result"
+    )
+    ci_fix_attempts: int = Field(
+        default=0, ge=0, description="Number of CI fix attempts made"
+    )
+    duration_seconds: float = Field(
+        default=0.0, ge=0, description="Wall-clock seconds for the review run"
+    )
+    visual_passed: bool | None = Field(
+        default=None,
+        description="Visual validation outcome: None=not checked, True/False=result",
+    )
 
 
 # --- Visual Validation ---

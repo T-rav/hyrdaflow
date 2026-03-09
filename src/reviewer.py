@@ -19,6 +19,7 @@ from models import (
     ReviewVerdict,
     Task,
 )
+from phase_utils import is_likely_bug
 from precheck import run_precheck_context
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
@@ -173,6 +174,8 @@ class ReviewRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.verdict = ReviewVerdict.COMMENT
             result.summary = f"Review failed: {exc}"
             logger.error("Review failed for PR #%d: %s", pr.number, exc)
@@ -265,6 +268,8 @@ class ReviewRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"CI fix failed: {exc}"
             logger.error("CI fix failed for PR #%d: %s", pr.number, exc)
@@ -343,6 +348,8 @@ class ReviewRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"Review fix failed: {exc}"
             logger.error("Review fix failed for PR #%d: %s", pr.number, exc)
