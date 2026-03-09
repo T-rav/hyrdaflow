@@ -2467,10 +2467,10 @@ class TestHITLEnrichedRoute:
 class TestWebSocketErrorLogging:
     """Tests that unexpected WebSocket errors are logged, not silently swallowed."""
 
-    def test_websocket_logs_warning_on_history_replay_error(
+    def test_websocket_logs_error_on_history_replay_bug(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:
-        """When send_text raises during history replay, a warning is logged."""
+        """When send_text raises a non-disconnect error during history replay, logger.error is called."""
         from fastapi.testclient import TestClient
 
         from dashboard import HydraFlowDashboard
@@ -2497,14 +2497,16 @@ class TestWebSocketErrorLogging:
             ):
                 pass
 
-            mock_logger.warning.assert_any_call(
-                "WebSocket error during history replay: %s", "RuntimeError"
+            mock_logger.error.assert_any_call(
+                "WebSocket error during history replay: %s",
+                "RuntimeError",
+                exc_info=True,
             )
 
-    def test_websocket_logs_warning_on_live_stream_error(
+    def test_websocket_logs_error_on_live_stream_bug(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:
-        """When send_text raises during live streaming, a warning is logged."""
+        """When send_text raises a non-disconnect error during live streaming, logger.error is called."""
         from fastapi.testclient import TestClient
 
         from dashboard import HydraFlowDashboard
@@ -2532,8 +2534,10 @@ class TestWebSocketErrorLogging:
             ):
                 pass
 
-            mock_logger.warning.assert_any_call(
-                "WebSocket error during live streaming: %s", "RuntimeError"
+            mock_logger.error.assert_any_call(
+                "WebSocket error during live streaming: %s",
+                "RuntimeError",
+                exc_info=True,
             )
 
     def test_websocket_disconnect_not_logged(
