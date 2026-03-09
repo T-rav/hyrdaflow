@@ -47,7 +47,7 @@ def agent_task() -> Task:
 def test_except_blocks_chain_exceptions() -> None:
     """Ensure every raise inside an except block preserves the original cause."""
     offenders: list[str] = []
-    for file_path in Path("src").rglob("*.py"):
+    for file_path in (Path(__file__).parent.parent / "src").rglob("*.py"):
         source = file_path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(file_path))
         for node in ast.walk(tree):
@@ -198,6 +198,23 @@ class TestAgentHelperBugGates:
         runner._context_cache = MagicMock()
         runner._context_cache.get_or_load.side_effect = OSError("disk full")
         assert runner._get_escalation_data() == []
+
+    def test_get_escalation_data_json_decode_error_returns_empty(
+        self, config, event_bus
+    ) -> None:
+        """json.JSONDecodeError (a ValueError subclass) should return [] not re-raise.
+
+        json.JSONDecodeError is a subclass of ValueError, which is in
+        LIKELY_BUG_EXCEPTIONS. The narrow except json.JSONDecodeError handler must
+        fire first so that a malformed JSON store doesn't abort the agent run.
+        """
+
+        runner = AgentRunner(config, event_bus)
+        runner._context_cache = MagicMock()
+        runner._context_cache.get_or_load.return_value = ("not-valid-json{{{", False)
+        # Should NOT raise, should return []
+        result = runner._get_escalation_data()
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
