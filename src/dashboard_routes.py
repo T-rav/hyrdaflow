@@ -1057,6 +1057,7 @@ def create_router(
     async def _enrich_issue_history_with_github(
         entries: dict[int, dict[str, Any]], limit: int = 150
     ) -> None:
+        """Concurrently fetch GitHub metadata and apply it to history entries."""
         if not entries:
             return
 
@@ -1065,6 +1066,7 @@ def create_router(
         sem = asyncio.Semaphore(6)
 
         async def _fetch_and_apply(issue_number: int) -> None:
+            """Fetch one issue under the semaphore and apply fields to its entry."""
             async with sem:
                 issue = await fetcher.fetch_issue_by_number(issue_number)
             if issue is None:
@@ -1201,6 +1203,7 @@ def create_router(
                 )
 
         def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+            """Coerce a raw status value to a BGWorkerHealth enum member."""
             if isinstance(raw_status, BGWorkerHealth):
                 return raw_status
             try:
@@ -1235,6 +1238,7 @@ def create_router(
             status = "degraded"
 
         def _is_loopback_host(host: str) -> bool:
+            """Return True if the host resolves to localhost or 127.x.x.x."""
             host_lower = (host or "").lower()
             return host_lower == "localhost" or host_lower.startswith("127.")
 
@@ -2262,6 +2266,7 @@ def create_router(
     }
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
+        """Aggregate prompt-telemetry inference stats keyed by worker name."""
         telemetry = PromptTelemetry(config)
         source_totals = telemetry.get_source_totals()
 
