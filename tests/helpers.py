@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import shutil
+import struct
 from collections.abc import Callable, Coroutine
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -35,6 +37,24 @@ class PipelineRunResult:
             msg = f"no snapshot named {label!r}; available: {available}"
             raise KeyError(msg)
         return self.snapshots[label]
+
+
+def make_minimal_png(width: int = 1, height: int = 1) -> bytes:
+    """Build a minimal valid PNG file (signature + IHDR + IEND).
+
+    Structurally valid enough for the screenshot upload verifier (magic +
+    IHDR chunk with dimensions) even though it lacks actual image data.
+    """
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr_data = struct.pack(">II", width, height) + b"\x08\x02\x00\x00\x00"
+    ihdr_chunk = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + b"\x00" * 4
+    iend_chunk = struct.pack(">I", 0) + b"IEND" + b"\x00" * 4
+    return sig + ihdr_chunk + iend_chunk
+
+
+def make_minimal_png_b64(width: int = 1, height: int = 1) -> str:
+    """Return a base64-encoded minimal valid PNG."""
+    return base64.b64encode(make_minimal_png(width, height)).decode()
 
 
 def supply_once(*batches):

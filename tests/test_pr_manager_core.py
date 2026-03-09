@@ -15,7 +15,7 @@ from events import EventType
 from models import ReviewVerdict
 from pr_manager import PRManager
 from tests.conftest import PRInfoFactory, SubprocessMockBuilder
-from tests.helpers import ConfigFactory
+from tests.helpers import ConfigFactory, make_minimal_png_b64
 
 # ---------------------------------------------------------------------------
 # _chunk_body (static method)
@@ -586,8 +586,6 @@ class TestUploadScreenshotGist:
 
     @pytest.mark.asyncio
     async def test_valid_base64_uploads_and_returns_raw_url(self, event_bus, tmp_path):
-        import base64
-
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -597,7 +595,7 @@ class TestUploadScreenshotGist:
         gist_url = "https://gist.github.com/testuser/abc123"
         mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
 
-        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
+        png_b64 = make_minimal_png_b64()
         with patch("asyncio.create_subprocess_exec", mock_exec):
             result = await mgr.upload_screenshot_gist(png_b64)
 
@@ -608,8 +606,6 @@ class TestUploadScreenshotGist:
 
     @pytest.mark.asyncio
     async def test_data_uri_prefix_stripped(self, event_bus, tmp_path):
-        import base64
-
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -619,10 +615,7 @@ class TestUploadScreenshotGist:
         gist_url = "https://gist.github.com/user/def456"
         mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
 
-        raw_bytes = b"\x89PNG prefix test"
-        png_with_prefix = (
-            "data:image/png;base64," + base64.b64encode(raw_bytes).decode()
-        )
+        png_with_prefix = f"data:image/png;base64,{make_minimal_png_b64()}"
         with patch("asyncio.create_subprocess_exec", mock_exec):
             result = await mgr.upload_screenshot_gist(png_with_prefix)
 
@@ -641,7 +634,7 @@ class TestUploadScreenshotGist:
         mock_exec = SubprocessMockBuilder().with_returncode(1).build()
 
         with patch("asyncio.create_subprocess_exec", mock_exec):
-            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+            result = await mgr.upload_screenshot_gist(make_minimal_png_b64())
 
         assert result == ""
 
@@ -656,15 +649,13 @@ class TestUploadScreenshotGist:
         mock_exec = SubprocessMockBuilder().with_stdout("unexpected output").build()
 
         with patch("asyncio.create_subprocess_exec", mock_exec):
-            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+            result = await mgr.upload_screenshot_gist(make_minimal_png_b64())
 
         assert result == ""
 
     @pytest.mark.asyncio
     async def test_default_gist_visibility_is_secret(self, event_bus, tmp_path):
         """By default (screenshot_gist_public=False), --public flag is omitted."""
-        import base64
-
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -675,9 +666,8 @@ class TestUploadScreenshotGist:
         gist_url = "https://gist.github.com/testuser/abc123"
         mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
 
-        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
         with patch("asyncio.create_subprocess_exec", mock_exec):
-            await mgr.upload_screenshot_gist(png_b64)
+            await mgr.upload_screenshot_gist(make_minimal_png_b64())
 
         args = mock_exec.call_args[0]
         assert "--public" not in args
@@ -685,8 +675,6 @@ class TestUploadScreenshotGist:
     @pytest.mark.asyncio
     async def test_public_gist_visibility(self, event_bus, tmp_path):
         """When screenshot_gist_public=True, --public flag is included."""
-        import base64
-
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -697,9 +685,8 @@ class TestUploadScreenshotGist:
         gist_url = "https://gist.github.com/testuser/abc123"
         mock_exec = SubprocessMockBuilder().with_stdout(gist_url).build()
 
-        png_b64 = base64.b64encode(b"\x89PNG fake data").decode()
         with patch("asyncio.create_subprocess_exec", mock_exec):
-            await mgr.upload_screenshot_gist(png_b64)
+            await mgr.upload_screenshot_gist(make_minimal_png_b64())
 
         args = mock_exec.call_args[0]
         assert "--public" in args
@@ -739,6 +726,26 @@ class TestUploadScreenshotGist:
         mgr._run_gh = AsyncMock()
 
         result = await mgr.upload_screenshot_gist("!!!invalid-base64!!!")
+
+        assert result == ""
+        mgr._run_gh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_valid_base64_but_not_png_returns_empty(self, event_bus, tmp_path):
+        """Valid base64 encoding of non-PNG data is rejected by the verifier."""
+        import base64
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mgr = _make_manager(cfg, event_bus)
+        mgr._run_gh = AsyncMock()
+
+        # Valid base64 but not a PNG
+        b64 = base64.b64encode(b"This is plain text, not PNG").decode()
+        result = await mgr.upload_screenshot_gist(b64)
 
         assert result == ""
         mgr._run_gh.assert_not_awaited()

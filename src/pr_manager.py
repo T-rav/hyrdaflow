@@ -32,6 +32,7 @@ from models import (
     ReviewVerdict,
 )
 from prep import HYDRAFLOW_LABELS
+from screenshot_upload_verifier import ScreenshotVerificationError, verify_png_bytes
 from subprocess_util import run_subprocess, run_subprocess_with_retry
 
 logger = logging.getLogger("hydraflow.pr_manager")
@@ -788,6 +789,13 @@ class PRManager:
             png_bytes = base64.b64decode(png_base64, validate=True)
         except (ValueError, binascii.Error):
             logger.warning("Screenshot gist upload skipped: invalid base64 payload")
+            return ""
+
+        try:
+            w, h = verify_png_bytes(png_bytes)
+            logger.info("Screenshot gist upload verified: %dx%d", w, h)
+        except ScreenshotVerificationError as exc:
+            logger.warning("Screenshot gist upload skipped: %s", exc)
             return ""
 
         fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-screenshot-")

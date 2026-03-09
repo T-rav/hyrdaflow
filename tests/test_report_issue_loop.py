@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from models import PendingReport
 from report_issue_loop import ReportIssueLoop
 from state import StateTracker
-from tests.helpers import make_bg_loop_deps
+from tests.helpers import make_bg_loop_deps, make_minimal_png, make_minimal_png_b64
 
 
 def _make_loop(
@@ -96,7 +96,7 @@ class TestReportIssueLoopDoWork:
         loop, _stop, state, pr_mgr = _make_loop(tmp_path)
         report = PendingReport(
             description="UI glitch",
-            screenshot_base64="iVBORw0KGgo=",
+            screenshot_base64=make_minimal_png_b64(800, 600),
         )
         state.enqueue_report(report)
 
@@ -242,8 +242,7 @@ class TestReportIssueLoopDoWork:
     async def test_screenshot_saved_as_temp_file(self, tmp_path: Path) -> None:
         """A clean screenshot is saved as a temp PNG and referenced in the prompt."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        # Valid base64 for a tiny payload
-        b64 = base64.b64encode(b"\x89PNG\r\n").decode()
+        b64 = make_minimal_png_b64()
         report = PendingReport(
             description="Normal bug",
             screenshot_base64=b64,
@@ -264,10 +263,10 @@ class TestReportIssueLoopDoWork:
     async def test_data_uri_screenshot_saved_as_temp_file(self, tmp_path: Path) -> None:
         """A data URI screenshot is normalized and saved as a temp PNG."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        raw_png = base64.b64encode(b"\x89PNG\r\n").decode()
+        b64 = make_minimal_png_b64()
         report = PendingReport(
             description="Data URI screenshot",
-            screenshot_base64=f"data:image/png;base64,{raw_png}",
+            screenshot_base64=f"data:image/png;base64,{b64}",
         )
         state.enqueue_report(report)
 
@@ -288,9 +287,9 @@ class TestReportIssueLoopDoWork:
     ) -> None:
         """Base64 with embedded newlines/spaces is stripped and decoded."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        raw_png = base64.b64encode(b"\x89PNG\r\n").decode()
+        b64 = make_minimal_png_b64()
         # Insert newlines and spaces to simulate transport corruption
-        corrupted = "\n".join(raw_png[i : i + 4] for i in range(0, len(raw_png), 4))
+        corrupted = "\n".join(b64[i : i + 4] for i in range(0, len(b64), 4))
         report = PendingReport(
             description="Whitespace in base64",
             screenshot_base64=f"data:image/png;base64,{corrupted}",
@@ -363,8 +362,7 @@ class TestReportIssueLoopDoWork:
         """When screenshot_redaction_enabled=False, scan is skipped and screenshot is saved."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         object.__setattr__(loop._config, "screenshot_redaction_enabled", False)
-        # Use valid base64 so _save_screenshot can decode it
-        b64 = base64.b64encode(b"fake-png-data").decode()
+        b64 = make_minimal_png_b64()
         report = PendingReport(
             description="UI glitch",
             screenshot_base64=b64,
@@ -540,7 +538,7 @@ class TestHfIssueSkillPrompt:
     async def test_screenshot_path_in_prompt(self, tmp_path: Path) -> None:
         """When a screenshot is available, the prompt tells the agent where to find it."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        b64 = base64.b64encode(b"\x89PNG\r\n").decode()
+        b64 = make_minimal_png_b64()
         report = PendingReport(
             description="UI looks wrong",
             screenshot_base64=b64,
@@ -561,7 +559,7 @@ class TestHfIssueSkillPrompt:
     async def test_screenshot_temp_file_cleaned_up(self, tmp_path: Path) -> None:
         """The temp screenshot file is cleaned up after the agent finishes."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        b64 = base64.b64encode(b"\x89PNG\r\n").decode()
+        b64 = make_minimal_png_b64()
         report = PendingReport(description="bug", screenshot_base64=b64)
         state.enqueue_report(report)
 
@@ -634,6 +632,134 @@ class TestHfIssueSkillPrompt:
 
 
 # ---------------------------------------------------------------------------
+# Screenshot upload verification integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestScreenshotUploadVerification:
+    """Tests verifying that screenshot payloads are validated before saving."""
+
+    @pytest.mark.asyncio
+    async def test_valid_png_passes_verification_and_saved(
+        self, tmp_path: Path
+    ) -> None:
+        """A valid PNG passes verification and is referenced in the prompt."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        b64 = make_minimal_png_b64(1920, 1080)
+        report = PendingReport(description="Valid screenshot", screenshot_base64=b64)
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/200"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" in prompt
+        assert "![Screenshot](" in prompt
+
+    @pytest.mark.asyncio
+    async def test_truncated_png_fails_verification_no_screenshot(
+        self, tmp_path: Path
+    ) -> None:
+        """A truncated PNG (valid magic but no IHDR) fails verification."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Only the PNG magic bytes — too small for a valid PNG
+        truncated = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+        report = PendingReport(
+            description="Truncated screenshot", screenshot_base64=truncated
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/201"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        # Screenshot should NOT be in the prompt (failed verification)
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_non_png_data_fails_verification_no_screenshot(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-PNG data (e.g. JPEG) fails verification and is skipped."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # JPEG magic bytes + padding
+        jpeg_data = b"\xff\xd8\xff\xe0" + b"\x00" * 50
+        b64 = base64.b64encode(jpeg_data).decode()
+        report = PendingReport(
+            description="Wrong format screenshot", screenshot_base64=b64
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/202"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_verification_failure_still_creates_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """Even when verification fails, the issue is still created (just without screenshot)."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Valid base64, but not a PNG
+        b64 = base64.b64encode(b"This is not a PNG image at all").decode()
+        report = PendingReport(
+            description="Issue with bad screenshot", screenshot_base64=b64
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/203"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert "Issue with bad screenshot" in prompt
+        assert ".png" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_data_uri_valid_png_passes_verification(self, tmp_path: Path) -> None:
+        """A data URI wrapping a valid PNG passes verification."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        b64 = make_minimal_png_b64(640, 480)
+        report = PendingReport(
+            description="Data URI screenshot",
+            screenshot_base64=f"data:image/png;base64,{b64}",
+        )
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/204"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+        prompt = mock_stream.call_args.kwargs.get("prompt", "")
+        assert ".png" in prompt
+
+
+# ---------------------------------------------------------------------------
 # _save_screenshot resource management tests
 # ---------------------------------------------------------------------------
 
@@ -643,7 +769,7 @@ class TestSaveScreenshotResourceManagement:
 
     def test_writes_directly_via_fdopen(self) -> None:
         """_save_screenshot uses os.fdopen to write directly to the mkstemp FD."""
-        raw = b"\x89PNG\r\ntest-data"
+        raw = make_minimal_png(100, 200)
         b64 = base64.b64encode(raw).decode()
         result = ReportIssueLoop._save_screenshot(b64)
         try:
@@ -655,7 +781,7 @@ class TestSaveScreenshotResourceManagement:
 
     def test_data_uri_prefix_stripped(self) -> None:
         """data: URI prefix is stripped before decoding."""
-        raw = b"\x89PNG\r\ndata-uri-test"
+        raw = make_minimal_png(50, 50)
         b64 = base64.b64encode(raw).decode()
         result = ReportIssueLoop._save_screenshot(f"data:image/png;base64,{b64}")
         try:
@@ -665,8 +791,7 @@ class TestSaveScreenshotResourceManagement:
 
     def test_temp_file_cleaned_up_on_write_failure(self) -> None:
         """If writing fails after mkstemp, the temp file is removed."""
-        raw = b"\x89PNG\r\n"
-        b64 = base64.b64encode(raw).decode()
+        b64 = make_minimal_png_b64()
 
         captured_path: list[str] = []
         original_mkstemp = tempfile.mkstemp
@@ -695,8 +820,7 @@ class TestSaveScreenshotResourceManagement:
 
     def test_no_fd_leak_on_successful_write(self) -> None:
         """After a successful write, no file descriptors are leaked."""
-        raw = b"\x89PNG\r\nno-leak-test"
-        b64 = base64.b64encode(raw).decode()
+        b64 = make_minimal_png_b64()
 
         # Track open FD count before and after
         pid = os.getpid()

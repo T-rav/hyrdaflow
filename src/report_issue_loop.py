@@ -28,6 +28,7 @@ from models import PendingReport, StatusCallback, TranscriptEventData
 from pr_manager import PRManager
 from runner_utils import stream_claude_process
 from screenshot_scanner import scan_base64_for_secrets
+from screenshot_upload_verifier import ScreenshotVerificationError, verify_base64_png
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.report_issue_loop")
@@ -98,7 +99,21 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 )
             else:
                 try:
+                    width, height = verify_base64_png(report.screenshot_base64)
+                    logger.info(
+                        "Screenshot for report %s verified: %dx%d",
+                        report.id,
+                        width,
+                        height,
+                    )
                     screenshot_path = self._save_screenshot(report.screenshot_base64)
+                except ScreenshotVerificationError as exc:
+                    logger.warning(
+                        "Screenshot for report %s failed verification (%s); "
+                        "continuing without screenshot attachment",
+                        report.id,
+                        exc,
+                    )
                 except (ValueError, binascii.Error):
                     logger.warning(
                         "Screenshot for report %s was not valid base64; "
