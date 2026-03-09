@@ -258,7 +258,9 @@ class TestPRManagerReleaseMethods:
     @pytest.mark.asyncio
     async def test_create_release_success(self) -> None:
         prs = _make_pr_manager()
-        with patch.object(prs, "_run_gh", new_callable=AsyncMock, return_value=""):
+        with patch.object(
+            prs, "_run_with_body_file", new_callable=AsyncMock, return_value=""
+        ):
             result = await prs.create_release("v1.0.0", "Release", "Body")
         assert result is True
 
@@ -267,7 +269,7 @@ class TestPRManagerReleaseMethods:
         prs = _make_pr_manager()
         with patch.object(
             prs,
-            "_run_gh",
+            "_run_with_body_file",
             new_callable=AsyncMock,
             side_effect=RuntimeError("gh error"),
         ):

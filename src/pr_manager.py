@@ -616,19 +616,15 @@ class PRManager:
         self._assert_repo()
         if self._config.dry_run:
             return
-        fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-body-")
         try:
-            with os.fdopen(fd, "w") as f:
-                f.write(body)
-            await self._run_gh(
+            await self._run_with_body_file(
                 "gh",
                 "issue",
                 "edit",
                 str(issue_number),
                 "--repo",
                 self._repo,
-                "--body-file",
-                tmp_path,
+                body=body,
             )
         except RuntimeError as exc:
             logger.warning(
@@ -636,8 +632,6 @@ class PRManager:
                 issue_number,
                 exc,
             )
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
 
     async def create_tag(self, tag: str, *, ref: str = "HEAD") -> bool:
         """Create a git tag on the given *ref* and push it to origin.
@@ -672,11 +666,8 @@ class PRManager:
             logger.info("[dry-run] Would create release %s", tag)
             return True
 
-        fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-release-")
         try:
-            with os.fdopen(fd, "w") as f:
-                f.write(body)
-            await self._run_gh(
+            await self._run_with_body_file(
                 "gh",
                 "release",
                 "create",
@@ -685,15 +676,13 @@ class PRManager:
                 self._repo,
                 "--title",
                 title,
-                "--notes-file",
-                tmp_path,
+                body=body,
+                file_flag="--notes-file",
             )
             return True
         except RuntimeError as exc:
             logger.warning("Could not create release %s: %s", tag, exc)
             return False
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
 
     async def remove_pr_label(self, pr_number: int, label: str) -> None:
         """Remove *label* from a GitHub pull request."""
@@ -1309,17 +1298,22 @@ class PRManager:
 
     # --- dashboard query helpers ---
 
-    async def list_open_prs(self, labels: list[str]) -> list[PRListItem]:
-        """Fetch open PRs for the given *labels*, deduplicated by PR number.
+    async def _query_issues_by_labels(
+        self,
+        labels: list[str],
+        jq_filter: str,
+        *,
+        error_context: str = "query_issues_by_labels",
+        error_level: str = "debug",
+    ) -> list[dict[str, Any]]:
+        """Fetch open issues/PRs for *labels*, deduplicated by ``number``.
 
-        Returns ``[]`` in dry-run mode or when any individual label query
-        fails (the failure is silently skipped so other labels still succeed).
+        Iterates each label, queries the GitHub REST API with *jq_filter*,
+        and deduplicates results by ``number``.  Individual label failures
+        are logged at *error_level* and skipped.
         """
-        if self._config.dry_run:
-            return []
-
         seen: set[int] = set()
-        prs: list[PRListItem] = []
+        results: list[dict[str, Any]] = []
 
         for label in labels:
             try:
@@ -1336,34 +1330,56 @@ class PRManager:
                     "--field",
                     "per_page=50",
                     "--jq",
-                    "[.[] | select(.pull_request) | {number, url: .html_url, title}]",
+                    jq_filter,
                 )
-                for p in json.loads(raw):
-                    pr_num = p.get("number")
-                    if pr_num is None:
-                        logger.debug(
-                            "Skipping PR in list_open_prs: missing 'number' key"
-                        )
+                for item in json.loads(raw):
+                    num = item.get("number")
+                    if num is None:
                         continue
-                    if pr_num in seen:
-                        continue
-                    seen.add(pr_num)
-                    try:
-                        branch, draft = await self._get_pr_branch_and_draft(pr_num)
-                        issue_number = self._issue_number_from_branch(branch)
-                        prs.append(
-                            PRListItem(
-                                pr=pr_num,
-                                issue=issue_number,
-                                branch=branch,
-                                url=p.get("url", ""),
-                                draft=draft,
-                                title=p.get("title", ""),
-                            )
-                        )
-                    except (RuntimeError, json.JSONDecodeError, KeyError, TypeError):
-                        logger.debug("Skipping PR in list_open_prs", exc_info=True)
-                        continue
+                    if num not in seen:
+                        seen.add(num)
+                        results.append(item)
+            except (RuntimeError, json.JSONDecodeError, KeyError, TypeError):
+                getattr(logger, error_level)(
+                    "Failed in %s for label %s",
+                    error_context,
+                    label,
+                    exc_info=True,
+                )
+
+        return results
+
+    async def list_open_prs(self, labels: list[str]) -> list[PRListItem]:
+        """Fetch open PRs for the given *labels*, deduplicated by PR number.
+
+        Returns ``[]`` in dry-run mode or when any individual label query
+        fails (the failure is silently skipped so other labels still succeed).
+        """
+        if self._config.dry_run:
+            return []
+
+        raw_items = await self._query_issues_by_labels(
+            labels,
+            "[.[] | select(.pull_request) | {number, url: .html_url, title}]",
+            error_context="list_open_prs",
+        )
+
+        prs: list[PRListItem] = []
+        for p in raw_items:
+            pr_num = p["number"]
+            try:
+                branch, draft = await self._get_pr_branch_and_draft(pr_num)
+                issue_number = self._issue_number_from_branch(branch)
+                prs.append(
+                    PRListItem(
+                        pr=pr_num,
+                        issue=issue_number,
+                        branch=branch,
+                        url=p.get("url", ""),
+                        draft=draft,
+                        title=p.get("title", ""),
+                    )
+                )
             except (RuntimeError, json.JSONDecodeError, KeyError, TypeError):
                 logger.debug("Skipping PR in list_open_prs", exc_info=True)
                 continue
@@ -1374,35 +1390,12 @@ class PRManager:
         self, hitl_labels: list[str]
     ) -> list[dict[str, Any]]:
         """Fetch and deduplicate open issues matching any of the given HITL labels."""
-        seen_issues: set[int] = set()
-        raw_issues: list[dict[str, Any]] = []
-        for label in hitl_labels:
-            try:
-                raw = await self._run_gh(
-                    "gh",
-                    "api",
-                    f"repos/{self._repo}/issues",
-                    "--method",
-                    "GET",
-                    "--field",
-                    "state=open",
-                    "--field",
-                    f"labels={label}",
-                    "--field",
-                    "per_page=50",
-                    "--jq",
-                    "[.[] | select(.pull_request | not) | {number, title, url: .html_url}]",
-                )
-                for issue in json.loads(raw):
-                    if issue["number"] not in seen_issues:
-                        seen_issues.add(issue["number"])
-                        raw_issues.append(issue)
-            except (RuntimeError, json.JSONDecodeError, KeyError, TypeError):
-                logger.warning(
-                    "Failed to fetch HITL issues for label",
-                    exc_info=True,
-                )
-        return raw_issues
+        return await self._query_issues_by_labels(
+            hitl_labels,
+            "[.[] | select(.pull_request | not) | {number, title, url: .html_url}]",
+            error_context="fetch_hitl_raw_issues",
+            error_level="warning",
+        )
 
     async def _build_hitl_item(self, raw_issue: dict[str, Any]) -> HITLItem:
         """Look up the associated PR for one raw issue and assemble a HITLItem."""
@@ -1674,11 +1667,17 @@ class PRManager:
         """Hard-truncate *body* to *limit* characters."""
         return CommentFormatter.cap(body, limit)
 
-    async def _run_with_body_file(self, *cmd: str, body: str, cwd: Path) -> str:
-        """Run a ``gh`` command using ``--body-file`` instead of ``--body``.
+    async def _run_with_body_file(
+        self,
+        *cmd: str,
+        body: str,
+        cwd: Path | None = None,
+        file_flag: str = "--body-file",
+    ) -> str:
+        """Run a ``gh`` command using a temp file flag instead of inline body.
 
-        Writes *body* to a temporary ``.md`` file, passes ``--body-file``
-        to the command, and cleans up the file afterwards.
+        Writes *body* to a temporary ``.md`` file, passes *file_flag*
+        (default ``--body-file``) to the command, and cleans up afterwards.
         """
         fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-body-")
         try:
@@ -1686,9 +1685,9 @@ class PRManager:
                 f.write(body)
             return await run_subprocess_with_retry(
                 *cmd,
-                "--body-file",
+                file_flag,
                 tmp_path,
-                cwd=cwd,
+                cwd=cwd or self._config.repo_root,
                 gh_token=self._config.gh_token,
                 max_retries=self._max_retries,
             )

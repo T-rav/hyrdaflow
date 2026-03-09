@@ -1958,6 +1958,123 @@ async def test_run_with_body_file_cleans_up_on_error(event_bus, tmp_path):
     assert not Path(temp_file_path).exists(), "Temp file should be cleaned up on error"
 
 
+@pytest.mark.asyncio
+async def test_run_with_body_file_custom_file_flag(event_bus, tmp_path):
+    """_run_with_body_file should use the custom file_flag when provided."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout("ok").build()
+    captured_flag = None
+
+    original_mock = mock_create
+
+    async def capture_flag(*args, **kwargs):
+        nonlocal captured_flag
+        cmd = args
+        for i, arg in enumerate(cmd):
+            if arg == "--notes-file" and i + 1 < len(cmd):
+                captured_flag = arg
+                break
+        return await original_mock(*args, **kwargs)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=capture_flag):
+        await mgr._run_with_body_file(
+            "gh",
+            "release",
+            "create",
+            "v1.0",
+            body="Release notes",
+            file_flag="--notes-file",
+        )
+
+    assert captured_flag == "--notes-file"
+
+
+@pytest.mark.asyncio
+async def test_run_with_body_file_defaults_cwd_to_repo_root(event_bus, tmp_path):
+    """_run_with_body_file should default cwd to config.repo_root when omitted."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+    mock_create = SubprocessMockBuilder().with_stdout("ok").build()
+    captured_cwd = None
+
+    original_mock = mock_create
+
+    async def capture_cwd(*args, **kwargs):
+        nonlocal captured_cwd
+        captured_cwd = kwargs.get("cwd")
+        return await original_mock(*args, **kwargs)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=capture_cwd):
+        await mgr._run_with_body_file("gh", "issue", "comment", "1", body="content")
+
+    assert str(captured_cwd) == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# create_release delegates to _run_with_body_file
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_release_uses_notes_file_flag(event_bus, tmp_path):
+    """create_release should delegate to _run_with_body_file with --notes-file."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+
+    with patch.object(
+        mgr, "_run_with_body_file", new_callable=AsyncMock, return_value=""
+    ) as mock_rwbf:
+        result = await mgr.create_release("v1.0.0", "Release Title", "Notes body")
+
+    assert result is True
+    mock_rwbf.assert_called_once()
+    call_kwargs = mock_rwbf.call_args
+    assert call_kwargs.kwargs["body"] == "Notes body"
+    assert call_kwargs.kwargs["file_flag"] == "--notes-file"
+    assert "--title" in call_kwargs.args
+    assert "Release Title" in call_kwargs.args
+
+
+@pytest.mark.asyncio
+async def test_update_issue_body_delegates_to_run_with_body_file(event_bus, tmp_path):
+    """update_issue_body should delegate to _run_with_body_file."""
+
+    cfg = ConfigFactory.create(
+        repo_root=tmp_path,
+        worktree_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+    )
+    mgr = _make_manager(cfg, event_bus)
+
+    with patch.object(
+        mgr, "_run_with_body_file", new_callable=AsyncMock, return_value=""
+    ) as mock_rwbf:
+        await mgr.update_issue_body(42, "New body")
+
+    mock_rwbf.assert_called_once()
+    call_kwargs = mock_rwbf.call_args
+    assert call_kwargs.kwargs["body"] == "New body"
+    assert "42" in call_kwargs.args
+    assert "issue" in call_kwargs.args
+    assert "edit" in call_kwargs.args
+
+
 # ---------------------------------------------------------------------------
 # post_comment chunking
 # ---------------------------------------------------------------------------
