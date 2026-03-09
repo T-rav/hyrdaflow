@@ -1545,7 +1545,7 @@ class BackgroundWorkerStatusPayload(TypedDict):
     worker: str
     status: str
     last_run: str
-    details: dict[str, Any]
+    details: dict[str, object]
 
 
 class OrchestratorStatusPayload(TypedDict, total=False):
