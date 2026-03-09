@@ -2645,3 +2645,145 @@ class TestBaselinePolicyIntegration:
         # Fail closed: should escalate to HITL
         assert result.merged is False
         assert "Baseline" in result.summary
+
+    @pytest.mark.asyncio
+    async def test_baseline_policy_oserror_fails_closed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError during baseline policy check should also fail closed."""
+        from baseline_policy import BaselinePolicy
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(side_effect=OSError("connection reset"))
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+
+        result = await phase._check_baseline_policy(pr, task)
+
+        assert result is not None
+        assert result.approved is False
+        assert result.requires_approval is True
+
+    @pytest.mark.asyncio
+    async def test_baseline_policy_code_bug_propagates(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError/KeyError in baseline policy must propagate, not be caught."""
+        from baseline_policy import BaselinePolicy
+
+        mock_policy = AsyncMock(spec=BaselinePolicy)
+        mock_policy.check_approval = AsyncMock(side_effect=TypeError("unexpected None"))
+
+        phase = make_review_phase(
+            config, default_mocks=True, baseline_policy=mock_policy
+        )
+        pr = PRInfoFactory.create()
+        task = TaskFactory.create()
+
+        with pytest.raises(TypeError, match="unexpected None"):
+            await phase._check_baseline_policy(pr, task)
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling — code bugs propagate
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowedExceptionHandling:
+    """Verify that narrowed except clauses let code bugs propagate."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_code_scanning_alerts_catches_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """RuntimeError from subprocess is still caught gracefully."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=RuntimeError("gh CLI failed")
+        )
+        pr = PRInfoFactory.create()
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_code_scanning_alerts_catches_oserror(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError (e.g., network failure) is caught gracefully."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=OSError("network unreachable")
+        )
+        pr = PRInfoFactory.create()
+
+        result = await phase._fetch_code_scanning_alerts(pr)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_code_scanning_alerts_propagates_type_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError (code bug) must propagate through narrowed handler."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
+        phase._prs.fetch_code_scanning_alerts = AsyncMock(
+            side_effect=TypeError("bad arg")
+        )
+        pr = PRInfoFactory.create()
+
+        with pytest.raises(TypeError, match="bad arg"):
+            await phase._fetch_code_scanning_alerts(pr)
+
+    @pytest.mark.asyncio
+    async def test_visual_validation_catches_runtime_error(
+        self, config: HydraFlowConfig, tmp_path: Path
+    ) -> None:
+        """RuntimeError during visual validation is caught gracefully."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._visual_validator = MagicMock()
+        phase._visual_validator.validate_screens = AsyncMock(
+            side_effect=RuntimeError("visual tool crashed")
+        )
+        pr = PRInfoFactory.create()
+
+        result = await phase._run_visual_validation(pr, tmp_path, worker_id=0)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_visual_validation_propagates_attribute_error(
+        self, config: HydraFlowConfig, tmp_path: Path
+    ) -> None:
+        """AttributeError (code bug) in visual validation must propagate."""
+        phase = make_review_phase(config, default_mocks=True)
+        phase._visual_validator = MagicMock()
+        phase._visual_validator.validate_screens = AsyncMock(
+            side_effect=AttributeError("missing attr")
+        )
+        pr = PRInfoFactory.create()
+
+        with pytest.raises(AttributeError, match="missing attr"):
+            await phase._run_visual_validation(pr, tmp_path, worker_id=0)
+
+    @pytest.mark.asyncio
+    async def test_ci_log_fetch_propagates_key_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """KeyError (code bug) during CI log fetch must propagate.
+
+        The CI log fetch handler in review_phase.py now catches only
+        (RuntimeError, OSError), so code bugs like KeyError propagate.
+        """
+        phase = make_review_phase(config, default_mocks=True)
+        phase._prs.fetch_ci_failure_logs = AsyncMock(
+            side_effect=KeyError("missing key")
+        )
+
+        with pytest.raises(KeyError, match="missing key"):
+            await phase._prs.fetch_ci_failure_logs(42)

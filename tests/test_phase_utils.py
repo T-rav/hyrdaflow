@@ -16,6 +16,8 @@ from harness_insights import FailureCategory, HarnessInsightStore
 from models import PipelineStage
 from phase_utils import (
     LIKELY_BUG_EXCEPTIONS,
+    MemorySuggester,
+    PipelineEscalator,
     escalate_to_hitl,
     is_likely_bug,
     next_adr_number,
@@ -664,3 +666,181 @@ class TestIsLikelyBug:
             pass
 
         assert is_likely_bug(CustomKeyError("sub")) is True
+
+
+# ---------------------------------------------------------------------------
+# MemorySuggester
+# ---------------------------------------------------------------------------
+
+
+class TestMemorySuggester:
+    """Tests for MemorySuggester pre-bound callable."""
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_safe_file_memory_suggestion(self) -> None:
+        """Should forward (transcript, source, reference) with bound (config, prs, state)."""
+        config = MagicMock()
+        prs = AsyncMock()
+        state = MagicMock()
+
+        suggest = MemorySuggester(config, prs, state)
+
+        with patch(
+            "phase_utils.safe_file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_sfms:
+            await suggest("transcript text", "planner", "issue #42")
+
+            mock_sfms.assert_awaited_once_with(
+                "transcript text", "planner", "issue #42", config, prs, state
+            )
+
+    @pytest.mark.asyncio
+    async def test_multiple_calls_reuse_bound_args(self) -> None:
+        """Successive calls should reuse the same config/prs/state."""
+        config = MagicMock()
+        prs = AsyncMock()
+        state = MagicMock()
+
+        suggest = MemorySuggester(config, prs, state)
+
+        with patch(
+            "phase_utils.safe_file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_sfms:
+            await suggest("t1", "src1", "ref1")
+            await suggest("t2", "src2", "ref2")
+
+            assert mock_sfms.await_count == 2
+            # Both calls use the same bound args
+            assert mock_sfms.call_args_list[0].args[3:] == (config, prs, state)
+            assert mock_sfms.call_args_list[1].args[3:] == (config, prs, state)
+
+
+# ---------------------------------------------------------------------------
+# PipelineEscalator
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineEscalator:
+    """Tests for PipelineEscalator helper class."""
+
+    def _make_escalator(
+        self,
+        *,
+        state: MagicMock | None = None,
+        prs: AsyncMock | None = None,
+        store: MagicMock | None = None,
+        harness_insights: MagicMock | None = None,
+        origin_label: str = "hydraflow-plan",
+        hitl_label: str = "hydraflow-hitl",
+        stage: PipelineStage = PipelineStage.PLAN,
+    ) -> PipelineEscalator:
+        return PipelineEscalator(
+            state=state or MagicMock(),
+            prs=prs or AsyncMock(),
+            store=store or MagicMock(),
+            harness_insights=harness_insights,
+            origin_label=origin_label,
+            hitl_label=hitl_label,
+            stage=stage,
+        )
+
+    @pytest.mark.asyncio
+    async def test_calls_escalate_to_hitl(self) -> None:
+        """Should call escalate_to_hitl with the correct arguments."""
+        state = MagicMock()
+        prs = AsyncMock()
+        escalator = self._make_escalator(state=state, prs=prs)
+        issue = MagicMock(id=42)
+
+        await escalator(
+            issue,
+            cause="Plan failed",
+            details="validation errors",
+            category=FailureCategory.PLAN_VALIDATION,
+        )
+
+        state.set_hitl_origin.assert_called_once_with(42, "hydraflow-plan")
+        state.set_hitl_cause.assert_called_once_with(42, "Plan failed")
+        state.record_hitl_escalation.assert_called_once()
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, "hydraflow-hitl")
+
+    @pytest.mark.asyncio
+    async def test_enqueues_transition(self) -> None:
+        """Should call store.enqueue_transition(issue, 'hitl')."""
+        store = MagicMock()
+        issue = MagicMock(id=10)
+        escalator = self._make_escalator(store=store)
+
+        await escalator(
+            issue,
+            cause="cap exceeded",
+            details="details",
+            category=FailureCategory.HITL_ESCALATION,
+        )
+
+        store.enqueue_transition.assert_called_once_with(issue, "hitl")
+
+    @pytest.mark.asyncio
+    async def test_records_harness_failure(self) -> None:
+        """Should call record_harness_failure with correct args."""
+        harness = MagicMock()
+        escalator = self._make_escalator(
+            harness_insights=harness, stage=PipelineStage.IMPLEMENT
+        )
+        issue = MagicMock(id=7)
+
+        await escalator(
+            issue,
+            cause="zero diff",
+            details="No changes produced",
+            category=FailureCategory.HITL_ESCALATION,
+        )
+
+        harness.append_failure.assert_called_once()
+        record = harness.append_failure.call_args.args[0]
+        assert record.issue_number == 7
+        assert record.category == FailureCategory.HITL_ESCALATION
+        assert record.stage == PipelineStage.IMPLEMENT
+        assert "No changes produced" in record.details
+
+    @pytest.mark.asyncio
+    async def test_none_harness_insights_does_not_raise(self) -> None:
+        """Should not raise when harness_insights is None."""
+        escalator = self._make_escalator(harness_insights=None)
+        issue = MagicMock(id=1)
+
+        # Should not raise
+        await escalator(
+            issue,
+            cause="test",
+            details="test details",
+            category=FailureCategory.PLAN_VALIDATION,
+        )
+
+    @pytest.mark.asyncio
+    async def test_uses_configured_labels_and_stage(self) -> None:
+        """Should use origin_label, hitl_label, and stage from constructor."""
+        state = MagicMock()
+        prs = AsyncMock()
+        harness = MagicMock()
+        escalator = PipelineEscalator(
+            state=state,
+            prs=prs,
+            store=MagicMock(),
+            harness_insights=harness,
+            origin_label="hydraflow-ready",
+            hitl_label="hydraflow-hitl",
+            stage=PipelineStage.IMPLEMENT,
+        )
+        issue = MagicMock(id=99)
+
+        await escalator(
+            issue,
+            cause="cap exceeded",
+            details="attempt cap",
+            category=FailureCategory.HITL_ESCALATION,
+        )
+
+        state.set_hitl_origin.assert_called_once_with(99, "hydraflow-ready")
+        record = harness.append_failure.call_args.args[0]
+        assert record.stage == PipelineStage.IMPLEMENT

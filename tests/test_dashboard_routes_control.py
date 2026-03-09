@@ -157,8 +157,8 @@ class TestControlStatusAppVersion:
         import json
 
         from dashboard_routes import create_router
-        from hf_cli.update_check import UpdateCheckResult
         from pr_manager import PRManager
+        from update_check import UpdateCheckResult
 
         monkeypatch.setattr(
             "dashboard_routes.load_cached_update_result",

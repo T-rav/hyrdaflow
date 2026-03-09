@@ -189,7 +189,9 @@ describe('Header component', () => {
       },
     })
     render(<Header {...defaultProps} />)
-    expect(screen.getByText('Update available: v0.9.2 (`hf check-update`)')).toBeInTheDocument()
+    expect(
+      screen.getByText('Update available: v0.9.2 (`uv pip install --upgrade hydraflow`)')
+    ).toBeInTheDocument()
   })
 
   it('controls section has marginLeft for spacing from center content', () => {

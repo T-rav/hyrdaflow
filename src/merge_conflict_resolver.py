@@ -16,11 +16,7 @@ from models import (
     Task,
     WorkerStatus,
 )
-from phase_utils import (
-    is_likely_bug,
-    publish_review_status,
-    safe_file_memory_suggestion,
-)
+from phase_utils import MemorySuggester, is_likely_bug, publish_review_status
 from pr_manager import PRManager
 from prompt_stats import build_prompt_stats
 from state import StateTracker
@@ -50,6 +46,7 @@ class MergeConflictResolver:
         self._bus = event_bus
         self._state = state
         self._summarizer = summarizer
+        self._suggest_memory = MemorySuggester(config, prs, state)
 
     async def merge_with_main(
         self,
@@ -192,14 +189,7 @@ class MergeConflictResolver:
                     pr.number, issue.id, attempt, transcript, source=source
                 )
 
-                await safe_file_memory_suggestion(
-                    transcript,
-                    source,
-                    f"PR #{pr.number}",
-                    self._config,
-                    self._prs,
-                    self._state,
-                )
+                await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
                 success, error_msg = await self._agents._verify_result(
                     wt_path, pr.branch
@@ -329,14 +319,7 @@ class MergeConflictResolver:
                 pr.number, issue.id, 0, transcript, source=source
             )
 
-            await safe_file_memory_suggestion(
-                transcript,
-                source,
-                f"PR #{pr.number}",
-                self._config,
-                self._prs,
-                self._state,
-            )
+            await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
             success, error_msg = await self._agents._verify_result(new_wt, pr.branch)
             if success:

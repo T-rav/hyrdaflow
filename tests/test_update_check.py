@@ -1,4 +1,4 @@
-"""Tests for ``hf_cli.update_check`` utilities."""
+"""Tests for ``update_check`` utilities."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from hf_cli import update_check
+import update_check
 
 
 class DummyResponse:

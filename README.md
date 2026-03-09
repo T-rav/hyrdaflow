@@ -81,67 +81,34 @@ make quality-lite # lint + typecheck + security
 make quality      # quality-lite + tests
 ```
 
-## CLI Installation
+## Admin API
 
-HydraFlow now exposes an `hf` console script so you can run `hf init`, `hf prep`, `hf run`, etc.
+HydraFlow exposes first-class HTTP endpoints for operational tasks once `make run` is active:
+
+- `POST /api/admin/prep` &mdash; sync lifecycle labels, run the prep audit, and seed manifests/memory.
+- `POST /api/admin/scaffold` &mdash; scaffold CI/tests (dry-run friendly) and report coverage posture.
+- `POST /api/admin/clean` &mdash; destroy all HydraFlow worktrees in the repo and reset local state.
+
+The Make targets (`make prep`, `make scaffold`, `make clean`) invoke `scripts/run_admin_task.py`
+directly, so they work without a running server. When the server is active you can also hit the
+endpoints directly via the included helper:
 
 ```bash
-# install locally from pyproject.toml (including configured extras)
-uv sync --all-extras
-
-# show available commands
-hf --help
-
-# copy hf assets (.claude, .codex, .pi, .githooks) into the current repo
-hf init
-
-# run the standard quick prep/scaffold flow without invoking make
-hf prep
-
-# ensure lifecycle labels exist (equivalent to make ensure-labels)
-hf ensure-labels
-
-# optional explicit alias for quick prep/scaffold
-hf scaffold
-
-# register the current repo (or an explicit path) with the background supervisor
-hf run              # uses cwd
-hf run /path/to/repo
-
-# list/stop registered repos (state lives under ~/.hydraflow/<repo-slug>)
-hf status                   # show every repo with RUNNING/STOPPED status
-hf status repo-slug         # show a single slug
-hf stop                     # stop repo in cwd
-hf stop repo-slug           # or stop by slug
-hf stop /path/to/repo
+# example: trigger prep via HTTP without leaving the terminal
+PYTHONPATH=src python scripts/call_api.py POST /api/admin/prep
+PYTHONPATH=src python scripts/call_api.py POST /api/admin/scaffold
+PYTHONPATH=src python scripts/call_api.py POST /api/admin/clean
 ```
 
 > HydraFlow still writes prep logs, memory, manifests, and run artifacts to
 > `.hydraflow/` by default when you run `make` commands directly inside a repo.
-> When you use `hf run`, the supervisor sets `HYDRAFLOW_HOME=~/.hydraflow/<repo-slug>`
-> so all of those artifacts move under `~/.hydraflow/<repo-slug>/...` instead of
-> cluttering your working tree.
-
-### Generating release assets
-
-If you modify `.claude`, `.codex`, or `.githooks`, run `make bundle-assets` to generate
-`dist/hf_cli-assets.tar.gz` for release/build artifact workflows.
-The repository no longer tracks a committed `src/hf_cli/assets.tar.gz`.
+> Set `HYDRAFLOW_HOME=~/.hydraflow/<repo-slug>` (or any preferred location) before
+> starting the server if you want those artifacts stored outside the working tree.
 
 ### Self-improving harness
 
 This repo includes a harnessed self-improvement loop (observation + session retro + memory candidate artifacts).
 See [docs/self-improving-harness.md](docs/self-improving-harness.md) for imported skills and runtime behavior.
-
-### Publishing the hf CLI
-
-When you're ready to publish `hydraflow` to PyPI:
-
-1. `make cli-release` – runs `embed-assets`, the test suite, and `uv build`.
-2. `uv publish` (or your release automation) – uploads the artifacts in `dist/`.
-
-This flow guarantees the pip-installed CLI has a fresh copy of the asset bundle
-and includes all runtime dependencies by default.
 
 ## Issue Flow Labels
 
@@ -162,7 +129,7 @@ You can override label names via `.env` (created from `.env.sample` during `make
 - `.hydraflow/prep/*.md` for local prep issues
 - `.hydraflow/prep/runs/<run-id>/` for run logs/transcripts
 
-When `HYDRAFLOW_HOME` is set (the default under `hf run`), the same structure
+When `HYDRAFLOW_HOME` is set, the same structure
 lives under `~/.hydraflow/<repo-slug>/prep/...` so every repo can share a single
 machine-wide HydraFlow home.
 

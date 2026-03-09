@@ -37,6 +37,7 @@ from models import (
     VisualValidationReport,
 )
 from phase_utils import (
+    MemorySuggester,
     adr_validation_reasons,
     is_adr_issue_title,
     load_existing_adr_topics,
@@ -46,7 +47,6 @@ from phase_utils import (
     release_batch_in_flight,
     run_concurrent_batch,
     run_with_fatal_guard,
-    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
@@ -112,6 +112,7 @@ class ReviewPhase:
         self._stop_event = stop_event
         self._store = store
         self._bus = event_bus or EventBus()
+        self._suggest_memory = MemorySuggester(config, prs, state)
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
         self._insights = ReviewInsightStore(config.memory_dir)
@@ -156,6 +157,7 @@ class ReviewPhase:
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
 
         async def _review_one(idx: int, pr: PRInfo) -> ReviewResult:
+            """Review a single PR under the concurrency semaphore."""
             if self._stop_event.is_set():
                 return ReviewResult(
                     pr_number=pr.number,
@@ -322,7 +324,7 @@ class ReviewPhase:
                     len(alerts),
                 )
             return alerts or None
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.debug(
                 "Could not fetch code scanning alerts for PR #%d",
                 pr.number,
@@ -352,7 +354,7 @@ class ReviewPhase:
                 pr_approvers=pr_approvers,
                 commit_sha=commit_sha,
             )
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.warning(
                 "Baseline policy check failed for PR #%d — failing closed to protect baseline integrity",
                 pr.number,
@@ -614,7 +616,7 @@ class ReviewPhase:
                     report.total_retries,
                 )
             return report
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.warning(
                 "Visual validation failed for PR #%d — skipping",
                 pr.number,
@@ -1115,7 +1117,7 @@ class ReviewPhase:
                     sign_off += f"- [{name}]({link})\n"
             try:
                 await self._prs.post_pr_comment(pr.number, sign_off)
-            except Exception:  # noqa: BLE001
+            except (RuntimeError, OSError):
                 logger.warning(
                     "PR #%d: could not post visual gate sign-off comment",
                     pr.number,
@@ -1137,7 +1139,7 @@ class ReviewPhase:
                 f"Verdict: `{verdict}` — {reason}\n"
                 f"Escalating to human review.",
             )
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.warning(
                 "PR #%d: could not post visual gate block comment",
                 pr.number,
@@ -1289,7 +1291,7 @@ class ReviewPhase:
                         from log_context import truncate_log  # noqa: PLC0415
 
                         ci_logs = truncate_log(raw, self._config.max_ci_log_chars)
-                except Exception:  # noqa: BLE001
+                except (RuntimeError, OSError):
                     logger.debug(
                         "Could not fetch CI failure logs for PR #%d",
                         pr.number,
@@ -1312,13 +1314,8 @@ class ReviewPhase:
 
         result.ci_passed = False
         if result.transcript:
-            await safe_file_memory_suggestion(
-                result.transcript,
-                "ci_fix_failure",
-                f"PR #{pr.number}",
-                self._config,
-                self._prs,
-                self._state,
+            await self._suggest_memory(
+                result.transcript, "ci_fix_failure", f"PR #{pr.number}"
             )
         await self._publish_review_status(pr, worker_id, "escalating")
         await self._escalate_ci_failure(pr, issue, summary, result.ci_fix_attempts)
@@ -1359,7 +1356,7 @@ class ReviewPhase:
                 labels = self._config.improve_label[:1]
                 await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             status = "error"
             details["error"] = "review insight recording failed"
             logger.warning(
@@ -1371,7 +1368,7 @@ class ReviewPhase:
             if self._update_bg_worker_status:
                 try:
                     self._update_bg_worker_status("review_insights", status, details)
-                except Exception:  # noqa: BLE001
+                except (RuntimeError, OSError):
                     logger.warning(
                         "review_insights status callback failed for PR #%d",
                         result.pr_number,
@@ -1646,13 +1643,10 @@ class ReviewPhase:
                 task=task,
             )
             if result.transcript:
-                await safe_file_memory_suggestion(
+                await self._suggest_memory(
                     result.transcript,
                     "review_fix_cap_exceeded",
                     f"PR #{pr.number}",
-                    self._config,
-                    self._prs,
-                    self._state,
                 )
             return False  # Destroy worktree
 
