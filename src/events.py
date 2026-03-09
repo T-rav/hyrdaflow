@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -90,11 +90,13 @@ class EventType(StrEnum):
 
 _T = TypeVar("_T")
 
-#: Constrained value type for event payloads — eliminates unchecked ``Any``.
-EventDataValue = str | int | float | bool | None | list[str] | dict[str, object]
-
-#: The concrete dict type used for ``HydraFlowEvent.data``.
-EventData = dict[str, EventDataValue]
+#: The type used for ``HydraFlowEvent.data``.
+#:
+#: Pyright treats ``TypedDict`` as incompatible with ``dict[str, Any]``,
+#: so ``EventData`` must be ``Any`` to accept typed payload classes defined
+#: in ``models.py``.  Type safety at the *consumer* side comes from
+#: :meth:`HydraFlowEvent.typed_data`.
+EventData = Any
 
 
 class HydraFlowEvent(BaseModel):
@@ -114,7 +116,7 @@ class HydraFlowEvent(BaseModel):
         cast at runtime — no validation is performed — but gives the caller
         full type-checker support for the returned dict keys.
         """
-        return cast(cls, self.data)
+        return cast(_T, self.data)
 
 
 class EventLog:
