@@ -113,16 +113,18 @@ class TestHitlSummaryFailureMessage:
     async def test_hitl_summary_failure_includes_exception_type(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """set_hitl_summary_failure receives the exception type and message."""
-        self._make_router(config, event_bus, state, tmp_path)
+        """_warm_hitl_summary records '{TypeName}: {message}' when an exception occurs."""
+        import asyncio
 
-        # Import the _warm_hitl_summary function from the module scope.
-        # It's a closure inside create_router, so we test the behaviour
-        # through the state mock.
-        # Simulate a failure in _compute_hitl_summary
         from dashboard_routes import create_router
+        from models import HITLItem
+        from pr_manager import PRManager
 
-        # Re-create with a state that tracks calls
+        # Enable the summarisation path so _warm_hitl_summary is triggered.
+        config.transcript_summarization_enabled = True
+        config.dry_run = False
+        config.gh_token = "test-token"
+
         calls: list[tuple[int, str]] = []
         original_set = state.set_hitl_summary_failure
 
@@ -132,24 +134,52 @@ class TestHitlSummaryFailureMessage:
 
         state.set_hitl_summary_failure = tracking_set
 
-        create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=MagicMock(),
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        with patch("dashboard_routes.IssueFetcher") as mock_fetcher_cls:
+            mock_fetcher = MagicMock()
+            # Raise from fetch_issue_by_number so the exception propagates to
+            # _warm_hitl_summary's except block (not caught inside _compute_hitl_summary).
+            mock_fetcher.fetch_issue_by_number = AsyncMock(
+                side_effect=RuntimeError("upstream API failed")
+            )
+            mock_fetcher_cls.return_value = mock_fetcher
 
-        # Find and invoke _warm_hitl_summary via the module internals.
-        # Since it's a closure, we need to find it through the route's
-        # function locals. Instead, we test the string format directly.
-        exc = ValueError("test error message")
-        expected = f"{type(exc).__name__}: {exc}"
-        assert expected == "ValueError: test error message"
+            pr_mgr = PRManager(config, event_bus)
+            hitl_item = HITLItem(issue=99, title="Fix CI failure", pr=111)
+            pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+            router = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+            )
+
+            get_hitl = None
+            for route in router.routes:
+                if (
+                    hasattr(route, "path")
+                    and route.path == "/api/hitl"
+                    and hasattr(route, "endpoint")
+                ):
+                    get_hitl = route.endpoint
+                    break
+
+            assert get_hitl is not None
+            await get_hitl()
+            # Yield twice to ensure the background asyncio.create_task completes.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        assert len(calls) >= 1, "Expected set_hitl_summary_failure to be called"
+        issue_num, message = calls[0]
+        assert issue_num == 99
+        assert message.startswith("RuntimeError:")
+        assert "upstream API failed" in message
 
 
 # ---------------------------------------------------------------------------

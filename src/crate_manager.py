@@ -127,7 +127,7 @@ class CrateManager:
                     suffix = t[len(date_prefix) + 1 :]
                     if suffix.isdigit():
                         max_iter = max(max_iter, int(suffix))
-        except Exception:
+        except RuntimeError:
             logger.warning(
                 "Could not list milestones for title generation", exc_info=True
             )
@@ -156,7 +156,7 @@ class CrateManager:
         for task in uncrated:
             try:
                 await self._prs.set_issue_milestone(task.id, crate.number)
-            except Exception:
+            except RuntimeError:
                 logger.warning(
                     "Failed to assign issue #%d to crate #%d",
                     task.id,
