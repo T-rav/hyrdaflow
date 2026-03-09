@@ -2679,6 +2679,7 @@ class TestNarrowedExceptionHandling:
     ) -> None:
         """RuntimeError from subprocess is still caught gracefully."""
         phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
         phase._prs.fetch_code_scanning_alerts = AsyncMock(
             side_effect=RuntimeError("gh CLI failed")
         )
@@ -2693,6 +2694,7 @@ class TestNarrowedExceptionHandling:
     ) -> None:
         """TypeError (code bug) must propagate through narrowed handler."""
         phase = make_review_phase(config, default_mocks=True)
+        phase._config.code_scanning_enabled = True
         phase._prs.fetch_code_scanning_alerts = AsyncMock(
             side_effect=TypeError("bad arg")
         )
@@ -2703,7 +2705,7 @@ class TestNarrowedExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_visual_validation_catches_runtime_error(
-        self, config: HydraFlowConfig
+        self, config: HydraFlowConfig, tmp_path: Path
     ) -> None:
         """RuntimeError during visual validation is caught gracefully."""
         phase = make_review_phase(config, default_mocks=True)
@@ -2713,12 +2715,12 @@ class TestNarrowedExceptionHandling:
         )
         pr = PRInfoFactory.create()
 
-        result = await phase._run_visual_validation(pr)
+        result = await phase._run_visual_validation(pr, tmp_path, worker_id=0)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_visual_validation_propagates_attribute_error(
-        self, config: HydraFlowConfig
+        self, config: HydraFlowConfig, tmp_path: Path
     ) -> None:
         """AttributeError (code bug) in visual validation must propagate."""
         phase = make_review_phase(config, default_mocks=True)
@@ -2729,7 +2731,7 @@ class TestNarrowedExceptionHandling:
         pr = PRInfoFactory.create()
 
         with pytest.raises(AttributeError, match="missing attr"):
-            await phase._run_visual_validation(pr)
+            await phase._run_visual_validation(pr, tmp_path, worker_id=0)
 
     @pytest.mark.asyncio
     async def test_ci_log_fetch_propagates_key_error(

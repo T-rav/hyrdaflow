@@ -1654,7 +1654,11 @@ class TestNarrowedExceptionHandling:
             ),
             pytest.raises(TypeError, match="bad type"),
         ):
-            await unsticker._process_item(_make_hitl_item(42, pr=10, prUrl="u"))
+            await unsticker._process_item(
+                _make_hitl_item(
+                    42, pr=10, prUrl="https://github.com/test-org/test-repo/pull/10"
+                )
+            )
 
     @pytest.mark.asyncio
     async def test_process_item_catches_runtime_error(self, tmp_path: Path) -> None:
@@ -1673,7 +1677,9 @@ class TestNarrowedExceptionHandling:
             AsyncMock(side_effect=RuntimeError("subprocess failed")),
         ):
             result = await unsticker._process_item(
-                _make_hitl_item(42, pr=10, prUrl="u")
+                _make_hitl_item(
+                    42, pr=10, prUrl="https://github.com/test-org/test-repo/pull/10"
+                )
             )
 
         assert result is False
@@ -1724,12 +1730,16 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir = unsticker._config.worktree_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         wt.start_merge_main = AsyncMock(side_effect=RuntimeError("git failed"))
 
-        items = [_make_hitl_item(42, pr=10, prUrl="u")]
+        items = [
+            _make_hitl_item(
+                42, pr=10, prUrl="https://github.com/test-org/test-repo/pull/10"
+            )
+        ]
         # Should not raise
         await unsticker._re_rebase_remaining(items)
 
@@ -1739,12 +1749,16 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        wt_dir = tmp_path / "worktrees" / "issue-42"
+        wt_dir = unsticker._config.worktree_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         wt.start_merge_main = AsyncMock(side_effect=TypeError("bad type"))
 
-        items = [_make_hitl_item(42, pr=10, prUrl="u")]
+        items = [
+            _make_hitl_item(
+                42, pr=10, prUrl="https://github.com/test-org/test-repo/pull/10"
+            )
+        ]
         with pytest.raises(TypeError, match="bad type"):
             await unsticker._re_rebase_remaining(items)
 
