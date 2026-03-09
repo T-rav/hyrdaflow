@@ -1496,26 +1496,6 @@ class WorkerUpdatePayload(TypedDict, total=False):
     repo: str
 
 
-class PlannerUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.PLANNER_UPDATE``."""
-
-    issue: int
-    worker: int
-    status: str
-    role: str
-    repo: str
-
-
-class TriageUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.TRIAGE_UPDATE``."""
-
-    issue: int
-    worker: int
-    status: str
-    role: str
-    repo: str
-
-
 class ReviewUpdatePayload(TypedDict, total=False):
     """Payload for ``EventType.REVIEW_UPDATE``."""
 
@@ -1537,14 +1517,6 @@ class PRCreatedPayload(TypedDict, total=False):
     branch: str
     draft: bool
     url: str
-    repo: str
-
-
-class MergeUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.MERGE_UPDATE``."""
-
-    pr: int
-    status: str
     repo: str
 
 
@@ -1575,67 +1547,6 @@ class HITLEscalationPayload(TypedDict, total=False):
     role: str
     repo: str
     visual_evidence: dict[str, object]
-
-
-class IssueCreatedPayload(TypedDict):
-    """Payload for ``EventType.ISSUE_CREATED``."""
-
-    number: int
-    title: str
-    labels: list[str]
-
-
-class HITLUpdatePayload(TypedDict, total=False):
-    """Payload for ``EventType.HITL_UPDATE``."""
-
-    issue: int
-    status: str
-    action: str
-    worker: int
-    duration: float
-    reason: str
-    repo: str
-
-
-class ErrorPayload(TypedDict, total=False):
-    """Payload for ``EventType.ERROR``."""
-
-    message: str
-    source: str
-    repo: str
-
-
-class BackgroundWorkerStatusPayload(TypedDict):
-    """Payload for ``EventType.BACKGROUND_WORKER_STATUS``."""
-
-    worker: str
-    status: str
-    last_run: str
-    details: dict[str, Any]
-
-
-class OrchestratorStatusPayload(TypedDict, total=False):
-    """Payload for ``EventType.ORCHESTRATOR_STATUS``."""
-
-    status: str
-    reset: bool
-
-
-class SessionStartPayload(TypedDict):
-    """Payload for ``EventType.SESSION_START``."""
-
-    session_id: str
-    repo: str
-
-
-class SessionEndPayload(TypedDict):
-    """Payload for ``EventType.SESSION_END``."""
-
-    session_id: str
-    status: str
-    issues_processed: list[int]
-    issues_succeeded: int
-    issues_failed: int
 
 
 class PipelineSnapshotEntry(TypedDict):
