@@ -1228,3 +1228,372 @@ class TestVisualGateInHandleApproved:
         assert len(gate_events) == 1, "Expected one VISUAL_GATE blocked audit event"
         assert gate_events[0].data["pr"] == pr.number
         assert gate_events[0].data["issue"] == issue.id
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling — programming errors propagate
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowedExceptionHandling:
+    """Verify that programming errors (TypeError, AttributeError) propagate
+    instead of being silently swallowed after narrowing except clauses."""
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_propagates_type_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError in a hook coroutine must propagate through _safe_hook."""
+        handler = _make_handler(config)
+
+        async def _bad_coro() -> str:
+            raise TypeError("unexpected None argument")
+
+        with pytest.raises(TypeError, match="unexpected None argument"):
+            await handler._safe_hook("test hook", _bad_coro(), issue_number=1)
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_propagates_attribute_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AttributeError in a hook coroutine must propagate through _safe_hook."""
+        handler = _make_handler(config)
+
+        async def _bad_coro() -> str:
+            raise AttributeError("obj has no attribute 'foo'")
+
+        with pytest.raises(AttributeError, match="obj has no attribute"):
+            await handler._safe_hook("test hook", _bad_coro(), issue_number=1)
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_still_catches_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """RuntimeError should still be caught and return None."""
+        handler = _make_handler(config)
+
+        async def _fail() -> str:
+            raise RuntimeError("subprocess failed")
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_still_catches_os_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError should still be caught and return None."""
+        handler = _make_handler(config)
+
+        async def _fail() -> str:
+            raise OSError("disk full")
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_still_catches_value_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ValueError (including json.JSONDecodeError) should still be caught."""
+        handler = _make_handler(config)
+
+        async def _fail() -> str:
+            raise ValueError("invalid JSON")
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_notify_epic_approval_propagates_type_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError in epic approval notification must propagate."""
+        handler = _make_handler(config)
+        mock_epic_manager = AsyncMock()
+        mock_epic_manager.find_parent_epics = MagicMock(return_value=[100])
+        mock_epic_manager.on_child_approved = AsyncMock(
+            side_effect=TypeError("bad arg")
+        )
+        handler._epic_manager = mock_epic_manager
+
+        with pytest.raises(TypeError, match="bad arg"):
+            await handler._notify_epic_approval(42)
+
+    @pytest.mark.asyncio
+    async def test_notify_epic_approval_catches_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """RuntimeError in epic approval notification should be caught."""
+        handler = _make_handler(config)
+        mock_epic_manager = AsyncMock()
+        mock_epic_manager.find_parent_epics = MagicMock(return_value=[100])
+        mock_epic_manager.on_child_approved = AsyncMock(
+            side_effect=RuntimeError("API down")
+        )
+        handler._epic_manager = mock_epic_manager
+
+        # Should not raise — RuntimeError is caught
+        await handler._notify_epic_approval(42)
+
+    @pytest.mark.asyncio
+    async def test_notify_epic_approval_catches_os_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError in epic approval notification should be caught."""
+        handler = _make_handler(config)
+        mock_epic_manager = AsyncMock()
+        mock_epic_manager.find_parent_epics = MagicMock(return_value=[100])
+        mock_epic_manager.on_child_approved = AsyncMock(
+            side_effect=OSError("network unreachable")
+        )
+        handler._epic_manager = mock_epic_manager
+
+        # Should not raise — OSError is caught
+        await handler._notify_epic_approval(42)
+
+    @pytest.mark.asyncio
+    async def test_post_inference_comment_propagates_type_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError in post_comment during inference totals must propagate."""
+        handler = _make_handler(config)
+        handler._prompt_telemetry.get_pr_totals = lambda _pr: {
+            "inference_calls": 1,
+            "total_tokens": 100,
+            "total_est_tokens": 100,
+            "actual_usage_calls": 0,
+        }
+        handler._prs.post_comment = AsyncMock(
+            side_effect=TypeError("bad argument type")
+        )
+        pr = PRInfoFactory.create(number=10, issue_number=5)
+        issue = TaskFactory.create(id=5)
+
+        with pytest.raises(TypeError, match="bad argument type"):
+            await handler._post_inference_totals_comment(pr, issue)
+
+    @pytest.mark.asyncio
+    async def test_post_inference_comment_catches_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """RuntimeError in post_comment during inference totals should be caught."""
+        handler = _make_handler(config)
+        handler._prompt_telemetry.get_pr_totals = lambda _pr: {
+            "inference_calls": 1,
+            "total_tokens": 100,
+            "total_est_tokens": 100,
+            "actual_usage_calls": 0,
+        }
+        handler._prs.post_comment = AsyncMock(side_effect=RuntimeError("API error"))
+        pr = PRInfoFactory.create(number=10, issue_number=5)
+        issue = TaskFactory.create(id=5)
+
+        # Should not raise — RuntimeError is caught
+        await handler._post_inference_totals_comment(pr, issue)
+
+    @pytest.mark.asyncio
+    async def test_post_inference_comment_catches_value_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ValueError (e.g. json.JSONDecodeError) in post_comment should be caught."""
+        handler = _make_handler(config)
+        handler._prompt_telemetry.get_pr_totals = lambda _pr: {
+            "inference_calls": 1,
+            "total_tokens": 100,
+            "total_est_tokens": 100,
+            "actual_usage_calls": 0,
+        }
+        handler._prs.post_comment = AsyncMock(side_effect=ValueError("invalid JSON"))
+        pr = PRInfoFactory.create(number=10, issue_number=5)
+        issue = TaskFactory.create(id=5)
+
+        # Should not raise — ValueError is caught
+        await handler._post_inference_totals_comment(pr, issue)
+
+    @pytest.mark.asyncio
+    async def test_retrospective_propagates_type_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """TypeError in retrospective.record() must propagate through post-merge hooks."""
+        mock_retro = AsyncMock()
+        mock_retro.record.side_effect = TypeError("missing required arg")
+        handler = _make_handler(config, retrospective=mock_retro)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        with pytest.raises(TypeError, match="missing required arg"):
+            await handler.handle_approved(
+                pr,
+                issue,
+                result,
+                "diff",
+                0,
+                ci_gate_fn=AsyncMock(return_value=True),
+                escalate_fn=AsyncMock(),
+                publish_fn=AsyncMock(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_status_callback_propagates_attribute_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """AttributeError in status callback must propagate."""
+        mock_retro = AsyncMock()
+        status_cb = MagicMock(side_effect=AttributeError("no attr"))
+        handler = _make_handler(
+            config,
+            retrospective=mock_retro,
+            update_bg_worker_status=status_cb,
+        )
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        with pytest.raises(AttributeError, match="no attr"):
+            await handler.handle_approved(
+                pr,
+                issue,
+                result,
+                "diff",
+                0,
+                ci_gate_fn=AsyncMock(return_value=True),
+                escalate_fn=AsyncMock(),
+                publish_fn=AsyncMock(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_inner_post_comment_catches_os_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError from post_comment inside _safe_hook must not propagate."""
+        handler = _make_handler(config)
+        handler._prs.post_comment = AsyncMock(side_effect=OSError("broken pipe"))
+
+        async def _fail() -> str:
+            raise RuntimeError("hook failure")
+
+        # Should not raise even though post_comment raises OSError
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_post_inference_comment_catches_os_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """OSError in post_comment during inference totals should be caught."""
+        handler = _make_handler(config)
+        handler._prompt_telemetry.get_pr_totals = lambda _pr: {
+            "inference_calls": 1,
+            "total_tokens": 100,
+            "total_est_tokens": 100,
+            "actual_usage_calls": 0,
+        }
+        handler._prs.post_comment = AsyncMock(side_effect=OSError("connection reset"))
+        pr = PRInfoFactory.create(number=10, issue_number=5)
+        issue = TaskFactory.create(id=5)
+
+        # Should not raise — OSError is now caught
+        await handler._post_inference_totals_comment(pr, issue)
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_chain_isolation(self, config: HydraFlowConfig) -> None:
+        """When record_hook_failure fails, bus.publish and post_comment still run."""
+        state_mock = MagicMock()
+        state_mock.record_hook_failure = MagicMock(side_effect=RuntimeError("db down"))
+        bus_mock = AsyncMock()
+        prs_mock = AsyncMock()
+        handler = PostMergeHandler(
+            config=config,
+            state=state_mock,
+            prs=prs_mock,
+            event_bus=bus_mock,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+
+        async def _fail() -> str:
+            raise RuntimeError("hook failed")
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+        state_mock.record_hook_failure.assert_called_once()
+        bus_mock.publish.assert_awaited_once()
+        prs_mock.post_comment.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_safe_hook_bus_publish_failure_still_calls_post_comment(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When bus.publish fails, post_comment must still be called (full chain)."""
+        state_mock = MagicMock()
+        bus_mock = AsyncMock()
+        bus_mock.publish = AsyncMock(side_effect=RuntimeError("bus unavailable"))
+        prs_mock = AsyncMock()
+        handler = PostMergeHandler(
+            config=config,
+            state=state_mock,
+            prs=prs_mock,
+            event_bus=bus_mock,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+
+        async def _fail() -> str:
+            raise RuntimeError("hook failed")
+
+        result = await handler._safe_hook("test hook", _fail(), issue_number=1)
+        assert result is None
+        bus_mock.publish.assert_awaited_once()
+        prs_mock.post_comment.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retrospective_runtime_error_is_swallowed(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """RuntimeError from retrospective.record must be caught in _run_post_merge_hooks."""
+        mock_retro = AsyncMock()
+        mock_retro.record = AsyncMock(side_effect=RuntimeError("db unavailable"))
+        handler = _make_handler(config, retrospective=mock_retro)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        # Should not raise — RuntimeError from retrospective is caught
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_notify_epic_approval_catches_value_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """ValueError in epic approval notification should be caught."""
+        handler = _make_handler(config)
+        mock_epic_manager = AsyncMock()
+        mock_epic_manager.find_parent_epics = MagicMock(return_value=[100])
+        mock_epic_manager.on_child_approved = AsyncMock(
+            side_effect=ValueError("malformed response")
+        )
+        handler._epic_manager = mock_epic_manager
+
+        # Should not raise — ValueError is now caught
+        await handler._notify_epic_approval(42)
