@@ -1035,7 +1035,7 @@ class HydraFlowOrchestrator:
                     consecutive_failures = 1
                     last_exc_type = exc_type
 
-                # Use higher severity for likely-bug exceptions
+                # Classify for event bus data; severity handled inside helper
                 exc_is_bug = is_likely_bug(exc)
                 log_exception_with_bug_classification(
                     logger,
