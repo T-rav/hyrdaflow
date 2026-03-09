@@ -259,6 +259,10 @@ describe('extractSlugFromUrl', () => {
     expect(extractSlugFromUrl('https://gitlab.com/owner/repo')).toBeNull()
   })
 
+  it('returns null for lookalike domains ending in github.com', () => {
+    expect(extractSlugFromUrl('https://notgithub.com/owner/repo')).toBeNull()
+  })
+
   it('returns null for GitHub subdomain URLs (e.g. gist.github.com)', () => {
     expect(extractSlugFromUrl('https://gist.github.com/owner/abc123')).toBeNull()
   })
