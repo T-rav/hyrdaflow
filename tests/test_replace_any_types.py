@@ -203,15 +203,107 @@ class TestContainerLikeProtocol:
 # ---------------------------------------------------------------------------
 
 
+def _make_router(config, event_bus, state, tmp_path):
+    """Build a dashboard router backed by test doubles."""
+    from dashboard_routes import create_router
+    from pr_manager import PRManager
+
+    pr_mgr = PRManager(config, event_bus)
+    return create_router(
+        config=config,
+        event_bus=event_bus,
+        state=state,
+        pr_manager=pr_mgr,
+        get_orchestrator=lambda: None,
+        set_orchestrator=lambda o: None,
+        set_run_task=lambda t: None,
+        ui_dist_dir=tmp_path / "no-dist",
+        template_dir=tmp_path / "no-templates",
+    )
+
+
+def _find_endpoint(router, path: str):
+    for route in router.routes:
+        if hasattr(route, "path") and route.path == path and hasattr(route, "endpoint"):
+            return route.endpoint
+    return None
+
+
 class TestDashboardRouteAnnotations:
     """Verify dashboard_routes functions have specific type annotations."""
 
-    def test_build_hitl_context_issue_param(self) -> None:
-        """_build_hitl_context should accept GitHubIssue, not Any."""
-        issue = GitHubIssue(number=99, title="Test", body="desc", state="open")
-        # Import the factory and build the context
-        # We just verify the function works with a real GitHubIssue
-        assert issue.number == 99
+    def test_build_hitl_context_github_issue_interface(self) -> None:
+        """GitHubIssue satisfies the interface expected by _build_hitl_context."""
+        # _build_hitl_context is a closure inside create_router and is not
+        # directly importable. This test verifies that GitHubIssue exposes
+        # every attribute the function accesses: .number, .title, .body,
+        # .comments, .url, .labels.
+        issue = GitHubIssue(
+            number=99,
+            title="Test issue",
+            body="desc",
+            state="open",
+            comments=["comment A"],
+            url="https://example.com",
+            labels=["bug"],
+        )
+        assert isinstance(issue.number, int)
+        assert isinstance(issue.title, str)
+        assert isinstance(issue.body, str)
+        assert isinstance(issue.comments, list)
+        assert isinstance(issue.url, str)
+        assert isinstance(issue.labels, list)
+
+    def test_normalise_worker_health_error_status_degrades_health(
+        self, config, event_bus, state, tmp_path: Path
+    ) -> None:
+        """_normalise_worker_health: 'error' string maps to BGWorkerHealth.ERROR."""
+        import json
+
+        router = _make_router(config, event_bus, state, tmp_path)
+        state.set_worker_heartbeat(
+            "bad_worker", {"status": "error", "last_run": None, "details": {}}
+        )
+        get_health = _find_endpoint(router, "/healthz")
+        assert get_health is not None
+        response = get_health()
+        data = json.loads(response.body)
+        assert data["checks"]["workers"]["status"] == "degraded"
+        assert "bad_worker" in data["worker_errors"]
+
+    def test_normalise_worker_health_unknown_status_falls_back_to_disabled(
+        self, config, event_bus, state, tmp_path: Path
+    ) -> None:
+        """_normalise_worker_health: unknown string coerces to disabled (not error)."""
+        import json
+
+        router = _make_router(config, event_bus, state, tmp_path)
+        state.set_worker_heartbeat(
+            "ok_worker",
+            {"status": "totally_unknown_xyz", "last_run": None, "details": {}},
+        )
+        get_health = _find_endpoint(router, "/healthz")
+        assert get_health is not None
+        response = get_health()
+        data = json.loads(response.body)
+        assert "ok_worker" not in data.get("worker_errors", [])
+
+    def test_normalise_worker_health_bgworkerhealth_enum_passthrough(
+        self, config, event_bus, state, tmp_path: Path
+    ) -> None:
+        """_normalise_worker_health: BGWorkerHealth enum value passes through unchanged."""
+        import json
+
+        router = _make_router(config, event_bus, state, tmp_path)
+        # Store a BGWorkerHealth.OK status — should not appear in worker_errors
+        state.set_worker_heartbeat(
+            "good_worker", {"status": "ok", "last_run": None, "details": {}}
+        )
+        get_health = _find_endpoint(router, "/healthz")
+        assert get_health is not None
+        response = get_health()
+        data = json.loads(response.body)
+        assert "good_worker" not in data.get("worker_errors", [])
 
     def test_normalise_state_return_type(self) -> None:
         """Verify the _normalise_state validator returns correct type."""
