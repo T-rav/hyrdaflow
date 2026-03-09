@@ -52,7 +52,7 @@ class StateTracker:
         """Ensure worker heartbeat details are stored as dicts."""
         if isinstance(raw, dict):
             return dict(raw)
-        if raw in (None, "", []):
+        if raw in (None, ""):
             return {}
         return {"raw": raw}
 
