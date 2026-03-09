@@ -1964,7 +1964,7 @@ class TestRepoScopedEndpoints:
             r for r in router.routes if getattr(r, "path", "") == "/api/prs"
         )
 
-        with patch("dashboard_routes.PRManager") as MockPRManager:
+        with patch("dashboard_router_deps.PRManager") as MockPRManager:
             mock_mgr = MockPRManager.return_value
             mock_mgr.list_open_prs = AsyncMock(return_value=[])
             resp = await endpoint.endpoint(repo="org-repo")
@@ -2008,7 +2008,7 @@ class TestRepoScopedEndpoints:
             def model_dump(self) -> dict:
                 return {"issue": self.issue}
 
-        with patch("dashboard_routes.PRManager") as MockPRManager:
+        with patch("dashboard_router_deps.PRManager") as MockPRManager:
             mock_mgr = MockPRManager.return_value
             mock_mgr.list_hitl_items = AsyncMock(return_value=[_Item(42)])
             resp = await endpoint.endpoint(repo="org-repo")
