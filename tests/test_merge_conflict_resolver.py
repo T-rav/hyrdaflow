@@ -182,9 +182,7 @@ class TestSourceParameter:
     async def test_source_passed_to_memory_suggestion(
         self, config: HydraFlowConfig
     ) -> None:
-        """Verify safe_file_memory_suggestion gets the correct source string."""
-        from unittest.mock import patch
-
+        """Verify _suggest_memory gets the correct source string."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
@@ -193,21 +191,18 @@ class TestSourceParameter:
         issue = TaskFactory.create()
 
         resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._suggest_memory = AsyncMock()
 
-        with patch(
-            "merge_conflict_resolver.safe_file_memory_suggestion",
-            new_callable=AsyncMock,
-        ) as mock_fms:
-            await resolver.resolve_merge_conflicts(
-                pr,
-                issue,
-                config.worktree_path_for_issue(42),
-                worker_id=0,
-                source="test_source",
-            )
+        await resolver.resolve_merge_conflicts(
+            pr,
+            issue,
+            config.worktree_path_for_issue(42),
+            worker_id=0,
+            source="test_source",
+        )
 
-            mock_fms.assert_awaited_once()
-            assert mock_fms.call_args.args[1] == "test_source"
+        resolver._suggest_memory.assert_awaited_once()
+        assert resolver._suggest_memory.call_args.args[1] == "test_source"
 
 
 class TestWorkerIdNone:

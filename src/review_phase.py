@@ -37,6 +37,7 @@ from models import (
     VisualValidationReport,
 )
 from phase_utils import (
+    MemorySuggester,
     adr_validation_reasons,
     is_adr_issue_title,
     load_existing_adr_topics,
@@ -46,7 +47,6 @@ from phase_utils import (
     release_batch_in_flight,
     run_concurrent_batch,
     run_with_fatal_guard,
-    safe_file_memory_suggestion,
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
@@ -112,6 +112,7 @@ class ReviewPhase:
         self._stop_event = stop_event
         self._store = store
         self._bus = event_bus or EventBus()
+        self._suggest_memory = MemorySuggester(config, prs, state)
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
         self._insights = ReviewInsightStore(config.memory_dir)
@@ -1313,13 +1314,8 @@ class ReviewPhase:
 
         result.ci_passed = False
         if result.transcript:
-            await safe_file_memory_suggestion(
-                result.transcript,
-                "ci_fix_failure",
-                f"PR #{pr.number}",
-                self._config,
-                self._prs,
-                self._state,
+            await self._suggest_memory(
+                result.transcript, "ci_fix_failure", f"PR #{pr.number}"
             )
         await self._publish_review_status(pr, worker_id, "escalating")
         await self._escalate_ci_failure(pr, issue, summary, result.ci_fix_attempts)
@@ -1647,13 +1643,10 @@ class ReviewPhase:
                 task=task,
             )
             if result.transcript:
-                await safe_file_memory_suggestion(
+                await self._suggest_memory(
                     result.transcript,
                     "review_fix_cap_exceeded",
                     f"PR #{pr.number}",
-                    self._config,
-                    self._prs,
-                    self._state,
                 )
             return False  # Destroy worktree
 

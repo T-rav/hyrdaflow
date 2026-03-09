@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from models import ConflictResolutionResult
-from phase_utils import is_likely_bug, safe_file_memory_suggestion
+from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
 
 if TYPE_CHECKING:
@@ -123,6 +123,7 @@ class PRUnsticker:
         self._stop_event = stop_event or asyncio.Event()
         self._resolver = resolver
         self._troubleshooting_store = troubleshooting_store
+        self._suggest_memory = MemorySuggester(config, pr_manager, state)
 
     async def unstick(self, hitl_items: list[HITLItem]) -> UnstickResult:
         """Process HITL items and return stats.
@@ -337,9 +338,7 @@ class PRUnsticker:
                 )
                 return False
 
-        except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+        except Exception:
             logger.exception("PR Unsticker failed for issue #%d", issue_number)
             await self._release_back_to_hitl(
                 issue_number,
@@ -442,13 +441,8 @@ class PRUnsticker:
                     issue_number,
                 )
 
-            await safe_file_memory_suggestion(
-                transcript,
-                "pr_unsticker",
-                f"issue #{issue_number}",
-                self._config,
-                self._prs,
-                self._state,
+            await self._suggest_memory(
+                transcript, "pr_unsticker", f"issue #{issue_number}"
             )
 
             success, error_msg = await self._agents._verify_result(wt_path, branch)
@@ -462,8 +456,6 @@ class PRUnsticker:
             )
             return False
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
             logger.error(
                 "Unsticker CI fix agent failed for issue #%d: %s",
                 issue_number,
@@ -615,13 +607,8 @@ diff — you may catch things `make quality` won't.
                         source="unsticker",
                     )
 
-                await safe_file_memory_suggestion(
-                    transcript,
-                    "pr_unsticker",
-                    f"issue #{issue_number}",
-                    self._config,
-                    self._prs,
-                    self._state,
+                await self._suggest_memory(
+                    transcript, "pr_unsticker", f"issue #{issue_number}"
                 )
 
                 success, error_msg = await self._agents._verify_result(wt_path, branch)
@@ -640,8 +627,6 @@ diff — you may catch things `make quality` won't.
                     error_msg[:200] if error_msg else "",
                 )
             except Exception as exc:
-                if is_likely_bug(exc):
-                    raise
                 logger.error(
                     "Unsticker CI timeout agent failed for issue #%d (attempt %d): %s",
                     issue_number,

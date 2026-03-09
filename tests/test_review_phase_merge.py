@@ -305,7 +305,7 @@ class TestResolveMergeConflicts:
     async def test_conflict_resolution_calls_file_memory_suggestion(
         self, config: HydraFlowConfig
     ) -> None:
-        """safe_file_memory_suggestion should be called with the conflict transcript."""
+        """MemorySuggester should be called with the conflict transcript."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript with suggestion")
         mock_agents._verify_result = AsyncMock(return_value=(True, ""))
@@ -316,22 +316,18 @@ class TestResolveMergeConflicts:
 
         phase._worktrees.start_merge_main = AsyncMock(return_value=False)
 
-        with patch(
-            "merge_conflict_resolver.safe_file_memory_suggestion",
-            new_callable=AsyncMock,
-        ) as mock_fms:
-            await phase._resolve_merge_conflicts(
-                pr, issue, config.worktree_path_for_issue(42), worker_id=0
-            )
+        mock_fms = AsyncMock()
+        phase._conflict_resolver._suggest_memory = mock_fms
 
-            mock_fms.assert_awaited_once_with(
-                "transcript with suggestion",
-                "merge_conflict",
-                f"PR #{pr.number}",
-                phase._config,
-                phase._prs,
-                phase._state,
-            )
+        await phase._resolve_merge_conflicts(
+            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+        )
+
+        mock_fms.assert_awaited_once_with(
+            "transcript with suggestion",
+            "merge_conflict",
+            f"PR #{pr.number}",
+        )
 
     @pytest.mark.asyncio
     async def test_conflict_resolution_memory_failure_does_not_propagate(

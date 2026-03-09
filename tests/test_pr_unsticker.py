@@ -1001,27 +1001,20 @@ def _setup_ci_fix_memory_test(tmp_path: Path, *, transcript: str = "transcript")
 
 class TestMemorySuggestionExtraction:
     @pytest.mark.asyncio
-    async def test_ci_fix_uses_safe_file_memory_suggestion(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_ci_fix_uses_suggest_memory(self, tmp_path: Path) -> None:
         unsticker, *_ = _setup_ci_fix_memory_test(
             tmp_path, transcript="transcript with suggestion"
         )
 
-        with patch(
-            "pr_unsticker.safe_file_memory_suggestion", new_callable=AsyncMock
-        ) as mock_fms:
-            stats = await unsticker.unstick([_make_hitl_item(42)])
+        unsticker._suggest_memory = AsyncMock()
+        stats = await unsticker.unstick([_make_hitl_item(42)])
 
-            assert stats["resolved"] == 1
-            mock_fms.assert_awaited_once_with(
-                "transcript with suggestion",
-                "pr_unsticker",
-                "issue #42",
-                unsticker._config,
-                unsticker._prs,
-                unsticker._state,
-            )
+        assert stats["resolved"] == 1
+        unsticker._suggest_memory.assert_awaited_once_with(
+            "transcript with suggestion",
+            "pr_unsticker",
+            "issue #42",
+        )
 
 
 class TestCITimeoutResolution:
