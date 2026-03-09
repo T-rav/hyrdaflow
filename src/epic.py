@@ -210,12 +210,12 @@ class EpicCompletionChecker:
         sub_issue_titles: list[str] = []
         excluded_issues: list[int] = []
         hitl_blocked: list[int] = []
-        for issue_num in sub_issues:
-            issue = await self._fetcher.fetch_issue_by_number(issue_num)
+        for issue_number in sub_issues:
+            issue = await self._fetcher.fetch_issue_by_number(issue_number)
             if issue is None:
                 logger.warning(
                     "Sub-issue #%d not found while checking epic #%d — skipping",
-                    issue_num,
+                    issue_number,
                     epic_number,
                 )
                 return False
@@ -235,18 +235,18 @@ class EpicCompletionChecker:
 
             # Check if sub-issue is closed (wontfix/duplicate/invalid)
             if issue.state == GitHubIssueState.CLOSED:
-                excluded_issues.append(issue_num)
+                excluded_issues.append(issue_number)
                 logger.info(
                     "Sub-issue #%d closed without fixed label — treating as excluded "
                     "for epic #%d",
-                    issue_num,
+                    issue_number,
                     epic_number,
                 )
                 continue
 
             # Check if sub-issue is escalated to HITL (still open)
             if hitl_labels & set(issue.labels):
-                hitl_blocked.append(issue_num)
+                hitl_blocked.append(issue_number)
                 continue
 
             # Sub-issue is still open and unresolved

@@ -126,14 +126,14 @@ async def run_refilling_pool(
     return results
 
 
-def release_batch_in_flight(store: IssueStore, task_ids: set[int]) -> None:
+def release_batch_in_flight(store: IssueStore, issue_numbers: set[int]) -> None:
     """Release in-flight protection for a batch of issues.
 
     Should be called in a ``finally`` block after ``run_concurrent_batch``
     to ensure no orphaned in-flight entries survive if a worker exits
     without reaching ``mark_active`` / ``mark_complete``.
     """
-    store.release_in_flight(task_ids)
+    store.release_in_flight(issue_numbers)
 
 
 async def escalate_to_hitl(
@@ -331,6 +331,56 @@ LIKELY_BUG_EXCEPTIONS: tuple[type[BaseException], ...] = (
 def is_likely_bug(exc: BaseException) -> bool:
     """Return True if *exc* is likely a code bug rather than a transient failure."""
     return isinstance(exc, LIKELY_BUG_EXCEPTIONS)
+
+
+def log_exception_with_bug_classification(
+    log: logging.Logger,
+    exc: BaseException,
+    context: str,
+) -> None:
+    """Log *exc* at the appropriate severity based on :func:`is_likely_bug`.
+
+    If the exception is likely a code bug, log at ``CRITICAL`` with a
+    "needs code fix" hint; otherwise log at ``WARNING`` with ``exc_info``.
+    """
+    exc_type_name = type(exc).__name__
+    if is_likely_bug(exc):
+        log.critical(
+            "%s — likely bug (%s), needs code fix",
+            context,
+            exc_type_name,
+            exc_info=True,
+        )
+    else:
+        log.warning("%s — %s", context, exc_type_name, exc_info=True)
+
+
+async def run_with_fatal_guard(
+    coro: Coroutine[Any, Any, T],
+    *,
+    on_failure: Callable[[str], T],
+    context: str,
+    log: logging.Logger,
+) -> T:
+    """Await *coro*, re-raising fatal errors and classifying the rest.
+
+    Fatal errors (``AuthenticationError``, ``CreditExhaustedError``,
+    ``MemoryError``) propagate immediately.  All other exceptions are
+    logged via :func:`log_exception_with_bug_classification` and
+    ``on_failure(exc_type_name)`` is returned as the result.
+    """
+    from subprocess_util import (  # noqa: PLC0415 — deferred to avoid circular import
+        AuthenticationError,
+        CreditExhaustedError,
+    )
+
+    try:
+        return await coro
+    except (AuthenticationError, CreditExhaustedError, MemoryError):
+        raise
+    except Exception as exc:
+        log_exception_with_bug_classification(log, exc, context)
+        return on_failure(type(exc).__name__)
 
 
 def next_adr_number(adr_dir: Path) -> int:

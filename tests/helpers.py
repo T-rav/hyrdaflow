@@ -780,7 +780,7 @@ class PipelineHarness:
     async def run_full_lifecycle(
         self,
         *,
-        task_id: int,
+        issue_number: int,
         seed_stage: str = "find",
         tags: list[str] | None = None,
         triage_result=None,
@@ -799,7 +799,7 @@ class PipelineHarness:
         )
 
         tag_list = tags or [self.config.find_label[0]]
-        task = TaskFactory.create(id=task_id, tags=tag_list)
+        task = TaskFactory.create(id=issue_number, tags=tag_list)
         self.seed_issue(task, seed_stage)
 
         triage_return = (

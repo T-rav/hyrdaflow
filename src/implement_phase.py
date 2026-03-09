@@ -15,17 +15,16 @@ from models import GitHubIssue, PipelineStage, Task, WorkerResult, WorkerResultM
 from phase_utils import (
     escalate_to_hitl,
     is_adr_issue_title,
-    is_likely_bug,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
+    run_with_fatal_guard,
     safe_file_memory_suggestion,
     store_lifecycle,
 )
 from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
-from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
 from workspace import WorkspaceManager
 
@@ -120,37 +119,27 @@ class ImplementPhase:
                 self._state.mark_issue(issue.id, "in_progress")
                 self._state.set_branch(issue.id, branch)
 
-                try:
-                    return await self._worker_inner(idx, issue, branch)
-                except (AuthenticationError, CreditExhaustedError, MemoryError):
-                    raise
-                except Exception as exc:
-                    exc_type_name = type(exc).__name__
-                    if is_likely_bug(exc):
-                        logger.critical(
-                            "Worker failed for issue #%d — likely bug (%s)",
-                            issue.id,
-                            exc_type_name,
-                            exc_info=True,
-                        )
-                    else:
-                        logger.exception(
-                            "Worker failed for issue #%d — %s",
-                            issue.id,
-                            exc_type_name,
-                        )
+                def _on_worker_failure(exc_name: str) -> WorkerResult:
                     self._state.mark_issue(issue.id, "failed")
                     record_harness_failure(
                         self._harness_insights,
                         issue.id,
                         FailureCategory.IMPLEMENTATION_ERROR,
-                        f"Worker {exc_type_name} for issue #{issue.id}",
+                        f"Worker {exc_name} for issue #{issue.id}",
                         stage=PipelineStage.IMPLEMENT,
                     )
                     return WorkerResult(
                         issue_number=issue.id,
                         branch=branch,
-                        error=f"Worker {exc_type_name} for issue #{issue.id}",
+                        error=f"Worker {exc_name} for issue #{issue.id}",
+                    )
+
+                try:
+                    return await run_with_fatal_guard(
+                        self._worker_inner(idx, issue, branch),
+                        on_failure=_on_worker_failure,
+                        context=f"Worker failed for issue #{issue.id}",
+                        log=logger,
                     )
                 finally:
                     async with self._active_issues_lock:
@@ -510,21 +499,6 @@ class ImplementPhase:
         status = "success" if result.success else "failed"
         self._state.mark_issue(issue.id, status)
         return result
-
-    def _record_harness_failure(
-        self,
-        issue_number: int,
-        category: FailureCategory,
-        details: str,
-    ) -> None:
-        """Delegate to :func:`phase_utils.record_harness_failure` (backward compat)."""
-        record_harness_failure(
-            self._harness_insights,
-            issue_number,
-            category,
-            details,
-            stage=PipelineStage.IMPLEMENT,
-        )
 
     def _prepare_adr_plan(self, issue: Task) -> None:
         """Seed a deterministic ADR execution plan when an ADR issue lacks one."""

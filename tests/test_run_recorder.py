@@ -209,8 +209,8 @@ class TestRunRecorder:
         recorder = self._make_recorder(tmp_path)
 
         # Create run dirs for two issues
-        for issue_num in (10, 42):
-            ctx = recorder.start(issue_num)
+        for issue_number in (10, 42):
+            ctx = recorder.start(issue_number)
             ctx.finalize("success")
 
         issues = recorder.list_issues()

@@ -16,7 +16,7 @@ from tests.helpers import PipelineHarness, PipelineRunResult
 @pytest.mark.asyncio
 async def test_pipeline_lifecycle_integration(tmp_path):
     harness = PipelineHarness(tmp_path)
-    result: PipelineRunResult = await harness.run_full_lifecycle(task_id=401)
+    result: PipelineRunResult = await harness.run_full_lifecycle(issue_number=401)
 
     assert result.triaged_count == 1
     assert result.plan_results and result.plan_results[0].success
@@ -57,7 +57,7 @@ async def test_plannable_data_flow_uses_issue_store_objects(tmp_path):
 @pytest.mark.asyncio
 async def test_event_bus_emits_ordered_phase_events(tmp_path):
     harness = PipelineHarness(tmp_path)
-    result = await harness.run_full_lifecycle(task_id=502)
+    result = await harness.run_full_lifecycle(issue_number=502)
 
     queue_events = [e for e in result.events if e.type == EventType.QUEUE_UPDATE]
     assert queue_events, "expected queue depth updates for each phase"
@@ -93,7 +93,7 @@ async def test_event_bus_emits_ordered_phase_events(tmp_path):
 @pytest.mark.asyncio
 async def test_post_merge_chain_updates_state_and_cleans_worktree(tmp_path):
     harness = PipelineHarness(tmp_path)
-    result = await harness.run_full_lifecycle(task_id=903)
+    result = await harness.run_full_lifecycle(issue_number=903)
 
     outcome = harness.state.get_outcome(result.task.id)
     assert outcome is not None
@@ -112,7 +112,7 @@ async def test_post_merge_chain_updates_state_and_cleans_worktree(tmp_path):
 @pytest.mark.asyncio
 async def test_enqueue_transition_handoff_updates_queue_depths(tmp_path):
     harness = PipelineHarness(tmp_path)
-    result = await harness.run_full_lifecycle(task_id=1205)
+    result = await harness.run_full_lifecycle(issue_number=1205)
 
     triage_stats = result.snapshot("after_triage")
     assert triage_stats.queue_depth[IssueStoreStage.PLAN] == 1

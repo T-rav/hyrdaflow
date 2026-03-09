@@ -1602,12 +1602,12 @@ class TestGetSystemWorkersEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/timeline and /api/timeline/issue/{issue_num}
+# GET /api/timeline and /api/timeline/issue/{issue_number}
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# GET /api/timeline and /api/timeline/issue/{issue_num}
+# GET /api/timeline and /api/timeline/issue/{issue_number}
 # ---------------------------------------------------------------------------
 
 
@@ -1655,7 +1655,7 @@ class TestGetTimelineEndpoint:
 
 
 class TestGetTimelineIssueEndpoint:
-    """Tests for GET /api/timeline/issue/{issue_num}."""
+    """Tests for GET /api/timeline/issue/{issue_number}."""
 
     def _make_router(self, config, event_bus, state, tmp_path):
         from dashboard_routes import create_router
@@ -1689,7 +1689,7 @@ class TestGetTimelineIssueEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_num}")
+        endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_number}")
         response = await endpoint(9999)
         assert response.status_code == 404
 
@@ -1707,7 +1707,7 @@ class TestGetTimelineIssueEndpoint:
             )
         )
         router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_num}")
+        endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_number}")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert isinstance(data, dict)

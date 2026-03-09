@@ -298,25 +298,25 @@ class TranscriptSummarizer:
         title = f"[Transcript Summary] Issue #{issue_number} — {phase} phase"
         labels = list(self._config.improve_label) + list(self._config.transcript_label)
 
-        issue_num = await self._prs.create_issue(title, body, labels)
-        if issue_num:
+        created_issue_number = await self._prs.create_issue(title, body, labels)
+        if created_issue_number:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.TRANSCRIPT_SUMMARY,
                     data=TranscriptSummaryPayload(
                         source_issue=issue_number,
                         phase=phase,
-                        summary_issue=issue_num,
+                        summary_issue=created_issue_number,
                     ),
                 )
             )
             logger.info(
                 "Filed transcript summary as issue #%d for issue #%d (%s phase)",
-                issue_num,
+                created_issue_number,
                 issue_number,
                 phase,
             )
-            return issue_num
+            return created_issue_number
 
         return None
 

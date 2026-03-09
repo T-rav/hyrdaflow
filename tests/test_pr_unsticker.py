@@ -422,10 +422,10 @@ class TestCIFailureResolution:
         captured_prompt = None
         original_execute = AsyncMock(return_value="fixed transcript")
 
-        async def capture_execute(cmd, prompt, wt_arg, issue_num, **kwargs):
+        async def capture_execute(cmd, prompt, wt_arg, issue_number, **kwargs):
             nonlocal captured_prompt
             captured_prompt = prompt
-            return await original_execute(cmd, prompt, wt_arg, issue_num, **kwargs)
+            return await original_execute(cmd, prompt, wt_arg, issue_number, **kwargs)
 
         agents._build_command = MagicMock(return_value=["claude", "-p"])
         agents._execute = capture_execute

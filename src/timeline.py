@@ -61,8 +61,8 @@ class TimelineBuilder:
         events = self._bus.get_history()
         grouped = self._group_events_by_issue(events)
         timelines = [
-            self._build_timeline(issue_num, evts)
-            for issue_num, evts in sorted(grouped.items())
+            self._build_timeline(issue_number, evts)
+            for issue_number, evts in sorted(grouped.items())
         ]
         return timelines
 
@@ -81,17 +81,17 @@ class TimelineBuilder:
         for event in events:
             if event.type == EventType.PR_CREATED:
                 pr_num = event.data.get("pr")
-                issue_num = event.data.get("issue")
-                if isinstance(pr_num, int) and isinstance(issue_num, int):
-                    pr_to_issue[pr_num] = issue_num
+                issue_number = event.data.get("issue")
+                if isinstance(pr_num, int) and isinstance(issue_number, int):
+                    pr_to_issue[pr_num] = issue_number
 
         # Second pass: group events by issue number
         grouped: dict[int, list[HydraFlowEvent]] = {}
         for event in events:
-            issue_num = self._extract_issue_number(event, pr_to_issue)
-            if issue_num is None:
+            issue_number = self._extract_issue_number(event, pr_to_issue)
+            if issue_number is None:
                 continue
-            grouped.setdefault(issue_num, []).append(event)
+            grouped.setdefault(issue_number, []).append(event)
         return grouped
 
     def _extract_issue_number(

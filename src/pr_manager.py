@@ -459,9 +459,9 @@ class PRManager:
                     exc,
                 )
 
-    async def post_comment(self, task_id: int, body: str) -> None:
+    async def post_comment(self, issue_number: int, body: str) -> None:
         """Post a comment on a GitHub issue."""
-        await self._comment("issue", task_id, body)
+        await self._comment("issue", issue_number, body)
 
     async def post_pr_comment(self, pr_number: int, body: str) -> None:
         """Post a comment on a GitHub pull request."""
@@ -1354,11 +1354,11 @@ class PRManager:
                     seen.add(pr_num)
                     try:
                         branch, draft = await self._get_pr_branch_and_draft(pr_num)
-                        issue_num = self._issue_number_from_branch(branch)
+                        issue_number = self._issue_number_from_branch(branch)
                         prs.append(
                             PRListItem(
                                 pr=pr_num,
-                                issue=issue_num,
+                                issue=issue_number,
                                 branch=branch,
                                 url=p.get("url", ""),
                                 draft=draft,
@@ -1451,11 +1451,11 @@ class PRManager:
 
     @staticmethod
     def _issue_number_from_branch(branch: str) -> int:
-        issue_num = 0
+        issue_number = 0
         if branch.startswith("agent/issue-"):
             with contextlib.suppress(ValueError):
-                issue_num = int(branch.rsplit("-", maxsplit=1)[-1])
-        return issue_num
+                issue_number = int(branch.rsplit("-", maxsplit=1)[-1])
+        return issue_number
 
     async def find_pr_for_issue(self, issue_number: int) -> int:
         """Find the open PR number for the given *issue_number* by branch convention.
@@ -1705,7 +1705,7 @@ class PRManager:
     # ------------------------------------------------------------------
 
     async def transition(
-        self, task_id: int, new_stage: str, *, pr_number: int | None = None
+        self, issue_number: int, new_stage: str, *, pr_number: int | None = None
     ) -> None:
         """Implement :class:`task_source.TaskTransitioner` — swap pipeline labels."""
         _STAGE_LABEL = {
@@ -1716,11 +1716,11 @@ class PRManager:
             "hitl": (self._config.hitl_label or ["hydraflow-hitl"])[0],
         }
         label = _STAGE_LABEL.get(new_stage, new_stage)
-        await self.swap_pipeline_labels(task_id, label, pr_number=pr_number)
+        await self.swap_pipeline_labels(issue_number, label, pr_number=pr_number)
 
-    async def close_task(self, task_id: int) -> None:
+    async def close_task(self, issue_number: int) -> None:
         """Implement :class:`task_source.TaskTransitioner` — close the issue."""
-        await self.close_issue(task_id)
+        await self.close_issue(issue_number)
 
     async def create_task(
         self, title: str, body: str, labels: list[str] | None = None

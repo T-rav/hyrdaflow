@@ -40,13 +40,13 @@ from models import (
 from phase_utils import (
     adr_validation_reasons,
     is_adr_issue_title,
-    is_likely_bug,
     load_existing_adr_topics,
     normalize_adr_topic,
     publish_review_status,
     record_harness_failure,
     release_batch_in_flight,
     run_concurrent_batch,
+    run_with_fatal_guard,
     safe_file_memory_suggestion,
     store_lifecycle,
 )
@@ -62,7 +62,6 @@ from review_insights import (
 )
 from reviewer import ReviewRunner
 from state import StateTracker
-from subprocess_util import AuthenticationError, CreditExhaustedError
 from task_source import TaskTransitioner
 from workspace import WorkspaceManager
 
@@ -176,34 +175,15 @@ class ReviewPhase:
                     self._state.set_active_issue_numbers(list(self._active_issues))
                 async with store_lifecycle(self._store, pr.issue_number, "review"):
                     try:
-                        return await self._review_one_inner(idx, pr, issue_map)
-                    except (AuthenticationError, CreditExhaustedError, MemoryError):
-                        raise
-                    except Exception as exc:
-                        exc_type_name = type(exc).__name__
-                        if is_likely_bug(exc):
-                            logger.critical(
-                                "Review failed for PR #%d (issue #%d) — "
-                                "likely bug (%s), needs code fix",
-                                pr.number,
-                                pr.issue_number,
-                                exc_type_name,
-                                exc_info=True,
-                            )
-                        else:
-                            logger.exception(
-                                "Review failed for PR #%d (issue #%d) — %s",
-                                pr.number,
-                                pr.issue_number,
-                                exc_type_name,
-                            )
-                        return ReviewResult(
-                            pr_number=pr.number,
-                            issue_number=pr.issue_number,
-                            summary=(
-                                f"Review failed due to unexpected error "
-                                f"({exc_type_name})"
+                        return await run_with_fatal_guard(
+                            self._review_one_inner(idx, pr, issue_map),
+                            on_failure=lambda exc_name: ReviewResult(
+                                pr_number=pr.number,
+                                issue_number=pr.issue_number,
+                                summary=f"Review failed due to unexpected error ({exc_name})",
                             ),
+                            context=f"Review failed for PR #{pr.number} (issue #{pr.issue_number})",
+                            log=logger,
                         )
                     finally:
                         await self._publish_review_status(pr, idx, "done")
@@ -825,7 +805,8 @@ class ReviewPhase:
             pr.number,
             result.verdict.value,
         )
-        try:
+
+        async def _re_review() -> tuple[ReviewResult, str]:
             await self._publish_review_status(pr, worker_id, "re_reviewing")
             updated_diff = await self._prs.get_pr_diff(pr.number)
             re_result = await self._reviewers.review(
@@ -850,25 +831,13 @@ class ReviewPhase:
                 re_result.verdict.value,
             )
             return result, updated_diff
-        except (AuthenticationError, CreditExhaustedError, MemoryError):
-            raise
-        except Exception as exc:
-            if is_likely_bug(exc):
-                logger.critical(
-                    "PR #%d: self-fix re-review hit likely bug (%s) — "
-                    "falling back to original rejection",
-                    pr.number,
-                    type(exc).__name__,
-                    exc_info=True,
-                )
-            else:
-                logger.warning(
-                    "PR #%d: self-fix re-review failed — "
-                    "falling back to original rejection",
-                    pr.number,
-                    exc_info=True,
-                )
-            return result, diff
+
+        return await run_with_fatal_guard(
+            _re_review(),
+            on_failure=lambda _: (result, diff),
+            context=f"PR #{pr.number}: self-fix re-review failed — falling back to original rejection",
+            log=logger,
+        )
 
     async def _attempt_review_fix(
         self,
@@ -895,14 +864,18 @@ class ReviewPhase:
                 attempt,
                 max_fix_attempts,
             )
-            try:
+
+            async def _single_fix_attempt(
+                _result: ReviewResult = result,
+                _attempt: int = attempt,
+            ) -> tuple[ReviewResult, str] | None:
                 await self._publish_review_status(pr, worker_id, "fixing_review")
 
                 fix_result = await self._reviewers.fix_review_findings(
                     pr,
                     task,
                     wt_path,
-                    result.summary,
+                    _result.summary,
                     worker_id=worker_id,
                 )
 
@@ -910,9 +883,9 @@ class ReviewPhase:
                     logger.info(
                         "PR #%d: fix agent made no changes on attempt %d — giving up",
                         pr.number,
-                        attempt,
+                        _attempt,
                     )
-                    break
+                    return None
 
                 # Push the fixes
                 await self._prs.push_branch(wt_path, pr.branch)
@@ -932,45 +905,38 @@ class ReviewPhase:
                 if re_result.fixes_made:
                     await self._prs.push_branch(wt_path, pr.branch)
 
-                if re_result.verdict == ReviewVerdict.APPROVE:
-                    logger.info(
-                        "PR #%d: review fix attempt %d succeeded — upgrading to APPROVE",
-                        pr.number,
-                        attempt,
-                    )
-                    return re_result, updated_diff
+                return re_result, updated_diff
 
-                # Still rejected — use the new feedback for the next attempt
+            attempt_outcome = await run_with_fatal_guard(
+                _single_fix_attempt(),
+                on_failure=lambda _: None,
+                context=f"PR #{pr.number}: review fix attempt {attempt} failed — falling back to rejection",
+                log=logger,
+            )
+
+            if attempt_outcome is None:
+                break
+
+            re_result, updated_diff = attempt_outcome
+
+            if re_result.verdict == ReviewVerdict.APPROVE:
                 logger.info(
-                    "PR #%d: review fix attempt %d still %s — %s",
+                    "PR #%d: review fix attempt %d succeeded — upgrading to APPROVE",
                     pr.number,
                     attempt,
-                    re_result.verdict.value,
-                    "retrying" if attempt < max_fix_attempts else "falling through",
                 )
-                result = re_result
-                diff = updated_diff
+                return re_result, updated_diff
 
-            except (AuthenticationError, CreditExhaustedError, MemoryError):
-                raise
-            except Exception as exc:
-                if is_likely_bug(exc):
-                    logger.critical(
-                        "PR #%d: review fix attempt %d hit likely bug (%s) — "
-                        "falling back to rejection",
-                        pr.number,
-                        attempt,
-                        type(exc).__name__,
-                        exc_info=True,
-                    )
-                else:
-                    logger.warning(
-                        "PR #%d: review fix attempt %d failed — falling back to rejection",
-                        pr.number,
-                        attempt,
-                        exc_info=True,
-                    )
-                break
+            # Still rejected — use the new feedback for the next attempt
+            logger.info(
+                "PR #%d: review fix attempt %d still %s — %s",
+                pr.number,
+                attempt,
+                re_result.verdict.value,
+                "retrying" if attempt < max_fix_attempts else "falling through",
+            )
+            result = re_result
+            diff = updated_diff
 
         return result, diff
 
@@ -1690,24 +1656,6 @@ class ReviewPhase:
                     self._state,
                 )
             return False  # Destroy worktree
-
-    def _record_harness_failure(
-        self,
-        issue_number: int,
-        category: FailureCategory,
-        details: str,
-        *,
-        pr_number: int = 0,
-    ) -> None:
-        """Delegate to :func:`phase_utils.record_harness_failure` (backward compat)."""
-        record_harness_failure(
-            self._harness_insights,
-            issue_number,
-            category,
-            details,
-            pr_number=pr_number,
-            stage=PipelineStage.REVIEW,
-        )
 
     # Delegate properties for backward compatibility in tests
     @property
