@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1200,3 +1200,172 @@ class TestReleaseEpicResultError:
     def test_missing_error_field_falls_back_to_unknown(self) -> None:
         err = ReleaseEpicResultError(5, {})
         assert "unknown error" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# Narrowed exception handling — verify non-RuntimeError propagates
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowedExceptionHandling:
+    """Verify that only RuntimeError (and subclasses) are caught, not broad Exception."""
+
+    @pytest.mark.asyncio
+    async def test_check_and_close_epics_catches_runtime_error(self) -> None:
+        """RuntimeError from fetch_issues_by_labels is caught gracefully."""
+        checker, prs, fetcher = _make_checker()
+        fetcher.fetch_issues_by_labels = AsyncMock(
+            side_effect=RuntimeError("API error")
+        )
+        result = await checker.check_and_close_epics(1)
+        assert result is False
+        prs.close_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_check_and_close_epics_propagates_type_error(self) -> None:
+        """TypeError from fetch_issues_by_labels is NOT caught — it propagates."""
+        checker, _, fetcher = _make_checker()
+        fetcher.fetch_issues_by_labels = AsyncMock(
+            side_effect=TypeError("unexpected type")
+        )
+        with pytest.raises(TypeError, match="unexpected type"):
+            await checker.check_and_close_epics(1)
+
+    @pytest.mark.asyncio
+    async def test_close_specific_epic_catches_runtime_error(self) -> None:
+        """RuntimeError from fetch_issues_by_labels returns None."""
+        checker, _, fetcher = _make_checker()
+        fetcher.fetch_issues_by_labels = AsyncMock(
+            side_effect=RuntimeError("API error")
+        )
+        result = await checker.close_specific_epic(100)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_close_specific_epic_propagates_type_error(self) -> None:
+        """TypeError from fetch_issues_by_labels propagates."""
+        checker, _, fetcher = _make_checker()
+        fetcher.fetch_issues_by_labels = AsyncMock(side_effect=TypeError("bad type"))
+        with pytest.raises(TypeError, match="bad type"):
+            await checker.close_specific_epic(100)
+
+    @pytest.mark.asyncio
+    async def test_close_specific_epic_inner_catches_runtime_error(self) -> None:
+        """RuntimeError from _try_close_epic in close_specific_epic returns None."""
+        epic = _make_epic(100, [1, 2])
+        sub1 = IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="A")
+        sub2 = IssueFactory.create(number=2, labels=["hydraflow-fixed"], title="B")
+        checker, prs, fetcher = _make_checker(
+            epics=[epic], sub_issues={1: sub1, 2: sub2}
+        )
+        # Make the close call raise RuntimeError
+        prs.close_issue = AsyncMock(side_effect=RuntimeError("close failed"))
+        result = await checker.close_specific_epic(100)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_post_hitl_warnings_catches_runtime_error(self) -> None:
+        """RuntimeError from post_comment in _post_hitl_warnings is caught."""
+        checker, prs, _ = _make_checker()
+        prs.post_comment = AsyncMock(side_effect=RuntimeError("post failed"))
+        # Should not raise
+        await checker._post_hitl_warnings(100, [1, 2])
+
+    @pytest.mark.asyncio
+    async def test_post_hitl_warnings_propagates_type_error(self) -> None:
+        """TypeError from post_comment propagates."""
+        checker, prs, _ = _make_checker()
+        prs.post_comment = AsyncMock(side_effect=TypeError("bad arg"))
+        with pytest.raises(TypeError, match="bad arg"):
+            await checker._post_hitl_warnings(100, [1, 2])
+
+    @pytest.mark.asyncio
+    async def test_generate_epic_changelog_catches_runtime_error(self) -> None:
+        """RuntimeError from generate_changelog returns empty string."""
+        checker, prs, _ = _make_checker()
+        with patch("epic.generate_changelog", new_callable=AsyncMock) as mock_gen:
+            mock_gen.side_effect = RuntimeError("changelog failed")
+            result = await checker._generate_epic_changelog(100, [1, 2])
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_generate_epic_changelog_propagates_type_error(self) -> None:
+        """TypeError from generate_changelog propagates."""
+        checker, _, _ = _make_checker()
+        with patch("epic.generate_changelog", new_callable=AsyncMock) as mock_gen:
+            mock_gen.side_effect = TypeError("bad type")
+            with pytest.raises(TypeError, match="bad type"):
+                await checker._generate_epic_changelog(100, [1, 2])
+
+    def test_write_changelog_file_catches_os_error(self, tmp_path: Path) -> None:
+        """OSError from file I/O is caught gracefully."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        config.changelog_file = "CHANGELOG.md"
+        prs = AsyncMock()
+        fetcher = AsyncMock()
+        checker = EpicCompletionChecker(config, prs, fetcher)
+        # Make repo_root resolve raise OSError
+        with patch.object(Path, "resolve", side_effect=OSError("disk error")):
+            # Should not raise
+            checker._write_changelog_file("## v1.0")
+
+    def test_write_changelog_file_propagates_type_error(self, tmp_path: Path) -> None:
+        """TypeError from file I/O propagates (not caught by OSError handler)."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        config.changelog_file = "CHANGELOG.md"
+        prs = AsyncMock()
+        fetcher = AsyncMock()
+        checker = EpicCompletionChecker(config, prs, fetcher)
+        with (
+            patch.object(Path, "resolve", side_effect=TypeError("bad")),
+            pytest.raises(TypeError, match="bad"),
+        ):
+            checker._write_changelog_file("## v1.0")
+
+    @pytest.mark.asyncio
+    async def test_try_auto_close_direct_close_catches_runtime_error(
+        self, tmp_path: Path
+    ) -> None:
+        """RuntimeError from post_comment/close_issue in _try_auto_close is caught."""
+        epic = _make_epic(100, [1])
+        sub1 = IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="A")
+        manager, prs, fetcher = _make_epic_manager(
+            tmp_path, epics=[epic], sub_issues={1: sub1}
+        )
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._state.mark_epic_child_complete(100, 1)
+        # Make close_specific_epic return None (not found), triggering direct close path
+        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
+        prs.post_comment = AsyncMock(side_effect=RuntimeError("post failed"))
+        # Should not raise
+        await manager._try_auto_close(100)
+
+    @pytest.mark.asyncio
+    async def test_try_auto_close_direct_close_propagates_type_error(
+        self, tmp_path: Path
+    ) -> None:
+        """TypeError from direct close path propagates."""
+        epic = _make_epic(100, [1])
+        sub1 = IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="A")
+        manager, prs, fetcher = _make_epic_manager(
+            tmp_path, epics=[epic], sub_issues={1: sub1}
+        )
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._state.mark_epic_child_complete(100, 1)
+        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
+        prs.post_comment = AsyncMock(side_effect=TypeError("bad arg"))
+        with pytest.raises(TypeError, match="bad arg"):
+            await manager._try_auto_close(100)
+
+    @pytest.mark.asyncio
+    async def test_execute_release_catches_runtime_error(self, tmp_path: Path) -> None:
+        """RuntimeError from release_epic in _execute_release is caught."""
+        manager, prs, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._release_jobs[100] = "job-1"
+        # Mock release_epic to raise RuntimeError
+        manager.release_epic = AsyncMock(side_effect=RuntimeError("release failed"))
+        # Should not raise
+        await manager._execute_release(100, "job-1")
+        # Verify job was cleaned up
+        assert 100 not in manager._release_jobs

@@ -138,7 +138,7 @@ class EpicCompletionChecker:
             epics = await self._fetcher.fetch_issues_by_labels(
                 self._config.epic_label, limit=50
             )
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Failed to fetch epic issues for completion check",
                 exc_info=True,
@@ -159,7 +159,7 @@ class EpicCompletionChecker:
                 )
                 if closed:
                     closed_any = True
-            except Exception:  # noqa: BLE001
+            except RuntimeError:
                 logger.warning(
                     "Epic completion check failed for epic #%d",
                     epic.number,
@@ -318,7 +318,7 @@ class EpicCompletionChecker:
             epics = await self._fetcher.fetch_issues_by_labels(
                 self._config.epic_label, limit=50
             )
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Failed to fetch epic issues for specific-epic check",
                 exc_info=True,
@@ -337,7 +337,7 @@ class EpicCompletionChecker:
             return await self._try_close_epic(
                 epic.number, epic.title, epic.body, sub_issues
             )
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Epic close failed for #%d during specific-epic check",
                 epic_number,
@@ -370,7 +370,7 @@ class EpicCompletionChecker:
                 f"or close {'it' if len(new_warnings) == 1 else 'them'} to unblock the release.\n\n"
                 f"---\n*HydraFlow Epic Monitor*",
             )
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Failed to post HITL warning comment for epic #%d",
                 epic_number,
@@ -431,7 +431,7 @@ class EpicCompletionChecker:
                 sub_issues=sub_issues,
                 version=v,
             )
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Changelog generation failed for epic #%d",
                 epic_number,
@@ -469,7 +469,7 @@ class EpicCompletionChecker:
 
             changelog_path.write_text(updated, encoding="utf-8")
             logger.info("Changelog written to %s", changelog_path)
-        except Exception:  # noqa: BLE001
+        except OSError:
             logger.warning(
                 "Failed to write changelog file",
                 exc_info=True,
@@ -892,7 +892,7 @@ class EpicManager:
                         child_info.status = EpicChildStatus.DONE
                     elif stage:
                         child_info.status = EpicChildStatus.QUEUED
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.debug("Could not fetch child #%d for epic detail", child_num)
 
         # Enrich with branch/PR data from state
@@ -913,7 +913,7 @@ class EpicManager:
                     )
                     # Fetch CI and review status
                     await self._enrich_pr_status(child_info, pr_info.number)
-            except Exception:  # noqa: BLE001
+            except RuntimeError:
                 logger.debug(
                     "Could not fetch PR info for child #%d branch %s",
                     child_num,
@@ -936,7 +936,7 @@ class EpicManager:
                     child_info.ci_status = CIStatus.FAILING
                 else:
                     child_info.ci_status = CIStatus.PENDING
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.debug("Could not fetch CI checks for PR #%d", pr_number)
 
         try:
@@ -949,12 +949,12 @@ class EpicManager:
                     child_info.review_status = ReviewStatus.CHANGES_REQUESTED
                 else:
                     child_info.review_status = ReviewStatus.PENDING
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.debug("Could not fetch reviews for PR #%d", pr_number)
 
         try:
             child_info.mergeable = await self._prs.get_pr_mergeable(pr_number)
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.debug("Could not fetch mergeable status for PR #%d", pr_number)
 
     def _compute_readiness(
@@ -1041,7 +1041,7 @@ class EpicManager:
                                 ),
                             )
                         )
-            except Exception:  # noqa: BLE001
+            except RuntimeError:
                 logger.warning(
                     "Failed to refresh cache for epic #%d",
                     epic.epic_number,
@@ -1107,7 +1107,7 @@ class EpicManager:
                     ),
                 )
             )
-        except Exception as exc:  # noqa: BLE001
+        except RuntimeError as exc:
             logger.warning(
                 "Release execution failed for epic #%d",
                 epic_number,
@@ -1144,7 +1144,7 @@ class EpicManager:
                     f"Consider reviewing the status of child issues.\n\n"
                     f"---\n*HydraFlow Epic Monitor*",
                 )
-            except Exception:  # noqa: BLE001
+            except RuntimeError:
                 logger.warning(
                     "Failed to post stale warning for epic #%d",
                     epic.epic_number,
@@ -1306,7 +1306,7 @@ class EpicManager:
                             {"issue": child_num, "pr": pr_number, "status": "failed"}
                         )
                         halt_msg = f"merge failed for child #{child_num} (PR #{pr_number}); bundle halted"
-            except Exception:  # noqa: BLE001
+            except RuntimeError:
                 logger.warning(
                     "Failed to merge child #%d of epic #%d",
                     child_num,
@@ -1389,7 +1389,7 @@ class EpicManager:
                 "All child issues completed — closing epic automatically.",
             )
             await self._prs.close_issue(epic_number)
-        except Exception:  # noqa: BLE001
+        except RuntimeError:
             logger.warning(
                 "Direct close failed for epic #%d",
                 epic_number,
