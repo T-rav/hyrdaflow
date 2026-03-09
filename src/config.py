@@ -49,6 +49,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
+    ("verify_monitor_interval", "HYDRAFLOW_VERIFY_MONITOR_INTERVAL", 3600),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
@@ -213,6 +214,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
+    "HYDRAFLOW_LABEL_VERIFY": ("verify_label", ["hydraflow-verify"]),
 }
 
 
@@ -381,6 +383,10 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-fixed"],
         description="Labels applied after PR is merged (OR logic)",
     )
+    verify_label: list[str] = Field(
+        default=["hydraflow-verify"],
+        description="Labels for post-merge verification issues (OR logic)",
+    )
     improve_label: list[str] = Field(
         default=["hydraflow-improve"],
         description="Labels for improvement/memory suggestion issues (OR logic)",
@@ -442,6 +448,12 @@ class HydraFlowConfig(BaseModel):
         ge=600,
         le=86400,
         description="Epic sweeper loop interval in seconds (default 1 hour)",
+    )
+    verify_monitor_interval: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Verify monitor loop interval in seconds (default 1 hour)",
     )
     worktree_gc_interval: int = Field(
         default=1800,
@@ -1215,6 +1227,7 @@ class HydraFlowConfig(BaseModel):
         "epic_child_label",
         "find_label",
         "planner_label",
+        "verify_label",
     )
     @classmethod
     def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:
@@ -1260,6 +1273,7 @@ class HydraFlowConfig(BaseModel):
             self.hitl_active_label,
             self.hitl_autofix_label,
             self.fixed_label,
+            self.verify_label,
             self.improve_label,
             self.transcript_label,
         ):
@@ -1351,6 +1365,7 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_HITL_ACTIVE  → hitl_active_label
             HYDRAFLOW_LABEL_HITL_AUTOFIX → hitl_autofix_label
             HYDRAFLOW_LABEL_FIXED       → fixed_label
+            HYDRAFLOW_LABEL_VERIFY      → verify_label
             HYDRAFLOW_LABEL_IMPROVE     → improve_label
             HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label

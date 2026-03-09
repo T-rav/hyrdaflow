@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-from models import ConflictResolutionResult
+from models import ConflictResolutionResult, LoopResult
 from tests.conftest import (
     PRInfoFactory,
     TaskFactory,
@@ -71,7 +71,9 @@ class TestResolveMergeConflicts:
         """Should run the agent and verify quality when there are conflicts."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
@@ -117,7 +119,10 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(
-            side_effect=[(False, "quality failed"), (True, "")]
+            side_effect=[
+                LoopResult(passed=False, summary="quality failed"),
+                LoopResult(passed=True, summary=""),
+            ]
         )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
@@ -150,7 +155,9 @@ class TestResolveMergeConflicts:
         )
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(False, "quality failed"))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="quality failed")
+        )
         phase = make_review_phase(cfg)
         phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
@@ -174,7 +181,10 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(
-            side_effect=[(False, "ruff check failed"), (True, "")]
+            side_effect=[
+                LoopResult(passed=False, summary="ruff check failed"),
+                LoopResult(passed=True, summary=""),
+            ]
         )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
@@ -200,7 +210,10 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(
-            side_effect=[(False, "failed"), (True, "")]
+            side_effect=[
+                LoopResult(passed=False, summary="failed"),
+                LoopResult(passed=True, summary=""),
+            ]
         )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
@@ -223,7 +236,10 @@ class TestResolveMergeConflicts:
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript content")
         mock_agents._verify_result = AsyncMock(
-            side_effect=[(False, "failed"), (True, "")]
+            side_effect=[
+                LoopResult(passed=False, summary="failed"),
+                LoopResult(passed=True, summary=""),
+            ]
         )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
@@ -255,7 +271,9 @@ class TestResolveMergeConflicts:
         )
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(False, "quality failed"))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="quality failed")
+        )
         phase = make_review_phase(cfg)
         phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
@@ -308,7 +326,9 @@ class TestResolveMergeConflicts:
         """MemorySuggester should be called with the conflict transcript."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript with suggestion")
-        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
@@ -336,7 +356,9 @@ class TestResolveMergeConflicts:
         """Exceptions from file_memory_suggestion must not break conflict resolution."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
         phase = make_review_phase(config)
         phase._conflict_resolver._agents = mock_agents
         pr = PRInfoFactory.create()
@@ -383,7 +405,9 @@ class TestMergeWithMain:
         """When merge fails but conflict resolution succeeds, should return True."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
         phase = make_review_phase(config, agents=mock_agents)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()

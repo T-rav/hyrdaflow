@@ -13,7 +13,7 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
-from models import Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
+from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
 from phase_utils import is_likely_bug
 from review_insights import (
     ReviewInsightStore,
@@ -141,44 +141,40 @@ Run through this checklist before your final commit:
             await self._force_commit_uncommitted(task, worktree_path)
 
             # Diff sanity check (blocking — agent must fix flagged issues)
-            sanity_ok, sanity_msg = await self._run_diff_sanity_loop(
+            sanity = await self._run_diff_sanity_loop(
                 task, worktree_path, branch, worker_id
             )
-            if not sanity_ok:
+            if not sanity.passed:
                 logger.warning(
                     "Diff sanity flagged issues for #%d: %s",
                     task.id,
-                    sanity_msg,
+                    sanity.summary,
                 )
                 result.success = False
-                result.error = f"Diff sanity check failed: {sanity_msg}"
+                result.error = f"Diff sanity check failed: {sanity.summary}"
                 result.commits = await self._count_commits(worktree_path, branch)
                 await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
                 result.duration_seconds = time.monotonic() - start
                 return result
 
-            adequacy_ok, adequacy_msg = await self._run_test_adequacy_loop(
+            adequacy = await self._run_test_adequacy_loop(
                 task, worktree_path, branch, worker_id
             )
-            if not adequacy_ok:
+            if not adequacy.passed:
                 logger.warning(
                     "Test adequacy flagged gaps for #%d: %s (non-blocking)",
                     task.id,
-                    adequacy_msg,
+                    adequacy.summary,
                 )
 
             # Mandatory pre-quality self-review/correction loop
-            (
-                pre_quality_success,
-                pre_quality_msg,
-                pre_quality_attempts,
-            ) = await self._run_pre_quality_review_loop(
+            pre_quality = await self._run_pre_quality_review_loop(
                 task, worktree_path, branch, worker_id
             )
-            result.pre_quality_review_attempts = pre_quality_attempts
-            if not pre_quality_success:
+            result.pre_quality_review_attempts = pre_quality.attempts
+            if not pre_quality.passed:
                 result.success = False
-                result.error = pre_quality_msg
+                result.error = pre_quality.summary
                 result.commits = await self._count_commits(worktree_path, branch)
                 await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
                 result.duration_seconds = time.monotonic() - start
@@ -186,22 +182,26 @@ Run through this checklist before your final commit:
 
             # Verify the agent produced valid work
             await self._emit_status(task.id, worker_id, WorkerStatus.TESTING)
-            success, verify_msg = await self._verify_result(worktree_path, branch)
+            verify = await self._verify_result(worktree_path, branch)
 
             # If quality failed but commits exist, try the fix loop
+            success = verify.passed
+            last_msg = verify.summary
             if (
                 not success
-                and verify_msg != "No commits found on branch"
+                and last_msg != "No commits found on branch"
                 and self._config.max_quality_fix_attempts > 0
             ):
-                success, verify_msg, attempts = await self._run_quality_fix_loop(
-                    task, worktree_path, branch, verify_msg, worker_id
+                fix = await self._run_quality_fix_loop(
+                    task, worktree_path, branch, last_msg, worker_id
                 )
-                result.quality_fix_attempts = attempts
+                success = fix.passed
+                last_msg = fix.summary
+                result.quality_fix_attempts = fix.attempts
 
             result.success = success
             if not success:
-                result.error = verify_msg
+                result.error = last_msg
 
             # Count commits
             result.commits = await self._count_commits(worktree_path, branch)
@@ -396,15 +396,6 @@ Run through this checklist before your final commit:
             + f"\n[Comment truncated from {len(raw):,} chars]"
         )
 
-    def _build_prompt(
-        self, issue: Task, review_feedback: str = "", prior_failure: str = ""
-    ) -> str:
-        """Build the implementation prompt for the agent."""
-        prompt, _stats = self._build_prompt_with_stats(
-            issue, review_feedback=review_feedback, prior_failure=prior_failure
-        )
-        return prompt
-
     def _build_prompt_with_stats(
         self, issue: Task, review_feedback: str = "", prior_failure: str = ""
     ) -> tuple[str, dict[str, object]]:
@@ -585,18 +576,16 @@ Run through this checklist before your final commit:
         }
         return prompt, stats
 
-    async def _verify_result(
-        self, worktree_path: Path, branch: str
-    ) -> tuple[bool, str]:
+    async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Check that the agent produced commits and ``make quality`` passes.
 
-        Returns ``(success, error_output)``.  On failure the error output
-        contains the last 3000 characters of combined stdout/stderr.
+        Returns a :class:`LoopResult`.  On failure the summary contains
+        the last 3000 characters of combined stdout/stderr.
         """
         # Check for commits on the branch
         commit_count = await self._count_commits(worktree_path, branch)
         if commit_count == 0:
-            return False, "No commits found on branch"
+            return LoopResult(passed=False, summary="No commits found on branch")
 
         # Run the full quality gate
         return await self._verify_quality(worktree_path)
@@ -711,20 +700,20 @@ SUMMARY: <one-line summary>
         )
 
     @staticmethod
-    def _parse_skill_result(transcript: str, marker: str) -> tuple[bool, str]:
+    def _parse_skill_result(transcript: str, marker: str) -> LoopResult:
         """Parse a skill result marker line from transcript text.
 
-        Returns ``(ok, summary)``. Missing marker defaults to OK to preserve
+        Returns a :class:`LoopResult`. Missing marker defaults to OK to preserve
         backward compatibility with older prompts/tools.
         """
         pattern = rf"{re.escape(marker)}:\s*(OK|RETRY)"
         match = re.search(pattern, transcript, re.IGNORECASE)
         if not match:
-            return True, "No explicit result marker"
+            return LoopResult(passed=True, summary="No explicit result marker")
         status = match.group(1).upper()
         summary_match = re.search(r"SUMMARY:\s*(.+)", transcript, re.IGNORECASE)
         summary = summary_match.group(1).strip() if summary_match else ""
-        return status == "OK", summary
+        return LoopResult(passed=status == "OK", summary=summary)
 
     async def _run_pre_quality_review_loop(
         self,
@@ -732,12 +721,14 @@ SUMMARY: <one-line summary>
         worktree_path: Path,
         branch: str,
         worker_id: int,
-    ) -> tuple[bool, str, int]:
+    ) -> LoopResult:
         """Run mandatory pre-quality review + run-tool skills before verification."""
         commits = await self._count_commits(worktree_path, branch)
         max_attempts = self._config.max_pre_quality_review_attempts
         if commits == 0 or max_attempts <= 0:
-            return True, "Skipped pre-quality review", 0
+            return LoopResult(
+                passed=True, summary="Skipped pre-quality review", attempts=0
+            )
 
         for attempt in range(1, max_attempts + 1):
             await self._emit_status(
@@ -753,7 +744,7 @@ SUMMARY: <one-line summary>
                 {"issue": issue.id, "source": "implementer"},
             )
             await self._force_commit_uncommitted(issue, worktree_path)
-            review_ok, review_summary = self._parse_skill_result(
+            review_result = self._parse_skill_result(
                 review_transcript, "PRE_QUALITY_REVIEW_RESULT"
             )
 
@@ -766,25 +757,29 @@ SUMMARY: <one-line summary>
                 {"issue": issue.id, "source": "implementer"},
             )
             await self._force_commit_uncommitted(issue, worktree_path)
-            run_tool_ok, run_tool_summary = self._parse_skill_result(
+            run_tool_result = self._parse_skill_result(
                 run_tool_transcript, "RUN_TOOL_RESULT"
             )
 
-            if review_ok and run_tool_ok:
-                return True, "OK", attempt
+            if review_result.passed and run_tool_result.passed:
+                return LoopResult(passed=True, summary="OK", attempts=attempt)
 
             last_summary = "; ".join(
-                s for s in [review_summary, run_tool_summary] if s
+                s for s in [review_result.summary, run_tool_result.summary] if s
             ).strip()
             if attempt == max_attempts:
-                return (
-                    False,
-                    "Pre-quality review loop exhausted"
+                return LoopResult(
+                    passed=False,
+                    summary="Pre-quality review loop exhausted"
                     + (f": {last_summary}" if last_summary else ""),
-                    attempt,
+                    attempts=attempt,
                 )
 
-        return False, "Pre-quality review loop failed", max_attempts
+        return LoopResult(
+            passed=False,
+            summary="Pre-quality review loop failed",
+            attempts=max_attempts,
+        )
 
     async def _get_branch_diff(self, worktree_path: Path, branch: str) -> str:
         """Return the combined diff of *branch* against main."""
@@ -808,23 +803,23 @@ SUMMARY: <one-line summary>
         worktree_path: Path,
         branch: str,
         worker_id: int,
-    ) -> tuple[bool, str]:
+    ) -> LoopResult:
         """Run the diff sanity check skill.
 
-        Returns ``(passed, summary)``.  Non-blocking — failures are logged
+        Returns a :class:`LoopResult`.  Non-blocking — failures are logged
         as warnings but do not stop the pipeline.
         """
         max_attempts = self._config.max_diff_sanity_attempts
         if max_attempts <= 0:
-            return True, "Diff sanity check disabled"
+            return LoopResult(passed=True, summary="Diff sanity check disabled")
 
         commits = await self._count_commits(worktree_path, branch)
         if commits == 0:
-            return True, "No commits to check"
+            return LoopResult(passed=True, summary="No commits to check")
 
         diff = await self._get_branch_diff(worktree_path, branch)
         if not diff.strip():
-            return True, "Empty diff"
+            return LoopResult(passed=True, summary="Empty diff")
 
         max_diff = self._config.max_review_diff_chars
         if len(diff) > max_diff:
@@ -838,7 +833,7 @@ SUMMARY: <one-line summary>
         cmd = self._build_pre_quality_review_command()
         summary = ""
 
-        for _attempt in range(max_attempts):
+        for attempt in range(1, max_attempts + 1):
             transcript = await self._execute(
                 cmd,
                 prompt,
@@ -847,7 +842,7 @@ SUMMARY: <one-line summary>
             )
             passed, summary, findings = parse_diff_sanity_result(transcript)
             if passed:
-                return True, summary
+                return LoopResult(passed=True, summary=summary, attempts=attempt)
             if findings:
                 logger.info(
                     "Diff sanity findings for #%d: %s",
@@ -855,7 +850,7 @@ SUMMARY: <one-line summary>
                     "; ".join(findings[:5]),
                 )
 
-        return False, summary
+        return LoopResult(passed=False, summary=summary, attempts=max_attempts)
 
     async def _run_test_adequacy_loop(
         self,
@@ -863,23 +858,23 @@ SUMMARY: <one-line summary>
         worktree_path: Path,
         branch: str,
         worker_id: int,
-    ) -> tuple[bool, str]:
+    ) -> LoopResult:
         """Run the test adequacy check skill.
 
-        Returns ``(passed, summary)``.  Non-blocking — failures are logged
+        Returns a :class:`LoopResult`.  Non-blocking — failures are logged
         as warnings but do not stop the pipeline.
         """
         max_attempts = self._config.max_test_adequacy_attempts
         if max_attempts <= 0:
-            return True, "Test adequacy check disabled"
+            return LoopResult(passed=True, summary="Test adequacy check disabled")
 
         commits = await self._count_commits(worktree_path, branch)
         if commits == 0:
-            return True, "No commits to check"
+            return LoopResult(passed=True, summary="No commits to check")
 
         diff = await self._get_branch_diff(worktree_path, branch)
         if not diff.strip():
-            return True, "Empty diff"
+            return LoopResult(passed=True, summary="Empty diff")
 
         max_diff = self._config.max_review_diff_chars
         if len(diff) > max_diff:
@@ -893,7 +888,7 @@ SUMMARY: <one-line summary>
         cmd = self._build_pre_quality_review_command()
         summary = ""
 
-        for _attempt in range(max_attempts):
+        for attempt in range(1, max_attempts + 1):
             transcript = await self._execute(
                 cmd,
                 prompt,
@@ -902,7 +897,7 @@ SUMMARY: <one-line summary>
             )
             passed, summary, gaps = parse_test_adequacy_result(transcript)
             if passed:
-                return True, summary
+                return LoopResult(passed=True, summary=summary, attempts=attempt)
             if gaps:
                 logger.info(
                     "Test adequacy gaps for #%d: %s",
@@ -910,7 +905,7 @@ SUMMARY: <one-line summary>
                     "; ".join(gaps[:5]),
                 )
 
-        return False, summary
+        return LoopResult(passed=False, summary=summary, attempts=max_attempts)
 
     async def _run_quality_fix_loop(
         self,
@@ -919,10 +914,11 @@ SUMMARY: <one-line summary>
         branch: str,
         error_output: str,
         worker_id: int,
-    ) -> tuple[bool, str, int]:
+    ) -> LoopResult:
         """Retry loop: invoke Claude to fix quality failures.
 
-        Returns ``(success, last_error, attempts_made)``.
+        Returns a :class:`LoopResult` with ``attempts`` set to the number
+        of fix iterations performed.
         """
         max_attempts = self._config.max_quality_fix_attempts
         last_error = error_output
@@ -946,13 +942,13 @@ SUMMARY: <one-line summary>
             )
             await self._force_commit_uncommitted(issue, worktree_path)
 
-            success, verify_msg = await self._verify_result(worktree_path, branch)
-            if success:
-                return True, "OK", attempt
+            verify = await self._verify_result(worktree_path, branch)
+            if verify.passed:
+                return LoopResult(passed=True, summary="OK", attempts=attempt)
 
-            last_error = verify_msg
+            last_error = verify.summary
 
-        return False, last_error, max_attempts
+        return LoopResult(passed=False, summary=last_error, attempts=max_attempts)
 
     async def _force_commit_uncommitted(self, task: Task, worktree_path: Path) -> bool:
         """Stage and commit any uncommitted changes the agent left behind.

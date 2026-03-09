@@ -36,6 +36,7 @@ from models import (
     IssueType,
     JudgeResult,
     LifetimeStats,
+    LoopResult,
     ManifestRefreshResult,
     MergeStrategy,
     MetricsSnapshot,
@@ -3258,3 +3259,81 @@ class TestPRInfoDescriptions:
         fields = PRInfo.model_fields
         for name, info in fields.items():
             assert info.description, f"PRInfo.{name} missing description"
+
+
+# ---------------------------------------------------------------------------
+# LoopResult
+# ---------------------------------------------------------------------------
+
+
+class TestLoopResult:
+    """Tests for the LoopResult dataclass."""
+
+    def test_defaults(self) -> None:
+        result = LoopResult(passed=True, summary="OK")
+        assert result.passed is True
+        assert result.summary == "OK"
+        assert result.attempts == 0
+
+    def test_with_attempts(self) -> None:
+        result = LoopResult(passed=False, summary="failed", attempts=3)
+        assert result.passed is False
+        assert result.summary == "failed"
+        assert result.attempts == 3
+
+    def test_frozen(self) -> None:
+        result = LoopResult(passed=True, summary="OK")
+        with pytest.raises(AttributeError):
+            result.passed = False  # type: ignore[misc]
+
+    def test_equality(self) -> None:
+        a = LoopResult(passed=True, summary="OK", attempts=1)
+        b = LoopResult(passed=True, summary="OK", attempts=1)
+        assert a == b
+
+    def test_inequality(self) -> None:
+        a = LoopResult(passed=True, summary="OK")
+        b = LoopResult(passed=False, summary="OK")
+        assert a != b
+
+
+# ---------------------------------------------------------------------------
+# RunnerResult protocol
+# ---------------------------------------------------------------------------
+
+
+class TestRunnerResultProtocol:
+    """Tests that all runner result types satisfy the RunnerResult protocol."""
+
+    _RESULT_TYPES = [PlanResult, WorkerResult, HITLResult, ReviewResult]
+
+    @pytest.mark.parametrize(
+        "cls", [PlanResult, WorkerResult, HITLResult, ReviewResult]
+    )
+    def test_has_required_protocol_fields(self, cls: type) -> None:
+        """Each result type must expose the four RunnerResult fields."""
+        protocol_fields = {"success", "error", "duration_seconds", "transcript"}
+        model_fields = set(cls.model_fields)
+        missing = protocol_fields - model_fields
+        assert not missing, f"{cls.__name__} missing RunnerResult fields: {missing}"
+
+    @pytest.mark.parametrize(
+        "cls", [PlanResult, WorkerResult, HITLResult, ReviewResult]
+    )
+    def test_runtime_isinstance_check(self, cls: type) -> None:
+        """Instances should be usable where RunnerResult is expected."""
+        # Build minimal valid instances
+        if cls is PlanResult:
+            obj = cls(issue_number=1)
+        elif cls is WorkerResult:
+            obj = cls(issue_number=1, branch="b")
+        elif cls is HITLResult:
+            obj = cls(issue_number=1)
+        elif cls is ReviewResult:
+            obj = cls(pr_number=1, issue_number=1)
+        else:
+            pytest.fail(f"Unknown class {cls}")
+        assert isinstance(obj.success, bool)
+        assert isinstance(obj.duration_seconds, float)
+        assert isinstance(obj.transcript, str)
+        assert obj.error is None or isinstance(obj.error, str)

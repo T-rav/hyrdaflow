@@ -2505,6 +2505,7 @@ def create_router(
         "pr_unsticker": (60, 86400),
         "pipeline_poller": (5, 14400),
         "adr_reviewer": (28800, 432000),
+        "verify_monitor": (60, 86400),
     }
 
     @router.post("/api/control/bg-worker/interval")

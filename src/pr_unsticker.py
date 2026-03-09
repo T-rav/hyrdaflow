@@ -338,7 +338,7 @@ class PRUnsticker:
                 )
                 return False
 
-        except (RuntimeError, OSError, ValueError, asyncio.CancelledError):
+        except (OSError, RuntimeError, ValueError, asyncio.CancelledError):
             logger.exception("PR Unsticker failed for issue #%d", issue_number)
             await self._release_back_to_hitl(
                 issue_number,
@@ -445,17 +445,17 @@ class PRUnsticker:
                 transcript, "pr_unsticker", f"issue #{issue_number}"
             )
 
-            success, error_msg = await self._agents._verify_result(wt_path, branch)
-            if success:
+            verify = await self._agents._verify_result(wt_path, branch)
+            if verify.passed:
                 return True
 
             logger.warning(
                 "CI/quality fix failed for issue #%d: %s",
                 issue_number,
-                error_msg[:200] if error_msg else "",
+                verify.summary[:200] if verify.summary else "",
             )
             return False
-        except (RuntimeError, OSError, ValueError, asyncio.CancelledError) as exc:
+        except (OSError, RuntimeError, ValueError, asyncio.CancelledError) as exc:
             logger.error(
                 "Unsticker CI fix agent failed for issue #%d: %s",
                 issue_number,
@@ -611,8 +611,8 @@ diff — you may catch things `make quality` won't.
                     transcript, "pr_unsticker", f"issue #{issue_number}"
                 )
 
-                success, error_msg = await self._agents._verify_result(wt_path, branch)
-                if success:
+                verify = await self._agents._verify_result(wt_path, branch)
+                if verify.passed:
                     # Write path: persist pattern from transcript
                     await self._persist_troubleshooting_pattern(
                         transcript, issue_number, language
@@ -624,9 +624,9 @@ diff — you may catch things `make quality` won't.
                     attempt,
                     max_attempts,
                     issue_number,
-                    error_msg[:200] if error_msg else "",
+                    verify.summary[:200] if verify.summary else "",
                 )
-            except (RuntimeError, OSError, ValueError, asyncio.CancelledError) as exc:
+            except (OSError, RuntimeError, ValueError, asyncio.CancelledError) as exc:
                 logger.error(
                     "Unsticker CI timeout agent failed for issue #%d (attempt %d): %s",
                     issue_number,

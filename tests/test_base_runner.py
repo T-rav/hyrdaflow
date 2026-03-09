@@ -326,10 +326,10 @@ class TestVerifyQuality:
         )
         runner = _TestRunner(config, event_bus, runner=mock_runner)
 
-        success, msg = await runner._verify_quality(tmp_path)
+        result = await runner._verify_quality(tmp_path)
 
-        assert success is True
-        assert msg == "OK"
+        assert result.passed is True
+        assert result.summary == "OK"
 
     @pytest.mark.asyncio
     async def test_failure_nonzero_returncode(
@@ -343,11 +343,11 @@ class TestVerifyQuality:
         )
         runner = _TestRunner(config, event_bus, runner=mock_runner)
 
-        success, msg = await runner._verify_quality(tmp_path)
+        result = await runner._verify_quality(tmp_path)
 
-        assert success is False
-        assert "`make quality` failed" in msg
-        assert "FAILED test_foo" in msg
+        assert result.passed is False
+        assert "`make quality` failed" in result.summary
+        assert "FAILED test_foo" in result.summary
 
     @pytest.mark.asyncio
     async def test_file_not_found(
@@ -357,10 +357,10 @@ class TestVerifyQuality:
         mock_runner.run_simple = AsyncMock(side_effect=FileNotFoundError)
         runner = _TestRunner(config, event_bus, runner=mock_runner)
 
-        success, msg = await runner._verify_quality(tmp_path)
+        result = await runner._verify_quality(tmp_path)
 
-        assert success is False
-        assert "make not found" in msg
+        assert result.passed is False
+        assert "make not found" in result.summary
 
     @pytest.mark.asyncio
     async def test_verify_quality_returns_false_on_timeout(
@@ -370,10 +370,10 @@ class TestVerifyQuality:
         mock_runner.run_simple = AsyncMock(side_effect=TimeoutError)
         runner = _TestRunner(config, event_bus, runner=mock_runner)
 
-        success, msg = await runner._verify_quality(tmp_path)
+        result = await runner._verify_quality(tmp_path)
 
-        assert success is False
-        assert "timed out" in msg
+        assert result.passed is False
+        assert "timed out" in result.summary
 
     @pytest.mark.asyncio
     async def test_verify_quality_truncates_long_failure_output(
@@ -386,11 +386,11 @@ class TestVerifyQuality:
         )
         runner = _TestRunner(config, event_bus, runner=mock_runner)
 
-        success, msg = await runner._verify_quality(tmp_path)
+        result = await runner._verify_quality(tmp_path)
 
-        assert success is False
+        assert result.passed is False
         # Output should be truncated to last 3000 chars
-        assert len(msg) < 5000 + 100  # some overhead for prefix text
+        assert len(result.summary) < 5000 + 100  # some overhead for prefix text
 
 
 # ---------------------------------------------------------------------------

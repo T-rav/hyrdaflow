@@ -477,7 +477,7 @@ class TestBuildCommand:
 
 
 class TestBuildPrompt:
-    """Tests for TriageRunner._build_prompt."""
+    """Tests for TriageRunner._build_prompt_with_stats."""
 
     def test_prompt_contains_issue_title_and_body(self) -> None:
         issue = TaskFactory.create(
@@ -485,14 +485,14 @@ class TestBuildPrompt:
             title="Add dark mode toggle",
             body="The app should support dark mode in settings.",
         )
-        prompt = TriageRunner._build_prompt(issue)
+        prompt, _ = TriageRunner._build_prompt_with_stats(issue)
         assert "Add dark mode toggle" in prompt
         assert "dark mode in settings" in prompt
         assert "#42" in prompt
 
     def test_prompt_contains_evaluation_criteria(self) -> None:
         issue = TaskFactory.create(id=1)
-        prompt = TriageRunner._build_prompt(issue)
+        prompt, _ = TriageRunner._build_prompt_with_stats(issue)
         assert "Clarity" in prompt
         assert "Specificity" in prompt
         assert "Actionability" in prompt

@@ -16,7 +16,7 @@ from events import EventBus
 from execution import get_default_runner
 from manifest import load_project_manifest
 from memory import load_memory_digest
-from models import TranscriptEventData
+from models import LoopResult, TranscriptEventData
 from prompt_telemetry import PromptTelemetry, parse_command_tool_model
 from runner_utils import (
     AuthenticationRetryError,
@@ -221,8 +221,8 @@ class BaseRunner:
             model=self._config.model,
         )
 
-    async def _verify_quality(self, worktree_path: Path) -> tuple[bool, str]:
-        """Run ``make quality`` and return ``(success, error_output)``."""
+    async def _verify_quality(self, worktree_path: Path) -> LoopResult:
+        """Run ``make quality`` and return a :class:`LoopResult`."""
         try:
             result = await self._runner.run_simple(
                 ["make", "quality"],
@@ -230,16 +230,18 @@ class BaseRunner:
                 timeout=self._config.quality_timeout,
             )
         except FileNotFoundError:
-            return False, "make not found — cannot run quality checks"
+            return LoopResult(
+                passed=False, summary="make not found — cannot run quality checks"
+            )
         except TimeoutError:
-            return (
-                False,
-                f"make quality timed out after {self._config.quality_timeout}s",
+            return LoopResult(
+                passed=False,
+                summary=f"make quality timed out after {self._config.quality_timeout}s",
             )
         if result.returncode != 0:
             output = "\n".join(filter(None, [result.stdout, result.stderr]))
-            return (
-                False,
-                f"`make quality` failed:\n{output[-self._config.error_output_max_chars :]}",
+            return LoopResult(
+                passed=False,
+                summary=f"`make quality` failed:\n{output[-self._config.error_output_max_chars :]}",
             )
-        return True, "OK"
+        return LoopResult(passed=True, summary="OK")

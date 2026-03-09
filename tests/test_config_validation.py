@@ -1860,6 +1860,36 @@ class TestLabelValidation:
         )
         assert cfg.ready_label == ["hydraflow-ready"]
 
+    def test_verify_label_default(self, tmp_path: Path) -> None:
+        """verify_label should default to ['hydraflow-verify']."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.verify_label == ["hydraflow-verify"]
+
+    def test_verify_label_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """HYDRAFLOW_LABEL_VERIFY should override verify_label."""
+        monkeypatch.setenv("HYDRAFLOW_LABEL_VERIFY", "custom-verify")
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.verify_label == ["custom-verify"]
+
+    def test_verify_label_in_all_pipeline_labels(self, tmp_path: Path) -> None:
+        """verify_label should appear in all_pipeline_labels."""
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert "hydraflow-verify" in cfg.all_pipeline_labels
+
 
 class TestTimeoutConfigFields:
     """Tests for agent_timeout, transcript_summary_timeout, memory_compaction_timeout."""

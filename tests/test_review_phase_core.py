@@ -23,6 +23,7 @@ from models import (
     CriterionResult,
     CriterionVerdict,
     JudgeVerdict,
+    LoopResult,
     PRInfo,
     ReviewResult,
     ReviewVerdict,
@@ -234,7 +235,9 @@ class TestPostMergeConflictFix:
     ) -> None:
         """When merge fails and agent can't resolve, should escalate to HITL."""
         mock_agents = AsyncMock()
-        mock_agents._verify_result = AsyncMock(return_value=(False, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="")
+        )
         mock_agents._execute = AsyncMock(return_value="conflict resolution transcript")
         phase = make_review_phase(config, agents=mock_agents)
         issue = TaskFactory.create()
@@ -269,7 +272,9 @@ class TestPostMergeConflictFix:
         """Merge conflict escalation should record review_label as HITL origin."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(False, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="")
+        )
         phase = make_review_phase(config, agents=mock_agents)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
@@ -297,7 +302,9 @@ class TestPostMergeConflictFix:
         """Merge conflict escalation should record cause in state."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(False, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="")
+        )
         phase = make_review_phase(config, agents=mock_agents)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
@@ -325,7 +332,9 @@ class TestPostMergeConflictFix:
         """When merge fails but agent resolves conflicts, review should proceed."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(return_value=(True, ""))
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
         phase = make_review_phase(config, default_mocks=True, agents=mock_agents)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()

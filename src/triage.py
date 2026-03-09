@@ -253,12 +253,6 @@ or for truly insufficient issues:
         )
         return prompt, stats
 
-    @staticmethod
-    def _build_prompt(issue: Task, max_body: int = 5000) -> str:
-        """Build the triage evaluation prompt."""
-        prompt, _stats = TriageRunner._build_prompt_with_stats(issue, max_body=max_body)
-        return prompt
-
     async def _evaluate_with_llm(self, issue: Task) -> TriageResult:
         """Run LLM evaluation and parse the verdict."""
         cmd = self._build_command()

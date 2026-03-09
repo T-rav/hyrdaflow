@@ -537,15 +537,20 @@ class TestPostMergeHandler:
         )
 
         handler._prs.create_issue.assert_awaited_once()
-        # Verification issue should record review origin so dashboard shows
-        # "from review" instead of "pending".
-        assert handler._state.get_hitl_origin(42) == config.review_label[0]
+        # Verification issue should use verify_label, not hitl_label.
+        call_args = handler._prs.create_issue.call_args
+        assert config.verify_label[0] in call_args[0][2]
+        # Should record VERIFY_PENDING outcome with verification_issue_number.
+        outcome = handler._state.get_outcome(issue.id)
+        assert outcome is not None
+        assert outcome.outcome.value == "verify_pending"
+        assert outcome.verification_issue_number == 42
 
     @pytest.mark.asyncio
-    async def test_verification_issue_records_review_origin(
+    async def test_verification_issue_uses_verify_label_not_hitl(
         self, config: HydraFlowConfig
     ) -> None:
-        """Verification issues must record review origin for correct HITL status."""
+        """Verification issues must use verify_label, not hitl_label."""
         verdict = JudgeVerdict(
             issue_number=1,
             criteria_results=[
@@ -582,8 +587,12 @@ class TestPostMergeHandler:
             publish_fn=publish_fn,
         )
 
-        origin = handler._state.get_hitl_origin(99)
-        assert origin == config.review_label[0]
+        # Label used should be verify_label, not hitl_label
+        call_args = handler._prs.create_issue.call_args
+        assert config.verify_label[0] in call_args[0][2]
+        assert config.hitl_label[0] not in call_args[0][2]
+        # Should NOT set hitl_origin (verify issues aren't HITL items)
+        assert handler._state.get_hitl_origin(99) is None
 
     @pytest.mark.asyncio
     async def test_verification_issue_skipped_for_refactor_and_test_only_work(
