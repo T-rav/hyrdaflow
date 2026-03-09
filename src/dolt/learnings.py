@@ -18,14 +18,14 @@ class LearningRepository:
     def append(self, learning: dict) -> None:
         """Insert a new learning."""
         self.db.execute(
-            "INSERT INTO learnings (learning_json) VALUES (%s)",
+            "INSERT INTO learnings (data_json) VALUES (%s)",
             (json.dumps(learning),),
         )
 
     def query(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return recent learnings."""
         rows = self.db.fetchall(
-            "SELECT id, learning_json, created_at "
+            "SELECT id, data_json, timestamp "
             "FROM learnings ORDER BY id DESC LIMIT %s",
             (limit,),
         )
