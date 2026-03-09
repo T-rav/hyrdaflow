@@ -361,6 +361,8 @@ Run through this checklist before your final commit:
             if not raw:
                 return []
             return json.loads(raw)  # type: ignore[no-any-return]
+        except json.JSONDecodeError:
+            return []
         except Exception as exc:  # noqa: BLE001
             if is_likely_bug(exc):
                 raise
