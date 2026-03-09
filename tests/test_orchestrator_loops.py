@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from typing import TYPE_CHECKING
 
 from events import EventBus, EventType, HydraFlowEvent
 

@@ -485,6 +485,14 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.dashboard_port == 5555
 
+    def test_dashboard_host_default(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.dashboard_host == "127.0.0.1"
+
     def test_dashboard_enabled_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -608,6 +616,15 @@ class TestHydraFlowConfigCustomValues:
             state_file=tmp_path / "s.json",
         )
         assert cfg.dashboard_port == 8080
+
+    def test_custom_dashboard_host(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            dashboard_host="0.0.0.0",
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+        )
+        assert cfg.dashboard_host == "0.0.0.0"
 
     def test_custom_dashboard_enabled_false(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1271,3 +1288,39 @@ class TestTwoPhasePathResolution:
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
         scoped_sessions = cfg.state_file.parent / "sessions.jsonl"
         assert not scoped_sessions.exists()  # copy failed
+
+
+# ---------------------------------------------------------------------------
+# memory_sync_labels property
+# ---------------------------------------------------------------------------
+
+
+class TestMemorySyncLabels:
+    """Tests for the memory_sync_labels property."""
+
+    def test_includes_improve_label(self, tmp_path: Path) -> None:
+        """memory_sync_labels must include improve_label so [Memory] issues are consumed."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        labels = cfg.memory_sync_labels
+        for lbl in cfg.improve_label:
+            assert lbl in labels, (
+                f"improve_label '{lbl}' missing from memory_sync_labels"
+            )
+
+    def test_includes_memory_and_transcript_labels(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        labels = cfg.memory_sync_labels
+        for lbl in cfg.memory_label:
+            assert lbl in labels
+        for lbl in cfg.transcript_label:
+            assert lbl in labels
+
+    def test_no_duplicates(self, tmp_path: Path) -> None:
+        cfg = HydraFlowConfig(
+            repo_root=tmp_path,
+            repo="acme/widgets",
+            memory_label=["shared"],
+            improve_label=["shared"],
+            transcript_label=["shared"],
+        )
+        assert cfg.memory_sync_labels == ["shared"]

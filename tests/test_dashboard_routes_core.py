@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from events import EventBus
 
@@ -544,14 +545,14 @@ class TestResolveRuntime:
     async def test_state_endpoint_with_unknown_repo_raises(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """GET /api/state?repo=unknown should raise ValueError."""
+        """GET /api/state?repo=unknown should raise HTTPException 404."""
         mock_registry = MagicMock()
         mock_registry.get.return_value = None  # Unknown repo
         router = self._make_router_with_registry(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
         ep = next(r for r in router.routes if getattr(r, "path", "") == "/api/state")
-        with pytest.raises(ValueError, match="Unknown repo"):
+        with pytest.raises(HTTPException, match="Unknown repo"):
             await ep.endpoint(repo="unknown-slug")
 
     @pytest.mark.asyncio
