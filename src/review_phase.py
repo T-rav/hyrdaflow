@@ -156,6 +156,7 @@ class ReviewPhase:
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
 
         async def _review_one(idx: int, pr: PRInfo) -> ReviewResult:
+            """Review a single PR under the concurrency semaphore."""
             if self._stop_event.is_set():
                 return ReviewResult(
                     pr_number=pr.number,

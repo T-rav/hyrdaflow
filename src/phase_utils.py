@@ -227,6 +227,11 @@ async def store_lifecycle(
 ):
     """Mark an issue active on enter and complete on exit.
 
+    Args:
+        store: The issue store that tracks active/complete status.
+        issue_number: GitHub issue number to mark.
+        stage: Pipeline stage name (e.g. ``"plan"``, ``"review"``).
+
     Usage::
 
         async with store_lifecycle(store, issue.number, "plan"):

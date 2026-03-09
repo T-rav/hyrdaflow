@@ -222,6 +222,7 @@ def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | Non
 
 
 def _parse_iso_or_none(raw: str | None) -> datetime | None:
+    """Parse an ISO 8601 string to datetime, returning None on failure."""
     if not raw:
         return None
     try:
@@ -234,6 +235,7 @@ def _parse_iso_or_none(raw: str | None) -> datetime | None:
 
 
 def _event_issue_number(data: dict[str, Any]) -> int | None:
+    """Extract the issue number from an event data dict, coercing strings."""
     value = data.get("issue")
     if isinstance(value, int):
         return value
@@ -243,6 +245,7 @@ def _event_issue_number(data: dict[str, Any]) -> int | None:
 
 
 def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str | None:
+    """Map an event type and its data to a normalised history status string."""
     status = str(data.get("status", "")).lower()
     result: str | None = None
     if event_type == EventType.MERGE_UPDATE:
@@ -303,6 +306,7 @@ def _coerce_history_status(value: str) -> str:
 
 
 def _status_rank(status: str) -> int:
+    """Return a numeric rank for a history status used for ordering."""
     ranks = {
         "unknown": 0,
         "triaged": 1,
@@ -319,6 +323,7 @@ def _status_rank(status: str) -> int:
 
 
 def _coerce_int(value: object) -> int:
+    """Coerce a value to int, returning 0 for unconvertible inputs."""
     if isinstance(value, bool):
         return int(value)
     if isinstance(value, int):
@@ -336,6 +341,7 @@ def _coerce_int(value: object) -> int:
 def _is_timestamp_in_range(
     raw: str | None, since: datetime | None, until: datetime | None
 ) -> bool:
+    """Return True if the ISO timestamp falls within the [since, until] window."""
     if raw is None:
         return since is None and until is None
     parsed = _parse_iso_or_none(raw)
@@ -347,6 +353,7 @@ def _is_timestamp_in_range(
 
 
 def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]:
+    """Build a sort key from a timestamp and status rank for ordering updates."""
     parsed = _parse_iso_or_none(timestamp)
     if parsed is None:
         parsed = datetime.min.replace(tzinfo=UTC)
@@ -583,11 +590,13 @@ def create_router(
         return config, state, event_bus, get_orchestrator
 
     def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
+        """Return the shared PRManager when config matches; otherwise create a new one."""
         if cfg is config and bus is event_bus:
             return pr_manager
         return PRManager(cfg, bus)
 
     def _list_repo_records() -> list[RepoRecord]:
+        """Return repo records from the callback or store, with error fallback."""
         if list_repos_cb is not None:
             try:
                 return list_repos_cb()
@@ -681,6 +690,7 @@ def create_router(
         )
 
     def _new_issue_history_entry(issue_number: int) -> dict[str, Any]:
+        """Create a blank history aggregation row for an issue."""
         repo_slug = (config.repo or "").strip()
         if repo_slug.startswith("https://github.com/"):
             repo_slug = repo_slug[len("https://github.com/") :]
@@ -710,6 +720,7 @@ def create_router(
         }
 
     def _touch_issue_timestamps(row: dict[str, Any], timestamp: str | None) -> None:
+        """Update the first_seen / last_seen bounds of a history row."""
         if not timestamp:
             return
         current_first = row.get("first_seen")
@@ -1046,6 +1057,7 @@ def create_router(
     async def _enrich_issue_history_with_github(
         entries: dict[int, dict[str, Any]], limit: int = 150
     ) -> None:
+        """Concurrently fetch GitHub metadata and apply it to history entries."""
         if not entries:
             return
 
@@ -1054,6 +1066,7 @@ def create_router(
         sem = asyncio.Semaphore(6)
 
         async def _fetch_and_apply(issue_number: int) -> None:
+            """Fetch one issue under the semaphore and apply fields to its entry."""
             async with sem:
                 issue = await fetcher.fetch_issue_by_number(issue_number)
             if issue is None:
@@ -1091,6 +1104,7 @@ def create_router(
         await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
 
     def _build_hitl_context(issue: Any, *, cause: str, origin: str | None) -> str:
+        """Build a text context block for HITL summary generation."""
         body = str(getattr(issue, "body", "") or "").strip()
         comments = list(getattr(issue, "comments", []) or [])
         recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
@@ -1105,10 +1119,12 @@ def create_router(
         )
 
     def _normalise_summary_lines(raw: str) -> str:
+        """Strip bullet prefixes and cap a summary to 8 lines."""
         lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
         return "\n".join(lines[:8]).strip()
 
     def _hitl_summary_retry_due(issue_number: int) -> bool:
+        """Return True if enough time has passed to retry a failed HITL summary."""
         failed_at, _ = state.get_hitl_summary_failure(issue_number)
         failed_dt = _parse_iso_or_none(failed_at)
         if failed_dt is None:
@@ -1119,6 +1135,7 @@ def create_router(
     async def _compute_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> str | None:
+        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
         if (
             not config.transcript_summarization_enabled
             or config.dry_run
@@ -1147,6 +1164,7 @@ def create_router(
     async def _warm_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> None:
+        """Schedule background HITL summary generation, guarded by inflight tracking."""
         if issue_number in hitl_summary_inflight:
             return
         hitl_summary_inflight.add(issue_number)
@@ -1185,6 +1203,7 @@ def create_router(
                 )
 
         def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+            """Coerce a raw status value to a BGWorkerHealth enum member."""
             if isinstance(raw_status, BGWorkerHealth):
                 return raw_status
             try:
@@ -1219,6 +1238,7 @@ def create_router(
             status = "degraded"
 
         def _is_loopback_host(host: str) -> bool:
+            """Return True if the host resolves to localhost or 127.x.x.x."""
             host_lower = (host or "").lower()
             return host_lower == "localhost" or host_lower.startswith("127.")
 
@@ -1268,12 +1288,14 @@ def create_router(
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
+        """Serve the single-page application root."""
         return _serve_spa_index()
 
     @router.get("/api/state")
     async def get_state(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return the full state tracker snapshot as JSON."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         return JSONResponse(_state.to_dict())
 
@@ -1281,6 +1303,7 @@ def create_router(
     async def get_stats(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return lifetime stats and optional queue depths."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         data: dict[str, Any] = _state.get_lifetime_stats().model_dump()
         orch = _get_orch()
@@ -1379,6 +1402,7 @@ def create_router(
 
     @router.get("/api/events")
     async def get_events(since: str | None = None) -> JSONResponse:
+        """Return event history, optionally filtered by a since timestamp."""
         if since is not None:
             from datetime import datetime
 
@@ -1963,6 +1987,7 @@ def create_router(
     async def get_human_input_requests(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return pending human-input prompts from the orchestrator."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         if orch:
@@ -1975,6 +2000,7 @@ def create_router(
         body: dict[str, Any],
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Submit an operator answer to a pending human-input request."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         if orch:
@@ -1985,6 +2011,7 @@ def create_router(
 
     @router.post("/api/control/start")
     async def start_orchestrator() -> JSONResponse:
+        """Create and start a new orchestrator instance."""
         orch = get_orchestrator()
         if orch and orch.running:
             return JSONResponse({"error": "already running"}, status_code=409)
@@ -2008,6 +2035,7 @@ def create_router(
 
     @router.post("/api/control/stop")
     async def stop_orchestrator() -> JSONResponse:
+        """Request a graceful stop of the running orchestrator."""
         orch = get_orchestrator()
         if not orch or not orch.running:
             return JSONResponse({"error": "not running"}, status_code=400)
@@ -2018,6 +2046,7 @@ def create_router(
     async def get_control_status(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Return orchestrator run status, config summary, and version info."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         status = "idle"
@@ -2237,6 +2266,7 @@ def create_router(
     }
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
+        """Aggregate prompt-telemetry inference stats keyed by worker name."""
         telemetry = PromptTelemetry(config)
         source_totals = telemetry.get_source_totals()
 
@@ -2990,12 +3020,14 @@ def create_router(
 
     @router.get("/api/timeline")
     async def get_timeline() -> JSONResponse:
+        """Return timelines for all tracked issues."""
         builder = TimelineBuilder(event_bus)
         timelines = builder.build_all()
         return JSONResponse([t.model_dump() for t in timelines])
 
     @router.get("/api/timeline/issue/{issue_number}")
     async def get_timeline_issue(issue_number: int) -> JSONResponse:
+        """Return the event timeline for a single issue."""
         builder = TimelineBuilder(event_bus)
         timeline = builder.build_for_issue(issue_number)
         if timeline is None:
@@ -3107,12 +3139,14 @@ def create_router(
     # --- Multi-repo supervisor endpoints ---
 
     async def _call_supervisor(func: Callable, *args, **kwargs) -> Any:
+        """Run a supervisor client function in a thread."""
         if supervisor_client is None:
             raise RuntimeError("hf supervisor client unavailable in this environment")
         return await asyncio.to_thread(func, *args, **kwargs)
 
     @router.get("/api/repos")
     async def list_supervised_repos() -> JSONResponse:
+        """List repos from the store, callback, or supervisor."""
         if repo_store is not None or list_repos_cb is not None:
             records = _list_repo_records()
             payload: list[dict[str, Any]] = []
@@ -3214,6 +3248,7 @@ def create_router(
         slug: str | None = Query(default=None),
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
+        """Ensure a repo is registered with the supervisor by slug."""
         error_payload: tuple[str, int] | None = None
         if supervisor_client is None:
             error_payload = ("supervisor unavailable", 503)
@@ -3259,6 +3294,7 @@ def create_router(
 
     @router.delete("/api/repos/{slug}")
     async def remove_repo(slug: str) -> JSONResponse:
+        """Remove a repo via the callback or supervisor."""
         if remove_repo_cb is not None:
             try:
                 removed = await remove_repo_cb(slug)
@@ -3587,6 +3623,7 @@ def create_router(
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        """Stream event history then live events over a WebSocket connection."""
         repo_slug: str | None = ws.query_params.get("repo")
 
         # Resolve the correct event bus for the requested repo.
@@ -3633,6 +3670,7 @@ def create_router(
     # This must be registered LAST so it doesn't shadow API/WS routes.
     @router.get("/{path:path}", response_model=None)
     async def spa_catchall(path: str) -> Response:
+        """Catch-all route: serve static assets or fall back to the SPA index."""
         # Don't catch API, WebSocket, or static-asset paths
         if path.startswith(("api/", "ws/", "assets/", "static/")) or path == "ws":
             return JSONResponse({"detail": "Not Found"}, status_code=404)
