@@ -88,6 +88,12 @@ async function stubApiRoutes(page) {
  * could produce non-deterministic pixels.
  */
 async function setupPage(page, state) {
+  // Freeze the browser clock so Date.now() returns a fixed value in both the
+  // baseline-generation run and the reproducibility-verification run.  Without
+  // this, relative-time helpers (e.g. "Xh ago") can cross an hour boundary
+  // between the two sequential npm runs and produce a pixel diff.
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00.000Z') })
+
   await stubApiRoutes(page)
 
   await page.addInitScript((seedData) => {
