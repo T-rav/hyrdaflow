@@ -127,7 +127,9 @@ class CrateManager:
                     if suffix.isdigit():
                         max_iter = max(max_iter, int(suffix))
         except Exception:
-            logger.debug("Could not list milestones for title generation")
+            logger.warning(
+                "Could not list milestones for title generation", exc_info=True
+            )
         return f"{date_prefix}.{max_iter + 1}"
 
     async def auto_package_if_needed(self, uncrated: list[Task]) -> None:
@@ -158,6 +160,7 @@ class CrateManager:
                     "Failed to assign issue #%d to crate #%d",
                     task.id,
                     crate.number,
+                    exc_info=True,
                 )
 
         await self.activate_crate(crate.number)

@@ -102,7 +102,16 @@ class MetricsManager:
 
         # Post snapshot as comment
         comment_body = self._format_snapshot_comment(snapshot)
-        await self._prs.post_comment(issue_number, comment_body)
+        try:
+            await self._prs.post_comment(issue_number, comment_body)
+        except Exception:
+            logger.warning(
+                "Failed to post metrics snapshot to issue #%s",
+                issue_number,
+                exc_info=True,
+            )
+            self._state.update_metrics_state(snapshot_hash)
+            return {"status": "cached_locally", "reason": "post_failed"}
 
         # Update state and publish event
         self._state.update_metrics_state(snapshot_hash)
@@ -218,7 +227,9 @@ class MetricsManager:
             github_total_closed = counts["total_closed"]
             github_total_merged = counts["total_merged"]
         except Exception:
-            logger.warning("Could not fetch GitHub label counts for snapshot")
+            logger.warning(
+                "Could not fetch GitHub label counts for snapshot", exc_info=True
+            )
 
         return MetricsSnapshot(
             timestamp=now,
@@ -264,7 +275,9 @@ class MetricsManager:
                     self._state.set_metrics_issue_number(issues[0].number)
                     return issues[0].number
             except Exception:
-                logger.warning("Could not search for metrics issue by label")
+                logger.warning(
+                    "Could not search for metrics issue by label", exc_info=True
+                )
 
         # Create a new one
         title = "HydraFlow Metrics"
@@ -351,6 +364,11 @@ class MetricsManager:
                 data = json.loads(match.group(1))
                 snapshots.append(MetricsSnapshot.model_validate(data))
             except Exception:  # JSON parse or Pydantic validation
+                logger.warning(
+                    "Skipping corrupt metrics comment in issue #%s",
+                    issue_number,
+                    exc_info=True,
+                )
                 continue
 
         return snapshots
