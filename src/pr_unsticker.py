@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from models import ConflictResolutionResult
-from phase_utils import MemorySuggester, is_likely_bug
+from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
 
 if TYPE_CHECKING:
@@ -338,9 +338,7 @@ class PRUnsticker:
                 )
                 return False
 
-        except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+        except Exception:
             logger.exception("PR Unsticker failed for issue #%d", issue_number)
             await self._release_back_to_hitl(
                 issue_number,
@@ -458,8 +456,6 @@ class PRUnsticker:
             )
             return False
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
             logger.error(
                 "Unsticker CI fix agent failed for issue #%d: %s",
                 issue_number,
@@ -631,8 +627,6 @@ diff — you may catch things `make quality` won't.
                     error_msg[:200] if error_msg else "",
                 )
             except Exception as exc:
-                if is_likely_bug(exc):
-                    raise
                 logger.error(
                     "Unsticker CI timeout agent failed for issue #%d (attempt %d): %s",
                     issue_number,
