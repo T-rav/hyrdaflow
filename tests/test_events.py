@@ -481,7 +481,7 @@ class TestEventBusClear:
         first_event = EventFactory.create(type=EventType.PHASE_CHANGE)
         await bus.publish(first_event)
         assert first_event.session_id == "session-123"
-        assert first_event.data["repo"] == "hydraflow/repo"
+        assert first_event.repo == "hydraflow/repo"
 
         async def _noop() -> None:
             return None
@@ -501,7 +501,7 @@ class TestEventBusClear:
 
         assert bus.current_session_id is None
         assert next_event.session_id is None
-        assert "repo" not in next_event.data
+        assert next_event.repo is None
         assert bus._active_repo == ""
         assert not bus._pending_persists
 

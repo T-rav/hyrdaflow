@@ -131,7 +131,7 @@ class TestEventBusRepoInjection:
         bus.set_repo("owner/repo")
         event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={"issue": 1})
         await bus.publish(event)
-        assert event.data["repo"] == "owner/repo"
+        assert event.repo == "owner/repo"
 
     @pytest.mark.asyncio
     async def test_publish_does_not_overwrite_explicit_repo(self) -> None:
@@ -139,17 +139,29 @@ class TestEventBusRepoInjection:
         bus.set_repo("owner/repo")
         event = HydraFlowEvent(
             type=EventType.WORKER_UPDATE,
-            data={"issue": 1, "repo": "other/repo"},
+            repo="other/repo",
+            data={"issue": 1},
         )
         await bus.publish(event)
-        assert event.data["repo"] == "other/repo"
+        assert event.repo == "other/repo"
 
     @pytest.mark.asyncio
     async def test_publish_no_injection_when_repo_not_set(self) -> None:
         bus = EventBus()
         event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={"issue": 1})
         await bus.publish(event)
+        assert event.repo is None
+
+    @pytest.mark.asyncio
+    async def test_publish_does_not_mutate_event_data(self) -> None:
+        """Verify publish() does not inject 'repo' into event.data."""
+        bus = EventBus()
+        bus.set_repo("owner/repo")
+        original_data = {"issue": 1}
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=original_data)
+        await bus.publish(event)
         assert "repo" not in event.data
+        assert original_data == {"issue": 1}
 
 
 # ---------------------------------------------------------------------------

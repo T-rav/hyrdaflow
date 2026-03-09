@@ -2846,7 +2846,7 @@ class TestStartSession:
 
         events = [e for e in bus.get_history() if e.type == EventType.SESSION_START]
         assert len(events) == 1
-        assert events[0].data["repo"] == config.repo
+        assert events[0].repo == config.repo
 
     @pytest.mark.asyncio
     async def test_sets_bus_session_id(self, config: HydraFlowConfig) -> None:

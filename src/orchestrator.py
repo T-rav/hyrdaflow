@@ -745,7 +745,8 @@ class HydraFlowOrchestrator:
             HydraFlowEvent(
                 type=EventType.SESSION_START,
                 session_id=session_id,
-                data={"session_id": session_id, "repo": self._config.repo},
+                repo=self._config.repo,
+                data={"session_id": session_id},
             )
         )
 
