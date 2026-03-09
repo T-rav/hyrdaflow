@@ -410,6 +410,50 @@ class TestMergeConflictResolverExceptionChaining:
 
 
 # ---------------------------------------------------------------------------
+# ImplementPhase — recording setup/finalize narrowing (implement_phase.py:215, 229)
+# ---------------------------------------------------------------------------
+
+
+class TestImplementPhaseRecordingNarrowing:
+    """Verify that recording setup/finalize now propagates TypeError (not swallowed)."""
+
+    @pytest.mark.asyncio
+    async def test_recording_setup_propagates_type_error(
+        self, config, event_bus
+    ) -> None:
+        """TypeError from run_recorder.start() should propagate after narrowing to (RuntimeError, OSError)."""
+        from tests.helpers import make_implement_phase
+
+        issue = TaskFactory.create(id=55, title="test issue")
+        phase, mock_wt, mock_prs = make_implement_phase(config, [issue])
+
+        mock_recorder = MagicMock()
+        mock_recorder.start.side_effect = TypeError("internal recorder bug")
+        phase._run_recorder = mock_recorder
+
+        with pytest.raises(TypeError, match="internal recorder bug"):
+            await phase._worker_inner(0, issue, "agent/issue-55")
+
+    @pytest.mark.asyncio
+    async def test_recording_setup_swallows_runtime_error(
+        self, config, event_bus
+    ) -> None:
+        """RuntimeError from run_recorder.start() should be swallowed (infrastructure error)."""
+        from tests.helpers import make_implement_phase
+
+        issue = TaskFactory.create(id=55, title="test issue")
+        phase, mock_wt, mock_prs = make_implement_phase(config, [issue])
+
+        mock_recorder = MagicMock()
+        mock_recorder.start.side_effect = RuntimeError("disk IO failed")
+        phase._run_recorder = mock_recorder
+
+        # Should not raise — continues with ctx=None
+        result = await phase._worker_inner(0, issue, "agent/issue-55")
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
 # Triage (triage.py:144, 405)
 # ---------------------------------------------------------------------------
 
@@ -594,6 +638,104 @@ class TestADRReviewerBugGates:
 
         ok = await reviewer._route_to_triage(result, reason="test")
         assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_pre_validation_failure_routing_reraises_bug(self) -> None:
+        """TypeError in _route_pre_validation_failure should propagate."""
+        from adr_pre_validator import ADRValidationIssue, ADRValidationResult
+        from adr_reviewer import ADRCouncilReviewer
+
+        reviewer = ADRCouncilReviewer.__new__(ADRCouncilReviewer)
+        reviewer._prs = AsyncMock()
+        reviewer._prs.create_issue.side_effect = TypeError("bad create_issue arg")
+        reviewer._config = MagicMock()
+        reviewer._config.adr_review_auto_triage = True
+        reviewer._config.find_label = ["hydraflow-find"]
+
+        validation = ADRValidationResult(
+            issues=[ADRValidationIssue(code="E001", message="Missing heading")]
+        )
+        with pytest.raises(TypeError, match="bad create_issue arg"):
+            await reviewer._route_pre_validation_failure(
+                1, "Test ADR title", validation, {"auto_triaged": 0, "escalated": 0}
+            )
+
+    @pytest.mark.asyncio
+    async def test_pre_validation_failure_routing_catches_transient(self) -> None:
+        """RuntimeError in _route_pre_validation_failure falls back to HITL escalation."""
+        from adr_pre_validator import ADRValidationIssue, ADRValidationResult
+        from adr_reviewer import ADRCouncilReviewer
+
+        reviewer = ADRCouncilReviewer.__new__(ADRCouncilReviewer)
+        reviewer._prs = AsyncMock()
+        # First call (auto_triage path) raises RuntimeError; second (HITL) succeeds
+        reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
+        reviewer._config = MagicMock()
+        reviewer._config.adr_review_auto_triage = True
+        reviewer._config.find_label = ["hydraflow-find"]
+        reviewer._config.hitl_label = ["hydraflow-hitl"]
+
+        validation = ADRValidationResult(
+            issues=[ADRValidationIssue(code="E001", message="Missing heading")]
+        )
+        stats: dict[str, int] = {"auto_triaged": 0, "escalated": 0}
+        # Should not raise — falls back to HITL escalation
+        await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
+        assert stats["escalated"] == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_duplicate_reraises_bug(self) -> None:
+        """TypeError in _handle_duplicate should propagate."""
+        from adr_reviewer import ADRCouncilReviewer
+        from models import ADRCouncilResult, CouncilVerdict
+
+        reviewer = ADRCouncilReviewer.__new__(ADRCouncilReviewer)
+        reviewer._prs = AsyncMock()
+        reviewer._prs.create_issue.side_effect = TypeError("bad dup arg")
+        reviewer._config = MagicMock()
+        reviewer._config.adr_review_auto_triage = True
+        reviewer._config.find_label = ["hydraflow-find"]
+
+        result = ADRCouncilResult(
+            adr_number=2,
+            adr_path=Path("adr.md"),
+            final_decision=CouncilVerdict.REQUEST_CHANGES,
+            votes=[],
+            summary="dup",
+            duplicate_detected=True,
+            duplicate_of=1,
+        )
+        with pytest.raises(TypeError, match="bad dup arg"):
+            await reviewer._handle_duplicate(
+                result, {"auto_triaged": 0, "escalated": 0}
+            )
+
+    @pytest.mark.asyncio
+    async def test_handle_duplicate_catches_transient(self) -> None:
+        """RuntimeError in _handle_duplicate falls back to HITL escalation."""
+        from adr_reviewer import ADRCouncilReviewer
+        from models import ADRCouncilResult, CouncilVerdict
+
+        reviewer = ADRCouncilReviewer.__new__(ADRCouncilReviewer)
+        reviewer._prs = AsyncMock()
+        reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
+        reviewer._config = MagicMock()
+        reviewer._config.adr_review_auto_triage = True
+        reviewer._config.find_label = ["hydraflow-find"]
+        reviewer._config.hitl_label = ["hydraflow-hitl"]
+
+        result = ADRCouncilResult(
+            adr_number=2,
+            adr_path=Path("adr.md"),
+            final_decision=CouncilVerdict.REQUEST_CHANGES,
+            votes=[],
+            summary="dup",
+            duplicate_detected=True,
+            duplicate_of=1,
+        )
+        stats: dict[str, int] = {"auto_triaged": 0, "escalated": 0}
+        await reviewer._handle_duplicate(result, stats)
+        assert stats["escalated"] == 1
 
 
 # ---------------------------------------------------------------------------
