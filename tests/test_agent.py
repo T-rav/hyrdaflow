@@ -817,6 +817,7 @@ class TestDiffSanityLoop:
             )
         assert result.passed is False
         assert "debug code" in result.summary
+        assert result.attempts == 1
 
     @pytest.mark.asyncio
     async def test_run_fails_when_diff_sanity_fails(
@@ -972,6 +973,40 @@ class TestTestAdequacyLoop:
             )
         assert result.passed is False
         assert "missing tests" in result.summary
+        assert result.attempts == 1
+
+    @pytest.mark.asyncio
+    async def test_recovers_on_second_attempt(
+        self, config, event_bus: EventBus, agent_task, tmp_path: Path
+    ) -> None:
+        """_run_test_adequacy_loop should recover if a later attempt returns OK."""
+        config.max_test_adequacy_attempts = 2
+        runner = AgentRunner(config, event_bus)
+        with (
+            patch.object(
+                runner, "_count_commits", new_callable=AsyncMock, return_value=1
+            ),
+            patch.object(
+                runner,
+                "_get_branch_diff",
+                new_callable=AsyncMock,
+                return_value="+def foo(): pass\n",
+            ),
+            patch.object(
+                runner,
+                "_execute",
+                new_callable=AsyncMock,
+                side_effect=[
+                    "TEST_ADEQUACY_RESULT: RETRY\nSUMMARY: missing tests",
+                    "TEST_ADEQUACY_RESULT: OK\nSUMMARY: coverage sufficient",
+                ],
+            ),
+        ):
+            result = await runner._run_test_adequacy_loop(
+                agent_task, tmp_path, "branch", worker_id=0
+            )
+        assert result.passed is True
+        assert result.attempts == 2
 
 
 # ---------------------------------------------------------------------------
