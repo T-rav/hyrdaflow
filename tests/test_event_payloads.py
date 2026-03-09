@@ -575,6 +575,6 @@ class TestReviewerUsesEnumStatus:
     def test_no_raw_fixing_review_findings_string(self) -> None:
         import pathlib
 
-        src = pathlib.Path("src/reviewer.py").read_text()
+        src = (pathlib.Path(__file__).parent.parent / "src" / "reviewer.py").read_text()
         # The old raw string must be replaced by the enum reference everywhere
         assert '"fixing_review_findings"' not in src
