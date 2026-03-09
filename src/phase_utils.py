@@ -15,7 +15,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from issue_store import IssueStore
 from memory import file_memory_suggestion
-from models import PipelineStage, PRInfo
+from models import PipelineStage, PRInfo, Task
 from ports import PRPort
 from state import StateTracker
 
@@ -459,14 +459,14 @@ class PipelineEscalator:
 
     async def __call__(
         self,
-        issue: Any,
+        issue: Task,
         *,
         cause: str,
         details: str,
         category: FailureCategory,
     ) -> None:
         """Escalate *issue* to HITL, enqueue transition, and record failure."""
-        issue_number = issue.id if hasattr(issue, "id") else issue
+        issue_number = issue.id
         await escalate_to_hitl(
             self._state,
             self._prs,
