@@ -246,22 +246,23 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             if not child.is_dir() or not child.name.startswith("issue-"):
                 continue
             try:
-                issue_num = int(child.name.split("-", 1)[1])
+                issue_number = int(child.name.split("-", 1)[1])
             except (ValueError, IndexError):
                 continue
-            if issue_num in tracked_issues:
+            if issue_number in tracked_issues:
                 continue
             try:
-                if await self._is_safe_to_gc(issue_num):
-                    await self._worktrees.destroy(issue_num)
+                if await self._is_safe_to_gc(issue_number):
+                    await self._worktrees.destroy(issue_number)
                     collected += 1
                     logger.info(
-                        "GC: collected orphaned worktree dir for issue #%d", issue_num
+                        "GC: collected orphaned worktree dir for issue #%d",
+                        issue_number,
                     )
             except Exception:
                 logger.warning(
                     "GC: failed to collect orphaned dir for issue #%d",
-                    issue_num,
+                    issue_number,
                     exc_info=True,
                 )
         return collected
@@ -294,13 +295,13 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             match = self._AGENT_BRANCH_RE.match(branch)
             if not match:
                 continue
-            issue_num = int(match.group(1))
+            issue_number = int(match.group(1))
             # Skip if worktree exists, issue is active, or in pipeline
-            if issue_num in active_worktrees or issue_num in active_issues:
+            if issue_number in active_worktrees or issue_number in active_issues:
                 continue
-            if self._is_in_pipeline and self._is_in_pipeline(issue_num):
+            if self._is_in_pipeline and self._is_in_pipeline(issue_number):
                 continue
-            if await self._issue_has_pipeline_label(issue_num):
+            if await self._issue_has_pipeline_label(issue_number):
                 continue
             try:
                 await run_subprocess(

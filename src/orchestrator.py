@@ -316,18 +316,18 @@ class HydraFlowOrchestrator:
         async with self._active_issues_lock:
             interrupted: dict[int, str] = {}
             # Use IssueStore active tracking as the primary source
-            for issue_num, stage in self._store.get_active_issues().items():
-                interrupted[issue_num] = stage
+            for issue_number, stage in self._store.get_active_issues().items():
+                interrupted[issue_number] = stage
             # Also check in-memory tracking sets for issues not yet in the store
-            for issue_num in self._active_impl_issues:
-                if issue_num not in interrupted:
-                    interrupted[issue_num] = "implement"
-            for issue_num in self._active_review_issues:
-                if issue_num not in interrupted:
-                    interrupted[issue_num] = "review"
-            for issue_num in self._hitl_phase.active_hitl_issues:
-                if issue_num not in interrupted:
-                    interrupted[issue_num] = "hitl"
+            for issue_number in self._active_impl_issues:
+                if issue_number not in interrupted:
+                    interrupted[issue_number] = "implement"
+            for issue_number in self._active_review_issues:
+                if issue_number not in interrupted:
+                    interrupted[issue_number] = "review"
+            for issue_number in self._hitl_phase.active_hitl_issues:
+                if issue_number not in interrupted:
+                    interrupted[issue_number] = "hitl"
             return interrupted
 
     # Alias for backward compatibility
@@ -623,11 +623,11 @@ class HydraFlowOrchestrator:
         """Remove interrupted issues from crash-recovery sets so they re-route normally."""
         interrupted = self._state.get_interrupted_issues()
         if interrupted:
-            for issue_num in interrupted:
-                self._recovered_issues.discard(issue_num)
-                self._active_impl_issues.discard(issue_num)
-                self._active_review_issues.discard(issue_num)
-                self._hitl_phase.active_hitl_issues.discard(issue_num)
+            for issue_number in interrupted:
+                self._recovered_issues.discard(issue_number)
+                self._active_impl_issues.discard(issue_number)
+                self._active_review_issues.discard(issue_number)
+                self._hitl_phase.active_hitl_issues.discard(issue_number)
             logger.info(
                 "Restored %d interrupted issue(s) for re-processing: %s",
                 len(interrupted),

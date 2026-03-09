@@ -10,14 +10,14 @@ class _FetcherImpl:
 
 class _TransitionerImpl:
     async def transition(
-        self, task_id: int, new_stage: str, *, pr_number: int | None = None
+        self, issue_number: int, new_stage: str, *, pr_number: int | None = None
     ) -> None:
         return None
 
-    async def post_comment(self, task_id: int, body: str) -> None:
+    async def post_comment(self, issue_number: int, body: str) -> None:
         return None
 
-    async def close_task(self, task_id: int) -> None:
+    async def close_task(self, issue_number: int) -> None:
         return None
 
     async def create_task(

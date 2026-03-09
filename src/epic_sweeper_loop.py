@@ -106,13 +106,13 @@ class EpicSweeperLoop(BaseBackgroundLoop):
         """
         fixed_label = self._config.fixed_label[0] if self._config.fixed_label else ""
 
-        for issue_num in sub_issues:
-            issue = await self._fetcher.fetch_issue_by_number(issue_num)
+        for issue_number in sub_issues:
+            issue = await self._fetcher.fetch_issue_by_number(issue_number)
             if issue is None:
                 logger.warning(
                     "Sub-issue #%d not found for epic #%d — skipping epic"
                     " (remove stale ref from body to allow auto-close)",
-                    issue_num,
+                    issue_number,
                     epic_number,
                 )
                 return False

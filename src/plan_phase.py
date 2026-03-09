@@ -541,26 +541,27 @@ class PlanPhase:
             await self._post_gap_review_comment(epic_number, review, iteration)
 
             # Re-plan flagged children with gap context
-            for issue_num in review.replan_issues:
+            for issue_number in review.replan_issues:
                 if self._stop_event.is_set():
                     break
-                issue = issue_map.get(issue_num)
+                issue = issue_map.get(issue_number)
                 if issue is None:
                     logger.warning(
                         "Epic #%d: gap review flagged #%d but not in group",
                         epic_number,
-                        issue_num,
+                        issue_number,
                     )
                     continue
 
                 enriched = self._plan_one_with_context(issue, review.guidance, plan_map)
                 replan_result = await self._plan_one(0, enriched, semaphore)
                 if replan_result.success and replan_result.plan:
-                    plan_map[issue_num] = replan_result.plan
+                    plan_map[issue_number] = replan_result.plan
                     replan_result.epic_number = epic_number
                 # Update the results list
                 results = [
-                    replan_result if r.issue_number == issue_num else r for r in results
+                    replan_result if r.issue_number == issue_number else r
+                    for r in results
                 ]
 
         return results

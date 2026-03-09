@@ -100,7 +100,7 @@ class TestCreateRouter:
             "/api/hitl/{issue_number}/close",
             "/api/issues/outcomes",
             "/api/timeline",
-            "/api/timeline/issue/{issue_num}",
+            "/api/timeline/issue/{issue_number}",
             "/api/intent",
             "/api/report",
             "/api/review-insights",
@@ -5084,7 +5084,7 @@ class TestGetSystemWorkersEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/timeline and /api/timeline/issue/{issue_num}
+# GET /api/timeline and /api/timeline/issue/{issue_number}
 # ---------------------------------------------------------------------------
 
 
@@ -5105,14 +5105,14 @@ class TestGetTimelineEndpoint:
 
 
 class TestGetTimelineIssueEndpoint:
-    """Tests for GET /api/timeline/issue/{issue_num}."""
+    """Tests for GET /api/timeline/issue/{issue_number}."""
 
     @pytest.mark.asyncio
     async def test_returns_404_for_unknown_issue(
         self, config, event_bus, state, tmp_path
     ) -> None:
         router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
-        endpoint = find_endpoint(router, "/api/timeline/issue/{issue_num}")
+        endpoint = find_endpoint(router, "/api/timeline/issue/{issue_number}")
         response = await endpoint(9999)
         assert response.status_code == 404
 
@@ -5130,7 +5130,7 @@ class TestGetTimelineIssueEndpoint:
             )
         )
         router, _pr = make_dashboard_router(config, event_bus, state, tmp_path)
-        endpoint = find_endpoint(router, "/api/timeline/issue/{issue_num}")
+        endpoint = find_endpoint(router, "/api/timeline/issue/{issue_number}")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert isinstance(data, dict)

@@ -95,7 +95,7 @@ class IssueStore:
         # In-flight protection: items between _take_from_queue and mark_active.
         # Prevents refresh() from re-queuing items that a phase
         # has dequeued but hasn't yet marked active (semaphore wait gap).
-        # Maps task_id → stage so snapshots can include them.
+        # Maps issue_number → stage so snapshots can include them.
         self._in_flight: dict[int, str] = {}
 
         # Eager transition protection: items placed by enqueue_transition
@@ -189,7 +189,7 @@ class IssueStore:
     def _compute_stage_map(
         self, tasks: list[Task]
     ) -> dict[int, tuple[IssueStoreStage, Task]]:
-        """Return {task_id: (best_stage, task)} for all incoming tasks."""
+        """Return {issue_number: (best_stage, task)} for all incoming tasks."""
         label_to_stage = self._build_label_map()
         unique_tasks = self._dedupe_tasks(tasks)
         incoming: dict[int, tuple[IssueStoreStage, Task]] = {}
@@ -238,32 +238,32 @@ class IssueStore:
           incoming labels match or exceed the target stage (labels caught up).
           Until then, stale labels are ignored to prevent backward movement.
         """
-        for task_id, (stage, task) in stage_map.items():
-            if task_id in self._active or task_id in self._in_flight:
+        for issue_number, (stage, task) in stage_map.items():
+            if issue_number in self._active or issue_number in self._in_flight:
                 continue
 
             # Handle eagerly-transitioned items
-            eager_stage = self._eagerly_transitioned.get(task_id)
+            eager_stage = self._eagerly_transitioned.get(issue_number)
             if eager_stage is not None:
                 if _STAGE_PRIORITY.get(stage, -1) >= _STAGE_PRIORITY.get(
                     eager_stage, -1
                 ):
-                    del self._eagerly_transitioned[task_id]  # labels caught up
+                    del self._eagerly_transitioned[issue_number]  # labels caught up
                 else:
                     continue  # stale labels, skip
 
             if stage == STAGE_HITL:
-                self._hitl_numbers.add(task_id)
-                self._remove_from_all_queues(task_id)
+                self._hitl_numbers.add(issue_number)
+                self._remove_from_all_queues(issue_number)
                 continue
-            current_stage = self._find_queue_stage(task_id)
+            current_stage = self._find_queue_stage(issue_number)
             if current_stage == stage:
                 continue
             if current_stage is not None:
-                self._remove_from_queue(current_stage, task_id)
-            self._hitl_numbers.discard(task_id)
+                self._remove_from_queue(current_stage, issue_number)
+            self._hitl_numbers.discard(issue_number)
             self._queues[stage].append(task)
-            self._queue_members[stage].add(task_id)
+            self._queue_members[stage].add(issue_number)
 
     def _route_issues(self, tasks: list[Task]) -> None:
         """Route fetched tasks into the correct queues (additive-only).
@@ -436,23 +436,23 @@ class IssueStore:
     # Active issue tracking
     # ------------------------------------------------------------------
 
-    def mark_active(self, task_id: int, stage: str) -> None:
+    def mark_active(self, issue_number: int, stage: str) -> None:
         """Mark a task as actively being processed in *stage*."""
-        self._in_flight.pop(task_id, None)
-        self._active[task_id] = stage
+        self._in_flight.pop(issue_number, None)
+        self._active[issue_number] = stage
         self._publish_queue_update_nowait()
 
-    def mark_complete(self, task_id: int) -> None:
+    def mark_complete(self, issue_number: int) -> None:
         """Mark a task as done processing; increment throughput counter."""
-        self._in_flight.pop(task_id, None)
-        stage = self._active.pop(task_id, None)
+        self._in_flight.pop(issue_number, None)
+        stage = self._active.pop(issue_number, None)
         if stage and stage in self._processed_count:
             self._processed_count[stage] += 1
         self._publish_queue_update_nowait()
 
-    def is_active(self, task_id: int) -> bool:
+    def is_active(self, issue_number: int) -> bool:
         """Return True if the task is currently being processed."""
-        return task_id in self._active
+        return issue_number in self._active
 
     def is_in_pipeline(self, issue_number: int) -> bool:
         """Return True if the issue is queued, in-flight, or active."""
@@ -464,14 +464,14 @@ class IssueStore:
         """Return a copy of the active issue tracking dict."""
         return dict(self._active)
 
-    def release_in_flight(self, task_ids: set[int]) -> None:
-        """Remove *task_ids* from the in-flight protection set.
+    def release_in_flight(self, issue_numbers: set[int]) -> None:
+        """Remove *issue_numbers* from the in-flight protection set.
 
         Called after a batch completes (in a ``finally`` block) to ensure
         no orphaned in-flight entries survive if a worker exits without
         reaching ``mark_active`` or ``mark_complete``.
         """
-        for tid in task_ids:
+        for tid in issue_numbers:
             self._in_flight.pop(tid, None)
 
     def clear_active(self) -> None:
@@ -594,11 +594,11 @@ class IssueStore:
         in the dashboard during the dequeue-to-mark_active window.
         """
         by_stage: dict[str, list[PipelineSnapshotEntry]] = {}
-        for task_id, stage in self._in_flight.items():
-            cached = self._issue_cache.get(task_id)
+        for issue_number, stage in self._in_flight.items():
+            cached = self._issue_cache.get(issue_number)
             entry = PipelineSnapshotEntry(
-                issue_number=task_id,
-                title=cached.title if cached else f"Issue #{task_id}",
+                issue_number=issue_number,
+                title=cached.title if cached else f"Issue #{issue_number}",
                 url=cached.source_url if cached else "",
                 status=PipelineIssueStatus.PROCESSING,
             )

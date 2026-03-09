@@ -1308,7 +1308,10 @@ def create_router(
 
         if not isinstance(issue_number, int) or issue_number < 1 or not feedback:
             return JSONResponse(
-                {"status": "error", "detail": "issue_number and feedback are required"},
+                {
+                    "status": "error",
+                    "detail": "issue_number and feedback are required",
+                },
                 status_code=400,
             )
 
@@ -1533,8 +1536,8 @@ def create_router(
     ) -> JSONResponse:
         """Assign issues to a milestone (crate)."""
         try:
-            for issue_num in body.issue_numbers:
-                await pr_manager.set_issue_milestone(issue_num, crate_number)
+            for issue_number in body.issue_numbers:
+                await pr_manager.set_issue_milestone(issue_number, crate_number)
             return JSONResponse({"ok": True, "added": len(body.issue_numbers)})
         except RuntimeError as exc:
             logger.error("Failed to add items to crate #%d: %s", crate_number, exc)
@@ -1556,9 +1559,9 @@ def create_router(
             current_issues = await pr_manager.list_milestone_issues(crate_number)
             current_nums = {i.get("number") for i in current_issues}
             removed = 0
-            for issue_num in body.issue_numbers:
-                if issue_num in current_nums:
-                    await pr_manager.set_issue_milestone(issue_num, None)
+            for issue_number in body.issue_numbers:
+                if issue_number in current_nums:
+                    await pr_manager.set_issue_milestone(issue_number, None)
                     removed += 1
             return JSONResponse({"ok": True, "removed": removed})
         except RuntimeError as exc:
@@ -1748,7 +1751,12 @@ def create_router(
                 }
             )
         return JSONResponse(
-            {"issue": issue_number, "summary": "", "updated_at": None, "cached": False}
+            {
+                "issue": issue_number,
+                "summary": "",
+                "updated_at": None,
+                "cached": False,
+            }
         )
 
     @router.post("/api/hitl/{issue_number}/correct")
@@ -2986,10 +2994,10 @@ def create_router(
         timelines = builder.build_all()
         return JSONResponse([t.model_dump() for t in timelines])
 
-    @router.get("/api/timeline/issue/{issue_num}")
-    async def get_timeline_issue(issue_num: int) -> JSONResponse:
+    @router.get("/api/timeline/issue/{issue_number}")
+    async def get_timeline_issue(issue_number: int) -> JSONResponse:
         builder = TimelineBuilder(event_bus)
-        timeline = builder.build_for_issue(issue_num)
+        timeline = builder.build_for_issue(issue_number)
         if timeline is None:
             return JSONResponse({"error": "Issue not found"}, status_code=404)
         return JSONResponse(timeline.model_dump())
