@@ -323,7 +323,7 @@ class ReviewPhase:
                     len(alerts),
                 )
             return alerts or None
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.debug(
                 "Could not fetch code scanning alerts for PR #%d",
                 pr.number,
@@ -353,7 +353,7 @@ class ReviewPhase:
                 pr_approvers=pr_approvers,
                 commit_sha=commit_sha,
             )
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.warning(
                 "Baseline policy check failed for PR #%d — failing closed to protect baseline integrity",
                 pr.number,
@@ -615,7 +615,7 @@ class ReviewPhase:
                     report.total_retries,
                 )
             return report
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.warning(
                 "Visual validation failed for PR #%d — skipping",
                 pr.number,
@@ -1116,7 +1116,7 @@ class ReviewPhase:
                     sign_off += f"- [{name}]({link})\n"
             try:
                 await self._prs.post_pr_comment(pr.number, sign_off)
-            except Exception:  # noqa: BLE001
+            except (RuntimeError, OSError):
                 logger.warning(
                     "PR #%d: could not post visual gate sign-off comment",
                     pr.number,
@@ -1138,7 +1138,7 @@ class ReviewPhase:
                 f"Verdict: `{verdict}` — {reason}\n"
                 f"Escalating to human review.",
             )
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             logger.warning(
                 "PR #%d: could not post visual gate block comment",
                 pr.number,
@@ -1290,7 +1290,7 @@ class ReviewPhase:
                         from log_context import truncate_log  # noqa: PLC0415
 
                         ci_logs = truncate_log(raw, self._config.max_ci_log_chars)
-                except Exception:  # noqa: BLE001
+                except (RuntimeError, OSError):
                     logger.debug(
                         "Could not fetch CI failure logs for PR #%d",
                         pr.number,
@@ -1355,7 +1355,7 @@ class ReviewPhase:
                 labels = self._config.improve_label[:1]
                 await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
-        except Exception:  # noqa: BLE001
+        except (RuntimeError, OSError):
             status = "error"
             details["error"] = "review insight recording failed"
             logger.warning(
@@ -1367,7 +1367,7 @@ class ReviewPhase:
             if self._update_bg_worker_status:
                 try:
                     self._update_bg_worker_status("review_insights", status, details)
-                except Exception:  # noqa: BLE001
+                except (RuntimeError, OSError):
                     logger.warning(
                         "review_insights status callback failed for PR #%d",
                         result.pr_number,
