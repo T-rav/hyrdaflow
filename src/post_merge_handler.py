@@ -125,12 +125,11 @@ class PostMergeHandler:
         for epic_num in parent_epics:
             try:
                 await self._epic_manager.on_child_approved(epic_num, issue_number)
-            except (RuntimeError, OSError) as exc:
+            except (RuntimeError, OSError):
                 logger.warning(
-                    "Epic approval notification failed for child #%d of epic #%d: %s",
+                    "Epic approval notification failed for child #%d of epic #%d",
                     issue_number,
                     epic_num,
-                    exc,
                     exc_info=True,
                 )
 
