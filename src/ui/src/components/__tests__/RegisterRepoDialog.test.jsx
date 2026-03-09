@@ -208,6 +208,34 @@ describe('RegisterRepoDialog', () => {
     fireEvent.click(screen.getByTestId('register-submit'))
     await waitFor(() => expect(addRepoBySlug).toHaveBeenCalledWith('acme/app'))
   })
+
+  it('shows error and re-enables form when addRepoBySlug throws', async () => {
+    const addRepoBySlug = vi.fn().mockRejectedValue(new Error('Network failure'))
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug,
+      addRepoByPath: vi.fn(),
+    })
+    const onClose = vi.fn()
+    render(<RegisterRepoDialog isOpen onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText('GitHub URL or slug'), { target: { value: 'acme/app' } })
+    fireEvent.click(screen.getByTestId('register-submit'))
+    await waitFor(() => expect(screen.getByText('Network failure')).toBeInTheDocument())
+    expect(screen.getByTestId('register-submit')).not.toBeDisabled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('shows error and re-enables form when addRepoByPath throws', async () => {
+    const addRepoByPath = vi.fn().mockRejectedValue(new Error('Path not found'))
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug: vi.fn(),
+      addRepoByPath,
+    })
+    render(<RegisterRepoDialog isOpen onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Filesystem path'), { target: { value: '/bad/path' } })
+    fireEvent.click(screen.getByTestId('register-submit'))
+    await waitFor(() => expect(screen.getByText('Path not found')).toBeInTheDocument())
+    expect(screen.getByTestId('register-submit')).not.toBeDisabled()
+  })
 })
 
 // ---------------------------------------------------------------------------

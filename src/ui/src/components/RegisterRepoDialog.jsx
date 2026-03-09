@@ -69,12 +69,18 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
     setSubmitting(true)
     setError('')
     let result
-    if (trimmedSlug) {
-      // Try to extract slug from a GitHub URL, otherwise use as-is
-      const resolved = extractSlugFromUrl(trimmedSlug) || trimmedSlug
-      result = await addRepoBySlug(resolved)
-    } else {
-      result = await addRepoByPath(trimmedPath)
+    try {
+      if (trimmedSlug) {
+        // Try to extract slug from a GitHub URL, otherwise use as-is
+        const resolved = extractSlugFromUrl(trimmedSlug) || trimmedSlug
+        result = await addRepoBySlug(resolved)
+      } else {
+        result = await addRepoByPath(trimmedPath)
+      }
+    } catch (err) {
+      setSubmitting(false)
+      setError(err?.message || 'Registration failed')
+      return
     }
     setSubmitting(false)
     if (!result?.ok) {

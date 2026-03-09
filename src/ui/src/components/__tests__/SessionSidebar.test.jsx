@@ -562,4 +562,20 @@ describe('SessionSidebar contains RepoSelector', () => {
     render(<SessionSidebar />)
     expect(screen.getByText('All repos')).toBeInTheDocument()
   })
+
+  it('opens RegisterRepoDialog when "Register repo" is clicked from RepoSelector', async () => {
+    mockUseHydraFlow.mockReturnValue(defaultContext({
+      addRepoBySlug: vi.fn().mockResolvedValue({ ok: true }),
+      addRepoByPath: vi.fn().mockResolvedValue({ ok: true }),
+    }))
+    render(<SessionSidebar />)
+    // Open the dropdown
+    fireEvent.click(screen.getByTestId('repo-selector-trigger'))
+    // Click the register button inside the dropdown
+    fireEvent.click(screen.getByText('+ Register repo'))
+    // The RegisterRepoDialog should now be visible
+    await waitFor(() =>
+      expect(screen.getByTestId('register-repo-overlay')).toBeInTheDocument()
+    )
+  })
 })

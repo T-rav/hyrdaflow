@@ -14,8 +14,10 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-arm64-gnu": "^4.59.0"
+  },
   "devDependencies": {
-    "@rollup/rollup-linux-arm64-gnu": "^4.59.0",
     "@playwright/test": "^1.52.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
