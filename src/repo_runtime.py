@@ -157,11 +157,6 @@ class RepoRuntimeRegistry:
         """Return all registered runtimes."""
         return list(self._runtimes.values())
 
-    async def start_all(self) -> None:
-        """Start all registered runtimes as background tasks."""
-        for runtime in self._runtimes.values():
-            await runtime.start()
-
     async def stop_all(self) -> None:
         """Stop all registered runtimes gracefully."""
         tasks = [runtime.stop() for runtime in self._runtimes.values()]

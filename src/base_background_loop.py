@@ -17,7 +17,7 @@ from typing import Any
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import StatusCallback
+from models import BackgroundWorkerStatusPayload, ErrorPayload, StatusCallback
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.base_background_loop")
@@ -100,12 +100,12 @@ class BaseBackgroundLoop(abc.ABC):
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.BACKGROUND_WORKER_STATUS,
-                    data={
-                        "worker": self._worker_name,
-                        "status": "ok",
-                        "last_run": last_run,
-                        "details": details,
-                    },
+                    data=BackgroundWorkerStatusPayload(
+                        worker=self._worker_name,
+                        status="ok",
+                        last_run=last_run,
+                        details=details,
+                    ),
                 )
             )
         except (AuthenticationError, CreditExhaustedError):
@@ -120,21 +120,21 @@ class BaseBackgroundLoop(abc.ABC):
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.BACKGROUND_WORKER_STATUS,
-                    data={
-                        "worker": self._worker_name,
-                        "status": "error",
-                        "last_run": last_run,
-                        "details": {},
-                    },
+                    data=BackgroundWorkerStatusPayload(
+                        worker=self._worker_name,
+                        status="error",
+                        last_run=last_run,
+                        details={},
+                    ),
                 )
             )
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.ERROR,
-                    data={
-                        "message": f"{self._worker_name.replace('_', ' ').capitalize()} loop error",
-                        "source": self._worker_name,
-                    },
+                    data=ErrorPayload(
+                        message=f"{self._worker_name.replace('_', ' ').capitalize()} loop error",
+                        source=self._worker_name,
+                    ),
                 )
             )
 

@@ -7,6 +7,7 @@ import logging
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
+from models import TranscriptSummaryPayload
 from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import make_clean_env
@@ -228,11 +229,11 @@ class TranscriptSummarizer:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.TRANSCRIPT_SUMMARY,
-                data={
-                    "source_issue": issue_number,
-                    "phase": phase,
-                    "posted_as": "comment",
-                },
+                data=TranscriptSummaryPayload(
+                    source_issue=issue_number,
+                    phase=phase,
+                    posted_as="comment",
+                ),
             )
         )
         logger.info(
@@ -302,11 +303,11 @@ class TranscriptSummarizer:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.TRANSCRIPT_SUMMARY,
-                    data={
-                        "source_issue": issue_number,
-                        "phase": phase,
-                        "summary_issue": created_issue_number,
-                    },
+                    data=TranscriptSummaryPayload(
+                        source_issue=issue_number,
+                        phase=phase,
+                        summary_issue=created_issue_number,
+                    ),
                 )
             )
             logger.info(

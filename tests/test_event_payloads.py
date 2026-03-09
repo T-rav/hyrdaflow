@@ -245,3 +245,336 @@ class TestManifestRefreshSummary:
         result: ManifestRefreshSummary = {"hash": "abc123", "length": 500}
         assert result["hash"] == "abc123"
         assert result["length"] == 500
+
+
+# ---------------------------------------------------------------------------
+# ReviewerStatus.FIXING_REVIEW_FINDINGS
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerStatusFixingReviewFindings:
+    """Verify the FIXING_REVIEW_FINDINGS enum member."""
+
+    def test_member_exists(self) -> None:
+        from models import ReviewerStatus
+
+        assert hasattr(ReviewerStatus, "FIXING_REVIEW_FINDINGS")
+
+    def test_value(self) -> None:
+        from models import ReviewerStatus
+
+        assert ReviewerStatus.FIXING_REVIEW_FINDINGS == "fixing_review_findings"
+
+    def test_roundtrip(self) -> None:
+        from models import ReviewerStatus
+
+        assert (
+            ReviewerStatus("fixing_review_findings")
+            is ReviewerStatus.FIXING_REVIEW_FINDINGS
+        )
+
+
+# ---------------------------------------------------------------------------
+# HydraFlowEvent.typed_data()
+# ---------------------------------------------------------------------------
+
+
+class TestTypedData:
+    """Test the typed_data() helper on HydraFlowEvent."""
+
+    def test_returns_payload_keys(self) -> None:
+        from events import EventType, HydraFlowEvent
+        from models import WorkerUpdatePayload
+
+        event = HydraFlowEvent(
+            type=EventType.WORKER_UPDATE,
+            data={"issue": 42, "worker": 1, "status": "running", "role": "agent"},
+        )
+        payload = event.typed_data(WorkerUpdatePayload)
+        assert payload["issue"] == 42
+        assert payload["worker"] == 1
+        assert payload["status"] == "running"
+        assert payload["role"] == "agent"
+
+    def test_review_update(self) -> None:
+        from events import EventType, HydraFlowEvent
+        from models import ReviewUpdatePayload
+
+        event = HydraFlowEvent(
+            type=EventType.REVIEW_UPDATE,
+            data={
+                "pr": 10,
+                "issue": 5,
+                "worker": 2,
+                "status": "reviewing",
+                "role": "reviewer",
+            },
+        )
+        payload = event.typed_data(ReviewUpdatePayload)
+        assert payload["pr"] == 10
+        assert payload["issue"] == 5
+
+    def test_ci_check(self) -> None:
+        from events import EventType, HydraFlowEvent
+        from models import CICheckPayload
+
+        event = HydraFlowEvent(
+            type=EventType.CI_CHECK,
+            data={"pr": 7, "issue": 3, "status": "pending", "pending": 2, "total": 5},
+        )
+        payload = event.typed_data(CICheckPayload)
+        assert payload["pending"] == 2
+        assert payload["total"] == 5
+
+    def test_empty_data(self) -> None:
+        from events import EventType, HydraFlowEvent
+        from models import WorkerUpdatePayload
+
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={})
+        payload = event.typed_data(WorkerUpdatePayload)
+        assert isinstance(payload, dict)
+
+
+# ---------------------------------------------------------------------------
+# New payload TypedDicts — construction tests
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseChangePayload:
+    def test_construct(self) -> None:
+        from models import PhaseChangePayload
+
+        p: PhaseChangePayload = {"phase": "idle"}
+        assert p["phase"] == "idle"
+
+
+class TestTranscriptLinePayload:
+    def test_construct_minimal(self) -> None:
+        from models import TranscriptLinePayload
+
+        p: TranscriptLinePayload = {"line": "hello"}
+        assert p["line"] == "hello"
+
+    def test_construct_full(self) -> None:
+        from models import TranscriptLinePayload
+
+        p: TranscriptLinePayload = {
+            "issue": 1,
+            "pr": 2,
+            "source": "agent",
+            "line": "hello",
+        }
+        assert p["issue"] == 1
+        assert p["line"] == "hello"
+
+
+class TestSystemAlertPayload:
+    def test_construct(self) -> None:
+        from models import SystemAlertPayload
+
+        p: SystemAlertPayload = {"message": "alert", "source": "loop"}
+        assert p["message"] == "alert"
+
+    def test_with_optional_fields(self) -> None:
+        from models import SystemAlertPayload
+
+        p: SystemAlertPayload = {
+            "message": "epic stale",
+            "source": "epic_monitor",
+            "epic_number": 5,
+        }
+        assert p["epic_number"] == 5
+
+
+class TestTranscriptSummaryPayload:
+    def test_as_comment(self) -> None:
+        from models import TranscriptSummaryPayload
+
+        p: TranscriptSummaryPayload = {
+            "source_issue": 1,
+            "phase": "implement",
+            "posted_as": "comment",
+        }
+        assert p["posted_as"] == "comment"
+
+    def test_as_issue(self) -> None:
+        from models import TranscriptSummaryPayload
+
+        p: TranscriptSummaryPayload = {
+            "source_issue": 1,
+            "phase": "plan",
+            "summary_issue": 99,
+        }
+        assert p["summary_issue"] == 99
+
+
+class TestVerificationJudgePayload:
+    def test_construct(self) -> None:
+        from models import VerificationJudgePayload
+
+        p: VerificationJudgePayload = {
+            "issue": 1,
+            "pr": 2,
+            "all_criteria_pass": True,
+            "instructions_quality": "good",
+            "summary": "all pass",
+        }
+        assert p["all_criteria_pass"] is True
+
+
+class TestVisualGatePayload:
+    def test_construct(self) -> None:
+        from models import VisualGatePayload
+
+        p: VisualGatePayload = {
+            "pr": 1,
+            "issue": 2,
+            "worker": 3,
+            "verdict": "pass",
+            "reason": "ok",
+        }
+        assert p["verdict"] == "pass"
+
+    def test_with_runtime(self) -> None:
+        from models import VisualGatePayload
+
+        p: VisualGatePayload = {
+            "pr": 1,
+            "issue": 2,
+            "worker": 3,
+            "verdict": "bypass",
+            "reason": "emergency",
+            "runtime_seconds": 1.5,
+            "retries": 0,
+        }
+        assert p["runtime_seconds"] == 1.5
+
+
+class TestBaselineUpdatePayload:
+    def test_approved(self) -> None:
+        from models import BaselineUpdatePayload
+
+        p: BaselineUpdatePayload = {
+            "pr_number": 1,
+            "issue_number": 2,
+            "baseline_files": ["a.py"],
+            "approved": True,
+            "approver": "bot",
+        }
+        assert p["approved"] is True
+
+    def test_rollback(self) -> None:
+        from models import BaselineUpdatePayload
+
+        p: BaselineUpdatePayload = {
+            "pr_number": 1,
+            "issue_number": 2,
+            "baseline_files": ["a.py"],
+            "rollback": True,
+            "approver": "admin",
+            "reason": "regression",
+        }
+        assert p["rollback"] is True
+        assert p["reason"] == "regression"
+
+
+class TestEpicPayloads:
+    def test_progress(self) -> None:
+        from models import EpicProgressPayload
+
+        p: EpicProgressPayload = {
+            "epic_number": 1,
+            "progress": {"total": 5, "done": 3},
+        }
+        assert p["epic_number"] == 1
+
+    def test_ready(self) -> None:
+        from models import EpicReadyPayload
+
+        p: EpicReadyPayload = {
+            "epic_number": 1,
+            "readiness": {"ready": True},
+        }
+        assert p["readiness"]["ready"] is True
+
+    def test_releasing(self) -> None:
+        from models import EpicReleasingPayload
+
+        p: EpicReleasingPayload = {"epic_number": 1, "job_id": "j-1"}
+        assert p["job_id"] == "j-1"
+
+    def test_released_completed(self) -> None:
+        from models import EpicReleasedPayload
+
+        p: EpicReleasedPayload = {
+            "epic_number": 1,
+            "job_id": "j-1",
+            "status": "completed",
+        }
+        assert p["status"] == "completed"
+
+    def test_released_failed(self) -> None:
+        from models import EpicReleasedPayload
+
+        p: EpicReleasedPayload = {
+            "epic_number": 1,
+            "job_id": "j-1",
+            "status": "failed",
+            "error": "merge conflict",
+        }
+        assert p["error"] == "merge conflict"
+
+    def test_update(self) -> None:
+        from models import EpicUpdatePayload
+
+        p: EpicUpdatePayload = {"epic_number": 1, "action": "released"}
+        assert p["action"] == "released"
+
+
+class TestCratePayloads:
+    def test_activated(self) -> None:
+        from models import CrateActivatedPayload
+
+        p: CrateActivatedPayload = {"crate_number": 1}
+        assert p["crate_number"] == 1
+
+    def test_completed(self) -> None:
+        from models import CrateCompletedPayload
+
+        p: CrateCompletedPayload = {"crate_number": 1}
+        assert p["crate_number"] == 1
+
+
+class TestOrchestratorStatusCreditsPausedUntil:
+    """Verify credits_paused_until is accepted by OrchestratorStatusPayload."""
+
+    def test_with_field(self) -> None:
+        from models import OrchestratorStatusPayload
+
+        p: OrchestratorStatusPayload = {
+            "status": "paused",
+            "credits_paused_until": "2024-01-01T12:00:00Z",
+        }
+        assert p["credits_paused_until"] == "2024-01-01T12:00:00Z"
+
+    def test_without_field(self) -> None:
+        from models import OrchestratorStatusPayload
+
+        p: OrchestratorStatusPayload = {"status": "running"}
+        assert "credits_paused_until" not in p
+
+
+# ---------------------------------------------------------------------------
+# Reviewer raw string replacement — source-level check
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerUsesEnumStatus:
+    """Verify reviewer.py uses ReviewerStatus enum, not a raw string."""
+
+    def test_no_raw_fixing_review_findings_string(self) -> None:
+        import pathlib
+
+        src = (pathlib.Path(__file__).parent.parent / "src" / "reviewer.py").read_text()
+        # The old raw string must be replaced by the enum reference everywhere
+        assert '"fixing_review_findings"' not in src

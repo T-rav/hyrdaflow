@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from adr_pre_validator import ADRPreValidator, ADRValidationResult
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
+from phase_utils import is_likely_bug
 from subprocess_util import make_clean_env, run_subprocess
 
 if TYPE_CHECKING:
@@ -485,7 +486,9 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                     )
                     stats["auto_triaged"] += 1
                     return
-            except Exception:
+            except Exception as exc:
+                if is_likely_bug(exc):
+                    raise
                 logger.exception(
                     "ADR-%04d pre-validation triage routing failed", adr_number
                 )
@@ -587,7 +590,9 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 body,
                 labels=list(self._config.find_label),
             )
-        except Exception:
+        except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             logger.exception(
                 "ADR-%04d triage routing failed; will fallback to HITL",
                 result.adr_number,
@@ -1000,7 +1005,9 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                     )
                     stats["auto_triaged"] += 1
                     return
-            except Exception:
+            except Exception as exc:
+                if is_likely_bug(exc):
+                    raise
                 logger.exception(
                     "ADR-%04d duplicate triage routing failed; falling back to HITL",
                     result.adr_number,

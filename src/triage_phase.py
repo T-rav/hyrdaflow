@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
-from models import Task
+from models import HITLUpdatePayload, Task
 from phase_utils import (
     adr_validation_reasons,
     escalate_to_hitl,
@@ -171,10 +171,10 @@ class TriagePhase:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.HITL_UPDATE,
-                    data={
-                        "issue": issue.id,
-                        "action": "escalated",
-                    },
+                    data=HITLUpdatePayload(
+                        issue=issue.id,
+                        action="escalated",
+                    ),
                 )
             )
             logger.info(

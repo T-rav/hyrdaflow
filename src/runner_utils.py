@@ -12,7 +12,7 @@ from pathlib import Path
 
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
-from models import TranscriptEventData
+from models import TranscriptEventData, TranscriptLinePayload
 from stream_parser import StreamParser
 from subprocess_util import (
     CreditExhaustedError,
@@ -152,10 +152,11 @@ async def stream_claude_process(
 
                 if display.strip():
                     accumulated_text += display + "\n"
+                    line_data: TranscriptLinePayload = {**event_data, "line": display}
                     await event_bus.publish(
                         HydraFlowEvent(
                             type=EventType.TRANSCRIPT_LINE,
-                            data={**event_data, "line": display},
+                            data=line_data,
                         )
                     )
 

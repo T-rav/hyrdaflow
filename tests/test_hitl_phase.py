@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import TYPE_CHECKING
 
 from events import EventType
+from models import GitHubIssue
 from tests.conftest import TaskFactory
 from tests.helpers import make_hitl_phase
 
@@ -827,7 +828,7 @@ class TestHITLAutoFix:
     ) -> None:
         """New HITL issues should get an auto-fix correction queued."""
         phase, state, _fetcher, prs, _wt, _runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42)
+        issue = GitHubIssue(number=42, title="Test HITL")
         state.set_hitl_cause(42, "CI failed")
 
         await phase.attempt_auto_fixes([issue])
@@ -846,7 +847,7 @@ class TestHITLAutoFix:
     ) -> None:
         """Issues already auto-attempted should not be retried."""
         phase, state, _fetcher, prs, _wt, _runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42)
+        issue = GitHubIssue(number=42, title="Test HITL")
         state.set_hitl_cause(42, "CI failed")
         phase._auto_fix_attempted.add(42)
 
@@ -861,7 +862,7 @@ class TestHITLAutoFix:
     ) -> None:
         """Issues with human corrections already pending should not be auto-fixed."""
         phase, state, _fetcher, prs, _wt, _runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42)
+        issue = GitHubIssue(number=42, title="Test HITL")
         state.set_hitl_cause(42, "CI failed")
         phase._hitl_corrections[42] = "Human fix"
 
@@ -876,7 +877,7 @@ class TestHITLAutoFix:
     ) -> None:
         """Issues without a stored cause should not be auto-fixed."""
         phase, _state, _fetcher, prs, _wt, _runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42)
+        issue = GitHubIssue(number=42, title="Test HITL")
 
         await phase.attempt_auto_fixes([issue])
 
@@ -886,8 +887,8 @@ class TestHITLAutoFix:
     async def test_auto_fix_stops_on_stop_event(self, config: HydraFlowConfig) -> None:
         """Should respect the stop event and bail out early."""
         phase, state, _fetcher, prs, _wt, _runner, _bus = make_hitl_phase(config)
-        issue1 = TaskFactory.create(id=42)
-        issue2 = TaskFactory.create(id=43)
+        issue1 = GitHubIssue(number=42, title="Test HITL")
+        issue2 = GitHubIssue(number=43, title="Test HITL 2")
         state.set_hitl_cause(42, "CI failed")
         state.set_hitl_cause(43, "Test failed")
         phase._stop_event.set()

@@ -13,7 +13,8 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
-from models import Task, WorkerResult, WorkerStatus
+from models import Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
+from phase_utils import is_likely_bug
 from review_insights import (
     ReviewInsightStore,
     get_common_feedback_section,
@@ -211,9 +212,11 @@ Run through this checklist before your final commit:
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.success = False
-            result.error = str(exc)
-            logger.error(
+            result.error = repr(exc)
+            logger.exception(
                 "Agent failed for issue #%d: %s",
                 task.id,
                 exc,
@@ -327,7 +330,9 @@ Run through this checklist before your final commit:
                 loader=_load_feedback,
             )
             return feedback
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            if is_likely_bug(exc):
+                raise
             return ""
 
     def _get_escalation_data(self) -> list[dict[str, str | int | list[str]]]:
@@ -356,7 +361,11 @@ Run through this checklist before your final commit:
             if not raw:
                 return []
             return json.loads(raw)  # type: ignore[no-any-return]
-        except Exception:  # noqa: BLE001
+        except json.JSONDecodeError:
+            return []
+        except Exception as exc:  # noqa: BLE001
+            if is_likely_bug(exc):
+                raise
             return []
 
     def _summarize_for_prompt(self, text: str, max_chars: int, label: str) -> str:
@@ -1038,14 +1047,15 @@ SUMMARY: <one-line summary>
         self, issue_number: int, worker_id: int, status: WorkerStatus
     ) -> None:
         """Publish a worker status event."""
+        payload: WorkerUpdatePayload = {
+            "issue": issue_number,
+            "worker": worker_id,
+            "status": status.value,
+            "role": "implementer",
+        }
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.WORKER_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "worker": worker_id,
-                    "status": status.value,
-                    "role": "implementer",
-                },
+                data=payload,
             )
         )

@@ -11,6 +11,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from hitl_runner import HITLRunner
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
+from models import GitHubIssue, HITLUpdatePayload
 from phase_utils import (
     MemorySuggester,
     log_exception_with_bug_classification,
@@ -102,7 +103,7 @@ class HITLPhase:
             return _HITL_ORIGIN_DISPLAY.get(origin, "pending")
         return "pending"
 
-    async def attempt_auto_fixes(self, hitl_issues: list) -> None:
+    async def attempt_auto_fixes(self, hitl_issues: list[GitHubIssue]) -> None:
         """Auto-attempt fixes for newly escalated HITL issues.
 
         For each issue that hasn't been auto-attempted yet, spin up the
@@ -112,7 +113,7 @@ class HITLPhase:
         for issue in hitl_issues:
             if self._stop_event.is_set():
                 break
-            issue_number = issue.number if hasattr(issue, "number") else issue.id
+            issue_number = issue.number
             if issue_number in self._auto_fix_attempted:
                 continue
             if issue_number in self._active_hitl_issues:
@@ -260,11 +261,11 @@ class HITLPhase:
                     await self._bus.publish(
                         HydraFlowEvent(
                             type=EventType.HITL_UPDATE,
-                            data={
-                                "issue": issue_number,
-                                "action": "resolved",
-                                "status": "resolved",
-                            },
+                            data=HITLUpdatePayload(
+                                issue=issue_number,
+                                action="resolved",
+                                status="resolved",
+                            ),
                         )
                     )
                     logger.info(
@@ -286,11 +287,11 @@ class HITLPhase:
                     await self._bus.publish(
                         HydraFlowEvent(
                             type=EventType.HITL_UPDATE,
-                            data={
-                                "issue": issue_number,
-                                "action": "failed",
-                                "status": "pending",
-                            },
+                            data=HITLUpdatePayload(
+                                issue=issue_number,
+                                action="failed",
+                                status="pending",
+                            ),
                         )
                     )
                     logger.warning(

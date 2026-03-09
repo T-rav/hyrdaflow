@@ -16,7 +16,7 @@ from models import (
     Task,
     WorkerStatus,
 )
-from phase_utils import MemorySuggester, publish_review_status
+from phase_utils import MemorySuggester, is_likely_bug, publish_review_status
 from pr_manager import PRManager
 from prompt_stats import build_prompt_stats
 from state import StateTracker
@@ -214,14 +214,16 @@ class MergeConflictResolver:
                         transcript, issue.id, pr.number
                     )
             except Exception as exc:
-                logger.error(
+                if is_likely_bug(exc):
+                    raise
+                logger.exception(
                     "Conflict resolution agent failed for PR #%d (attempt %d/%d): %s",
                     pr.number,
                     attempt,
                     max_attempts,
                     exc,
                 )
-                last_error = str(exc)
+                last_error = repr(exc)
 
         # All merge attempts exhausted — abort merge and try fresh rebuild
         await self._worktrees.abort_merge(wt_path)
@@ -332,7 +334,9 @@ class MergeConflictResolver:
             )
             return False
         except Exception as exc:
-            logger.error(
+            if is_likely_bug(exc):
+                raise
+            logger.exception(
                 "Fresh branch rebuild agent failed for PR #%d: %s",
                 pr.number,
                 exc,
@@ -351,7 +355,7 @@ class MergeConflictResolver:
                 issue_number=issue_number,
                 phase="conflict_resolution",
             )
-        except Exception:
+        except (RuntimeError, OSError):
             logger.exception(
                 "Failed to file transcript summary for conflict resolution on PR #%d",
                 pr_number,

@@ -8,7 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from models import ConflictResolutionResult
+from models import ConflictResolutionResult, HITLUpdatePayload
 from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
 
@@ -199,11 +199,11 @@ class PRUnsticker:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.HITL_UPDATE,
-                    data={
-                        "issue": issue_number,
-                        "action": action,
-                        "source": "pr_unsticker",
-                    },
+                    data=HITLUpdatePayload(
+                        issue=issue_number,
+                        action=action,
+                        source="pr_unsticker",
+                    ),
                 )
             )
 

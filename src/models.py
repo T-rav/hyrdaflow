@@ -269,7 +269,7 @@ class GitHubIssue(BaseModel):
 
     @field_validator("state", mode="before")
     @classmethod
-    def _normalise_state(cls, value: Any) -> Any:
+    def _normalise_state(cls, value: GitHubIssueState | str) -> GitHubIssueState | str:
         """Allow case-insensitive GitHub API values."""
         if isinstance(value, str):
             return value.lower()
@@ -640,6 +640,7 @@ class ReviewerStatus(StrEnum):
     DONE = "done"
     FAILED = "failed"
     FIXING = "fixing"
+    FIXING_REVIEW_FINDINGS = "fixing_review_findings"
     FIX_DONE = "fix_done"
 
 
@@ -1547,6 +1548,242 @@ class HITLEscalationPayload(TypedDict, total=False):
     role: str
     repo: str
     visual_evidence: dict[str, object]
+
+
+class IssueCreatedPayload(TypedDict):
+    """Payload for ``EventType.ISSUE_CREATED``."""
+
+    number: int
+    title: str
+    labels: list[str]
+
+
+class HITLUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.HITL_UPDATE``."""
+
+    issue: int
+    status: str
+    action: str
+    worker: int
+    duration: float
+    reason: str
+    source: str
+    repo: str
+
+
+class ErrorPayload(TypedDict, total=False):
+    """Payload for ``EventType.ERROR``."""
+
+    message: str
+    source: str
+    repo: str
+    exception_type: str
+    is_likely_bug: bool
+    consecutive_failures: int
+
+
+class BackgroundWorkerStatusPayload(TypedDict):
+    """Payload for ``EventType.BACKGROUND_WORKER_STATUS``."""
+
+    worker: str
+    status: str
+    last_run: str
+    details: dict[str, object]
+
+
+class OrchestratorStatusPayload(TypedDict, total=False):
+    """Payload for ``EventType.ORCHESTRATOR_STATUS``."""
+
+    status: str
+    reset: bool
+    credits_paused_until: str
+
+
+class SessionStartPayload(TypedDict):
+    """Payload for ``EventType.SESSION_START``."""
+
+    session_id: str
+    repo: str
+
+
+class SessionEndPayload(TypedDict):
+    """Payload for ``EventType.SESSION_END``."""
+
+    session_id: str
+    status: str
+    issues_processed: list[int]
+    issues_succeeded: int
+    issues_failed: int
+
+
+class PhaseChangePayload(TypedDict, total=False):
+    """Payload for ``EventType.PHASE_CHANGE``."""
+
+    phase: str
+    repo: str
+
+
+class TranscriptLinePayload(TypedDict, total=False):
+    """Payload for ``EventType.TRANSCRIPT_LINE``.
+
+    Extends :class:`TranscriptEventData` with the ``line`` field added
+    by ``stream_claude_process``.
+    """
+
+    issue: int
+    pr: int
+    epic: int
+    source: str
+    line: str
+    repo: str
+
+
+class SystemAlertPayload(TypedDict, total=False):
+    """Payload for ``EventType.SYSTEM_ALERT``."""
+
+    message: str
+    source: str
+    repo: str
+    epic_number: int
+    exception_type: str
+    consecutive_failures: int
+    threshold: object
+    hook_name: str
+    issue: int
+
+
+class TranscriptSummaryPayload(TypedDict, total=False):
+    """Payload for ``EventType.TRANSCRIPT_SUMMARY``."""
+
+    source_issue: int
+    phase: str
+    posted_as: str
+    summary_issue: int
+    repo: str
+
+
+class VerificationJudgePayload(TypedDict, total=False):
+    """Payload for ``EventType.VERIFICATION_JUDGE``."""
+
+    issue: int
+    pr: int
+    all_criteria_pass: bool
+    instructions_quality: str
+    summary: str
+    repo: str
+
+
+class VisualGatePayload(TypedDict, total=False):
+    """Payload for ``EventType.VISUAL_GATE``."""
+
+    pr: int
+    issue: int
+    worker: int
+    verdict: str
+    reason: str
+    runtime_seconds: float
+    retries: int
+    artifact_count: int
+    artifacts: dict[str, str]
+    screenshots: dict[str, object]
+    repo: str
+
+
+class BaselineUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.BASELINE_UPDATE``."""
+
+    pr_number: int
+    issue_number: int
+    baseline_files: list[str]
+    approved: bool
+    approver: str
+    rollback: bool
+    reason: str
+    repo: str
+
+
+class EpicProgressPayload(TypedDict, total=False):
+    """Payload for ``EventType.EPIC_PROGRESS``."""
+
+    epic_number: int
+    progress: dict[str, object]
+    repo: str
+
+
+class EpicReadyPayload(TypedDict, total=False):
+    """Payload for ``EventType.EPIC_READY``."""
+
+    epic_number: int
+    readiness: dict[str, object]
+    strategy: str
+    progress: dict[str, object]
+    repo: str
+
+
+class EpicReleasingPayload(TypedDict, total=False):
+    """Payload for ``EventType.EPIC_RELEASING``."""
+
+    epic_number: int
+    job_id: str
+    repo: str
+
+
+class EpicReleasedPayload(TypedDict, total=False):
+    """Payload for ``EventType.EPIC_RELEASED``."""
+
+    epic_number: int
+    job_id: str
+    status: str
+    error: str
+    repo: str
+
+
+class EpicUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.EPIC_UPDATE``."""
+
+    epic_number: int
+    action: str
+    progress: dict[str, object]
+    repo: str
+
+
+class CrateActivatedPayload(TypedDict, total=False):
+    """Payload for ``EventType.CRATE_ACTIVATED``."""
+
+    crate_number: int
+    repo: str
+
+
+class CrateCompletedPayload(TypedDict, total=False):
+    """Payload for ``EventType.CRATE_COMPLETED``."""
+
+    crate_number: int
+    repo: str
+
+
+class PlannerUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.PLANNER_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
+
+
+class MergeUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.MERGE_UPDATE``."""
+
+    pr: int
+    status: str
+
+
+class TriageUpdatePayload(TypedDict, total=False):
+    """Payload for ``EventType.TRIAGE_UPDATE``."""
+
+    issue: int
+    worker: int
+    status: str
+    role: str
 
 
 class PipelineSnapshotEntry(TypedDict):

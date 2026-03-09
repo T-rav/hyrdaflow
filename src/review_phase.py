@@ -32,6 +32,7 @@ from models import (
     StatusCallback,
     Task,
     VisualEvidence,
+    VisualGatePayload,
     VisualScreenResult,
     VisualValidationDecision,
     VisualValidationReport,
@@ -1065,14 +1066,14 @@ class ReviewPhase:
                 await self._bus.publish(
                     HydraFlowEvent(
                         type=EventType.VISUAL_GATE,
-                        data={
-                            "pr": pr.number,
-                            "issue": issue.id,
-                            "worker": worker_id,
-                            "verdict": "bypass",
-                            "reason": "emergency kill-switch active",
-                            "runtime_seconds": round(time.monotonic() - start, 3),
-                        },
+                        data=VisualGatePayload(
+                            pr=pr.number,
+                            issue=issue.id,
+                            worker=worker_id,
+                            verdict="bypass",
+                            reason="emergency kill-switch active",
+                            runtime_seconds=round(time.monotonic() - start, 3),
+                        ),
                     )
                 )
             result.visual_passed = True
@@ -1089,17 +1090,17 @@ class ReviewPhase:
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.VISUAL_GATE,
-                    data={
-                        "pr": pr.number,
-                        "issue": issue.id,
-                        "worker": worker_id,
-                        "verdict": verdict,
-                        "reason": reason,
-                        "runtime_seconds": runtime,
-                        "retries": 0,
-                        "artifact_count": len(artifacts),
-                        "artifacts": artifacts,
-                    },
+                    data=VisualGatePayload(
+                        pr=pr.number,
+                        issue=issue.id,
+                        worker=worker_id,
+                        verdict=verdict,
+                        reason=reason,
+                        runtime_seconds=runtime,
+                        retries=0,
+                        artifact_count=len(artifacts),
+                        artifacts=artifacts,
+                    ),
                 )
             )
 

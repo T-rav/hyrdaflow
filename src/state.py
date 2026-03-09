@@ -48,15 +48,15 @@ class StateTracker:
         self._data: StateData = StateData()
         self.load()
 
-    def _normalise_details(self, raw: Any) -> dict[str, Any]:
+    def _normalise_details(self, raw: dict[str, object] | str | None) -> dict[str, Any]:
         """Ensure worker heartbeat details are stored as dicts."""
         if isinstance(raw, dict):
             return dict(raw)
-        if raw in (None, "", []):
+        if raw in (None, ""):
             return {}
         return {"raw": raw}
 
-    def _coerce_last_run(self, value: Any) -> str | None:
+    def _coerce_last_run(self, value: str | int | float | None) -> str | None:
         """Normalise arbitrary values to ISO8601 strings or None."""
         if value is None or isinstance(value, str):
             return value
@@ -836,9 +836,15 @@ class StateTracker:
         """Persist a single background worker heartbeat entry."""
         stored = dict(state)
         stored.pop("enabled", None)  # enabled is runtime-only
-        details = self._normalise_details(stored.get("details"))
+        raw_details = stored.get("details")
+        details = self._normalise_details(
+            raw_details if isinstance(raw_details, (dict, str)) else None
+        )
         status = str(stored.get("status", "disabled"))
-        last_run = self._coerce_last_run(stored.get("last_run"))
+        raw_last_run = stored.get("last_run")
+        last_run = self._coerce_last_run(
+            raw_last_run if isinstance(raw_last_run, (str, int, float)) else None
+        )
         self._persist_worker_state(name, status, last_run, details)
         self.save()
 

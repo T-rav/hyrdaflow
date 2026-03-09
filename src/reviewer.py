@@ -11,9 +11,11 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import (
+    CICheckPayload,
     PRInfo,
     ReviewerStatus,
     ReviewResult,
+    ReviewUpdatePayload,
     ReviewVerdict,
     Task,
 )
@@ -120,13 +122,13 @@ class ReviewRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": issue.id,
-                    "worker": worker_id,
-                    "status": ReviewerStatus.REVIEWING.value,
-                    "role": "reviewer",
-                },
+                data=ReviewUpdatePayload(
+                    pr=pr.number,
+                    issue=issue.id,
+                    worker=worker_id,
+                    status=ReviewerStatus.REVIEWING.value,
+                    role="reviewer",
+                ),
             )
         )
 
@@ -183,15 +185,15 @@ class ReviewRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": issue.id,
-                    "worker": worker_id,
-                    "status": ReviewerStatus.DONE.value,
-                    "verdict": result.verdict.value,
-                    "duration": result.duration_seconds,
-                    "role": "reviewer",
-                },
+                data=ReviewUpdatePayload(
+                    pr=pr.number,
+                    issue=issue.id,
+                    worker=worker_id,
+                    status=ReviewerStatus.DONE.value,
+                    verdict=result.verdict.value,
+                    duration=result.duration_seconds,
+                    role="reviewer",
+                ),
             )
         )
 
@@ -223,13 +225,13 @@ class ReviewRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.CI_CHECK,
-                data={
-                    "pr": pr.number,
-                    "issue": issue.id,
-                    "worker": worker_id,
-                    "status": ReviewerStatus.FIXING.value,
-                    "attempt": attempt,
-                },
+                data=CICheckPayload(
+                    pr=pr.number,
+                    issue=issue.id,
+                    worker=worker_id,
+                    status=ReviewerStatus.FIXING.value,
+                    attempt=attempt,
+                ),
             )
         )
 
@@ -275,14 +277,14 @@ class ReviewRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.CI_CHECK,
-                data={
-                    "pr": pr.number,
-                    "issue": issue.id,
-                    "worker": worker_id,
-                    "status": ReviewerStatus.FIX_DONE.value,
-                    "attempt": attempt,
-                    "verdict": result.verdict.value,
-                },
+                data=CICheckPayload(
+                    pr=pr.number,
+                    issue=issue.id,
+                    worker=worker_id,
+                    status=ReviewerStatus.FIX_DONE.value,
+                    attempt=attempt,
+                    verdict=result.verdict.value,
+                ),
             )
         )
 
@@ -311,13 +313,13 @@ class ReviewRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.REVIEW_UPDATE,
-                data={
-                    "pr": pr.number,
-                    "issue": issue.id,
-                    "worker": worker_id,
-                    "status": "fixing_review_findings",
-                    "role": "reviewer",
-                },
+                data=ReviewUpdatePayload(
+                    pr=pr.number,
+                    issue=issue.id,
+                    worker=worker_id,
+                    status=ReviewerStatus.FIXING_REVIEW_FINDINGS.value,
+                    role="reviewer",
+                ),
             )
         )
 
@@ -759,18 +761,6 @@ SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
             },
         }
         return prompt, stats
-
-    def _build_subskill_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.subskill_tool,
-            model=self._config.subskill_model,
-        )
-
-    def _build_debug_command(self) -> list[str]:
-        return build_agent_command(
-            tool=self._config.debug_tool,
-            model=self._config.debug_model,
-        )
 
     def _build_precheck_prompt(self, pr: PRInfo, issue: Task, diff: str) -> str:
         max_diff = min(len(diff), 3000, self._config.max_review_diff_chars)

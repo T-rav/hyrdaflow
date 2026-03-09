@@ -15,9 +15,12 @@ from models import (
     IssueType,
     NewIssueSpec,
     Task,
+    TranscriptLinePayload,
     TriageResult,
     TriageStatus,
+    TriageUpdatePayload,
 )
+from phase_utils import is_likely_bug
 from prompt_stats import build_prompt_stats, truncate_with_notice
 from subprocess_util import CreditExhaustedError
 
@@ -142,6 +145,8 @@ class TriageRunner(BaseRunner):
             # instead of being incorrectly escalated to HITL.
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             logger.warning(
                 "LLM evaluation failed for issue #%d: %s",
                 issue.id,
@@ -362,11 +367,11 @@ or for truly insufficient issues:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.TRANSCRIPT_LINE,
-                data={
-                    "issue": issue_number,
-                    "line": line,
-                    "source": "triage",
-                },
+                data=TranscriptLinePayload(
+                    issue=issue_number,
+                    line=line,
+                    source="triage",
+                ),
             )
         )
 
@@ -377,12 +382,12 @@ or for truly insufficient issues:
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.TRIAGE_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "worker": worker_id,
-                    "status": status.value,
-                    "role": "triage",
-                },
+                data=TriageUpdatePayload(
+                    issue=issue_number,
+                    worker=worker_id,
+                    status=status.value,
+                    role="triage",
+                ),
             )
         )
 
@@ -403,6 +408,8 @@ or for truly insufficient issues:
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             logger.warning(
                 "Decomposition LLM call failed for issue #%d: %s",
                 task.id,

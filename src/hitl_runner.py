@@ -10,7 +10,8 @@ from typing import Literal
 
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
-from models import GitHubIssue, HITLResult
+from models import GitHubIssue, HITLResult, HITLUpdatePayload
+from phase_utils import is_likely_bug
 from prompt_stats import build_prompt_stats, truncate_with_notice
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
@@ -115,12 +116,12 @@ class HITLRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue.number,
-                    "worker": worker_id,
-                    "status": "running",
-                    "action": "hitl_run",
-                },
+                data=HITLUpdatePayload(
+                    issue=issue.number,
+                    worker=worker_id,
+                    status="running",
+                    action="hitl_run",
+                ),
             )
         )
 
@@ -154,9 +155,11 @@ class HITLRunner(BaseRunner):
         except CreditExhaustedError:
             raise
         except Exception as exc:
+            if is_likely_bug(exc):
+                raise
             result.success = False
-            result.error = str(exc)
-            logger.error("HITL run failed for issue #%d: %s", issue.number, exc)
+            result.error = repr(exc)
+            logger.exception("HITL run failed for issue #%d: %s", issue.number, exc)
 
         result.duration_seconds = time.monotonic() - start
 
@@ -164,13 +167,13 @@ class HITLRunner(BaseRunner):
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue.number,
-                    "worker": worker_id,
-                    "status": status,
-                    "action": "hitl_run",
-                    "duration": result.duration_seconds,
-                },
+                data=HITLUpdatePayload(
+                    issue=issue.number,
+                    worker=worker_id,
+                    status=status,
+                    action="hitl_run",
+                    duration=result.duration_seconds,
+                ),
             )
         )
 

@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Annotated, Any
@@ -47,8 +47,11 @@ from models import (
     CrateCreateRequest,
     CrateItemsRequest,
     CrateUpdateRequest,
+    GitHubIssue,
     HITLCloseRequest,
+    HITLEscalationPayload,
     HITLSkipRequest,
+    HITLUpdatePayload,
     IntentRequest,
     IntentResponse,
     IssueHistoryEntry,
@@ -60,6 +63,7 @@ from models import (
     MetricsHistoryResponse,
     MetricsResponse,
     MetricsSnapshot,
+    OrchestratorStatusPayload,
     PendingReport,
     PipelineIssue,
     PipelineSnapshot,
@@ -243,7 +247,7 @@ def _parse_iso_or_none(raw: str | None) -> datetime | None:
     return parsed
 
 
-def _event_issue_number(data: dict[str, Any]) -> int | None:
+def _event_issue_number(data: Mapping[str, Any]) -> int | None:
     """Extract the issue number from an event data dict, coercing strings."""
     value = data.get("issue")
     if isinstance(value, int):
@@ -253,7 +257,9 @@ def _event_issue_number(data: dict[str, Any]) -> int | None:
     return None
 
 
-def _normalise_event_status(event_type: EventType, data: dict[str, Any]) -> str | None:
+def _normalise_event_status(
+    event_type: EventType, data: Mapping[str, Any]
+) -> str | None:
     """Map an event type and its data to a normalised history status string."""
     status = str(data.get("status", "")).lower()
     result: str | None = None
@@ -504,7 +510,7 @@ def _extract_field_from_sources(
     """
     candidates: list[str] = []
 
-    def _push(value: Any) -> None:
+    def _push(value: str | int | float | bool | None) -> None:
         if isinstance(value, str):
             trimmed = value.strip()
             if trimmed:
@@ -1149,10 +1155,12 @@ def create_router(
 
         await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
 
-    def _build_hitl_context(issue: Any, *, cause: str, origin: str | None) -> str:
+    def _build_hitl_context(
+        issue: GitHubIssue, *, cause: str, origin: str | None
+    ) -> str:
         """Build a text context block for HITL summary generation."""
-        body = str(getattr(issue, "body", "") or "").strip()
-        comments = list(getattr(issue, "comments", []) or [])
+        body = issue.body.strip()
+        comments = issue.comments
         recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
         comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
         origin_text = origin or "unknown"
@@ -1249,7 +1257,9 @@ def create_router(
                     0,
                 )
 
-        def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+        def _normalise_worker_health(
+            raw_status: str | BGWorkerHealth | None,
+        ) -> BGWorkerHealth:
             """Coerce a raw status value to a BGWorkerHealth enum member."""
             if isinstance(raw_status, BGWorkerHealth):
                 return raw_status
@@ -1403,11 +1413,11 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_ESCALATION,
-                data={
-                    "issue": issue_number,
-                    "cause": feedback,
-                    "origin": origin_label,
-                },
+                data=HITLEscalationPayload(
+                    issue=issue_number,
+                    cause=feedback,
+                    origin=origin_label,
+                ),
             )
         )
 
@@ -1850,11 +1860,11 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "processing",
-                    "action": "correct",
-                },
+                data=HITLUpdatePayload(
+                    issue=issue_number,
+                    status="processing",
+                    action="correct",
+                ),
             )
         )
         return JSONResponse({"status": "ok"})
@@ -1922,12 +1932,12 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": action,
-                    "reason": reason,
-                },
+                data=HITLUpdatePayload(
+                    issue=issue_number,
+                    status="resolved",
+                    action=action,
+                    reason=reason,
+                ),
             )
         )
         return JSONResponse({"status": "ok"})
@@ -1993,11 +2003,11 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.HITL_UPDATE,
-                data={
-                    "issue": issue_number,
-                    "status": "resolved",
-                    "action": "approved_as_memory",
-                },
+                data=HITLUpdatePayload(
+                    issue=issue_number,
+                    status="resolved",
+                    action="approved_as_memory",
+                ),
             )
         )
         return JSONResponse({"status": "ok"})
@@ -2075,7 +2085,7 @@ def create_router(
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.ORCHESTRATOR_STATUS,
-                data={"status": "running", "reset": True},
+                data=OrchestratorStatusPayload(status="running", reset=True),
             )
         )
         return JSONResponse({"status": "started"})
