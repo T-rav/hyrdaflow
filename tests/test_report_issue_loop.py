@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -629,3 +631,82 @@ class TestHfIssueSkillPrompt:
         pr_mgr.upload_screenshot_gist.assert_not_awaited()
         # Only escalation path should create issue after max retries.
         pr_mgr.create_issue.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _save_screenshot resource management tests
+# ---------------------------------------------------------------------------
+
+
+class TestSaveScreenshotResourceManagement:
+    """Tests for _save_screenshot FD and temp file handling."""
+
+    def test_writes_directly_via_fdopen(self) -> None:
+        """_save_screenshot uses os.fdopen to write directly to the mkstemp FD."""
+        raw = b"\x89PNG\r\ntest-data"
+        b64 = base64.b64encode(raw).decode()
+        result = ReportIssueLoop._save_screenshot(b64)
+        try:
+            assert result.exists()
+            assert result.read_bytes() == raw
+            assert result.suffix == ".png"
+        finally:
+            result.unlink(missing_ok=True)
+
+    def test_data_uri_prefix_stripped(self) -> None:
+        """data: URI prefix is stripped before decoding."""
+        raw = b"\x89PNG\r\ndata-uri-test"
+        b64 = base64.b64encode(raw).decode()
+        result = ReportIssueLoop._save_screenshot(f"data:image/png;base64,{b64}")
+        try:
+            assert result.read_bytes() == raw
+        finally:
+            result.unlink(missing_ok=True)
+
+    def test_temp_file_cleaned_up_on_write_failure(self) -> None:
+        """If writing fails after mkstemp, the temp file is removed."""
+        raw = b"\x89PNG\r\n"
+        b64 = base64.b64encode(raw).decode()
+
+        captured_path: list[str] = []
+        original_mkstemp = tempfile.mkstemp
+
+        def capturing_mkstemp(**kwargs: object) -> tuple[int, str]:
+            fd, path = original_mkstemp(**kwargs)
+            captured_path.append(path)
+            return fd, path
+
+        with (
+            patch("report_issue_loop.tempfile.mkstemp", side_effect=capturing_mkstemp),
+            patch("report_issue_loop.os.fdopen") as mock_fdopen,
+        ):
+            mock_ctx = MagicMock()
+            mock_ctx.__enter__ = MagicMock(side_effect=OSError("disk full"))
+            mock_fdopen.return_value = mock_ctx
+
+            with pytest.raises(OSError, match="disk full"):
+                ReportIssueLoop._save_screenshot(b64)
+
+        # The temp file must have been unlinked on failure
+        assert captured_path, "mkstemp was not called"
+        assert not Path(captured_path[0]).exists(), (
+            "temp file was not cleaned up on failure"
+        )
+
+    def test_no_fd_leak_on_successful_write(self) -> None:
+        """After a successful write, no file descriptors are leaked."""
+        raw = b"\x89PNG\r\nno-leak-test"
+        b64 = base64.b64encode(raw).decode()
+
+        # Track open FD count before and after
+        pid = os.getpid()
+        try:
+            fd_before = len(os.listdir(f"/proc/{pid}/fd"))
+        except OSError:
+            pytest.skip("/proc not available")
+
+        result = ReportIssueLoop._save_screenshot(b64)
+        result.unlink(missing_ok=True)
+
+        fd_after = len(os.listdir(f"/proc/{pid}/fd"))
+        assert fd_after <= fd_before, "FD leaked after _save_screenshot"

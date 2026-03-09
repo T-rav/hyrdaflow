@@ -52,6 +52,7 @@ from triage import TriageRunner
 from triage_phase import TriagePhase
 from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
+from verify_monitor_loop import VerifyMonitorLoop
 from workspace import WorkspaceManager
 from workspace_gc_loop import WorkspaceGCLoop
 
@@ -105,6 +106,7 @@ class ServiceRegistry:
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     epic_sweeper_loop: EpicSweeperLoop
+    verify_monitor_loop: VerifyMonitorLoop
     worktree_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
@@ -367,6 +369,18 @@ def build_services(
         interval_cb=callbacks.get_bg_worker_interval,
     )
 
+    verify_monitor_loop = VerifyMonitorLoop(
+        config=config,
+        fetcher=fetcher,
+        state=state,
+        event_bus=event_bus,
+        stop_event=stop_event,
+        status_cb=callbacks.update_bg_worker_status,
+        enabled_cb=callbacks.is_bg_worker_enabled,
+        sleep_fn=callbacks.sleep_or_stop,
+        interval_cb=callbacks.get_bg_worker_interval,
+    )
+
     worktree_gc_loop = WorkspaceGCLoop(
         config=config,
         worktrees=worktrees,
@@ -438,6 +452,7 @@ def build_services(
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         epic_sweeper_loop=epic_sweeper_loop,
+        verify_monitor_loop=verify_monitor_loop,
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,

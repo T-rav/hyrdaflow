@@ -33,11 +33,13 @@ class ContainerLike(Protocol):
     """Protocol for Docker container objects."""
 
     def kill(self) -> None: ...
-    def wait(self) -> Any: ...
+    def wait(self) -> dict[str, Any]: ...  # StatusCode: int, Error: dict | None
     def start(self) -> None: ...
     def remove(self, *, force: bool = False) -> None: ...
-    def logs(self, *, stdout: bool = True, stderr: bool = True) -> Any: ...
-    def attach_socket(self, *, params: dict[str, int] | None = None) -> Any: ...
+    def logs(self, *, stdout: bool = True, stderr: bool = True) -> bytes: ...
+    def attach_socket(
+        self, *, params: dict[str, int] | None = None
+    ) -> DockerSocket: ...
 
 
 logger = logging.getLogger("hydraflow.docker_runner")
@@ -512,8 +514,10 @@ class DockerRunner:
             )
             return cast(asyncio.subprocess.Process, proc)
         except Exception:
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
+            except Exception:
+                logger.debug("Failed to remove container during cleanup", exc_info=True)
             self._containers.discard(container)
             raise
 
@@ -590,22 +594,28 @@ class DockerRunner:
                 returncode=result["StatusCode"],
             )
         except TimeoutError:
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(None, container.kill)
+            except Exception:
+                logger.debug("Failed to kill container on timeout", exc_info=True)
             raise
         finally:
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
+            except Exception:
+                logger.debug("Failed to remove container during cleanup", exc_info=True)
             self._containers.discard(container)
 
     async def cleanup(self) -> None:
         """Remove all tracked containers."""
         loop = asyncio.get_running_loop()
         for container in list(self._containers):
-            with contextlib.suppress(Exception):
+            try:
                 await loop.run_in_executor(
                     None, lambda c=container: c.remove(force=True)
                 )
+            except Exception:
+                logger.debug("Failed to remove container during cleanup", exc_info=True)
         self._containers.clear()
 
 

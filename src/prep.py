@@ -31,6 +31,7 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("dup_label", "cfd3d7", "Issue already satisfied — no changes needed"),
     ("epic_label", "5319e7", "Epic tracking issue with linked sub-issues"),
     ("epic_child_label", "9b59b6", "Child issue linked to a HydraFlow epic"),
+    ("verify_label", "c2e0c6", "Post-merge verification pending"),
 )
 
 

@@ -48,15 +48,15 @@ class StateTracker:
         self._data: StateData = StateData()
         self.load()
 
-    def _normalise_details(self, raw: Any) -> dict[str, Any]:
+    def _normalise_details(self, raw: dict[str, object] | str | None) -> dict[str, Any]:
         """Ensure worker heartbeat details are stored as dicts."""
         if isinstance(raw, dict):
             return dict(raw)
-        if raw in (None, "", []):
+        if raw in (None, ""):
             return {}
         return {"raw": raw}
 
-    def _coerce_last_run(self, value: Any) -> str | None:
+    def _coerce_last_run(self, value: str | int | float | None) -> str | None:
         """Normalise arbitrary values to ISO8601 strings or None."""
         if value is None or isinstance(value, str):
             return value
@@ -314,6 +314,15 @@ class StateTracker:
         """Return the verification issue number for *original_issue*, or *None*."""
         return self._data.verification_issues.get(str(original_issue))
 
+    def clear_verification_issue(self, original_issue: int) -> None:
+        """Remove the verification issue mapping for *original_issue*."""
+        self._data.verification_issues.pop(str(original_issue), None)
+        self.save()
+
+    def get_all_verification_issues(self) -> dict[int, int]:
+        """Return all pending verification issue mappings as {original: verify}."""
+        return {int(k): v for k, v in self._data.verification_issues.items()}
+
     # --- issue attempt tracking ---
 
     def get_issue_attempts(self, issue_number: int) -> int:
@@ -396,6 +405,7 @@ class StateTracker:
         reason: str,
         pr_number: int | None = None,
         phase: str = "",
+        verification_issue_number: int | None = None,
     ) -> None:
         """Store an :class:`IssueOutcome` and increment the matching lifetime counter.
 
@@ -411,6 +421,8 @@ class StateTracker:
             IssueOutcomeType.FAILED: "total_outcomes_failed",
             IssueOutcomeType.MANUAL_CLOSE: "total_outcomes_manual_close",
             IssueOutcomeType.HITL_APPROVED: "total_outcomes_hitl_approved",
+            IssueOutcomeType.VERIFY_PENDING: "total_outcomes_verify_pending",
+            IssueOutcomeType.VERIFY_RESOLVED: "total_outcomes_verify_resolved",
         }
 
         key = str(issue_number)
@@ -427,6 +439,7 @@ class StateTracker:
             closed_at=datetime.now(UTC).isoformat(),
             pr_number=pr_number,
             phase=phase,
+            verification_issue_number=verification_issue_number,
         )
         attr = counter_map.get(outcome)
         if attr:
@@ -836,9 +849,15 @@ class StateTracker:
         """Persist a single background worker heartbeat entry."""
         stored = dict(state)
         stored.pop("enabled", None)  # enabled is runtime-only
-        details = self._normalise_details(stored.get("details"))
+        raw_details = stored.get("details")
+        details = self._normalise_details(
+            raw_details if isinstance(raw_details, (dict, str)) else None
+        )
         status = str(stored.get("status", "disabled"))
-        last_run = self._coerce_last_run(stored.get("last_run"))
+        raw_last_run = stored.get("last_run")
+        last_run = self._coerce_last_run(
+            raw_last_run if isinstance(raw_last_run, (str, int, float)) else None
+        )
         self._persist_worker_state(name, status, last_run, details)
         self.save()
 

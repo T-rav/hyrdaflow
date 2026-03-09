@@ -1730,6 +1730,50 @@ class TestVerificationIssueTracking:
         assert tracker.get_verification_issue(42) == 500
         assert tracker.get_verification_issue(99) == 501
 
+    def test_clear_verification_issue_removes_entry(self, tmp_path: Path) -> None:
+        """clear_verification_issue removes the mapping for the given issue."""
+        tracker = make_tracker(tmp_path)
+        tracker.set_verification_issue(42, 500)
+        tracker.clear_verification_issue(42)
+        assert tracker.get_verification_issue(42) is None
+
+    def test_clear_verification_issue_no_op_when_absent(self, tmp_path: Path) -> None:
+        """clear_verification_issue is a no-op when the issue has no mapping."""
+        tracker = make_tracker(tmp_path)
+        tracker.clear_verification_issue(99)  # should not raise
+        assert tracker.get_verification_issue(99) is None
+
+    def test_clear_verification_issue_persists(self, tmp_path: Path) -> None:
+        """Cleared mapping is not present after reload."""
+        tracker = make_tracker(tmp_path)
+        tracker.set_verification_issue(42, 500)
+        tracker.clear_verification_issue(42)
+
+        tracker2 = make_tracker(tmp_path)
+        assert tracker2.get_verification_issue(42) is None
+
+    def test_get_all_verification_issues_returns_all(self, tmp_path: Path) -> None:
+        """get_all_verification_issues returns all pending mappings."""
+        tracker = make_tracker(tmp_path)
+        tracker.set_verification_issue(10, 100)
+        tracker.set_verification_issue(20, 200)
+        result = tracker.get_all_verification_issues()
+        assert result == {10: 100, 20: 200}
+
+    def test_get_all_verification_issues_empty(self, tmp_path: Path) -> None:
+        """Returns empty dict when no verification issues are tracked."""
+        tracker = make_tracker(tmp_path)
+        assert tracker.get_all_verification_issues() == {}
+
+    def test_get_all_verification_issues_after_clear(self, tmp_path: Path) -> None:
+        """Cleared entries are absent from get_all_verification_issues."""
+        tracker = make_tracker(tmp_path)
+        tracker.set_verification_issue(10, 100)
+        tracker.set_verification_issue(20, 200)
+        tracker.clear_verification_issue(10)
+        result = tracker.get_all_verification_issues()
+        assert result == {20: 200}
+
 
 # ---------------------------------------------------------------------------
 # Issue attempt tracking
@@ -2643,6 +2687,87 @@ class TestIssueOutcomeTracking:
         outcome = tracker.get_outcome(42)
         assert outcome is not None
         assert outcome.outcome == IssueOutcomeType.MERGED
+
+    def test_record_outcome_verify_pending_increments_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """VERIFY_PENDING should increment total_outcomes_verify_pending."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1,
+            IssueOutcomeType.VERIFY_PENDING,
+            "verification issue created",
+            pr_number=10,
+            phase="review",
+            verification_issue_number=50,
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_verify_pending == 1
+
+    def test_record_outcome_stores_verification_issue_number(
+        self, tmp_path: Path
+    ) -> None:
+        """record_outcome should persist verification_issue_number on the outcome."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42,
+            IssueOutcomeType.VERIFY_PENDING,
+            "verify",
+            pr_number=5,
+            phase="review",
+            verification_issue_number=99,
+        )
+        outcome = tracker.get_outcome(42)
+        assert outcome is not None
+        assert outcome.verification_issue_number == 99
+
+    def test_record_outcome_verify_resolved_increments_counter(
+        self, tmp_path: Path
+    ) -> None:
+        """VERIFY_RESOLVED should increment total_outcomes_verify_resolved."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            1,
+            IssueOutcomeType.VERIFY_RESOLVED,
+            "verification issue closed",
+            phase="verify",
+            verification_issue_number=50,
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_verify_resolved == 1
+
+    def test_verify_pending_transitions_to_resolved(self, tmp_path: Path) -> None:
+        """Overwriting VERIFY_PENDING with VERIFY_RESOLVED corrects counters."""
+        from models import IssueOutcomeType
+
+        tracker = make_tracker(tmp_path)
+        tracker.record_outcome(
+            42,
+            IssueOutcomeType.VERIFY_PENDING,
+            "pending",
+            phase="review",
+            verification_issue_number=99,
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_verify_pending == 1
+        assert stats.total_outcomes_verify_resolved == 0
+
+        tracker.record_outcome(
+            42,
+            IssueOutcomeType.VERIFY_RESOLVED,
+            "resolved",
+            phase="verify",
+            verification_issue_number=99,
+        )
+        stats = tracker.get_lifetime_stats()
+        assert stats.total_outcomes_verify_pending == 0
+        assert stats.total_outcomes_verify_resolved == 1
 
 
 # ---------------------------------------------------------------------------

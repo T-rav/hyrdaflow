@@ -47,6 +47,7 @@ from models import (
     CrateCreateRequest,
     CrateItemsRequest,
     CrateUpdateRequest,
+    GitHubIssue,
     HITLCloseRequest,
     HITLEscalationPayload,
     HITLSkipRequest,
@@ -509,7 +510,7 @@ def _extract_field_from_sources(
     """
     candidates: list[str] = []
 
-    def _push(value: Any) -> None:
+    def _push(value: str | int | float | bool | None) -> None:
         if isinstance(value, str):
             trimmed = value.strip()
             if trimmed:
@@ -549,6 +550,24 @@ def _extract_field_from_sources(
         _push_query_params()
 
     return candidates[0] if candidates else ""
+
+
+def _is_likely_disconnect(exc: BaseException) -> bool:
+    """Return True if *exc* looks like a normal WebSocket disconnect rather than a code bug."""
+    disconnect_types = (
+        ConnectionResetError,
+        ConnectionAbortedError,
+        BrokenPipeError,
+    )
+    if isinstance(exc, disconnect_types):
+        return True
+    name = type(exc).__name__
+    # Starlette / uvicorn raise these on unclean disconnects.
+    return name in {
+        "WebSocketDisconnect",
+        "ConnectionClosedError",
+        "ConnectionClosedOK",
+    }
 
 
 def create_router(
@@ -1046,7 +1065,9 @@ def create_router(
                     _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
                     _save_history_cache()
             except Exception:
-                logger.debug("Failed to fetch milestones for crate titles")
+                logger.warning(
+                    "Failed to fetch milestones for crate titles", exc_info=True
+                )
 
         # Backfill epic field from state's epic tracking when not already set.
         epic_states = state.get_all_epic_states()
@@ -1134,10 +1155,12 @@ def create_router(
 
         await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
 
-    def _build_hitl_context(issue: Any, *, cause: str, origin: str | None) -> str:
+    def _build_hitl_context(
+        issue: GitHubIssue, *, cause: str, origin: str | None
+    ) -> str:
         """Build a text context block for HITL summary generation."""
-        body = str(getattr(issue, "body", "") or "").strip()
-        comments = list(getattr(issue, "comments", []) or [])
+        body = issue.body.strip()
+        comments = issue.comments
         recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
         comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
         origin_text = origin or "unknown"
@@ -1202,9 +1225,10 @@ def create_router(
         try:
             async with hitl_summary_slots:
                 await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
-        except Exception:
+        except Exception as exc:
             state.set_hitl_summary_failure(
-                issue_number, "Unexpected summary warm error"
+                issue_number,
+                f"{type(exc).__name__}: {exc}",
             )
             logger.exception(
                 "Failed to warm HITL summary for issue #%d",
@@ -1233,7 +1257,9 @@ def create_router(
                     0,
                 )
 
-        def _normalise_worker_health(raw_status: Any) -> BGWorkerHealth:
+        def _normalise_worker_health(
+            raw_status: str | BGWorkerHealth | None,
+        ) -> BGWorkerHealth:
             """Coerce a raw status value to a BGWorkerHealth enum member."""
             if isinstance(raw_status, BGWorkerHealth):
                 return raw_status
@@ -2479,6 +2505,7 @@ def create_router(
         "pr_unsticker": (60, 86400),
         "pipeline_poller": (5, 14400),
         "adr_reviewer": (28800, 432000),
+        "verify_monitor": (60, 86400),
     }
 
     @router.post("/api/control/bg-worker/interval")
@@ -2609,7 +2636,7 @@ def create_router(
     try:
         _load_history_cache()
     except Exception:
-        logger.debug("History cache warm-up failed", exc_info=True)
+        logger.warning("History cache warm-up failed", exc_info=True)
 
     @router.get("/api/issues/history")
     async def get_issue_history(
@@ -3689,10 +3716,17 @@ def create_router(
                 try:
                     await ws.send_text(event.model_dump_json())
                 except Exception as exc:
-                    logger.warning(
-                        "WebSocket error during history replay: %s",
-                        exc.__class__.__name__,
-                    )
+                    if _is_likely_disconnect(exc):
+                        logger.warning(
+                            "WebSocket disconnect during history replay: %s",
+                            exc.__class__.__name__,
+                        )
+                    else:
+                        logger.error(
+                            "WebSocket error during history replay: %s",
+                            exc.__class__.__name__,
+                            exc_info=True,
+                        )
                     return
 
             # Stream live events
@@ -3703,10 +3737,17 @@ def create_router(
             except WebSocketDisconnect:
                 pass
             except Exception as exc:
-                logger.warning(
-                    "WebSocket error during live streaming: %s",
-                    exc.__class__.__name__,
-                )
+                if _is_likely_disconnect(exc):
+                    logger.warning(
+                        "WebSocket disconnect during live streaming: %s",
+                        exc.__class__.__name__,
+                    )
+                else:
+                    logger.error(
+                        "WebSocket error during live streaming: %s",
+                        exc.__class__.__name__,
+                        exc_info=True,
+                    )
 
     # SPA catch-all: serve index.html for any path not matched above.
     # This must be registered LAST so it doesn't shadow API/WS routes.

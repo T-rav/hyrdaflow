@@ -1053,7 +1053,7 @@ class TestCreateVerificationIssue:
         labels = call_args[0][2]
 
         assert title == "Verify: Fix the frobnicator"
-        assert labels == ["hydraflow-hitl"]
+        assert labels == ["hydraflow-verify"]
         assert "All criteria passed at code level" in body
         assert "#42" in body
         assert "#101" in body

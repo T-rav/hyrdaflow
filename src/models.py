@@ -269,7 +269,7 @@ class GitHubIssue(BaseModel):
 
     @field_validator("state", mode="before")
     @classmethod
-    def _normalise_state(cls, value: Any) -> Any:
+    def _normalise_state(cls, value: GitHubIssueState | str) -> GitHubIssueState | str:
         """Allow case-insensitive GitHub API values."""
         if isinstance(value, str):
             return value.lower()
@@ -1010,6 +1010,8 @@ class IssueOutcomeType(StrEnum):
     HITL_APPROVED = "hitl_approved"
     FAILED = "failed"
     MANUAL_CLOSE = "manual_close"
+    VERIFY_PENDING = "verify_pending"
+    VERIFY_RESOLVED = "verify_resolved"
 
 
 class IssueOutcome(BaseModel):
@@ -1020,6 +1022,7 @@ class IssueOutcome(BaseModel):
     closed_at: str
     pr_number: int | None = None
     phase: str
+    verification_issue_number: int | None = None
 
 
 class HookFailureRecord(BaseModel):
@@ -1102,6 +1105,8 @@ class LifetimeStats(BaseModel):
     total_outcomes_failed: int = 0
     total_outcomes_manual_close: int = 0
     total_outcomes_hitl_approved: int = 0
+    total_outcomes_verify_pending: int = 0
+    total_outcomes_verify_resolved: int = 0
     # Threshold proposals already filed (avoid re-filing)
     fired_thresholds: list[str] = Field(default_factory=list)
 

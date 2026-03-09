@@ -1403,3 +1403,113 @@ class TestBuildMountsNoGitDir:
         mounts = runner._build_mounts(None)
 
         assert not any(v["bind"] == "/dot-git" for v in mounts.values())
+
+
+# ---------------------------------------------------------------------------
+# Container cleanup exception logging tests
+# ---------------------------------------------------------------------------
+
+
+class TestContainerCleanupLogging:
+    """Tests that container cleanup failures are logged at DEBUG level."""
+
+    @pytest.mark.asyncio
+    async def test_create_streaming_process_logs_cleanup_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """When container.remove fails during error cleanup, the exception is logged."""
+        container = _make_mock_container()
+        container.start.side_effect = RuntimeError("start failed")
+        container.remove.side_effect = RuntimeError("remove also failed")
+        socket = _make_mock_socket(b"output")
+        client = _make_mock_docker_client(container=container, socket=socket)
+        runner, _ = _make_runner(
+            repo_root=tmp_path, log_dir=tmp_path / "logs", mock_client=client
+        )
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with (
+            pytest.raises(RuntimeError, match="start failed"),
+            patch("docker_runner.logger") as mock_logger,
+        ):
+            await runner.create_streaming_process(["echo", "hi"], cwd=str(tmp_path))
+
+        mock_logger.debug.assert_called()
+        log_msg = mock_logger.debug.call_args[0][0]
+        assert "Failed to remove container" in log_msg
+        _, debug_kwargs = mock_logger.debug.call_args
+        assert debug_kwargs.get("exc_info") is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_logs_removal_failure(self, tmp_path: Path) -> None:
+        """cleanup() logs DEBUG when a container fails to remove."""
+        container = _make_mock_container()
+        container.remove.side_effect = RuntimeError("cannot remove")
+        client = _make_mock_docker_client(container=container)
+        runner, _ = _make_runner(
+            repo_root=tmp_path, log_dir=tmp_path / "logs", mock_client=client
+        )
+        runner._containers.add(container)
+
+        with patch("docker_runner.logger") as mock_logger:
+            await runner.cleanup()
+
+        debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
+        assert any("Failed to remove container" in msg for msg in debug_calls)
+        cleanup_call = next(
+            c
+            for c in mock_logger.debug.call_args_list
+            if "Failed to remove container" in c[0][0]
+        )
+        assert cleanup_call[1].get("exc_info") is True
+        # Containers set should still be cleared
+        assert len(runner._containers) == 0
+
+    @pytest.mark.asyncio
+    async def test_run_simple_logs_kill_failure_on_timeout(
+        self, tmp_path: Path
+    ) -> None:
+        """run_simple logs DEBUG when container.kill fails on timeout."""
+        container = _make_mock_container()
+        container.wait.side_effect = TimeoutError()
+        container.kill.side_effect = RuntimeError("kill failed")
+        container.remove.return_value = None
+        client = _make_mock_docker_client(container=container)
+        runner, _ = _make_runner(
+            repo_root=tmp_path, log_dir=tmp_path / "logs", mock_client=client
+        )
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(TimeoutError), patch("docker_runner.logger") as mock_logger:
+            await runner.run_simple(["echo", "hi"], timeout=0.01)
+
+        # Should have logged the kill failure with exc_info
+        debug_calls = mock_logger.debug.call_args_list
+        kill_call = next(
+            c for c in debug_calls if "Failed to kill container" in c[0][0]
+        )
+        assert kill_call[1].get("exc_info") is True
+
+    @pytest.mark.asyncio
+    async def test_run_simple_logs_remove_failure_in_finally(
+        self, tmp_path: Path
+    ) -> None:
+        """run_simple logs DEBUG when container.remove fails in the finally block."""
+        container = _make_mock_container()
+        container.wait.return_value = {"StatusCode": 0}
+        container.logs.return_value = b""
+        container.remove.side_effect = RuntimeError("cannot remove")
+        client = _make_mock_docker_client(container=container)
+        runner, _ = _make_runner(
+            repo_root=tmp_path, log_dir=tmp_path / "logs", mock_client=client
+        )
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with patch("docker_runner.logger") as mock_logger:
+            await runner.run_simple(["echo", "hi"])
+
+        debug_calls = mock_logger.debug.call_args_list
+        remove_call = next(
+            c for c in debug_calls if "Failed to remove container" in c[0][0]
+        )
+        assert remove_call[1].get("exc_info") is True

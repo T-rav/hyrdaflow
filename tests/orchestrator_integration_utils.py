@@ -437,6 +437,7 @@ def build_scripted_services(
     services.epic_manager = MagicMock()
     services.epic_monitor_loop = FakeBackgroundLoop()
     services.epic_sweeper_loop = FakeBackgroundLoop()
+    services.verify_monitor_loop = FakeBackgroundLoop()
     services.worktree_gc_loop = FakeBackgroundLoop()
     services.runs_gc_loop = FakeBackgroundLoop()
     services.adr_reviewer_loop = FakeBackgroundLoop()

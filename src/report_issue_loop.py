@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import contextlib
 import logging
+import os
 import re
 import tempfile
 from collections.abc import Callable, Coroutine
@@ -231,11 +233,15 @@ class ReportIssueLoop(BaseBackgroundLoop):
         payload = payload.translate({ord(c): None for c in " \t\n\r"})
         raw = base64.b64decode(payload, validate=True)
         fd, path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-report-")
-        Path(path).write_bytes(raw)
-        # Close the fd opened by mkstemp (write_bytes uses its own handle).
-        import os
-
-        os.close(fd)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(raw)
+        except Exception:
+            # fd is closed by os.fdopen (even on write failure) so only
+            # clean up the temp file to avoid accumulation.
+            with contextlib.suppress(OSError):
+                Path(path).unlink()
+            raise
         return Path(path)
 
     @classmethod
