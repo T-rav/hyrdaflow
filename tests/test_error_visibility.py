@@ -342,6 +342,45 @@ class TestWebSocketDisconnectDifferentiation:
 
         assert "disconnect" in caplog.text.lower()
 
+    @pytest.mark.asyncio
+    async def test_websocket_live_stream_bug_logs_error(
+        self, config, event_bus, state, tmp_path, caplog
+    ) -> None:
+        """Non-disconnect exception during live streaming logs ERROR."""
+        router = self._make_router(config, event_bus, state, tmp_path)
+
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/ws":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        from events import HydraFlowEvent
+
+        mock_ws = AsyncMock()
+        event = HydraFlowEvent(type="system_alert", data={"x": 1})
+
+        q3: asyncio.Queue = asyncio.Queue()
+        await q3.put(event)
+
+        mock_ws.send_text = AsyncMock(
+            side_effect=ValueError("unexpected serialization error")
+        )
+
+        with (
+            patch.object(event_bus, "subscription") as mock_sub,
+            caplog.at_level(logging.DEBUG, logger="hydraflow.dashboard"),
+        ):
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=q3)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_sub.return_value = mock_ctx
+            await endpoint(mock_ws)
+
+        assert "error" in caplog.text.lower()
+        assert "ERROR" in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # metrics_manager: exc_info on warnings

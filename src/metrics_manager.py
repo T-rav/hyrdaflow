@@ -350,6 +350,7 @@ class MetricsManager:
             logger.warning(
                 "Could not fetch comments for metrics issue #%s — falling back to local cache",
                 issue_number,
+                exc_info=True,
             )
             return self.load_local_history()
 
