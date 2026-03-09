@@ -28,6 +28,7 @@ from models import (
     GitHubIssue,
     HITLItem,
     HITLItemStatus,
+    HITLResult,
     InstructionsQuality,
     InstructionsQualityResult,
     IntentResponse,
@@ -47,6 +48,7 @@ from models import (
     PipelineStats,
     PlanAccuracyResult,
     PlannerStatus,
+    PlanResult,
     PrecheckResult,
     PRInfo,
     PRInfoExtract,
@@ -3122,3 +3124,115 @@ class TestHITLItemVisualEvidence:
         item = HITLItem(issue=1)
         data = item.model_dump()
         assert data["visualEvidence"] is None
+
+
+# ---------------------------------------------------------------------------
+# Field validators and descriptions (issue #2402)
+# ---------------------------------------------------------------------------
+
+
+class TestTriageResultValidators:
+    """Tests for TriageResult field constraints and descriptions."""
+
+    def test_complexity_score_accepts_valid_range(self) -> None:
+        for score in (0, 5, 10):
+            result = TriageResult(issue_number=1, complexity_score=score)
+            assert result.complexity_score == score
+
+    def test_complexity_score_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="complexity_score"):
+            TriageResult(issue_number=1, complexity_score=-1)
+
+    def test_complexity_score_rejects_above_ten(self) -> None:
+        with pytest.raises(ValidationError, match="complexity_score"):
+            TriageResult(issue_number=1, complexity_score=11)
+
+    def test_field_descriptions_present(self) -> None:
+        fields = TriageResult.model_fields
+        for name, info in fields.items():
+            assert info.description, f"TriageResult.{name} missing description"
+
+
+class TestPlanResultValidators:
+    """Tests for PlanResult field constraints and descriptions."""
+
+    def test_duration_seconds_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="duration_seconds"):
+            PlanResult(issue_number=1, duration_seconds=-1.0)
+
+    def test_duration_seconds_accepts_zero(self) -> None:
+        result = PlanResult(issue_number=1, duration_seconds=0.0)
+        assert result.duration_seconds == pytest.approx(0.0)
+
+    def test_field_descriptions_present(self) -> None:
+        fields = PlanResult.model_fields
+        for name, info in fields.items():
+            assert info.description, f"PlanResult.{name} missing description"
+
+
+class TestWorkerResultValidators:
+    """Tests for WorkerResult field constraints and descriptions."""
+
+    def test_duration_seconds_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="duration_seconds"):
+            WorkerResult(issue_number=1, branch="b", duration_seconds=-1.0)
+
+    def test_commits_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="commits"):
+            WorkerResult(issue_number=1, branch="b", commits=-1)
+
+    def test_quality_fix_attempts_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="quality_fix_attempts"):
+            WorkerResult(issue_number=1, branch="b", quality_fix_attempts=-1)
+
+    def test_pre_quality_review_attempts_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="pre_quality_review_attempts"):
+            WorkerResult(issue_number=1, branch="b", pre_quality_review_attempts=-1)
+
+    def test_field_descriptions_present(self) -> None:
+        fields = WorkerResult.model_fields
+        for name, info in fields.items():
+            assert info.description, f"WorkerResult.{name} missing description"
+
+
+class TestHITLResultValidators:
+    """Tests for HITLResult field constraints and descriptions."""
+
+    def test_duration_seconds_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="duration_seconds"):
+            HITLResult(issue_number=1, duration_seconds=-1.0)
+
+    def test_duration_seconds_accepts_zero(self) -> None:
+        result = HITLResult(issue_number=1, duration_seconds=0.0)
+        assert result.duration_seconds == pytest.approx(0.0)
+
+    def test_field_descriptions_present(self) -> None:
+        fields = HITLResult.model_fields
+        for name, info in fields.items():
+            assert info.description, f"HITLResult.{name} missing description"
+
+
+class TestReviewResultValidators:
+    """Tests for ReviewResult field constraints and descriptions."""
+
+    def test_duration_seconds_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="duration_seconds"):
+            ReviewResult(pr_number=1, issue_number=1, duration_seconds=-1.0)
+
+    def test_ci_fix_attempts_rejects_negative(self) -> None:
+        with pytest.raises(ValidationError, match="ci_fix_attempts"):
+            ReviewResult(pr_number=1, issue_number=1, ci_fix_attempts=-1)
+
+    def test_field_descriptions_present(self) -> None:
+        fields = ReviewResult.model_fields
+        for name, info in fields.items():
+            assert info.description, f"ReviewResult.{name} missing description"
+
+
+class TestPRInfoDescriptions:
+    """Tests for PRInfo field descriptions."""
+
+    def test_field_descriptions_present(self) -> None:
+        fields = PRInfo.model_fields
+        for name, info in fields.items():
+            assert info.description, f"PRInfo.{name} missing description"
