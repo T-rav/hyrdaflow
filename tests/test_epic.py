@@ -1553,3 +1553,50 @@ class TestNarrowedExceptionHandling:
         prs.find_pr_for_issue = AsyncMock(side_effect=TypeError("bad type"))
         with pytest.raises(TypeError, match="bad type"):
             await manager.release_epic(100)
+
+    @pytest.mark.asyncio
+    async def test_check_and_close_epics_inner_catches_runtime_error(self) -> None:
+        """RuntimeError from _try_close_epic in the inner loop is caught per-epic."""
+        epic = _make_epic(100, [1])
+        sub1 = IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="A")
+        checker, prs, fetcher = _make_checker(epics=[epic], sub_issues={1: sub1})
+        # Make close_issue (called inside _try_close_epic) raise RuntimeError
+        prs.close_issue = AsyncMock(side_effect=RuntimeError("close failed"))
+        # Should not raise — the inner except catches per-epic and continues
+        result = await checker.check_and_close_epics(1)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_check_and_close_epics_inner_propagates_type_error(self) -> None:
+        """TypeError from _try_close_epic propagates — not caught by inner RuntimeError handler."""
+        epic = _make_epic(100, [1])
+        sub1 = IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="A")
+        checker, prs, fetcher = _make_checker(epics=[epic], sub_issues={1: sub1})
+        prs.close_issue = AsyncMock(side_effect=TypeError("bad arg"))
+        with pytest.raises(TypeError, match="bad arg"):
+            await checker.check_and_close_epics(1)
+
+    @pytest.mark.asyncio
+    async def test_enrich_pr_status_propagates_type_error_on_reviews(
+        self, tmp_path: Path
+    ) -> None:
+        """TypeError from get_pr_reviews propagates — not caught by RuntimeError handler."""
+        manager, prs, _ = _make_epic_manager(tmp_path)
+        prs.get_pr_checks = AsyncMock(return_value=[])
+        prs.get_pr_reviews = AsyncMock(side_effect=TypeError("bad reviews"))
+        child_info = EpicChildInfo(issue_number=1)
+        with pytest.raises(TypeError, match="bad reviews"):
+            await manager._enrich_pr_status(child_info, 42)
+
+    @pytest.mark.asyncio
+    async def test_enrich_pr_status_propagates_type_error_on_mergeable(
+        self, tmp_path: Path
+    ) -> None:
+        """TypeError from get_pr_mergeable propagates — not caught by RuntimeError handler."""
+        manager, prs, _ = _make_epic_manager(tmp_path)
+        prs.get_pr_checks = AsyncMock(return_value=[])
+        prs.get_pr_reviews = AsyncMock(return_value=[])
+        prs.get_pr_mergeable = AsyncMock(side_effect=TypeError("bad mergeable"))
+        child_info = EpicChildInfo(issue_number=1)
+        with pytest.raises(TypeError, match="bad mergeable"):
+            await manager._enrich_pr_status(child_info, 42)
