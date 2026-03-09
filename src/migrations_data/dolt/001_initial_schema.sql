@@ -218,3 +218,10 @@ CREATE TABLE IF NOT EXISTS troubleshooting_patterns (
     frequency INT DEFAULT 1,
     UNIQUE KEY (language, pattern_name)
 );
+
+CREATE TABLE IF NOT EXISTS proposed_categories (
+    domain VARCHAR(64) NOT NULL,
+    category VARCHAR(256) NOT NULL,
+    proposed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (domain, category)
+);

@@ -1837,6 +1837,25 @@ class DoltStore:
             self._troubleshooting.upsert(key, existing)
 
     # ------------------------------------------------------------------
+    # Proposed categories (for ProposalWorker dedup)
+    # ------------------------------------------------------------------
+
+    def get_proposed_categories(self, domain: str) -> set[str]:
+        """Return categories already proposed for *domain*."""
+        rows = self.db.fetchall(
+            "SELECT category FROM proposed_categories WHERE domain = %s",
+            (domain,),
+        )
+        return {r[0] for r in rows}
+
+    def mark_category_proposed(self, domain: str, category: str) -> None:
+        """Record that *category* has been proposed for *domain*."""
+        self.db.execute(
+            "REPLACE INTO proposed_categories (domain, category) VALUES (%s, %s)",
+            (domain, category),
+        )
+
+    # ------------------------------------------------------------------
     # Dolt version-control helpers (pass-through)
     # ------------------------------------------------------------------
 

@@ -153,7 +153,6 @@ class ProposalWorker:
         """Detect recurring harness failures and file proposals."""
         from harness_insights import (
             FailureRecord,
-            analyze_category_patterns,
             generate_suggestions,
         )
 
@@ -171,18 +170,15 @@ class ProposalWorker:
         if not records:
             return
 
-        patterns = analyze_category_patterns(records)
-        suggestions = generate_suggestions(patterns)
+        proposed = self._get_proposed_categories("harness")
+        suggestions = generate_suggestions(records, proposed=proposed)
         if not suggestions:
             return
 
-        proposed = self._get_proposed_categories("harness")
         for suggestion in suggestions:
-            key = suggestion.get("key", suggestion.get("category", ""))
-            if key in proposed:
-                continue
-            title = f"[Harness Insight] {suggestion.get('title', 'Recurring failure pattern')}"
-            body = suggestion.get("body", "Recurring harness failure detected.")
+            key = f"{suggestion.category}:{suggestion.subcategory}" if suggestion.subcategory else suggestion.category
+            title = f"[Harness Insight] {suggestion.description}"
+            body = suggestion.suggestion
             await self._file_proposal(title, body, "harness", key)
             break  # Cap at 1 per cycle
 
