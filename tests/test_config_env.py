@@ -116,7 +116,8 @@ class TestEnvVarOverrideTable:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert getattr(cfg, field) == "custom-value"
+        result = getattr(cfg, field)
+        assert str(result) == "custom-value"
 
     # Valid non-default explicit values for Literal-typed string fields.
     # Generic tests can't use arbitrary strings for these fields.
@@ -146,7 +147,7 @@ class TestEnvVarOverrideTable:
             worktree_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert getattr(cfg, field) == explicit
+        assert str(getattr(cfg, field)) == explicit
 
     @pytest.mark.parametrize(
         ("field", "env_key", "default"),
@@ -451,7 +452,7 @@ class TestEnvVarOverrideTable:
         # Act / Assert — str overrides
         for field, _env_key, table_default in _ENV_STR_OVERRIDES:
             pydantic_default = model_fields[field].default
-            assert pydantic_default == table_default, (
+            assert str(pydantic_default) == table_default, (
                 f"_ENV_STR_OVERRIDES entry for '{field}' has default={table_default!r}, "
                 f"but HydraFlowConfig.{field} default is {pydantic_default!r}"
             )

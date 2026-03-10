@@ -1718,10 +1718,14 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
 
     # Data-driven env var overrides (str fields)
     for field, env_key, default in _ENV_STR_OVERRIDES:
-        if getattr(config, field) == default:
+        current = getattr(config, field)
+        if str(current) == default:
             env_val = _get_env(env_key)
             if env_val is not None:
-                object.__setattr__(config, field, env_val)
+                # Preserve the field's type (e.g. Path vs str)
+                field_type = type(current)
+                new_val = field_type(env_val) if field_type is not str else env_val
+                object.__setattr__(config, field, new_val)
 
     # Data-driven env var overrides (float fields)
     for field, env_key, default in _ENV_FLOAT_OVERRIDES:
