@@ -8,6 +8,7 @@ import copy
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import time
@@ -86,6 +87,8 @@ from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
 
 logger = logging.getLogger("hydraflow.dashboard")
+
+_SAFE_SLUG_COMPONENT = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 _SUPERVISOR_UNAVAILABLE_PREFIXES: tuple[str, ...] = (
     "hydraflow supervisor is not running.",
@@ -3686,10 +3689,12 @@ def create_router(
                 status_code=400,
             )
         # Validate path components to prevent directory traversal
-        import re as _re  # noqa: PLC0415
-
-        _safe_component = _re.compile(r"^[A-Za-z0-9_.\-]+$")
-        if not _safe_component.match(owner) or not _safe_component.match(repo_name):
+        if (
+            not _SAFE_SLUG_COMPONENT.match(owner)
+            or not _SAFE_SLUG_COMPONENT.match(repo_name)
+            or set(owner) <= {"."}
+            or set(repo_name) <= {"."}
+        ):
             return JSONResponse(
                 {"error": "slug contains invalid characters"},
                 status_code=400,
