@@ -125,7 +125,7 @@ export function BugReportTracker({ isOpen, onClose, reports, onAction }) {
                     {/* Actions */}
                     {report.status !== 'closed' && (
                       <div style={styles.actions} data-testid={`tracker-actions-${report.id}`}>
-                        {(report.status === 'fixed' || report.status === 'in-progress') && (
+                        {report.status === 'fixed' && (
                           <button
                             style={styles.confirmBtn}
                             onClick={() => handleAction(report.id, 'confirm_fixed', '')}

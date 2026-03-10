@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -938,7 +938,8 @@ class StateTracker:
         self,
         report_id: str,
         *,
-        status: str | None = None,
+        status: Literal["queued", "in-progress", "fixed", "closed", "reopened"]
+        | None = None,
         detail: str = "",
         action_label: str = "",
     ) -> TrackedReport | None:
@@ -946,7 +947,7 @@ class StateTracker:
         for r in self._data.tracked_reports:
             if r.id == report_id:
                 if status:
-                    r.status = status  # type: ignore[assignment]
+                    r.status = status
                 r.updated_at = datetime.now(UTC).isoformat()
                 r.history.append(
                     ReportHistoryEntry(

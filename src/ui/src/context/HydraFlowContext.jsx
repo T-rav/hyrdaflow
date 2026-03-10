@@ -785,7 +785,7 @@ export function HydraFlowProvider({ children }) {
     if (!rid) return
     fetch(`/api/reports?reporter_id=${encodeURIComponent(rid)}`)
       .then(r => r.json())
-      .then(data => dispatch({ type: 'SET_TRACKED_REPORTS', data }))
+      .then(data => { if (Array.isArray(data)) dispatch({ type: 'SET_TRACKED_REPORTS', data }) })
       .catch(() => {})
   }, [])
 
