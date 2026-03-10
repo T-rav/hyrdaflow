@@ -408,7 +408,7 @@ class TestGitHubRepoEndpoints:
         response = await endpoint(req={"slug": "alice/myrepo"})
         assert response.status_code == 400
         data = json.loads(response.body)
-        assert "duplicate" in data["error"]
+        assert "Invalid repository configuration" in data["error"]
 
     @pytest.mark.asyncio
     async def test_clone_github_repo_register_cb_generic_error(

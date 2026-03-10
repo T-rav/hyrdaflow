@@ -3702,9 +3702,10 @@ def create_router(
         workspace_dir = Path(
             os.path.expanduser(str(config.repos_workspace_dir))
         ).resolve()
-        clone_target = workspace_dir / owner / repo_name
+        clone_target_unresolved = workspace_dir / owner / repo_name
         # Guard against any residual path traversal after resolution
-        if not clone_target.resolve().is_relative_to(workspace_dir):
+        clone_target = clone_target_unresolved.resolve()
+        if not clone_target.is_relative_to(workspace_dir):
             return JSONResponse(
                 {"error": "slug contains invalid characters"},
                 status_code=400,
@@ -3712,7 +3713,7 @@ def create_router(
         already_cloned = clone_target.is_dir() and (clone_target / ".git").is_dir()
         if not already_cloned:
             workspace_dir.mkdir(parents=True, exist_ok=True)
-            owner_dir = workspace_dir / owner
+            owner_dir = clone_target.parent
             owner_dir.mkdir(parents=True, exist_ok=True)
             cmd = ["gh", "repo", "clone", slug, str(clone_target)]
             try:
@@ -3743,7 +3744,10 @@ def create_router(
             try:
                 record, repo_cfg = await register_repo_cb(clone_target, slug)
             except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=400)
+                logger.warning("register_repo validation error: %s", exc)
+                return JSONResponse(
+                    {"error": "Invalid repository configuration"}, status_code=400
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("register_repo callback failed: %s", exc)
                 return JSONResponse(
