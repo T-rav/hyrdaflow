@@ -3646,11 +3646,9 @@ def create_router(
                 {"error": f"gh repo list failed: {msg}"},
                 status_code=502,
             )
-        import json as _json  # noqa: PLC0415
-
         try:
-            repos = _json.loads(stdout or b"[]")
-        except _json.JSONDecodeError:
+            repos = json.loads(stdout or b"[]")
+        except json.JSONDecodeError:
             return JSONResponse(
                 {"error": "Failed to parse gh output"},
                 status_code=502,
@@ -3687,10 +3685,25 @@ def create_router(
                 {"error": "slug required in owner/repo format"},
                 status_code=400,
             )
+        # Validate path components to prevent directory traversal
+        import re as _re  # noqa: PLC0415
+
+        _safe_component = _re.compile(r"^[A-Za-z0-9_.\-]+$")
+        if not _safe_component.match(owner) or not _safe_component.match(repo_name):
+            return JSONResponse(
+                {"error": "slug contains invalid characters"},
+                status_code=400,
+            )
         workspace_dir = Path(
             os.path.expanduser(str(config.repos_workspace_dir))
         ).resolve()
         clone_target = workspace_dir / owner / repo_name
+        # Guard against any residual path traversal after resolution
+        if not clone_target.resolve().is_relative_to(workspace_dir):
+            return JSONResponse(
+                {"error": "slug contains invalid characters"},
+                status_code=400,
+            )
         already_cloned = clone_target.is_dir() and (clone_target / ".git").is_dir()
         if not already_cloned:
             workspace_dir.mkdir(parents=True, exist_ok=True)

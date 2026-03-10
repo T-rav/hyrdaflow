@@ -439,6 +439,25 @@ class TestGitHubRepoEndpoints:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_clone_slug_path_traversal_rejected(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Slugs containing path traversal sequences must be rejected."""
+        config.repos_workspace_dir = tmp_path / "repos"
+        router, _ = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+
+        for malicious_slug in [
+            "alice/../../etc",
+            "../evil/repo",
+            "alice/repo/../../secret",
+        ]:
+            response = await endpoint(req={"slug": malicious_slug})
+            assert response.status_code == 400, (
+                f"Expected 400 for slug={malicious_slug!r}"
+            )
+
+    @pytest.mark.asyncio
     async def test_list_github_repos_query_matches_owner(
         self, config, event_bus, state, tmp_path
     ) -> None:
