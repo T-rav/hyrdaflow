@@ -40,6 +40,7 @@ from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
+from preview_phase import PreviewPhase
 from report_issue_loop import ReportIssueLoop
 from retrospective import RetrospectiveCollector
 from review_phase import ReviewPhase
@@ -86,6 +87,7 @@ class ServiceRegistry:
     hitl_phase: HITLPhase
     implementer: ImplementPhase
     reviewer: ReviewPhase
+    preview_phase: PreviewPhase
 
     # Background workers and support
     run_recorder: RunRecorder
@@ -285,6 +287,15 @@ def build_services(
         baseline_policy=baseline_policy,
     )
 
+    preview_phase = PreviewPhase(
+        config=config,
+        state=state,
+        prs=prs,
+        store=store,
+        event_bus=event_bus,
+        post_merge=post_merge_handler,
+    )
+
     # Background loops
     memory_sync_bg = MemorySyncLoop(
         config,
@@ -436,6 +447,7 @@ def build_services(
         hitl_phase=hitl_phase,
         implementer=implementer,
         reviewer=reviewer,
+        preview_phase=preview_phase,
         run_recorder=run_recorder,
         metrics_manager=metrics_manager,
         pr_unsticker=pr_unsticker,

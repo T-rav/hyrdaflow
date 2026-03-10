@@ -50,6 +50,9 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
     ("verify_monitor_interval", "HYDRAFLOW_VERIFY_MONITOR_INTERVAL", 3600),
+    ("preview_interval", "HYDRAFLOW_PREVIEW_INTERVAL", 300),
+    ("preview_timeout_hours", "HYDRAFLOW_PREVIEW_TIMEOUT_HOURS", 72),
+    ("preview_deploy_poll_minutes", "HYDRAFLOW_PREVIEW_DEPLOY_POLL_MINUTES", 30),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
@@ -159,6 +162,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
+    ("preview_enabled", "HYDRAFLOW_PREVIEW_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -182,6 +186,7 @@ _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
     ("report_issue_tool", "HYDRAFLOW_REPORT_ISSUE_TOOL"),
     ("epic_merge_strategy", "HYDRAFLOW_EPIC_MERGE_STRATEGY"),
     ("release_version_source", "HYDRAFLOW_RELEASE_VERSION_SOURCE"),
+    ("preview_timeout_action", "HYDRAFLOW_PREVIEW_TIMEOUT_ACTION"),
 ]
 
 # Deprecated env var aliases (HYDRA_ → HYDRAFLOW_).
@@ -216,6 +221,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
     "HYDRAFLOW_LABEL_VERIFY": ("verify_label", ["hydraflow-verify"]),
+    "HYDRAFLOW_LABEL_PREVIEW": ("preview_label", ["hydraflow-preview"]),
 }
 
 
@@ -387,6 +393,36 @@ class HydraFlowConfig(BaseModel):
     verify_label: list[str] = Field(
         default=["hydraflow-verify"],
         description="Labels for post-merge verification issues (OR logic)",
+    )
+    preview_label: list[str] = Field(
+        default=["hydraflow-preview"],
+        description="Labels for pre-merge preview verification by reporter (OR logic)",
+    )
+    preview_enabled: bool = Field(
+        default=False,
+        description="When True, approved PRs go to preview verification before merge",
+    )
+    preview_interval: int = Field(
+        default=300,
+        ge=30,
+        le=86400,
+        description="Preview phase polling interval in seconds (default 5 min)",
+    )
+    preview_timeout_hours: int = Field(
+        default=72,
+        ge=1,
+        le=720,
+        description="Hours to wait for reporter feedback before auto-action (default 3 days)",
+    )
+    preview_deploy_poll_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=1440,
+        description="Minutes to poll for deployment URL before giving up (default 30 min)",
+    )
+    preview_timeout_action: Literal["merge", "hitl"] = Field(
+        default="hitl",
+        description="Action when preview times out: merge anyway or escalate to HITL",
     )
     improve_label: list[str] = Field(
         default=["hydraflow-improve"],
@@ -1233,6 +1269,7 @@ class HydraFlowConfig(BaseModel):
         "find_label",
         "planner_label",
         "verify_label",
+        "preview_label",
     )
     @classmethod
     def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:
@@ -1279,6 +1316,7 @@ class HydraFlowConfig(BaseModel):
             self.hitl_autofix_label,
             self.fixed_label,
             self.verify_label,
+            self.preview_label,
             self.improve_label,
             self.transcript_label,
         ):

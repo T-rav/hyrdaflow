@@ -224,6 +224,7 @@ class ConfigFactory:
         epic_label: list[str] | None = None,
         epic_child_label: list[str] | None = None,
         verify_label: list[str] | None = None,
+        preview_label: list[str] | None = None,
         find_label: list[str] | None = None,
         planner_label: list[str] | None = None,
         planner_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -432,6 +433,9 @@ class ConfigFactory:
                 ),
                 verify_label=(
                     verify_label if verify_label is not None else ["hydraflow-verify"]
+                ),
+                preview_label=(
+                    preview_label if preview_label is not None else ["hydraflow-preview"]
                 ),
                 find_label=find_label if find_label is not None else ["hydraflow-find"],
                 planner_label=planner_label

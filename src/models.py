@@ -1223,6 +1223,8 @@ class StateData(BaseModel):
     releases: dict[str, Release] = Field(default_factory=dict)
     baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     active_crate_number: int | None = None
+    preview_started: dict[str, str] = Field(default_factory=dict)
+    preview_url_posted: list[int] = Field(default_factory=list)
     last_updated: str | None = None
 
 

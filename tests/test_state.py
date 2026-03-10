@@ -92,6 +92,8 @@ class TestInitialization:
             "metrics_last_snapshot_hash",
             "metrics_last_synced",
             "pending_reports",
+            "preview_started",
+            "preview_url_posted",
             "tracked_reports",
             "processed_issues",
             "releases",

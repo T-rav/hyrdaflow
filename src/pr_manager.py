@@ -1308,6 +1308,75 @@ class PRManager:
             error_log=f"Could not fetch comments for PR #{pr_number}",
         )
 
+    async def get_issue_comments_with_body(
+        self, issue_number: int
+    ) -> list[dict[str, str]]:
+        """Fetch issue comments including body text.
+
+        Returns a list of dicts with ``author``, ``created_at``, and ``body`` keys.
+        Returns ``[]`` on failure or in dry-run mode.
+        """
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/issues/{issue_number}/comments",
+            "--jq",
+            "[.[] | {author: .user.login, created_at: .created_at, body: .body}]",
+            dry_run_return=[],
+            dry_run_log=f"[dry-run] Would fetch comments for issue #{issue_number}",
+            error_log=f"Could not fetch comments for issue #{issue_number}",
+        )
+
+    async def get_deployment_url(self, pr_number: int) -> str | None:
+        """Get the preview deployment URL for a PR via GitHub Deployments API.
+
+        Queries deployments for the PR's head SHA, then checks deployment
+        statuses for an active environment URL.  Provider-agnostic — works
+        with Render, Vercel, Netlify, Railway, etc.
+
+        Returns the URL string, or None if no active deployment is found.
+        """
+        self._assert_repo()
+        # Get the PR head SHA
+        head_sha = await self.get_pr_head_sha(pr_number)
+        if not head_sha:
+            return None
+
+        # Query deployments for this SHA
+        deployments: list[dict] = await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/deployments",
+            "-f",
+            f"sha={head_sha}",
+            "--jq",
+            "[.[] | {id: .id, environment: .environment}]",
+            dry_run_return=[],
+            error_log=f"Could not fetch deployments for PR #{pr_number}",
+        )
+        if not deployments:
+            return None
+
+        # Check each deployment's statuses for an active URL
+        for dep in deployments:
+            dep_id = dep.get("id")
+            if not dep_id:
+                continue
+            statuses: list[dict] = await self._gh_json_query(
+                "gh",
+                "api",
+                f"repos/{self._repo}/deployments/{dep_id}/statuses",
+                "--jq",
+                "[.[] | {state: .state, environment_url: .environment_url}]",
+                dry_run_return=[],
+                error_log=f"Could not fetch deployment statuses for deployment {dep_id}",
+                error_level="debug",
+            )
+            for status in statuses:
+                if status.get("state") == "success" and status.get("environment_url"):
+                    return status["environment_url"]
+        return None
+
     # --- Changelog query helpers ---
 
     async def get_pr_title_and_body(self, pr_number: int) -> tuple[str, str]:

@@ -29,6 +29,7 @@ class IssueStoreStage(StrEnum):
     PLAN = "plan"
     READY = "ready"
     REVIEW = "review"
+    PREVIEW = "preview"
     HITL = "hitl"
 
 
@@ -37,6 +38,7 @@ STAGE_FIND = IssueStoreStage.FIND
 STAGE_PLAN = IssueStoreStage.PLAN
 STAGE_READY = IssueStoreStage.READY
 STAGE_REVIEW = IssueStoreStage.REVIEW
+STAGE_PREVIEW = IssueStoreStage.PREVIEW
 STAGE_HITL = IssueStoreStage.HITL
 
 # Priority order — higher index = further along in the pipeline.
@@ -47,7 +49,8 @@ _STAGE_PRIORITY = {
     IssueStoreStage.PLAN: 1,
     IssueStoreStage.READY: 2,
     IssueStoreStage.REVIEW: 3,
-    IssueStoreStage.HITL: 4,
+    IssueStoreStage.PREVIEW: 4,
+    IssueStoreStage.HITL: 5,
 }
 
 
@@ -75,6 +78,7 @@ class IssueStore:
             STAGE_PLAN: deque(),
             STAGE_READY: deque(),
             STAGE_REVIEW: deque(),
+            STAGE_PREVIEW: deque(),
         }
         # Companion sets for O(1) membership checks (task ids in each queue)
         self._queue_members: dict[IssueStoreStage, set[int]] = {
@@ -82,6 +86,7 @@ class IssueStore:
             STAGE_PLAN: set(),
             STAGE_READY: set(),
             STAGE_REVIEW: set(),
+            STAGE_PREVIEW: set(),
         }
         # HITL issues are tracked as a set (display only, not consumed)
         self._hitl_numbers: set[int] = set()
@@ -110,6 +115,7 @@ class IssueStore:
             STAGE_PLAN: 0,
             STAGE_READY: 0,
             STAGE_REVIEW: 0,
+            STAGE_PREVIEW: 0,
             STAGE_HITL: 0,
         }
         # Dedup diagnostics counters (cumulative for current process lifetime)
@@ -300,6 +306,8 @@ class IssueStore:
             m[lbl] = STAGE_READY
         for lbl in self._config.review_label:
             m[lbl] = STAGE_REVIEW
+        for lbl in self._config.preview_label:
+            m[lbl] = STAGE_PREVIEW
         for lbl in self._config.hitl_label:
             m[lbl] = STAGE_HITL
         for lbl in self._config.hitl_active_label:
@@ -343,6 +351,7 @@ class IssueStore:
             "plan": STAGE_PLAN,
             "ready": STAGE_READY,
             "review": STAGE_REVIEW,
+            "preview": STAGE_PREVIEW,
             "hitl": STAGE_HITL,
         }
         stage = stage_alias.get(next_stage)
@@ -389,6 +398,10 @@ class IssueStore:
     def get_reviewable(self, max_count: int) -> list[Task]:
         """Return up to *max_count* issues from the review queue."""
         return self._take_from_queue(STAGE_REVIEW, max_count)
+
+    def get_previewable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the preview queue."""
+        return self._take_from_queue(STAGE_PREVIEW, max_count)
 
     def get_hitl_issues(self) -> set[int]:
         """Return the set of HITL issue numbers."""
@@ -631,7 +644,14 @@ class IssueStore:
         queue_depth[STAGE_HITL] = len(self._hitl_numbers)
 
         active_count: dict[str, int] = {}
-        for stage in [STAGE_FIND, STAGE_PLAN, STAGE_READY, STAGE_REVIEW, STAGE_HITL]:
+        for stage in [
+            STAGE_FIND,
+            STAGE_PLAN,
+            STAGE_READY,
+            STAGE_REVIEW,
+            STAGE_PREVIEW,
+            STAGE_HITL,
+        ]:
             active_count[stage] = sum(1 for s in self._active.values() if s == stage)
 
         return QueueStats(

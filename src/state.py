@@ -959,6 +959,34 @@ class StateTracker:
                 return r
         return None
 
+    # --- preview state ---
+
+    def get_preview_started(self, issue_number: int) -> str | None:
+        """Return the ISO timestamp when preview started, or None."""
+        return self._data.preview_started.get(str(issue_number))
+
+    def set_preview_started(self, issue_number: int, timestamp: str) -> None:
+        """Record when preview tracking started for an issue."""
+        self._data.preview_started[str(issue_number)] = timestamp
+        self.save()
+
+    def is_preview_url_posted(self, issue_number: int) -> bool:
+        """Check if the preview URL comment has been posted."""
+        return issue_number in self._data.preview_url_posted
+
+    def mark_preview_url_posted(self, issue_number: int) -> None:
+        """Mark the preview URL as posted for this issue."""
+        if issue_number not in self._data.preview_url_posted:
+            self._data.preview_url_posted.append(issue_number)
+            self.save()
+
+    def clear_preview(self, issue_number: int) -> None:
+        """Clear all preview tracking state for an issue."""
+        self._data.preview_started.pop(str(issue_number), None)
+        if issue_number in self._data.preview_url_posted:
+            self._data.preview_url_posted.remove(issue_number)
+        self.save()
+
     # --- metrics state ---
 
     def get_metrics_issue_number(self) -> int | None:

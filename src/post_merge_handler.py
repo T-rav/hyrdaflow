@@ -183,6 +183,25 @@ class PostMergeHandler:
         if not should_merge:
             return
 
+        # Preview verification gate — divert to preview label for reporter testing
+        if self._config.preview_enabled:
+            logger.info(
+                "PR #%d (issue #%d): diverting to preview verification",
+                pr.number,
+                pr.issue_number,
+            )
+            await self._prs.swap_pipeline_labels(
+                pr.issue_number,
+                self._config.preview_label[0],
+            )
+            await self._prs.post_comment(
+                pr.issue_number,
+                "PR approved by automated review. "
+                "Waiting for reporter verification on preview deployment "
+                "before merging.",
+            )
+            return
+
         # Visual validation gate
         if self._config.visual_gate_enabled:
             if visual_gate_fn is None:

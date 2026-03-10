@@ -926,6 +926,7 @@ class HydraFlowOrchestrator:
             ("implement", self._implement_loop),
             ("review", self._review_loop),
             ("hitl", self._hitl_loop),
+            ("preview", self._preview_loop),
             ("memory_sync", self._memory_sync_loop),
             ("metrics", self._metrics_sync_loop),
             ("pr_unsticker", self._svc.pr_unsticker_loop.run),
@@ -1124,6 +1125,14 @@ class HydraFlowOrchestrator:
             "hitl",
             self._do_hitl_work,
             self._config.poll_interval,
+        )
+
+    async def _preview_loop(self) -> None:
+        """Continuously process preview verification issues."""
+        await self._polling_loop(
+            "preview",
+            self._svc.preview_phase.process_preview_issues,
+            self._config.preview_interval,
         )
 
     async def _memory_sync_loop(self) -> None:

@@ -81,6 +81,7 @@ class EventType(StrEnum):
     EPIC_READY = "epic_ready"
     EPIC_RELEASING = "epic_releasing"
     EPIC_RELEASED = "epic_released"
+    PREVIEW_UPDATE = "preview_update"
     PIPELINE_STATS = "pipeline_stats"
     VISUAL_GATE = "visual_gate"
     BASELINE_UPDATE = "baseline_update"
