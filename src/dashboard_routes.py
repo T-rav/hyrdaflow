@@ -3682,19 +3682,29 @@ def create_router(
                 {"error": "slug required in owner/repo format"},
                 status_code=400,
             )
-        owner, repo_name = slug.split("/", 1)
-        if not owner or not repo_name:
+        raw_owner, raw_repo = slug.split("/", 1)
+        if not raw_owner or not raw_repo:
             return JSONResponse(
                 {"error": "slug required in owner/repo format"},
                 status_code=400,
             )
         # Validate path components to prevent directory traversal
         if (
-            not _SAFE_SLUG_COMPONENT.match(owner)
-            or not _SAFE_SLUG_COMPONENT.match(repo_name)
-            or set(owner) <= {"."}
-            or set(repo_name) <= {"."}
+            not _SAFE_SLUG_COMPONENT.match(raw_owner)
+            or not _SAFE_SLUG_COMPONENT.match(raw_repo)
+            or set(raw_owner) <= {"."}
+            or set(raw_repo) <= {"."}
         ):
+            return JSONResponse(
+                {"error": "slug contains invalid characters"},
+                status_code=400,
+            )
+        # Sanitise: extract only the final path component to break any
+        # traversal sequences.  PurePosixPath.name is recognised by
+        # CodeQL as a path-injection sanitiser.
+        owner = PurePosixPath(raw_owner).name
+        repo_name = PurePosixPath(raw_repo).name
+        if not owner or not repo_name:
             return JSONResponse(
                 {"error": "slug contains invalid characters"},
                 status_code=400,
@@ -3702,14 +3712,14 @@ def create_router(
         workspace_dir = Path(
             os.path.expanduser(str(config.repos_workspace_dir))
         ).resolve()
-        clone_target_unresolved = workspace_dir / owner / repo_name
-        # Guard against any residual path traversal after resolution
-        clone_target = clone_target_unresolved.resolve()
+        clone_target = (workspace_dir / owner / repo_name).resolve()
         if not clone_target.is_relative_to(workspace_dir):
             return JSONResponse(
                 {"error": "slug contains invalid characters"},
                 status_code=400,
             )
+        # Reconstruct slug from sanitised components
+        slug = f"{owner}/{repo_name}"
         already_cloned = clone_target.is_dir() and (clone_target / ".git").is_dir()
         if not already_cloned:
             workspace_dir.mkdir(parents=True, exist_ok=True)
