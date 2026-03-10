@@ -342,6 +342,27 @@ class TestStreamClaudeProcessExitHandling:
 
         mock_logger.warning.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_early_kill_ignores_auth_failed_in_output(self, event_bus) -> None:
+        """When on_output kills the process, auth_failed in output should not raise."""
+        import json
+
+        auth_line = json.dumps({"error": "authentication_failed"})
+        mock_create = make_streaming_proc(
+            returncode=0, stdout=f"good output\n{auth_line}"
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await stream_claude_process(
+                **_default_kwargs(
+                    event_bus,
+                    on_output=lambda _: True,  # Kill immediately
+                )
+            )
+
+        # Should NOT raise AuthenticationRetryError
+        assert "good output" in result
+
 
 # ---------------------------------------------------------------------------
 # stream_claude_process — on_output callback
