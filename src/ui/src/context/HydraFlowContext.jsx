@@ -52,6 +52,7 @@ export const initialState = {
   retrospectives: null,
   troubleshooting: null,
   memories: null,
+  trackedReports: [],
 }
 
 function normalizeRepoSlug(value) {
@@ -708,6 +709,9 @@ export function reducer(state, action) {
         memories: action.data?.memories ?? state.memories,
       }
 
+    case 'SET_TRACKED_REPORTS':
+      return { ...state, trackedReports: action.data || [] }
+
     case 'DELETE_SESSION':
       return {
         ...state,
@@ -731,6 +735,17 @@ function getInitialState() {
   return initialState
 }
 
+function getReporterId() {
+  if (typeof window === 'undefined') return ''
+  const key = 'hydraflow-user-id'
+  let id = localStorage.getItem(key)
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(key, id)
+  }
+  return id
+}
+
 export function HydraFlowProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, undefined, getInitialState)
   const isSeeded = typeof window !== 'undefined' && !!window.__HYDRAFLOW_SEED_STATE__
@@ -738,6 +753,7 @@ export function HydraFlowProvider({ children }) {
   const reconnectTimer = useRef(null)
   const lastEventTsRef = useRef(null)
   const bgWorkersRef = useRef(state.backgroundWorkers)
+  const reporterIdRef = useRef(getReporterId())
 
   bgWorkersRef.current = state.backgroundWorkers
 
@@ -763,6 +779,28 @@ export function HydraFlowProvider({ children }) {
       .then(data => dispatch({ type: 'HITL_ITEMS', data }))
       .catch(() => {})
   }, [fetchWithRepo])
+
+  const fetchTrackedReports = useCallback(() => {
+    const rid = reporterIdRef.current
+    if (!rid) return
+    fetch(`/api/reports?reporter_id=${encodeURIComponent(rid)}`)
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) dispatch({ type: 'SET_TRACKED_REPORTS', data }) })
+      .catch(() => {})
+  }, [])
+
+  const updateTrackedReport = useCallback(async (reportId, action, detail) => {
+    try {
+      const res = await fetch(`/api/reports/${reportId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, detail, reporter_id: reporterIdRef.current }),
+      })
+      if (res.ok) fetchTrackedReports()
+    } catch {
+      // silently ignore
+    }
+  }, [fetchTrackedReports])
 
   const fetchPipeline = useCallback(() => {
     fetchWithRepo('/api/pipeline')
@@ -1095,6 +1133,7 @@ export function HydraFlowProvider({ children }) {
 
   const submitReport = useCallback(async ({ description, screenshot_base64 }) => {
     const pi = state.pipelineIssues || {}
+    const reporter_id = reporterIdRef.current
     const environment = {
       source: 'dashboard',
       app_version: state.config?.app_version || '',
@@ -1110,14 +1149,16 @@ export function HydraFlowProvider({ children }) {
       const res = await fetch('/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, screenshot_base64, environment }),
+        body: JSON.stringify({ description, screenshot_base64, environment, reporter_id }),
       })
       if (!res.ok) return null
-      return await res.json()
+      const data = await res.json()
+      fetchTrackedReports()
+      return data
     } catch {
       return null
     }
-  }, [state.config, state.orchestratorStatus, state.pipelineIssues])
+  }, [state.config, state.orchestratorStatus, state.pipelineIssues, fetchTrackedReports])
 
   const releaseEpic = useCallback(async (epicNumber) => {
     dispatch({ type: 'EPIC_RELEASING', data: { epic_number: epicNumber, progress: 0, total: 0 } })
@@ -1502,6 +1543,13 @@ export function HydraFlowProvider({ children }) {
     return () => { cancelled = true; clearInterval(interval) }
   }, [state.connected, isSeeded])
 
+  // Fetch tracked reports on mount and periodically
+  useEffect(() => {
+    fetchTrackedReports()
+    const interval = setInterval(fetchTrackedReports, 30_000)
+    return () => clearInterval(interval)
+  }, [fetchTrackedReports])
+
   const value = {
     ...state,
     events: filteredEvents,
@@ -1511,6 +1559,8 @@ export function HydraFlowProvider({ children }) {
     resetSession,
     submitIntent,
     submitReport,
+    trackedReports: state.trackedReports,
+    updateTrackedReport,
     submitHumanInput,
     requestChanges,
     toggleBgWorker,

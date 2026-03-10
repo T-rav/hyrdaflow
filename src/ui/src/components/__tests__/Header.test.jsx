@@ -40,6 +40,8 @@ beforeEach(() => {
     stageStatus: mockStageStatus(),
     config: null,
     submitReport: vi.fn(),
+    trackedReports: [],
+    updateTrackedReport: vi.fn(),
     startOrchestrator: vi.fn(),
     stopOrchestrator: vi.fn(),
   })
@@ -410,6 +412,73 @@ describe('Header component', () => {
       })
       expect(screen.queryByTestId('screenshot-thumbnail')).toBeNull()
       expect(html2canvasFn).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  describe('Tracker button', () => {
+    it('renders tracker button', () => {
+      render(<Header {...defaultProps} />)
+      expect(screen.getByTestId('tracker-button')).toBeInTheDocument()
+    })
+
+    it('is disabled when no tracked reports exist', () => {
+      render(<Header {...defaultProps} />)
+      const btn = screen.getByTestId('tracker-button')
+      expect(btn).toBeDisabled()
+    })
+
+    it('is enabled with badge when tracked reports exist', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        trackedReports: [
+          { id: 'r1', status: 'queued', description: 'Bug' },
+        ],
+        updateTrackedReport: vi.fn(),
+        startOrchestrator: vi.fn(),
+        stopOrchestrator: vi.fn(),
+      })
+      render(<Header {...defaultProps} />)
+      const btn = screen.getByTestId('tracker-button')
+      expect(btn).not.toBeDisabled()
+      expect(screen.getByTestId('tracker-badge')).toBeInTheDocument()
+      expect(screen.getByTestId('tracker-badge').textContent).toBe('1')
+    })
+
+    it('badge shows count of open (non-closed) reports', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        trackedReports: [
+          { id: 'r1', status: 'queued', description: 'Bug' },
+          { id: 'r2', status: 'closed', description: 'Fixed' },
+          { id: 'r3', status: 'in-progress', description: 'WIP' },
+        ],
+        updateTrackedReport: vi.fn(),
+        startOrchestrator: vi.fn(),
+        stopOrchestrator: vi.fn(),
+      })
+      render(<Header {...defaultProps} />)
+      expect(screen.getByTestId('tracker-badge').textContent).toBe('2')
+    })
+
+    it('opens tracker modal when clicked', () => {
+      mockUseHydraFlow.mockReturnValue({
+        stageStatus: mockStageStatus(),
+        config: null,
+        submitReport: vi.fn(),
+        trackedReports: [
+          { id: 'r1', status: 'queued', description: 'Bug', created_at: '2026-01-01T00:00:00Z', history: [] },
+        ],
+        updateTrackedReport: vi.fn(),
+        startOrchestrator: vi.fn(),
+        stopOrchestrator: vi.fn(),
+      })
+      render(<Header {...defaultProps} />)
+      fireEvent.click(screen.getByTestId('tracker-button'))
+      expect(screen.getByTestId('tracker-modal')).toBeInTheDocument()
     })
   })
 })

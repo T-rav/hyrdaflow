@@ -1216,6 +1216,7 @@ class StateData(BaseModel):
     interrupted_issues: dict[str, str] = Field(default_factory=dict)
     last_reviewed_shas: dict[str, str] = Field(default_factory=dict)
     pending_reports: list[PendingReport] = Field(default_factory=list)
+    tracked_reports: list[TrackedReport] = Field(default_factory=list)
     issue_outcomes: dict[str, IssueOutcome] = Field(default_factory=dict)
     hook_failures: dict[str, list[HookFailureRecord]] = Field(default_factory=dict)
     epic_states: dict[str, EpicState] = Field(default_factory=dict)
@@ -1425,6 +1426,7 @@ class ReportIssueRequest(BaseModel):
     description: str = Field(..., min_length=1, max_length=5000)
     screenshot_base64: str = Field(default="", max_length=5_000_000)
     environment: dict[str, Any] = Field(default_factory=dict)
+    reporter_id: str = ""
 
 
 class ReportIssueResponse(BaseModel):
@@ -1445,6 +1447,38 @@ class PendingReport(BaseModel):
     environment: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     attempts: int = 0
+    reporter_id: str = ""
+
+
+class ReportHistoryEntry(BaseModel):
+    """A single event in a tracked report's lifecycle timeline."""
+
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    action: str  # e.g. "submitted", "processing", "fixed", "reopened", "cancelled"
+    detail: str = ""
+
+
+class TrackedReport(BaseModel):
+    """A bug report with lifecycle tracking for the reporter."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    reporter_id: str
+    description: str
+    status: Literal["queued", "in-progress", "fixed", "closed", "reopened"] = "queued"
+    linked_issue_url: str = ""
+    linked_pr_url: str = ""
+    progress_summary: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    history: list[ReportHistoryEntry] = Field(default_factory=list)
+
+
+class TrackedReportUpdate(BaseModel):
+    """Request body for PATCH /api/reports/<id>."""
+
+    action: Literal["confirm_fixed", "reopen", "cancel"]
+    detail: str = ""
+    reporter_id: str = ""
 
 
 class PRListItem(BaseModel):

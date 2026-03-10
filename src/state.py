@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -25,11 +25,13 @@ from models import (
     PendingReport,
     PersistedWorkerHeartbeat,
     Release,
+    ReportHistoryEntry,
     SessionCounters,
     SessionLog,
     SessionStatus,
     StateData,
     ThresholdProposal,
+    TrackedReport,
     VisualEvidence,
     WorkerResultMeta,
 )
@@ -913,6 +915,49 @@ class StateTracker:
     def get_pending_reports(self) -> list[PendingReport]:
         """Return a copy of the pending reports list."""
         return list(self._data.pending_reports)
+
+    # --- tracked reports ---
+
+    def add_tracked_report(self, report: TrackedReport) -> None:
+        """Add a tracked report and persist."""
+        self._data.tracked_reports.append(report)
+        self.save()
+
+    def get_tracked_reports(self, reporter_id: str) -> list[TrackedReport]:
+        """Return tracked reports for a given reporter."""
+        return [r for r in self._data.tracked_reports if r.reporter_id == reporter_id]
+
+    def get_tracked_report(self, report_id: str) -> TrackedReport | None:
+        """Return a single tracked report by ID, or None."""
+        for r in self._data.tracked_reports:
+            if r.id == report_id:
+                return r
+        return None
+
+    def update_tracked_report(
+        self,
+        report_id: str,
+        *,
+        status: Literal["queued", "in-progress", "fixed", "closed", "reopened"]
+        | None = None,
+        detail: str = "",
+        action_label: str = "",
+    ) -> TrackedReport | None:
+        """Update a tracked report's status and append a history entry."""
+        for r in self._data.tracked_reports:
+            if r.id == report_id:
+                if status:
+                    r.status = status
+                r.updated_at = datetime.now(UTC).isoformat()
+                r.history.append(
+                    ReportHistoryEntry(
+                        action=action_label or status or "updated",
+                        detail=detail,
+                    )
+                )
+                self.save()
+                return r
+        return None
 
     # --- metrics state ---
 

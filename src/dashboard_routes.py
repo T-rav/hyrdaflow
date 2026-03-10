@@ -70,8 +70,11 @@ from models import (
     PipelineSnapshot,
     PipelineSnapshotEntry,
     QueueStats,
+    ReportHistoryEntry,
     ReportIssueRequest,
     ReportIssueResponse,
+    TrackedReport,
+    TrackedReportUpdate,
     parse_task_links,
 )
 from pr_manager import PRManager
@@ -3826,14 +3829,90 @@ def create_router(
             description=request.description,
             screenshot_base64=request.screenshot_base64,
             environment=request.environment,
+            reporter_id=request.reporter_id,
         )
         state.enqueue_report(report)
+
+        # Create a tracked report for the reporter if a reporter_id is provided
+        if request.reporter_id:
+            tracked = TrackedReport(
+                id=report.id,
+                reporter_id=request.reporter_id,
+                description=request.description,
+                status="queued",
+                history=[
+                    ReportHistoryEntry(
+                        action="submitted",
+                        detail="Bug report submitted via dashboard",
+                    )
+                ],
+            )
+            state.add_tracked_report(tracked)
 
         title = f"[Bug Report] {request.description[:100]}"
         response = ReportIssueResponse(
             issue_number=0, title=title, url="", status="queued"
         )
         return JSONResponse(response.model_dump())
+
+    @router.get("/api/reports")
+    async def list_tracked_reports(reporter_id: str = "") -> JSONResponse:
+        """List tracked reports for a given reporter."""
+        if not reporter_id:
+            return JSONResponse([])
+        reports = state.get_tracked_reports(reporter_id)
+        return JSONResponse([r.model_dump() for r in reports])
+
+    @router.patch("/api/reports/{report_id}")
+    async def update_tracked_report(
+        report_id: str, body: TrackedReportUpdate
+    ) -> JSONResponse:
+        """Update a tracked report (confirm fixed, reopen, cancel)."""
+        report = state.get_tracked_report(report_id)
+        if report is None:
+            return JSONResponse({"error": "Report not found"}, status_code=404)
+        if (
+            body.reporter_id
+            and report.reporter_id
+            and body.reporter_id != report.reporter_id
+        ):
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
+        # Validate state-machine transitions
+        valid_actions: dict[str, list[str]] = {
+            "confirm_fixed": ["fixed"],
+            "reopen": ["fixed", "in-progress", "closed"],
+            "cancel": ["queued", "in-progress", "fixed", "reopened"],
+        }
+        if report.status not in valid_actions.get(body.action, []):
+            return JSONResponse(
+                {
+                    "error": f"Action '{body.action}' is not allowed in status '{report.status}'"
+                },
+                status_code=422,
+            )
+        action_map = {
+            "confirm_fixed": ("closed", "Confirmed fixed by reporter"),
+            "reopen": ("reopened", "Reopened by reporter"),
+            "cancel": ("closed", "Cancelled by reporter"),
+        }
+        status, default_detail = action_map[body.action]
+        updated = state.update_tracked_report(
+            report_id,
+            status=status,
+            detail=body.detail or default_detail,
+            action_label=body.action,
+        )
+        if updated is None:
+            return JSONResponse({"error": "Report not found"}, status_code=404)
+        return JSONResponse(updated.model_dump())
+
+    @router.get("/api/reports/{report_id}/history")
+    async def get_report_history(report_id: str) -> JSONResponse:
+        """Get the timeline/history for a tracked report."""
+        report = state.get_tracked_report(report_id)
+        if report is None:
+            return JSONResponse({"error": "Report not found"}, status_code=404)
+        return JSONResponse([entry.model_dump() for entry in report.history])
 
     @router.get("/api/sessions")
     async def get_sessions(
