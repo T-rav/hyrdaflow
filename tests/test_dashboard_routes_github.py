@@ -127,6 +127,34 @@ class TestGitHubRepoEndpoints:
         assert data["repos"][0]["name"] == "foo"
 
     @pytest.mark.asyncio
+    async def test_list_github_repos_with_null_owner(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Repos with owner: null must not crash the query filter."""
+        router, _ = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+
+        gh_output = json.dumps(
+            [
+                {
+                    "name": "orphaned",
+                    "owner": None,
+                    "url": "",
+                    "description": "",
+                },
+            ]
+        ).encode()
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(gh_output, b""))
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            response = await endpoint(query="orphaned")
+        data = json.loads(response.body)
+        assert data["repos"][0]["name"] == "orphaned"
+
+    @pytest.mark.asyncio
     async def test_list_github_repos_gh_not_found(
         self, config, event_bus, state, tmp_path
     ) -> None:

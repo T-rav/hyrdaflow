@@ -3662,9 +3662,9 @@ def create_router(
                 r
                 for r in repos
                 if q in (r.get("name") or "").lower()
-                or q in (r.get("owner", {}).get("login", "") or "").lower()
+                or q in ((r.get("owner") or {}).get("login") or "").lower()
                 or q
-                in f"{r.get('owner', {}).get('login', '')}/{r.get('name', '')}".lower()
+                in f"{(r.get('owner') or {}).get('login', '')}/{r.get('name', '')}".lower()
             ]
         return JSONResponse({"repos": repos})
 
