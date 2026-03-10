@@ -185,8 +185,10 @@ async def stream_claude_process(
             # Claude CLI emits '"error":"authentication_failed"' when it
             # cannot authenticate — this can be a transient OAuth token
             # refresh failure, so the caller retries with backoff.
+            # Skip when early_killed=True — killing the process can cause
+            # in-flight API requests to fail with auth errors as a side effect.
             raw_output = "\n".join(raw_lines)
-            if "authentication_failed" in raw_output:
+            if not early_killed and "authentication_failed" in raw_output:
                 raise AuthenticationRetryError(
                     "Agent CLI authentication failed — check "
                     "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
