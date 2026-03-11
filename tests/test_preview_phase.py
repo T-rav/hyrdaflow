@@ -75,7 +75,7 @@ def _make_phase(**overrides):
     # Store defaults
     store.get_previewable = MagicMock(return_value=[])
     store.mark_active = MagicMock()
-    store.mark_done = MagicMock()
+    store.mark_complete = MagicMock()
 
     phase = PreviewPhase(
         config=config,
@@ -117,7 +117,7 @@ class TestProcessPreviewIssues:
 
         assert result is True
         store.mark_active.assert_called_once()
-        store.mark_done.assert_called_once()
+        store.mark_complete.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

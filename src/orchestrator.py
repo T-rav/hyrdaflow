@@ -1255,7 +1255,7 @@ class HydraFlowOrchestrator:
                 exc = task.exception()
                 if exc is not None:
                     if isinstance(
-                        exc, (AuthenticationError, CreditExhaustedError, MemoryError)
+                        exc, AuthenticationError | CreditExhaustedError | MemoryError
                     ):
                         # Cancel remaining and propagate fatal errors
                         for t in pending:

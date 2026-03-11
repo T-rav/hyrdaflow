@@ -86,7 +86,7 @@ class PreviewPhase:
             except Exception:
                 logger.exception("Preview processing failed for issue #%d", task.id)
             finally:
-                self._store.mark_done(task.id)
+                self._store.mark_complete(task.id)
 
         return True
 
