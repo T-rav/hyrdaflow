@@ -719,7 +719,6 @@ class PipelineHarness:
             self.config.state_file.parent,
             self.config.data_root,
             self.config.plans_dir,
-            self.config.memory_dir,
             self.config.log_dir,
             self.config.visual_reports_dir,
         }

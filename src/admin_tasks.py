@@ -12,17 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from config import HydraFlowConfig
-from file_util import atomic_write
 
 logger = logging.getLogger("hydraflow.admin_tasks")
 
 _PREP_COVERAGE_MIN_REQUIRED = 20.0
 _PREP_COVERAGE_TARGET = 70.0
-_SEEDED_DIGEST_PLACEHOLDER = (
-    "## Accumulated Learnings\n"
-    "*Seeded during prep; no learnings yet.*\n\n"
-    "HydraFlow will update this digest after the first memory sync.\n"
-)
 _PREP_COVERAGE_STATE_PATH = Path("prep/coverage-floor.json")
 
 
@@ -55,7 +49,7 @@ def _prep_stage_line(stage: str, detail: str, status: str) -> str:
 
 
 def _seed_context_assets(config: HydraFlowConfig) -> list[str]:
-    """Ensure manifest, memory digest, and metrics cache exist after prep."""
+    """Ensure manifest and metrics cache exist after prep."""
     from manifest import ProjectManifestManager  # noqa: PLC0415
     from metrics_manager import get_metrics_cache_dir  # noqa: PLC0415
 
@@ -72,18 +66,6 @@ def _seed_context_assets(config: HydraFlowConfig) -> list[str]:
         f"- Manifest seed: {manifest_rel} "
         f"(hash={manifest_result.digest_hash}, chars={len(manifest_result.content)})"
     )
-    legacy_manifest_path = config.data_path("memory", "manifest.md")
-    if not legacy_manifest_path.exists():
-        atomic_write(legacy_manifest_path, manifest_result.content)
-
-    digest_path = config.data_path("memory", "digest.md")
-    digest_rel = config.format_path_for_display(digest_path)
-    if digest_path.exists():
-        log_lines.append(f"- Memory digest already existed: {digest_rel}")
-    else:
-        atomic_write(digest_path, _SEEDED_DIGEST_PLACEHOLDER)
-        log_lines.append(f"- Memory digest seeded: {digest_rel}")
-
     cache_dir = get_metrics_cache_dir(config)
     snapshots_file = cache_dir / "snapshots.jsonl"
     cache_dir.mkdir(parents=True, exist_ok=True)

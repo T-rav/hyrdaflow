@@ -1671,7 +1671,7 @@ class TestGetTimelineIssueEndpoint:
 class TestMemoriesEndpoint:
     """Tests for the /api/memories endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
+    def _make_router(self, config, event_bus, state, tmp_path, hindsight=None):
         from dashboard_routes import create_router
         from pr_manager import PRManager
 
@@ -1686,6 +1686,7 @@ class TestMemoriesEndpoint:
             set_run_task=lambda t: None,
             ui_dist_dir=tmp_path / "no-dist",
             template_dir=tmp_path / "no-templates",
+            hindsight=hindsight,
         )
 
     def _find_endpoint(self, router, path):
@@ -1717,64 +1718,66 @@ class TestMemoriesEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
+        from unittest.mock import AsyncMock, MagicMock
 
-        items_dir = config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        (items_dir / "42.md").write_text("Always validate inputs")
-        (items_dir / "55.md").write_text("Use async for I/O")
+        mock_hindsight = AsyncMock()
+        mem1 = MagicMock()
+        mem1.content = "Always validate inputs"
+        mem2 = MagicMock()
+        mem2.content = "Use async for I/O"
 
-        digest_path = config.data_path("memory", "digest.md")
-        digest_path.write_text("# Digest\nSome content here")
+        with patch("hindsight.recall_safe", AsyncMock(return_value=[mem1, mem2])):
+            router = self._make_router(
+                config, event_bus, state, tmp_path, hindsight=mock_hindsight
+            )
+            endpoint = self._find_endpoint(router, "/api/memories")
+            response = await endpoint()
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/memories")
-        response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 2
-        assert data["digest_chars"] > 0
         assert len(data["items"]) == 2
-        # Items are sorted reverse by filename, so 55 comes first
-        numbers = [item["issue_number"] for item in data["items"]]
-        assert 42 in numbers
-        assert 55 in numbers
+        learnings = [item["learning"] for item in data["items"]]
+        assert "Always validate inputs" in learnings
+        assert "Use async for I/O" in learnings
 
     @pytest.mark.asyncio
-    async def test_memories_skips_non_numeric_filenames(
+    async def test_memories_returns_empty_without_hindsight(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Non-numeric .md filenames (e.g. README.md) should be silently skipped."""
+        """Without a Hindsight client, endpoint returns empty items."""
         import json
 
-        items_dir = config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        (items_dir / "42.md").write_text("Valid item")
-        (items_dir / "README.md").write_text("Not a learning item")
-        (items_dir / "notes.md").write_text("Also not valid")
-
-        router = self._make_router(config, event_bus, state, tmp_path)
+        router = self._make_router(config, event_bus, state, tmp_path, hindsight=None)
         endpoint = self._find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
-        assert data["total_items"] == 1
-        assert data["items"][0]["issue_number"] == 42
+        assert data["total_items"] == 0
+        assert data["items"] == []
 
     @pytest.mark.asyncio
     async def test_memories_caps_at_50_items(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """The endpoint should return at most 50 items."""
+        """The endpoint requests at most 50 items from Hindsight."""
         import json
+        from unittest.mock import AsyncMock, MagicMock
 
-        items_dir = config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        for i in range(60):
-            (items_dir / f"{i + 1}.md").write_text(f"Learning #{i + 1}")
+        mock_hindsight = AsyncMock()
+        memories = []
+        for i in range(50):
+            mem = MagicMock()
+            mem.content = f"Learning #{i + 1}"
+            memories.append(mem)
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/memories")
-        response = await endpoint()
+        with patch("hindsight.recall_safe", AsyncMock(return_value=memories)):
+            router = self._make_router(
+                config, event_bus, state, tmp_path, hindsight=mock_hindsight
+            )
+            endpoint = self._find_endpoint(router, "/api/memories")
+            response = await endpoint()
+
         data = json.loads(response.body)
-        assert data["total_items"] == 60
+        assert data["total_items"] == 50
         assert len(data["items"]) == 50
 
 

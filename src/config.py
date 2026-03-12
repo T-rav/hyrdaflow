@@ -1296,11 +1296,6 @@ class HydraFlowConfig(BaseModel):
         return self.data_root / "plans"
 
     @property
-    def memory_dir(self) -> Path:
-        """Return the directory for memory / review-insight files."""
-        return self.data_root / "memory"
-
-    @property
     def visual_reports_dir(self) -> Path:
         """Return the directory for visual validation reports."""
         return self.data_root / "visual-reports"

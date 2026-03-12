@@ -3091,30 +3091,18 @@ def create_router(
 
     @router.get("/api/memories")
     async def get_memories() -> JSONResponse:
-        """Return memory items and curated manifest data."""
+        """Return memory items from Hindsight and curated manifest data."""
+        from hindsight import recall_safe
         from manifest_curator import CuratedManifestStore
 
-        items_dir = config.data_path("memory", "items")
-        digest_path = config.data_path("memory", "digest.md")
-
         items: list[dict[str, object]] = []
-        if items_dir.is_dir():
-            for path in sorted(items_dir.glob("*.md"), reverse=True):
-                try:
-                    issue_number = int(path.stem)
-                    items.append(
-                        {
-                            "issue_number": issue_number,
-                            "learning": path.read_text().strip(),
-                        }
-                    )
-                except (ValueError, OSError):
-                    pass
-
-        digest_chars = 0
-        if digest_path.exists():
-            with contextlib.suppress(OSError):
-                digest_chars = digest_path.stat().st_size
+        if hindsight is not None:
+            memories = await recall_safe(
+                hindsight, "BANK_LEARNINGS", "recent learnings", limit=50
+            )
+            for mem in memories:
+                with contextlib.suppress(Exception):
+                    items.append({"learning": mem.content.strip()})
 
         curated_store = CuratedManifestStore(config)
         curated = curated_store.load()
@@ -3122,9 +3110,9 @@ def create_router(
         return JSONResponse(
             {
                 "total_items": len(items),
-                "digest_chars": digest_chars,
+                "digest_chars": 0,
                 "curated": curated,
-                "items": items[-50:],
+                "items": items,
             }
         )
 
