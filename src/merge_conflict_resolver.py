@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent import AgentRunner
 from config import HydraFlowConfig
 from events import EventBus
+
+if TYPE_CHECKING:
+    from hindsight import HindsightClient
 from models import (
     ConflictResolutionResult,
     EscalateFn,
@@ -39,6 +43,7 @@ class MergeConflictResolver:
         event_bus: EventBus,
         state: StateTracker,
         summarizer: TranscriptSummarizer | None,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._worktrees = worktrees
@@ -47,6 +52,7 @@ class MergeConflictResolver:
         self._bus = event_bus
         self._state = state
         self._summarizer = summarizer
+        self._hindsight = hindsight
         self._suggest_memory = MemorySuggester(config, prs, state)
 
     async def merge_with_main(
@@ -163,8 +169,13 @@ class MergeConflictResolver:
             )
 
             try:
-                prompt = build_conflict_prompt(
-                    issue.source_url, pr.url, last_error, attempt, config=self._config
+                prompt = await build_conflict_prompt(
+                    issue.source_url,
+                    pr.url,
+                    last_error,
+                    attempt,
+                    config=self._config,
+                    hindsight=self._hindsight,
                 )
                 error_before = 0
                 error_after = 0
@@ -290,12 +301,13 @@ class MergeConflictResolver:
         )
 
         try:
-            prompt = build_rebuild_prompt(
+            prompt = await build_rebuild_prompt(
                 issue.source_url,
                 pr.url,
                 issue.id,
                 pr_diff,
                 config=self._config,
+                hindsight=self._hindsight,
             )
             prompt_stats = build_prompt_stats(
                 context_before=len(pr_diff),

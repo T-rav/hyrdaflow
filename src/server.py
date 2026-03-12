@@ -27,10 +27,17 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     await bus.load_history_from_disk()
     state = StateTracker(config.state_file)
 
+    from hindsight import HindsightClient  # noqa: PLC0415
+
+    hindsight_client = HindsightClient(
+        base_url=config.hindsight_url,
+        api_key=config.hindsight_api_key,
+    )
     dashboard = HydraFlowDashboard(
         config=config,
         event_bus=bus,
         state=state,
+        hindsight=hindsight_client,
     )
     await dashboard.start()
 

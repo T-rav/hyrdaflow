@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -16,6 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
+from hindsight import HindsightMemory
 from models import ReviewVerdict
 from retrospective import RetrospectiveCollector, RetrospectiveEntry
 from state import StateTracker
@@ -31,14 +31,15 @@ def _make_collector(
     *,
     diff_names: list[str] | None = None,
     create_issue_return: int = 0,
+    hindsight: AsyncMock | None = None,
 ) -> tuple[RetrospectiveCollector, AsyncMock, StateTracker]:
-    """Build a RetrospectiveCollector with mocked PRManager."""
+    """Build a RetrospectiveCollector with mocked PRManager and optional Hindsight."""
     state = StateTracker(config.state_file)
     mock_prs = AsyncMock()
     mock_prs.get_pr_diff_names = AsyncMock(return_value=diff_names or [])
     mock_prs.create_issue = AsyncMock(return_value=create_issue_return)
 
-    collector = RetrospectiveCollector(config, state, mock_prs)
+    collector = RetrospectiveCollector(config, state, mock_prs, hindsight=hindsight)
     return collector, mock_prs, state
 
 
@@ -49,15 +50,21 @@ def _write_plan(config: HydraFlowConfig, issue_number: int, content: str) -> Non
     (plan_dir / f"issue-{issue_number}.md").write_text(content)
 
 
-def _write_retro_entries(
-    config: HydraFlowConfig, entries: list[RetrospectiveEntry]
-) -> None:
-    """Write retrospective entries to the JSONL file."""
-    retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-    retro_path.parent.mkdir(parents=True, exist_ok=True)
-    with retro_path.open("w") as f:
-        for entry in entries:
-            f.write(entry.model_dump_json() + "\n")
+def _make_hindsight_mock(
+    entries: list[RetrospectiveEntry] | None = None,
+) -> AsyncMock:
+    """Create a mock HindsightClient that returns entries from recall_safe."""
+    mock = AsyncMock()
+    # The mock itself isn't called directly — retain_safe/recall_safe are
+    # module-level functions that receive it as the first arg.
+    return mock
+
+
+def _memories_from_entries(
+    entries: list[RetrospectiveEntry],
+) -> list[HindsightMemory]:
+    """Convert RetrospectiveEntry list to HindsightMemory list for mocking recall_safe."""
+    return [HindsightMemory(content=e.model_dump_json()) for e in entries]
 
 
 # ---------------------------------------------------------------------------
@@ -186,88 +193,115 @@ class TestComputeAccuracy:
 
 
 # ---------------------------------------------------------------------------
-# JSONL storage tests
+# Hindsight storage tests
 # ---------------------------------------------------------------------------
 
 
-class TestJSONLStorage:
-    def test_append_creates_directory_and_file(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=101,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-        collector._append_entry(entry)
-
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        assert retro_path.exists()
-
-    def test_append_writes_valid_jsonl(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
+class TestHindsightStorage:
+    @pytest.mark.asyncio
+    async def test_retain_to_hindsight_calls_retain_safe(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Entries are retained to Hindsight via retain_safe."""
+        mock_hs = AsyncMock()
+        collector, _, _ = _make_collector(config, hindsight=mock_hs)
         entry = RetrospectiveEntry(
             issue_number=42,
             pr_number=101,
             timestamp="2026-02-20T10:30:00Z",
             plan_accuracy_pct=85.0,
         )
-        collector._append_entry(entry)
 
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        lines = retro_path.read_text().strip().splitlines()
-        assert len(lines) == 1
-        data = json.loads(lines[0])
-        assert data["issue_number"] == 42
-        assert data["plan_accuracy_pct"] == 85.0
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await collector._retain_to_hindsight(entry)
 
-    def test_append_to_existing_file(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        for i in range(3):
-            entry = RetrospectiveEntry(
-                issue_number=i,
-                pr_number=100 + i,
-                timestamp="2026-02-20T10:30:00Z",
-            )
-            collector._append_entry(entry)
+            mock_retain.assert_awaited_once()
+            call_args = mock_retain.call_args
+            assert call_args[0][0] is mock_hs  # client
+            assert call_args[0][1] == "hydraflow-retrospectives"  # bank
+            assert "42" in call_args[0][2]  # content contains issue number
 
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        lines = retro_path.read_text().strip().splitlines()
-        assert len(lines) == 3
+    @pytest.mark.asyncio
+    async def test_retain_to_hindsight_skipped_when_no_client(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When hindsight is None, _retain_to_hindsight is a no-op."""
+        collector, _, _ = _make_collector(config, hindsight=None)
+        entry = RetrospectiveEntry(
+            issue_number=42,
+            pr_number=101,
+            timestamp="2026-02-20T10:30:00Z",
+        )
 
-    def test_load_recent_returns_correct_count(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await collector._retain_to_hindsight(entry)
+            mock_retain.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_load_recent_returns_entries_from_hindsight(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_load_recent should parse HindsightMemory objects into RetrospectiveEntries."""
+        mock_hs = AsyncMock()
+        collector, _, _ = _make_collector(config, hindsight=mock_hs)
+
         entries = [
             RetrospectiveEntry(
                 issue_number=i,
                 pr_number=100 + i,
                 timestamp="2026-02-20T10:30:00Z",
             )
-            for i in range(5)
+            for i in range(3)
         ]
-        _write_retro_entries(config, entries)
+        memories = _memories_from_entries(entries)
 
-        result = collector._load_recent(3)
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await collector._load_recent(5)
+
         assert len(result) == 3
-        assert result[0].issue_number == 2  # last 3 entries
+        assert result[0].issue_number == 0
+        assert result[2].issue_number == 2
 
-    def test_load_recent_with_fewer_entries(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        entries = [
-            RetrospectiveEntry(
-                issue_number=1,
-                pr_number=101,
-                timestamp="2026-02-20T10:30:00Z",
-            )
-        ]
-        _write_retro_entries(config, entries)
-
-        result = collector._load_recent(10)
-        assert len(result) == 1
-
-    def test_load_recent_with_missing_file(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        result = collector._load_recent(10)
+    @pytest.mark.asyncio
+    async def test_load_recent_returns_empty_when_no_client(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When hindsight is None, _load_recent returns empty list."""
+        collector, _, _ = _make_collector(config, hindsight=None)
+        result = await collector._load_recent(10)
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_load_recent_skips_malformed_records(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Malformed Hindsight records are skipped without raising."""
+        mock_hs = AsyncMock()
+        collector, _, _ = _make_collector(config, hindsight=mock_hs)
+
+        valid_entry = RetrospectiveEntry(
+            issue_number=1,
+            pr_number=101,
+            timestamp="2026-02-20T10:30:00Z",
+        )
+        memories = [
+            HindsightMemory(content="not valid json"),
+            HindsightMemory(content=valid_entry.model_dump_json()),
+        ]
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await collector._load_recent(5)
+
+        assert len(result) == 1
+        assert result[0].issue_number == 1
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +313,11 @@ class TestRecord:
     @pytest.mark.asyncio
     async def test_full_record_flow(self, config: HydraFlowConfig) -> None:
         """Full record flow: plan exists, diff available, metadata in state."""
+        mock_hs = AsyncMock()
         collector, mock_prs, state = _make_collector(
-            config, diff_names=["src/foo.py", "tests/test_foo.py", "src/bar.py"]
+            config,
+            diff_names=["src/foo.py", "tests/test_foo.py", "src/bar.py"],
+            hindsight=mock_hs,
         )
 
         _write_plan(
@@ -300,73 +337,117 @@ class TestRecord:
         review = ReviewResultFactory.create(
             merged=True, fixes_made=False, ci_fix_attempts=0
         )
-        await collector.record(42, 101, review)
 
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        assert retro_path.exists()
-        lines = retro_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+        # Mock both retain_safe and recall_safe (recall returns empty for pattern detection)
+        with (
+            patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain,
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            await collector.record(42, 101, review)
 
-        data = json.loads(lines[0])
-        assert data["issue_number"] == 42
-        assert data["pr_number"] == 101
-        assert data["planned_files"] == ["src/foo.py", "tests/test_foo.py"]
-        assert sorted(data["actual_files"]) == [
-            "src/bar.py",
-            "src/foo.py",
-            "tests/test_foo.py",
-        ]
-        assert data["unplanned_files"] == ["src/bar.py"]
-        assert data["missed_files"] == []
-        assert data["plan_accuracy_pct"] == 100.0
-        assert data["quality_fix_rounds"] == 1
-        assert data["review_verdict"] == "approve"
-        assert data["reviewer_fixes_made"] is False
+            # Verify retain_safe was called with correct entry data
+            mock_retain.assert_awaited_once()
+            content_json = mock_retain.call_args[0][2]
+            import json
+
+            data = json.loads(content_json)
+            assert data["issue_number"] == 42
+            assert data["pr_number"] == 101
+            assert data["planned_files"] == ["src/foo.py", "tests/test_foo.py"]
+            assert sorted(data["actual_files"]) == [
+                "src/bar.py",
+                "src/foo.py",
+                "tests/test_foo.py",
+            ]
+            assert data["unplanned_files"] == ["src/bar.py"]
+            assert data["missed_files"] == []
+            assert data["plan_accuracy_pct"] == 100.0
+            assert data["quality_fix_rounds"] == 1
+            assert data["review_verdict"] == "approve"
+            assert data["reviewer_fixes_made"] is False
 
     @pytest.mark.asyncio
     async def test_record_when_plan_missing(self, config: HydraFlowConfig) -> None:
         """When plan file doesn't exist, should still record with empty planned_files."""
-        collector, _, _ = _make_collector(config, diff_names=["src/foo.py"])
+        mock_hs = AsyncMock()
+        collector, _, _ = _make_collector(
+            config, diff_names=["src/foo.py"], hindsight=mock_hs
+        )
 
         review = ReviewResultFactory.create(merged=True)
-        await collector.record(42, 101, review)
 
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        lines = retro_path.read_text().strip().splitlines()
-        data = json.loads(lines[0])
-        assert data["planned_files"] == []
-        assert data["plan_accuracy_pct"] == 0.0
+        with (
+            patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain,
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            await collector.record(42, 101, review)
+
+            import json
+
+            data = json.loads(mock_retain.call_args[0][2])
+            assert data["planned_files"] == []
+            assert data["plan_accuracy_pct"] == 0.0
 
     @pytest.mark.asyncio
     async def test_record_when_diff_fails(self, config: HydraFlowConfig) -> None:
         """When gh pr diff fails, should record with empty actual_files."""
-        collector, _, _ = _make_collector(config, diff_names=[])
+        mock_hs = AsyncMock()
+        collector, _, _ = _make_collector(config, diff_names=[], hindsight=mock_hs)
 
         _write_plan(config, 42, "## Files to Modify\n\n- `src/foo.py`\n")
         review = ReviewResultFactory.create(merged=True)
-        await collector.record(42, 101, review)
 
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        lines = retro_path.read_text().strip().splitlines()
-        data = json.loads(lines[0])
-        assert data["actual_files"] == []
-        assert data["missed_files"] == ["src/foo.py"]
+        with (
+            patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain,
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            await collector.record(42, 101, review)
+
+            import json
+
+            data = json.loads(mock_retain.call_args[0][2])
+            assert data["actual_files"] == []
+            assert data["missed_files"] == ["src/foo.py"]
 
     @pytest.mark.asyncio
     async def test_record_when_worker_metadata_missing(
         self, config: HydraFlowConfig
     ) -> None:
         """When worker metadata not in state, should use defaults."""
-        collector, _, _ = _make_collector(config, diff_names=["src/foo.py"])
+        mock_hs = AsyncMock()
+        collector, _, _ = _make_collector(
+            config, diff_names=["src/foo.py"], hindsight=mock_hs
+        )
 
         review = ReviewResultFactory.create(merged=True)
-        await collector.record(42, 101, review)
 
-        retro_path = config.repo_root / ".hydraflow" / "memory" / "retrospectives.jsonl"
-        lines = retro_path.read_text().strip().splitlines()
-        data = json.loads(lines[0])
-        assert data["quality_fix_rounds"] == 0
-        assert data["duration_seconds"] == 0.0
+        with (
+            patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain,
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            await collector.record(42, 101, review)
+
+            import json
+
+            data = json.loads(mock_retain.call_args[0][2])
+            assert data["quality_fix_rounds"] == 0
+            assert data["duration_seconds"] == 0.0
 
     @pytest.mark.asyncio
     async def test_record_failure_is_non_blocking(
@@ -540,13 +621,11 @@ class TestPatternDetection:
 
     @pytest.mark.asyncio
     async def test_duplicate_pattern_not_filed(self, config: HydraFlowConfig) -> None:
-        """Same pattern should not be filed twice."""
-        collector, mock_prs, _ = _make_collector(config)
+        """Same pattern should not be filed twice (uses StateTracker)."""
+        collector, mock_prs, state = _make_collector(config)
 
-        # Pre-populate filed patterns
-        filed_path = config.repo_root / ".hydraflow" / "memory" / "filed_patterns.json"
-        filed_path.parent.mkdir(parents=True, exist_ok=True)
-        filed_path.write_text(json.dumps(["quality_fix"]))
+        # Pre-populate proposed patterns via StateTracker
+        state.mark_pattern_proposed("retrospective", "quality_fix")
 
         entries = [
             RetrospectiveEntry(
@@ -561,7 +640,7 @@ class TestPatternDetection:
 
         await collector._detect_patterns(entries)
 
-        # Should not file again since quality_fix is already in filed patterns
+        # Should not file again since quality_fix is already proposed
         mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -608,41 +687,25 @@ class TestPatternDetection:
         assert "hydraflow-improve" in labels
         assert "hydraflow-memory" in labels
 
+    @pytest.mark.asyncio
+    async def test_pattern_marks_state_tracker(self, config: HydraFlowConfig) -> None:
+        """When a pattern is filed, it should be marked in StateTracker."""
+        collector, mock_prs, state = _make_collector(config)
+        entries = [
+            RetrospectiveEntry(
+                issue_number=i,
+                pr_number=100 + i,
+                timestamp="2026-02-20T10:30:00Z",
+                quality_fix_rounds=1,
+                plan_accuracy_pct=90,
+            )
+            for i in range(10)
+        ]
 
-# ---------------------------------------------------------------------------
-# Filed patterns persistence
-# ---------------------------------------------------------------------------
+        await collector._detect_patterns(entries)
 
-
-class TestFiledPatterns:
-    def test_load_empty_when_no_file(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        result = collector._load_filed_patterns()
-        assert result == set()
-
-    def test_save_and_load_round_trip(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        patterns = {"quality_fix", "plan_accuracy"}
-        collector._save_filed_patterns(patterns)
-        result = collector._load_filed_patterns()
-        assert result == patterns
-
-    def test_load_handles_corrupt_file(self, config: HydraFlowConfig) -> None:
-        collector, _, _ = _make_collector(config)
-        filed_path = config.repo_root / ".hydraflow" / "memory" / "filed_patterns.json"
-        filed_path.parent.mkdir(parents=True, exist_ok=True)
-        filed_path.write_text("not valid json")
-        result = collector._load_filed_patterns()
-        assert result == set()
-
-    def test_save_filed_patterns_handles_oserror(
-        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        collector, _, _ = _make_collector(config)
-        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
-            collector._save_filed_patterns({"quality_fix"})  # should not raise
-
-        assert "Could not save filed patterns" in caplog.text
+        proposed = state.get_proposed_patterns("retrospective")
+        assert "quality_fix" in proposed
 
 
 # ---------------------------------------------------------------------------
@@ -734,7 +797,7 @@ class TestFileImprovementIssueSetsOrigin:
                 issue_number=i,
                 pr_number=100 + i,
                 timestamp="2026-02-20T10:30:00Z",
-                quality_fix_rounds=1,  # >50% → triggers pattern
+                quality_fix_rounds=1,  # >50% -> triggers pattern
                 plan_accuracy_pct=90,
             )
             for i in range(10)
@@ -745,54 +808,3 @@ class TestFileImprovementIssueSetsOrigin:
         mock_prs.create_issue.assert_awaited_once()
         assert state.get_hitl_origin(77) is None
         assert state.get_hitl_cause(77) is None
-
-
-# ---------------------------------------------------------------------------
-# _append_entry OSError handling (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestAppendEntryOSError:
-    """Verify RetrospectiveCollector._append_entry catches OSError gracefully."""
-
-    def test_append_entry_logs_warning_on_oserror(
-        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When the retro log can't be written, log warning and don't raise."""
-        import logging
-
-        collector, _, _ = _make_collector(config)
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-
-        with (
-            patch("file_util.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.retrospective"),
-        ):
-            collector._append_entry(entry)  # should not raise
-
-        assert "Could not append to retrospective log" in caplog.text
-
-    def test_append_entry_handles_mkdir_failure(
-        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When mkdir fails with PermissionError, log warning and don't raise."""
-        import logging
-
-        collector, _, _ = _make_collector(config)
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-
-        with (
-            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.retrospective"),
-        ):
-            collector._append_entry(entry)  # should not raise
-
-        assert "Could not append to retrospective log" in caplog.text

@@ -493,37 +493,59 @@ class TestReviewInsightsEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
+        from unittest.mock import MagicMock, patch
 
-        from review_insights import ReviewInsightStore, ReviewRecord
+        from hindsight import HindsightMemory
+        from review_insights import ReviewRecord
 
-        memory_dir = config.data_path("memory")
-        store = ReviewInsightStore(memory_dir)
-        store.append_review(
-            ReviewRecord(
-                pr_number=1,
-                issue_number=10,
-                timestamp="2024-01-01T00:00:00Z",
-                verdict="approve",
-                summary="Looks good",
-                fixes_made=False,
-                categories=["code_quality"],
-            )
+        record1 = ReviewRecord(
+            pr_number=1,
+            issue_number=10,
+            timestamp="2024-01-01T00:00:00Z",
+            verdict="approve",
+            summary="Looks good",
+            fixes_made=False,
+            categories=["code_quality"],
         )
-        store.append_review(
-            ReviewRecord(
-                pr_number=2,
-                issue_number=11,
-                timestamp="2024-01-02T00:00:00Z",
-                verdict="request-changes",
-                summary="Missing tests",
-                fixes_made=True,
-                categories=["missing_tests"],
-            )
+        record2 = ReviewRecord(
+            pr_number=2,
+            issue_number=11,
+            timestamp="2024-01-02T00:00:00Z",
+            verdict="request-changes",
+            summary="Missing tests",
+            fixes_made=True,
+            categories=["missing_tests"],
         )
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/review-insights")
-        response = await endpoint()
+        memories = [
+            HindsightMemory(content=record1.model_dump_json()),
+            HindsightMemory(content=record2.model_dump_json()),
+        ]
+
+        mock_hindsight = MagicMock()
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=memories
+        ):
+            router = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+                hindsight=mock_hindsight,
+            )
+            endpoint = self._find_endpoint(router, "/api/review-insights")
+            response = await endpoint()
+
         data = json.loads(response.body)
         assert data["total_reviews"] == 2
         assert data["fixes_made_count"] == 1
@@ -592,11 +614,10 @@ class TestRetrospectivesEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
+        from unittest.mock import MagicMock, patch
 
+        from hindsight import HindsightMemory
         from retrospective import RetrospectiveEntry
-
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        retro_path.parent.mkdir(parents=True, exist_ok=True)
 
         entry = RetrospectiveEntry(
             issue_number=10,
@@ -609,11 +630,32 @@ class TestRetrospectivesEndpoint:
             ci_fix_rounds=0,
             duration_seconds=120.0,
         )
-        retro_path.write_text(entry.model_dump_json() + "\n")
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/retrospectives")
-        response = await endpoint()
+        memories = [HindsightMemory(content=entry.model_dump_json())]
+        mock_hindsight = MagicMock()
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=memories
+        ):
+            router = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+                hindsight=mock_hindsight,
+            )
+            endpoint = self._find_endpoint(router, "/api/retrospectives")
+            response = await endpoint()
+
         data = json.loads(response.body)
         assert data["total_entries"] == 1
         assert data["avg_plan_accuracy"] == 85.0
@@ -668,13 +710,12 @@ class TestRetrospectivesEdgeCases:
     async def test_retrospectives_malformed_jsonl_skipped(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Malformed JSONL lines should be silently skipped."""
+        """Malformed memories should be silently skipped."""
         import json
+        from unittest.mock import MagicMock, patch
 
+        from hindsight import HindsightMemory
         from retrospective import RetrospectiveEntry
-
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        retro_path.parent.mkdir(parents=True, exist_ok=True)
 
         valid = RetrospectiveEntry(
             issue_number=10,
@@ -687,16 +728,36 @@ class TestRetrospectivesEdgeCases:
             ci_fix_rounds=0,
             duration_seconds=60.0,
         )
-        lines = [
-            "not valid json at all",
-            '{"issue_number": 99}',
-            valid.model_dump_json(),
+        # Simulate Hindsight returning a mix of valid and invalid memories
+        memories = [
+            HindsightMemory(content="not valid json at all"),
+            HindsightMemory(content='{"issue_number": 99}'),
+            HindsightMemory(content=valid.model_dump_json()),
         ]
-        retro_path.write_text("\n".join(lines) + "\n")
+        mock_hindsight = MagicMock()
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/retrospectives")
-        response = await endpoint()
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=memories
+        ):
+            router = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+                hindsight=mock_hindsight,
+            )
+            endpoint = self._find_endpoint(router, "/api/retrospectives")
+            response = await endpoint()
+
         data = json.loads(response.body)
         assert data["total_entries"] == 1
         assert data["avg_plan_accuracy"] == 90.0

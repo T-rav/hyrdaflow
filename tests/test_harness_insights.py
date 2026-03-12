@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -50,6 +50,11 @@ def _make_record(
         details=details,
         stage=stage,
     )
+
+
+def _make_hindsight() -> MagicMock:
+    """Create a mock HindsightClient."""
+    return MagicMock()
 
 
 # ---------------------------------------------------------------------------
@@ -232,89 +237,102 @@ class TestFailureRecord:
 
 
 class TestHarnessInsightStore:
-    """Tests for HarnessInsightStore persistence."""
+    """Tests for HarnessInsightStore with Hindsight backend."""
 
-    def test_append_creates_file(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+    def test_constructor_accepts_hindsight_client(self) -> None:
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
+        assert store._hindsight is hindsight
+
+    @pytest.mark.asyncio
+    async def test_record_failure_calls_retain_safe(self) -> None:
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         record = _make_record()
-        store.append_failure(record)
 
-        failures_path = tmp_path / "memory" / "harness_failures.jsonl"
-        assert failures_path.exists()
-        lines = failures_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+        with pytest.MonkeyPatch.context() as mp:
+            mock_retain = AsyncMock()
+            mp.setattr("hindsight.retain_safe", mock_retain)
+            await store.record_failure(record)
 
-    def test_append_multiple_records(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        for i in range(5):
-            store.append_failure(_make_record(issue_number=100 + i))
+        mock_retain.assert_called_once()
+        call_args = mock_retain.call_args
+        assert call_args[0][0] is hindsight
+        # Second arg is the bank name
+        # Third arg is the JSON content
+        assert record.model_dump_json() == call_args[0][2]
+        # Check metadata
+        metadata = call_args[1]["metadata"]
+        assert metadata["source"] == "harness"
+        assert metadata["category"] == record.category.value
+        assert metadata["issue_number"] == str(record.issue_number)
 
-        failures_path = tmp_path / "memory" / "harness_failures.jsonl"
-        lines = failures_path.read_text().strip().splitlines()
-        assert len(lines) == 5
+    @pytest.mark.asyncio
+    async def test_record_failure_passes_context(self) -> None:
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
+        record = _make_record(issue_number=99, category=FailureCategory.CI_FAILURE)
 
-    def test_load_recent_returns_tail(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        for i in range(15):
-            store.append_failure(_make_record(issue_number=100 + i))
+        with pytest.MonkeyPatch.context() as mp:
+            mock_retain = AsyncMock()
+            mp.setattr("hindsight.retain_safe", mock_retain)
+            await store.record_failure(record)
 
-        recent = store.load_recent(5)
-        assert len(recent) == 5
-        assert recent[0].issue_number == 110
-        assert recent[-1].issue_number == 114
+        context = mock_retain.call_args[1]["context"]
+        assert "Issue #99" in context
+        assert "ci_failure" in context
 
-    def test_load_recent_returns_all_when_fewer(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        for i in range(3):
-            store.append_failure(_make_record(issue_number=100 + i))
+    @pytest.mark.asyncio
+    async def test_load_recent_calls_recall_safe(self) -> None:
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
+        record = _make_record(issue_number=42)
 
-        recent = store.load_recent(10)
-        assert len(recent) == 3
+        mock_memory = MagicMock()
+        mock_memory.content = record.model_dump_json()
 
-    def test_load_recent_handles_missing_file(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        assert store.load_recent() == []
+        with pytest.MonkeyPatch.context() as mp:
+            mock_recall = AsyncMock(return_value=[mock_memory])
+            mp.setattr("hindsight.recall_safe", mock_recall)
+            results = await store.load_recent(5)
 
-    def test_load_recent_skips_malformed_lines(self, tmp_path: Path) -> None:
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir(parents=True)
-        failures_path = memory_dir / "harness_failures.jsonl"
+        mock_recall.assert_called_once()
+        call_args = mock_recall.call_args
+        assert call_args[0][0] is hindsight
+        assert call_args[1]["limit"] == 5
+        assert len(results) == 1
+        assert results[0].issue_number == 42
 
-        valid = _make_record(issue_number=42)
-        failures_path.write_text(valid.model_dump_json() + "\n" + "not valid json\n")
+    @pytest.mark.asyncio
+    async def test_load_recent_skips_malformed_records(self) -> None:
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
 
-        store = HarnessInsightStore(memory_dir)
-        records = store.load_recent()
-        assert len(records) == 1
-        assert records[0].issue_number == 42
+        valid_record = _make_record(issue_number=42)
+        good_memory = MagicMock()
+        good_memory.content = valid_record.model_dump_json()
+        bad_memory = MagicMock()
+        bad_memory.content = "not valid json{{"
 
-    def test_get_proposed_patterns_empty_when_no_file(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        assert store.get_proposed_patterns() == set()
+        with pytest.MonkeyPatch.context() as mp:
+            mock_recall = AsyncMock(return_value=[good_memory, bad_memory])
+            mp.setattr("hindsight.recall_safe", mock_recall)
+            results = await store.load_recent()
 
-    def test_mark_and_get_proposed_patterns(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        store.mark_pattern_proposed("category:quality_gate")
-        store.mark_pattern_proposed("subcategory:lint_error")
+        assert len(results) == 1
+        assert results[0].issue_number == 42
 
-        proposed = store.get_proposed_patterns()
-        assert proposed == {"category:quality_gate", "subcategory:lint_error"}
+    @pytest.mark.asyncio
+    async def test_load_recent_returns_empty_when_no_memories(self) -> None:
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
 
-    def test_mark_proposed_is_idempotent(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
-        store.mark_pattern_proposed("category:quality_gate")
-        store.mark_pattern_proposed("category:quality_gate")
+        with pytest.MonkeyPatch.context() as mp:
+            mock_recall = AsyncMock(return_value=[])
+            mp.setattr("hindsight.recall_safe", mock_recall)
+            results = await store.load_recent()
 
-        proposed = store.get_proposed_patterns()
-        assert proposed == {"category:quality_gate"}
-
-    def test_get_proposed_handles_corrupt_file(self, tmp_path: Path) -> None:
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir(parents=True)
-        (memory_dir / "harness_proposed.json").write_text("not valid json{{{")
-
-        store = HarnessInsightStore(memory_dir)
-        assert store.get_proposed_patterns() == set()
+        assert results == []
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +572,8 @@ class TestFileHarnessSuggestions:
 
     @pytest.mark.asyncio
     async def test_files_issue_and_marks_proposed(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         mock_prs.create_issue = AsyncMock(return_value=99)
         state = StateTracker(tmp_path / "state.json")
@@ -581,11 +600,12 @@ class TestFileHarnessSuggestions:
         mock_prs.create_issue.assert_called_once()
         call_args = mock_prs.create_issue.call_args
         assert "[Harness Insight]" in call_args[0][0]
-        assert "category:quality_gate" in store.get_proposed_patterns()
+        assert "category:quality_gate" in state.get_proposed_patterns("harness")
 
     @pytest.mark.asyncio
     async def test_caps_at_max_per_cycle(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         mock_prs.create_issue = AsyncMock(return_value=99)
         state = StateTracker(tmp_path / "state.json")
@@ -622,7 +642,8 @@ class TestFileHarnessSuggestions:
 
     @pytest.mark.asyncio
     async def test_sets_hitl_origin_and_cause(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         mock_prs.create_issue = AsyncMock(return_value=88)
         state = StateTracker(tmp_path / "state.json")
@@ -649,7 +670,8 @@ class TestFileHarnessSuggestions:
 
     @pytest.mark.asyncio
     async def test_subcategory_key_used_when_present(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         mock_prs.create_issue = AsyncMock(return_value=77)
         state = StateTracker(tmp_path / "state.json")
@@ -672,11 +694,12 @@ class TestFileHarnessSuggestions:
             hitl_label=["hydraflow-hitl"],
         )
 
-        assert "subcategory:lint_error" in store.get_proposed_patterns()
+        assert "subcategory:lint_error" in state.get_proposed_patterns("harness")
 
     @pytest.mark.asyncio
     async def test_no_suggestions_files_nothing(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         state = StateTracker(tmp_path / "state.json")
 
@@ -696,7 +719,8 @@ class TestFileHarnessSuggestions:
     async def test_memory_label_route_prefixes_memory_and_skips_hitl(
         self, tmp_path: Path
     ) -> None:
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         mock_prs.create_issue = AsyncMock(return_value=101)
         state = StateTracker(tmp_path / "state.json")
@@ -731,7 +755,8 @@ class TestFileHarnessSuggestions:
         self, tmp_path: Path
     ) -> None:
         """If create_issue returns None, the pattern must not be marked proposed."""
-        store = HarnessInsightStore(tmp_path / "memory")
+        hindsight = _make_hindsight()
+        store = HarnessInsightStore(hindsight)
         mock_prs = AsyncMock()
         mock_prs.create_issue = AsyncMock(return_value=None)
         state = StateTracker(tmp_path / "state.json")
@@ -754,7 +779,7 @@ class TestFileHarnessSuggestions:
         )
 
         assert filed == 0
-        assert store.get_proposed_patterns() == set()
+        assert state.get_proposed_patterns("harness") == set()
 
 
 # ---------------------------------------------------------------------------
@@ -817,48 +842,6 @@ class TestImprovementSuggestion:
         )
         assert suggestion.subcategory == ""
         assert suggestion.evidence == []
-
-
-# ---------------------------------------------------------------------------
-# append_failure OSError handling (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestAppendFailureOSError:
-    """Verify HarnessInsightStore.append_failure catches OSError gracefully."""
-
-    def test_append_failure_logs_warning_on_oserror(self, tmp_path, caplog) -> None:
-        """When the failures file can't be written, log warning and don't raise."""
-        import logging
-        from unittest.mock import patch
-
-        store = HarnessInsightStore(tmp_path / "memory")
-        record = _make_record()
-
-        with (
-            patch("file_util.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
-        ):
-            store.append_failure(record)  # should not raise
-
-        assert "Could not append failure" in caplog.text
-
-    def test_append_failure_handles_mkdir_failure(self, tmp_path, caplog) -> None:
-        """When mkdir fails with PermissionError, log warning and don't raise."""
-        import logging
-        from pathlib import Path
-        from unittest.mock import patch
-
-        store = HarnessInsightStore(tmp_path / "memory")
-        record = _make_record()
-
-        with (
-            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
-        ):
-            store.append_failure(record)  # should not raise
-
-        assert "Could not append failure" in caplog.text
 
 
 # ---------------------------------------------------------------------------

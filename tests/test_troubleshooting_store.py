@@ -1,9 +1,12 @@
-"""Tests for troubleshooting pattern store."""
+"""Tests for troubleshooting pattern store (Hindsight-backed)."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -15,251 +18,270 @@ from troubleshooting_store import (
 )
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_pattern(**overrides: object) -> TroubleshootingPattern:
+    defaults: dict[str, object] = {
+        "language": "python",
+        "pattern_name": "truthy_asyncmock",
+        "description": "AsyncMock without return_value",
+        "fix_strategy": "Set return_value to falsy",
+    }
+    defaults.update(overrides)
+    return TroubleshootingPattern(**defaults)  # type: ignore[arg-type]
+
+
+def _make_hindsight_memory(content: str, **kwargs: object) -> MagicMock:
+    """Create a mock HindsightMemory with the given content."""
+    mem = MagicMock()
+    mem.content = content
+    for k, v in kwargs.items():
+        setattr(mem, k, v)
+    return mem
+
+
+# ---------------------------------------------------------------------------
 # TroubleshootingPattern model
 # ---------------------------------------------------------------------------
 
 
 class TestTroubleshootingPattern:
     def test_default_frequency_is_one(self) -> None:
-        p = TroubleshootingPattern(
-            language="python",
-            pattern_name="truthy_asyncmock",
-            description="AsyncMock without return_value",
-            fix_strategy="Set return_value to falsy",
-        )
+        p = _make_pattern()
         assert p.frequency == 1
 
     def test_source_issues_default_empty(self) -> None:
-        p = TroubleshootingPattern(
-            language="python",
-            pattern_name="truthy_asyncmock",
-            description="d",
-            fix_strategy="f",
-        )
+        p = _make_pattern()
         assert p.source_issues == []
 
 
 # ---------------------------------------------------------------------------
-# TroubleshootingPatternStore
+# TroubleshootingPatternStore — record_pattern
 # ---------------------------------------------------------------------------
 
 
-class TestTroubleshootingPatternStore:
-    def test_append_creates_file(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        p = TroubleshootingPattern(
-            language="python",
-            pattern_name="test_pattern",
-            description="desc",
-            fix_strategy="fix",
-            source_issues=[42],
-        )
-        store.append_pattern(p)
-        assert (tmp_path / "memory" / "troubleshooting_patterns.jsonl").exists()
+class TestRecordPattern:
+    @pytest.mark.asyncio
+    async def test_record_calls_retain_safe(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        pattern = _make_pattern(source_issues=[42])
 
-    def test_store_roundtrip_preserves_data(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        p = TroubleshootingPattern(
-            language="python",
-            pattern_name="truthy_asyncmock",
-            description="AsyncMock returns truthy",
-            fix_strategy="Set return_value",
-            source_issues=[42],
-        )
-        store.append_pattern(p)
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await store.record_pattern(pattern)
 
-        loaded = store.load_patterns()
-        assert len(loaded) == 1
-        assert loaded[0].pattern_name == "truthy_asyncmock"
-        assert loaded[0].description == "AsyncMock returns truthy"
-        assert loaded[0].source_issues == [42]
+            mock_retain.assert_awaited_once()
+            args, kwargs = mock_retain.call_args
+            # First positional arg is the hindsight client
+            assert args[0] is hindsight
+            # Second is the bank name
+            assert args[1] == "hydraflow-troubleshooting"
+            # Third is the content string
+            assert "truthy_asyncmock" in args[2]
+            assert "Set return_value to falsy" in args[2]
+            # Keyword args
+            assert "context" in kwargs
+            assert "python" in kwargs["context"]
+            assert kwargs["metadata"]["language"] == "python"
+            assert kwargs["metadata"]["pattern_name"] == "truthy_asyncmock"
 
-    def test_dedup_increments_frequency(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        p1 = TroubleshootingPattern(
-            language="python",
-            pattern_name="truthy_asyncmock",
-            description="d",
-            fix_strategy="f",
-            source_issues=[10],
-        )
-        p2 = TroubleshootingPattern(
-            language="python",
-            pattern_name="truthy_asyncmock",
-            description="d",
-            fix_strategy="f",
-            source_issues=[20],
-        )
-        store.append_pattern(p1)
-        store.append_pattern(p2)
+    @pytest.mark.asyncio
+    async def test_record_pattern_includes_description_in_content(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        pattern = _make_pattern(description="AsyncMock returns truthy")
 
-        loaded = store.load_patterns()
-        assert len(loaded) == 1
-        assert loaded[0].frequency == 2
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await store.record_pattern(pattern)
 
-    def test_dedup_merges_source_issues(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        p1 = TroubleshootingPattern(
-            language="python",
-            pattern_name="hang",
-            description="d",
-            fix_strategy="f",
-            source_issues=[10, 20],
-        )
-        p2 = TroubleshootingPattern(
-            language="python",
-            pattern_name="hang",
-            description="d",
-            fix_strategy="f",
-            source_issues=[20, 30],
-        )
-        store.append_pattern(p1)
-        store.append_pattern(p2)
+            content = mock_retain.call_args[0][2]
+            assert "AsyncMock returns truthy" in content
 
-        loaded = store.load_patterns()
-        assert loaded[0].source_issues == [10, 20, 30]
 
-    def test_filter_by_language(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="py_pattern",
-                description="d",
-                fix_strategy="f",
+# ---------------------------------------------------------------------------
+# TroubleshootingPatternStore — load_patterns
+# ---------------------------------------------------------------------------
+
+
+class TestLoadPatterns:
+    @pytest.mark.asyncio
+    async def test_load_returns_empty_when_no_memories(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            result = await store.load_patterns()
+            assert result == []
+
+    @pytest.mark.asyncio
+    async def test_load_deserializes_patterns(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        pattern = _make_pattern(frequency=3)
+        memory = _make_hindsight_memory(pattern.model_dump_json())
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=[memory],
+        ):
+            result = await store.load_patterns()
+            assert len(result) == 1
+            assert result[0].pattern_name == "truthy_asyncmock"
+            assert result[0].frequency == 3
+
+    @pytest.mark.asyncio
+    async def test_load_filters_by_language(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        py_pattern = _make_pattern(language="python", pattern_name="py_pat")
+        node_pattern = _make_pattern(language="node", pattern_name="node_pat")
+        memories = [
+            _make_hindsight_memory(py_pattern.model_dump_json()),
+            _make_hindsight_memory(node_pattern.model_dump_json()),
+        ]
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await store.load_patterns(language="python")
+            names = [p.pattern_name for p in result]
+            assert "py_pat" in names
+            assert "node_pat" not in names
+
+    @pytest.mark.asyncio
+    async def test_load_includes_general_patterns(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        general = _make_pattern(language="general", pattern_name="generic_hang")
+        py = _make_pattern(language="python", pattern_name="py_hang")
+        memories = [
+            _make_hindsight_memory(general.model_dump_json()),
+            _make_hindsight_memory(py.model_dump_json()),
+        ]
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await store.load_patterns(language="python")
+            names = [p.pattern_name for p in result]
+            assert "generic_hang" in names
+            assert "py_hang" in names
+
+    @pytest.mark.asyncio
+    async def test_load_sorts_by_frequency_descending(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        rare = _make_pattern(pattern_name="rare", frequency=1)
+        common = _make_pattern(pattern_name="common", frequency=5)
+        memories = [
+            _make_hindsight_memory(rare.model_dump_json()),
+            _make_hindsight_memory(common.model_dump_json()),
+        ]
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await store.load_patterns()
+            assert result[0].pattern_name == "common"
+            assert result[1].pattern_name == "rare"
+
+    @pytest.mark.asyncio
+    async def test_load_respects_limit(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        memories = [
+            _make_hindsight_memory(
+                _make_pattern(pattern_name=f"p{i}").model_dump_json()
             )
-        )
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="node",
-                pattern_name="node_pattern",
-                description="d",
-                fix_strategy="f",
+            for i in range(5)
+        ]
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await store.load_patterns(limit=2)
+            assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_load_skips_malformed_memories(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        valid = _make_pattern()
+        memories = [
+            _make_hindsight_memory("not valid json at all"),
+            _make_hindsight_memory(valid.model_dump_json()),
+        ]
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await store.load_patterns()
+            assert len(result) == 1
+            assert result[0].pattern_name == "truthy_asyncmock"
+
+    @pytest.mark.asyncio
+    async def test_load_builds_language_query(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_recall:
+            await store.load_patterns(language="python")
+            query = mock_recall.call_args[0][2]
+            assert "python" in query
+
+    @pytest.mark.asyncio
+    async def test_load_without_language_uses_generic_query(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_recall:
+            await store.load_patterns()
+            query = mock_recall.call_args[0][2]
+            assert "troubleshooting patterns" in query
+
+    @pytest.mark.asyncio
+    async def test_load_limit_none_returns_all(self) -> None:
+        hindsight = AsyncMock()
+        store = TroubleshootingPatternStore(hindsight)
+        memories = [
+            _make_hindsight_memory(
+                _make_pattern(pattern_name=f"p{i}").model_dump_json()
             )
-        )
+            for i in range(15)
+        ]
 
-        loaded = store.load_patterns(language="python")
-        names = [p.pattern_name for p in loaded]
-        assert "py_pattern" in names
-        assert "node_pattern" not in names
-
-    def test_includes_general_patterns(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="general",
-                pattern_name="generic_hang",
-                description="d",
-                fix_strategy="f",
-            )
-        )
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="py_hang",
-                description="d",
-                fix_strategy="f",
-            )
-        )
-
-        loaded = store.load_patterns(language="python")
-        names = [p.pattern_name for p in loaded]
-        assert "generic_hang" in names
-        assert "py_hang" in names
-
-    def test_sort_by_frequency(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="rare",
-                description="d",
-                fix_strategy="f",
-                frequency=1,
-            )
-        )
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="common",
-                description="d",
-                fix_strategy="f",
-                frequency=5,
-            )
-        )
-
-        loaded = store.load_patterns()
-        assert loaded[0].pattern_name == "common"
-        assert loaded[1].pattern_name == "rare"
-
-    def test_respects_limit(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        for i in range(5):
-            store.append_pattern(
-                TroubleshootingPattern(
-                    language="python",
-                    pattern_name=f"pattern_{i}",
-                    description="d",
-                    fix_strategy="f",
-                )
-            )
-
-        loaded = store.load_patterns(limit=2)
-        assert len(loaded) == 2
-
-    def test_increment_frequency(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="test_pat",
-                description="d",
-                fix_strategy="f",
-            )
-        )
-        store.increment_frequency("python", "test_pat")
-
-        loaded = store.load_patterns()
-        assert loaded[0].frequency == 2
-
-    def test_empty_file_returns_empty(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        assert store.load_patterns() == []
-
-    def test_malformed_line_skipped(self, tmp_path: Path) -> None:
-        mem_dir = tmp_path / "memory"
-        mem_dir.mkdir(parents=True)
-        jsonl = mem_dir / "troubleshooting_patterns.jsonl"
-        jsonl.write_text("not valid json\n")
-
-        store = TroubleshootingPatternStore(mem_dir)
-        loaded = store.load_patterns()
-        assert loaded == []
-
-    def test_dedup_case_insensitive(self, tmp_path: Path) -> None:
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="Python",
-                pattern_name="Truthy_AsyncMock",
-                description="d",
-                fix_strategy="f",
-                source_issues=[1],
-            )
-        )
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="truthy_asyncmock",
-                description="d",
-                fix_strategy="f",
-                source_issues=[2],
-            )
-        )
-
-        loaded = store.load_patterns()
-        assert len(loaded) == 1
-        assert loaded[0].frequency == 2
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=memories,
+        ):
+            result = await store.load_patterns(limit=None)
+            assert len(result) == 15
 
 
 # ---------------------------------------------------------------------------
@@ -272,31 +294,20 @@ class TestFormatPatternsForPrompt:
         assert format_patterns_for_prompt([]) == ""
 
     def test_renders_markdown(self) -> None:
-        patterns = [
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="truthy_asyncmock",
-                description="AsyncMock returns truthy",
-                fix_strategy="Set return_value",
-                frequency=3,
-            )
-        ]
+        patterns = [_make_pattern(frequency=3, description="AsyncMock returns truthy")]
         result = format_patterns_for_prompt(patterns)
         assert "## Learned Patterns from Previous Fixes" in result
         assert "truthy_asyncmock" in result
         assert "python" in result
         assert "3x" in result
         assert "AsyncMock returns truthy" in result
-        assert "Set return_value" in result
 
     def test_respects_char_limit(self) -> None:
         patterns = [
-            TroubleshootingPattern(
-                language="python",
+            _make_pattern(
                 pattern_name=f"pattern_{i}",
                 description="A" * 200,
                 fix_strategy="B" * 200,
-                frequency=1,
             )
             for i in range(20)
         ]

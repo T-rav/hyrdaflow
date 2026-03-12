@@ -107,9 +107,7 @@ class TestHindsightClientRetain:
         client._client = AsyncMock()
         client._client.post = AsyncMock(return_value=_mock_response(200))
 
-        await client.retain(
-            "bank", "content", metadata={"key": "value"}
-        )
+        await client.retain("bank", "content", metadata={"key": "value"})
 
         payload = client._client.post.call_args[1]["json"]
         assert payload["metadata"] == {"key": "value"}
@@ -169,9 +167,7 @@ class TestHindsightClientRecall:
             return_value=_mock_response(200, {"memories": []})
         )
 
-        await client.recall(
-            "bank", "query", metadata_filter={"language": "python"}
-        )
+        await client.recall("bank", "query", metadata_filter={"language": "python"})
 
         payload = client._client.post.call_args[1]["json"]
         assert payload["metadata_filter"] == {"language": "python"}
@@ -259,9 +255,7 @@ class TestRetainSafe:
         client = MagicMock(spec=HindsightClient)
         client.retain = AsyncMock(return_value=True)
 
-        await retain_safe(
-            client, "bank", "content", metadata={"k": "v"}
-        )
+        await retain_safe(client, "bank", "content", metadata={"k": "v"})
 
         client.retain.assert_called_once_with(
             "bank", "content", context="", metadata={"k": "v"}

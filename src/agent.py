@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -27,6 +26,7 @@ from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 if TYPE_CHECKING:
     from config import HydraFlowConfig
     from execution import SubprocessRunner
+    from hindsight import HindsightClient
 
 logger = logging.getLogger("hydraflow.agent")
 
@@ -89,9 +89,12 @@ Run through this checklist before your final commit:
         config: HydraFlowConfig,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        hindsight: HindsightClient | None = None,
     ) -> None:
-        super().__init__(config, event_bus, runner)
-        self._insights = ReviewInsightStore(config.memory_dir)
+        super().__init__(config, event_bus, runner, hindsight=hindsight)
+        self._insights: ReviewInsightStore | None = None
+        if hindsight is not None:
+            self._insights = ReviewInsightStore(hindsight)
 
     async def run(
         self,
@@ -125,7 +128,7 @@ Run through this checklist before your final commit:
         try:
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
-            prompt, prompt_stats = self._build_prompt_with_stats(
+            prompt, prompt_stats = await self._build_prompt_with_stats(
                 task, review_feedback=review_feedback, prior_failure=prior_failure
             )
             transcript = await self._execute(
@@ -312,57 +315,38 @@ Run through this checklist before your final commit:
 
         return content.strip()
 
-    def _get_review_feedback_section(self) -> str:
+    async def _get_review_feedback_section(self) -> str:
         """Build a common review feedback section from recent review data.
 
         Returns an empty string if no data is available or on any error.
         """
+        if self._insights is None:
+            return ""
         try:
-            reviews_path = self._config.memory_dir / "reviews.jsonl"
-
-            def _load_feedback(_cfg: HydraFlowConfig) -> str:
-                recent = self._insights.load_recent(self._config.review_insight_window)
-                return get_common_feedback_section(recent)
-
-            feedback, _hit = self._context_cache.get_or_load(
-                key="common_review_feedback",
-                source_path=reviews_path,
-                loader=_load_feedback,
+            recent = await self._insights.load_recent(
+                self._config.review_insight_window
             )
-            return feedback
+            return get_common_feedback_section(recent)
         except Exception as exc:  # noqa: BLE001
             if is_likely_bug(exc):
                 raise
             return ""
 
-    def _get_escalation_data(self) -> list[dict[str, str | int | list[str]]]:
+    async def _get_escalation_data(self) -> list[dict[str, str | int | list[str]]]:
         """Return escalation data for recurring feedback categories.
 
-        Uses the context cache with a separate key. The cache stores
-        JSON-serialized data since the cache interface is typed for strings.
         Returns an empty list on any error.
         """
-        try:
-            reviews_path = self._config.memory_dir / "reviews.jsonl"
-
-            def _load_escalations(_cfg: HydraFlowConfig) -> str:
-                recent = self._insights.load_recent(self._config.review_insight_window)
-                data = get_escalation_data(
-                    recent,
-                    threshold=self._config.review_pattern_threshold,
-                )
-                return json.dumps(data)
-
-            raw, _hit = self._context_cache.get_or_load(
-                key="review_escalations",
-                source_path=reviews_path,
-                loader=_load_escalations,
-            )
-            if not raw:
-                return []
-            return json.loads(raw)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
+        if self._insights is None:
             return []
+        try:
+            recent = await self._insights.load_recent(
+                self._config.review_insight_window
+            )
+            return get_escalation_data(
+                recent,
+                threshold=self._config.review_pattern_threshold,
+            )
         except Exception as exc:  # noqa: BLE001
             if is_likely_bug(exc):
                 raise
@@ -396,7 +380,7 @@ Run through this checklist before your final commit:
             + f"\n[Comment truncated from {len(raw):,} chars]"
         )
 
-    def _build_prompt_with_stats(
+    async def _build_prompt_with_stats(
         self, issue: Task, review_feedback: str = "", prior_failure: str = ""
     ) -> tuple[str, dict[str, object]]:
         """Build the implementation prompt and pruning stats."""
@@ -475,7 +459,7 @@ Run through this checklist before your final commit:
             if len(other_comments) > max_comments:
                 comments_section += f"\n- ... ({len(other_comments) - max_comments} more comments omitted)"
 
-        raw_feedback_section = self._get_review_feedback_section()
+        raw_feedback_section = await self._get_review_feedback_section()
         feedback_section = ""
         if raw_feedback_section:
             history_before += len(raw_feedback_section)
@@ -487,7 +471,7 @@ Run through this checklist before your final commit:
             history_after += len(compact_feedback)
             feedback_section = compact_feedback
 
-        escalations = self._get_escalation_data()
+        escalations = await self._get_escalation_data()
         escalation_section = ""
         if escalations:
             blocks = [str(e["mandatory_block"]) for e in escalations]
@@ -495,7 +479,9 @@ Run through this checklist before your final commit:
             history_before += len(escalation_section)
             history_after += len(escalation_section)
 
-        manifest_section, memory_section = self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=issue.title
+        )
 
         # Runtime log injection (opt-in)
         log_section = ""
@@ -616,9 +602,9 @@ Run through this checklist before your final commit:
 Focus on fixing the root causes, not suppressing warnings.
 """
 
-    def _build_pre_quality_review_prompt(self, issue: Task, attempt: int) -> str:
+    async def _build_pre_quality_review_prompt(self, issue: Task, attempt: int) -> str:
         """Build the pre-quality review/correction skill prompt."""
-        escalations = self._get_escalation_data()
+        escalations = await self._get_escalation_data()
         escalation_guidance = ""
         if escalations:
             guidance_parts = [str(e["pre_quality_guidance"]) for e in escalations]
@@ -735,7 +721,7 @@ SUMMARY: <one-line summary>
                 issue.id, worker_id, WorkerStatus.PRE_QUALITY_REVIEW
             )
 
-            review_prompt = self._build_pre_quality_review_prompt(issue, attempt)
+            review_prompt = await self._build_pre_quality_review_prompt(issue, attempt)
             review_cmd = self._build_pre_quality_review_command()
             review_transcript = await self._execute(
                 review_cmd,

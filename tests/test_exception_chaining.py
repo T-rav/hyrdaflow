@@ -165,56 +165,73 @@ class TestAgentRunnerExceptionChaining:
 
 
 class TestAgentHelperBugGates:
-    """Test is_likely_bug gate in _get_common_review_feedback / _get_escalation_data."""
+    """Test is_likely_bug gate in _get_review_feedback_section / _get_escalation_data."""
 
-    def test_get_review_feedback_section_reraises_bug(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_get_review_feedback_section_reraises_bug(
+        self, config, event_bus
+    ) -> None:
         """TypeError in feedback loading should propagate."""
         runner = AgentRunner(config, event_bus)
-        runner._context_cache = MagicMock()
-        runner._context_cache.get_or_load.side_effect = TypeError("bad")
+        mock_insights = MagicMock()
+        mock_insights.load_recent = AsyncMock(side_effect=TypeError("bad"))
+        runner._insights = mock_insights
         with pytest.raises(TypeError, match="bad"):
-            runner._get_review_feedback_section()
+            await runner._get_review_feedback_section()
 
-    def test_get_review_feedback_section_swallows_transient(
+    @pytest.mark.asyncio
+    async def test_get_review_feedback_section_swallows_transient(
         self, config, event_bus
     ) -> None:
         """RuntimeError in feedback loading should return empty string."""
         runner = AgentRunner(config, event_bus)
-        runner._context_cache = MagicMock()
-        runner._context_cache.get_or_load.side_effect = RuntimeError("transient")
-        assert runner._get_review_feedback_section() == ""
+        mock_insights = MagicMock()
+        mock_insights.load_recent = AsyncMock(side_effect=RuntimeError("transient"))
+        runner._insights = mock_insights
+        assert await runner._get_review_feedback_section() == ""
 
-    def test_get_escalation_data_reraises_bug(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_get_escalation_data_reraises_bug(self, config, event_bus) -> None:
         """KeyError in escalation loading should propagate."""
         runner = AgentRunner(config, event_bus)
-        runner._context_cache = MagicMock()
-        runner._context_cache.get_or_load.side_effect = KeyError("missing")
+        mock_insights = MagicMock()
+        mock_insights.load_recent = AsyncMock(side_effect=KeyError("missing"))
+        runner._insights = mock_insights
         with pytest.raises(KeyError, match="missing"):
-            runner._get_escalation_data()
+            await runner._get_escalation_data()
 
-    def test_get_escalation_data_swallows_transient(self, config, event_bus) -> None:
-        """OSError in escalation loading should return empty list."""
-        runner = AgentRunner(config, event_bus)
-        runner._context_cache = MagicMock()
-        runner._context_cache.get_or_load.side_effect = OSError("disk full")
-        assert runner._get_escalation_data() == []
-
-    def test_get_escalation_data_json_decode_error_returns_empty(
+    @pytest.mark.asyncio
+    async def test_get_escalation_data_swallows_transient(
         self, config, event_bus
     ) -> None:
-        """json.JSONDecodeError (a ValueError subclass) should return [] not re-raise.
+        """OSError in escalation loading should return empty list."""
+        runner = AgentRunner(config, event_bus)
+        mock_insights = MagicMock()
+        mock_insights.load_recent = AsyncMock(side_effect=OSError("disk full"))
+        runner._insights = mock_insights
+        assert await runner._get_escalation_data() == []
+
+    @pytest.mark.asyncio
+    async def test_get_escalation_data_json_decode_error_reraises(
+        self, config, event_bus
+    ) -> None:
+        """json.JSONDecodeError (a ValueError subclass) should re-raise.
 
         json.JSONDecodeError is a subclass of ValueError, which is in
-        LIKELY_BUG_EXCEPTIONS. The narrow except json.JSONDecodeError handler must
-        fire first so that a malformed JSON store doesn't abort the agent run.
+        LIKELY_BUG_EXCEPTIONS. With the Hindsight migration, there is no
+        separate json.JSONDecodeError handler — is_likely_bug treats it
+        as a bug (via ValueError) and re-raises.
         """
+        import json
 
         runner = AgentRunner(config, event_bus)
-        runner._context_cache = MagicMock()
-        runner._context_cache.get_or_load.return_value = ("not-valid-json{{{", False)
-        # Should NOT raise, should return []
-        result = runner._get_escalation_data()
-        assert result == []
+        mock_insights = MagicMock()
+        mock_insights.load_recent = AsyncMock(
+            side_effect=json.JSONDecodeError("bad json", "doc", 0)
+        )
+        runner._insights = mock_insights
+        with pytest.raises(json.JSONDecodeError):
+            await runner._get_escalation_data()
 
 
 # ---------------------------------------------------------------------------

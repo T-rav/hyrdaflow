@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections import Counter
@@ -54,8 +53,6 @@ class RetrospectiveCollector:
         self._config = config
         self._state = state
         self._prs = prs
-        self._retro_path = config.data_path("memory", "retrospectives.jsonl")
-        self._filed_patterns_path = config.data_path("memory", "filed_patterns.json")
         self._hindsight = hindsight
 
     async def record(
@@ -71,9 +68,8 @@ class RetrospectiveCollector:
         """
         try:
             entry = await self._collect(issue_number, pr_number, review_result)
-            self._append_entry(entry)
             await self._retain_to_hindsight(entry)
-            recent = self._load_recent(self._config.retrospective_window)
+            recent = await self._load_recent(self._config.retrospective_window)
             await self._detect_patterns(recent)
         except Exception:
             logger.warning(
@@ -226,40 +222,29 @@ class RetrospectiveCollector:
             },
         )
 
-    def _append_entry(self, entry: RetrospectiveEntry) -> None:
-        """Append a JSON line to the retrospective log."""
-        try:
-            from file_util import append_jsonl  # noqa: PLC0415
-
-            append_jsonl(self._retro_path, entry.model_dump_json())
-        except OSError:
-            logger.warning(
-                "Could not append to retrospective log %s",
-                self._retro_path,
-                exc_info=True,
-            )
-
-    def _load_recent(self, n: int) -> list[RetrospectiveEntry]:
-        """Load the last *n* entries from the retrospective log."""
-        if not self._retro_path.exists():
+    async def _load_recent(self, n: int) -> list[RetrospectiveEntry]:
+        """Recall the last *n* retrospective entries from Hindsight."""
+        if self._hindsight is None:
             return []
-        try:
-            lines = self._retro_path.read_text().strip().splitlines()
-            entries: list[RetrospectiveEntry] = []
-            for line in lines[-n:]:
-                if line.strip():
-                    entries.append(RetrospectiveEntry.model_validate_json(line))
-            return entries
-        except (OSError, json.JSONDecodeError):
-            logger.warning("Could not load retrospective log", exc_info=True)
-            return []
+        from hindsight import BANK_RETROSPECTIVES, recall_safe
+
+        memories = await recall_safe(
+            self._hindsight, BANK_RETROSPECTIVES, "retrospective entries", limit=n
+        )
+        entries: list[RetrospectiveEntry] = []
+        for m in memories:
+            try:
+                entries.append(RetrospectiveEntry.model_validate_json(m.content))
+            except Exception:  # noqa: BLE001
+                logger.warning("Skipping malformed retrospective record from Hindsight")
+        return entries
 
     async def _detect_patterns(self, entries: list[RetrospectiveEntry]) -> None:
         """Scan recent entries for patterns and file improvement proposals."""
         if len(entries) < 3:
             return
 
-        filed = self._load_filed_patterns()
+        filed = self._state.get_proposed_patterns("retrospective")
         n = len(entries)
 
         # Quality fix pattern: >50% needed quality fixes
@@ -277,8 +262,7 @@ class RetrospectiveCollector:
                         "---\n*Auto-detected by HydraFlow Retrospective*"
                     ),
                 )
-                filed.add(key)
-                self._save_filed_patterns(filed)
+                self._state.mark_pattern_proposed("retrospective", key)
                 return  # Cap at 1 per run
 
         # Plan accuracy pattern: average < 70%
@@ -297,8 +281,7 @@ class RetrospectiveCollector:
                         "---\n*Auto-detected by HydraFlow Retrospective*"
                     ),
                 )
-                filed.add(key)
-                self._save_filed_patterns(filed)
+                self._state.mark_pattern_proposed("retrospective", key)
                 return
 
         # Reviewer fix pattern: >40% needed reviewer fixes
@@ -316,8 +299,7 @@ class RetrospectiveCollector:
                         "---\n*Auto-detected by HydraFlow Retrospective*"
                     ),
                 )
-                filed.add(key)
-                self._save_filed_patterns(filed)
+                self._state.mark_pattern_proposed("retrospective", key)
                 return
 
         # Unplanned file pattern: same file appears in >30% of entries
@@ -340,8 +322,7 @@ class RetrospectiveCollector:
                             "---\n*Auto-detected by HydraFlow Retrospective*"
                         ),
                     )
-                    filed.add(key)
-                    self._save_filed_patterns(filed)
+                    self._state.mark_pattern_proposed("retrospective", key)
                     return
                 break
 
@@ -350,25 +331,3 @@ class RetrospectiveCollector:
         labels = self._config.improve_label[:1] + self._config.memory_label[:1]
         memory_title = title if title.startswith("[Memory]") else f"[Memory] {title}"
         await self._prs.create_issue(memory_title, body, labels)
-
-    def _load_filed_patterns(self) -> set[str]:
-        """Load the set of already-filed pattern keys."""
-        if not self._filed_patterns_path.exists():
-            return set()
-        try:
-            data = json.loads(self._filed_patterns_path.read_text())
-            return set(data) if isinstance(data, list) else set()
-        except (OSError, json.JSONDecodeError):
-            return set()
-
-    def _save_filed_patterns(self, patterns: set[str]) -> None:
-        """Persist the set of filed pattern keys."""
-        try:
-            self._filed_patterns_path.parent.mkdir(parents=True, exist_ok=True)
-            self._filed_patterns_path.write_text(json.dumps(sorted(patterns)))
-        except OSError:
-            logger.warning(
-                "Could not save filed patterns to %s",
-                self._filed_patterns_path,
-                exc_info=True,
-            )

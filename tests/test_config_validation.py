@@ -1892,7 +1892,7 @@ class TestLabelValidation:
 
 
 class TestTimeoutConfigFields:
-    """Tests for agent_timeout, transcript_summary_timeout, memory_compaction_timeout."""
+    """Tests for agent_timeout, transcript_summary_timeout."""
 
     def test_agent_timeout_default(self) -> None:
         config = HydraFlowConfig(repo="test/repo")
@@ -1901,10 +1901,6 @@ class TestTimeoutConfigFields:
     def test_transcript_summary_timeout_default(self) -> None:
         config = HydraFlowConfig(repo="test/repo")
         assert config.transcript_summary_timeout == 120
-
-    def test_memory_compaction_timeout_default(self) -> None:
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_compaction_timeout == 60
 
     def test_agent_timeout_bounds_too_low(self) -> None:
         from pydantic import ValidationError
@@ -1930,18 +1926,6 @@ class TestTimeoutConfigFields:
         with pytest.raises(ValidationError):
             HydraFlowConfig(repo="test/repo", transcript_summary_timeout=999)
 
-    def test_memory_compaction_timeout_bounds_too_low(self) -> None:
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            HydraFlowConfig(repo="test/repo", memory_compaction_timeout=5)
-
-    def test_memory_compaction_timeout_bounds_too_high(self) -> None:
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            HydraFlowConfig(repo="test/repo", memory_compaction_timeout=999)
-
     def test_agent_timeout_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HYDRAFLOW_AGENT_TIMEOUT", "7200")
         config = HydraFlowConfig(repo="test/repo")
@@ -1953,13 +1937,6 @@ class TestTimeoutConfigFields:
         monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", "300")
         config = HydraFlowConfig(repo="test/repo")
         assert config.transcript_summary_timeout == 300
-
-    def test_memory_compaction_timeout_env_override(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", "90")
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_compaction_timeout == 90
 
 
 # ---------------------------------------------------------------------------
@@ -2308,7 +2285,6 @@ class TestAgentToolFields:
         assert cfg.planner_tool == "claude"
         assert cfg.triage_tool == "claude"
         assert cfg.transcript_summary_tool == "claude"
-        assert cfg.memory_compaction_tool == "claude"
         assert cfg.ac_tool == "claude"
         assert cfg.verification_judge_tool == "claude"
         assert cfg.system_tool == "inherit"
@@ -2322,7 +2298,6 @@ class TestAgentToolFields:
         monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "codex")
         monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "codex")
         cfg = HydraFlowConfig(
@@ -2336,7 +2311,6 @@ class TestAgentToolFields:
         assert cfg.planner_tool == "codex"
         assert cfg.triage_tool == "codex"
         assert cfg.transcript_summary_tool == "codex"
-        assert cfg.memory_compaction_tool == "codex"
         assert cfg.ac_tool == "codex"
         assert cfg.verification_judge_tool == "codex"
 
@@ -2348,7 +2322,6 @@ class TestAgentToolFields:
         monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "pi")
         monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "pi")
         monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_MEMORY_COMPACTION_TOOL", "pi")
         monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "pi")
         monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "pi")
         monkeypatch.setenv("HYDRAFLOW_SUBSKILL_TOOL", "pi")
@@ -2365,7 +2338,6 @@ class TestAgentToolFields:
         assert cfg.planner_tool == "pi"
         assert cfg.triage_tool == "pi"
         assert cfg.transcript_summary_tool == "pi"
-        assert cfg.memory_compaction_tool == "pi"
         assert cfg.ac_tool == "pi"
         assert cfg.verification_judge_tool == "pi"
         assert cfg.subskill_tool == "pi"
@@ -2391,7 +2363,6 @@ class TestAgentToolFields:
         assert cfg.debug_tool == "codex"
         assert cfg.triage_tool == "codex"
         assert cfg.transcript_summary_tool == "codex"
-        assert cfg.memory_compaction_tool == "codex"
 
     def test_profile_model_overrides_apply_to_defaults(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -2409,7 +2380,6 @@ class TestAgentToolFields:
         assert cfg.debug_model == "gpt-5-codex"
         assert cfg.triage_model == "gpt-5-codex"
         assert cfg.transcript_summary_model == "gpt-5-codex"
-        assert cfg.memory_compaction_model == "gpt-5-codex"
 
     def test_profile_overrides_do_not_clobber_explicit_per_field(
         self, tmp_path: Path

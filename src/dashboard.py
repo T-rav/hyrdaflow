@@ -22,6 +22,7 @@ from state import StateTracker
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from hindsight import HindsightClient
     from orchestrator import HydraFlowOrchestrator
     from repo_runtime import RepoRuntimeRegistry
     from repo_store import RepoRecord, RepoStore
@@ -57,6 +58,7 @@ class HydraFlowDashboard:
         remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
         list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
         default_repo_slug: str | None = None,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -67,6 +69,7 @@ class HydraFlowDashboard:
         self._register_repo_cb = register_repo_cb
         self._remove_repo_cb = remove_repo_cb
         self._list_repos_cb = list_repos_cb
+        self._hindsight = hindsight
         self._default_repo_slug = default_repo_slug
         self._server_task: asyncio.Task[None] | None = None
         self._run_task: asyncio.Task[None] | None = None
@@ -123,6 +126,7 @@ class HydraFlowDashboard:
             remove_repo_cb=self._remove_repo_cb,
             list_repos_cb=self._list_repos_cb,
             default_repo_slug=self._default_repo_slug,
+            hindsight=self._hindsight,
         )
         app.include_router(router)
 

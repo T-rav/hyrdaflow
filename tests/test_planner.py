@@ -134,43 +134,60 @@ def test_build_command_supports_codex_backend(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_includes_issue_number(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_issue_number(config, event_bus, issue):
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert f"#{task.id}" in prompt
+        assert f"#{task.id}" in prompt
 
 
-def test_build_prompt_includes_issue_context(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_issue_context(config, event_bus, issue):
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert task.title in prompt
-    assert task.body in prompt
+        assert task.title in prompt
+        assert task.body in prompt
 
 
-def test_build_prompt_includes_read_only_instructions(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_read_only_instructions(config, event_bus, issue):
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "READ-ONLY" in prompt
-    assert "Do NOT create, modify, or delete any files" in prompt
+        assert "READ-ONLY" in prompt
+        assert "Do NOT create, modify, or delete any files" in prompt
 
 
-def test_build_prompt_includes_plan_markers(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_plan_markers(config, event_bus, issue):
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "PLAN_START" in prompt
-    assert "PLAN_END" in prompt
-    assert "SUMMARY:" in prompt
+        assert "PLAN_START" in prompt
+        assert "PLAN_END" in prompt
+        assert "SUMMARY:" in prompt
 
 
-def test_build_prompt_includes_comments_when_present(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_comments_when_present(config, event_bus):
     task = Task(
         id=42,
         title="Fix the frobnicator",
@@ -178,33 +195,45 @@ def test_build_prompt_includes_comments_when_present(config, event_bus):
         comments=["First comment", "Second comment"],
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "First comment" in prompt
-    assert "Second comment" in prompt
-    assert "Discussion" in prompt
+        assert "First comment" in prompt
+        assert "Second comment" in prompt
+        assert "Discussion" in prompt
 
 
-def test_build_prompt_omits_comments_section_when_empty(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_omits_comments_section_when_empty(config, event_bus, issue):
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "Discussion" not in prompt
+        assert "Discussion" not in prompt
 
 
-def test_build_prompt_truncates_long_body(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_truncates_long_body(config, event_bus):
     task = Task(
         id=1, title="Big issue", body="X" * 20_000, tags=[], comments=[], source_url=""
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "…(truncated)" in prompt
-    assert len(prompt) < 10_000  # well under original 20k body
+        assert "…(truncated)" in prompt
+        assert len(prompt) < 10_000  # well under original 20k body
 
 
-def test_build_prompt_truncates_long_comments(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_truncates_long_comments(config, event_bus):
     task = Task(
         id=1,
         title="Big comments",
@@ -214,14 +243,18 @@ def test_build_prompt_truncates_long_comments(config, event_bus):
         source_url="",
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    # First comment should be truncated, second should be intact
-    assert "…" in prompt
-    assert "Short" in prompt
+        # First comment should be truncated, second should be intact
+        assert "…" in prompt
+        assert "Short" in prompt
 
 
-def test_build_prompt_truncates_long_lines(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_truncates_long_lines(config, event_bus):
     """Lines exceeding _MAX_LINE_CHARS are hard-truncated to prevent
     Claude CLI text-splitter failures."""
     long_line = "A" * 2000
@@ -230,11 +263,16 @@ def test_build_prompt_truncates_long_lines(config, event_bus):
         id=1, title="Long lines", body=body, tags=[], comments=[], source_url=""
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    # No line in the prompt should exceed _MAX_LINE_CHARS + ellipsis
-    for line in prompt.splitlines():
-        assert len(line) <= runner._MAX_LINE_CHARS + 10  # small margin for marker text
+        # No line in the prompt should exceed _MAX_LINE_CHARS + ellipsis
+        for line in prompt.splitlines():
+            assert (
+                len(line) <= runner._MAX_LINE_CHARS + 10
+            )  # small margin for marker text
 
 
 def test_truncate_text_respects_line_boundaries():
@@ -261,7 +299,8 @@ def test_truncate_text_no_truncation_when_under_limit():
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_notes_images_in_body(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_notes_images_in_body(config, event_bus):
     """When the issue body contains markdown images, the prompt should note them."""
     task = Task(
         id=99,
@@ -272,13 +311,17 @@ def test_build_prompt_notes_images_in_body(config, event_bus):
         source_url="",
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "image" in prompt.lower() or "screenshot" in prompt.lower()
-    assert "visual" in prompt.lower() or "attached" in prompt.lower()
+        assert "image" in prompt.lower() or "screenshot" in prompt.lower()
+        assert "visual" in prompt.lower() or "attached" in prompt.lower()
 
 
-def test_build_prompt_notes_html_images_in_body(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_notes_html_images_in_body(config, event_bus):
     """When the issue body contains HTML img tags, the prompt should note them."""
     task = Task(
         id=99,
@@ -289,23 +332,31 @@ def test_build_prompt_notes_html_images_in_body(config, event_bus):
         source_url="",
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "image" in prompt.lower() or "screenshot" in prompt.lower()
+        assert "image" in prompt.lower() or "screenshot" in prompt.lower()
 
 
-def test_build_prompt_no_image_note_when_no_images(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_no_image_note_when_no_images(config, event_bus, issue):
     """When the issue body has no images, no image note should be added."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "image" not in prompt.lower() or "image" in task.body.lower()
-    # The specific note about attached images should not appear
-    assert "visual context" not in prompt.lower()
+        assert "image" not in prompt.lower() or "image" in task.body.lower()
+        # The specific note about attached images should not appear
+        assert "visual context" not in prompt.lower()
 
 
-def test_build_prompt_handles_multiple_images(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_handles_multiple_images(config, event_bus):
     """Multiple images in the body should still produce a single note."""
     task = Task(
         id=99,
@@ -316,10 +367,13 @@ def test_build_prompt_handles_multiple_images(config, event_bus):
         source_url="",
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    # Should mention images
-    assert "image" in prompt.lower()
+        # Should mention images
+        assert "image" in prompt.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -327,16 +381,20 @@ def test_build_prompt_handles_multiple_images(config, event_bus):
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_includes_ui_exploration_guidance(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_ui_exploration_guidance(config, event_bus, issue):
     """Planner prompt should include UI exploration patterns."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "src/ui/src/components/" in prompt
-    assert "constants.js" in prompt
-    assert "theme.js" in prompt
-    assert "types.js" in prompt
+        assert "src/ui/src/components/" in prompt
+        assert "constants.js" in prompt
+        assert "theme.js" in prompt
+        assert "types.js" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -491,16 +549,23 @@ def test_extract_already_satisfied_multiline():
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_includes_already_satisfied_markers(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_already_satisfied_markers(
+    config, event_bus, issue
+):
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "ALREADY_SATISFIED_START" in prompt
-    assert "ALREADY_SATISFIED_END" in prompt
+        assert "ALREADY_SATISFIED_START" in prompt
+        assert "ALREADY_SATISFIED_END" in prompt
 
 
-def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus):
     """Lite prompt (for bug/typo tags) should also include markers."""
     task = Task(
         id=42,
@@ -510,10 +575,13 @@ def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus)
         comments=[],
     )
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "ALREADY_SATISFIED_START" in prompt
-    assert "ALREADY_SATISFIED_END" in prompt
+        assert "ALREADY_SATISFIED_START" in prompt
+        assert "ALREADY_SATISFIED_END" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -886,6 +954,9 @@ async def test_plan_success_path(config, event_bus, issue, tmp_path):
     mock_execute = AsyncMock(return_value=transcript)
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", mock_execute),
         patch.object(runner, "_save_transcript"),
     ):
@@ -910,7 +981,12 @@ async def test_plan_failure_on_exception(config, event_bus, issue, tmp_path):
 
     mock_execute = AsyncMock(side_effect=RuntimeError("subprocess crashed"))
 
-    with patch.object(runner, "_execute", mock_execute):
+    with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
+        patch.object(runner, "_execute", mock_execute),
+    ):
         result = await runner.plan(task, worker_id=0)
 
     assert result.success is False
@@ -928,7 +1004,12 @@ async def test_plan_dry_run(dry_config, event_bus, issue, tmp_path):
     task = issue.to_task()
     mock_create = make_streaming_proc(returncode=0, stdout="")
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
+    with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
         result = await runner.plan(task, worker_id=0)
 
     mock_create.assert_not_called()
@@ -959,6 +1040,9 @@ async def test_plan_already_satisfied_sets_flag_and_skips_validation(
     mock_execute = AsyncMock(return_value=transcript)
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", mock_execute),
         patch.object(runner, "_save_transcript"),
     ):
@@ -980,6 +1064,9 @@ async def test_plan_already_satisfied_does_not_extract_plan(config, event_bus, i
     mock_execute = AsyncMock(return_value=transcript)
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", mock_execute),
         patch.object(runner, "_save_transcript"),
         patch.object(runner, "_extract_plan") as mock_extract,
@@ -1084,6 +1171,9 @@ async def test_plan_returns_result_when_save_transcript_raises_os_error(
     task = issue.to_task()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
         patch.object(runner, "_save_transcript", side_effect=OSError("disk full")),
     ):
@@ -1105,6 +1195,9 @@ async def test_plan_returns_result_when_save_plan_raises_os_error(
     task = issue.to_task()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
         patch.object(runner, "_save_transcript"),
         patch.object(runner, "_save_plan", side_effect=OSError("disk full")),
@@ -1126,6 +1219,9 @@ async def test_plan_returns_failure_result_when_save_transcript_raises_after_exc
     task = issue.to_task()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(
             runner, "_execute", AsyncMock(side_effect=RuntimeError("planner crashed"))
         ),
@@ -1153,6 +1249,9 @@ async def test_plan_already_satisfied_returns_success_when_save_transcript_raise
     )
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
         patch.object(runner, "_save_transcript", side_effect=OSError("disk full")),
     ):
@@ -1176,6 +1275,9 @@ async def test_planner_events_include_planner_role(config, event_bus, issue, tmp
     task = issue.to_task()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1196,6 +1298,9 @@ async def test_plan_emits_planning_and_done_events(config, event_bus, issue, tmp
     task = issue.to_task()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1217,7 +1322,12 @@ async def test_plan_emits_planning_and_failed_events_on_error(
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
 
-    with patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))):
+    with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
+        patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))),
+    ):
         await runner.plan(task, worker_id=0)
 
     events = event_bus.get_history()
@@ -1402,6 +1512,9 @@ async def test_plan_retries_on_validation_failure(config, event_bus, issue):
         return good_transcript
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", side_effect=mock_execute),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1429,6 +1542,9 @@ async def test_plan_retry_prompt_includes_feedback(config, event_bus, issue):
         return _valid_transcript()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", side_effect=mock_execute),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1449,6 +1565,9 @@ async def test_plan_gives_up_after_two_failures(config, event_bus, issue):
     bad_transcript = "PLAN_START\nJust a one-liner.\nPLAN_END\nSUMMARY: bad"
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=bad_transcript)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1468,6 +1587,9 @@ async def test_plan_no_retry_on_first_success(config, event_bus, issue):
     mock_execute = AsyncMock(return_value=_valid_transcript())
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", mock_execute),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1488,6 +1610,9 @@ async def test_plan_retry_emits_retrying_status(config, event_bus, issue):
     bad_transcript = "PLAN_START\nJust a one-liner.\nPLAN_END\nSUMMARY: bad"
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=bad_transcript)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1506,6 +1631,9 @@ async def test_plan_emits_validating_status(config, event_bus, issue):
     task = issue.to_task()
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=_valid_transcript())),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1557,29 +1685,37 @@ def test_build_retry_prompt_truncates_large_context(config, event_bus, issue):
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_includes_required_schema_headers(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_required_schema_headers(config, event_bus, issue):
     """The updated prompt should mention all 7 required section headers."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "## Files to Modify" in prompt
-    assert "## New Files" in prompt
-    assert "## File Delta" in prompt
-    assert "## Implementation Steps" in prompt
-    assert "## Testing Strategy" in prompt
-    assert "## Acceptance Criteria" in prompt
-    assert "## Key Considerations" in prompt
-    assert "REQUIRED SCHEMA" in prompt
+        assert "## Files to Modify" in prompt
+        assert "## New Files" in prompt
+        assert "## File Delta" in prompt
+        assert "## Implementation Steps" in prompt
+        assert "## Testing Strategy" in prompt
+        assert "## Acceptance Criteria" in prompt
+        assert "## Key Considerations" in prompt
+        assert "REQUIRED SCHEMA" in prompt
 
 
-def test_build_prompt_warns_about_rejection(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_warns_about_rejection(config, event_bus, issue):
     """The prompt should warn that plans with missing sections will be rejected."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "rejected" in prompt.lower()
+        assert "rejected" in prompt.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -1645,12 +1781,18 @@ def test_validate_plan_zero_clarification_markers_ok(config, event_bus):
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_includes_clarification_instruction(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_clarification_instruction(
+    config, event_bus, issue
+):
     """Prompt should instruct the planner about [NEEDS CLARIFICATION] markers."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task)
-    assert "NEEDS CLARIFICATION" in prompt
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task)
+        assert "NEEDS CLARIFICATION" in prompt
 
 
 def test_build_retry_prompt_includes_clarification_instruction(
@@ -1797,6 +1939,9 @@ async def test_lite_plan_skips_phase_minus_one_gates(config, event_bus):
     lite_transcript = f"PLAN_START\n{_lite_plan()}\nPLAN_END\nSUMMARY: Fix the crash"
 
     with (
+        patch.object(
+            runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+        ),
         patch.object(runner, "_execute", AsyncMock(return_value=lite_transcript)),
         patch.object(runner, "_save_transcript"),
         patch.object(runner, "_run_phase_minus_one_gates") as mock_gates,
@@ -1812,33 +1957,45 @@ async def test_lite_plan_skips_phase_minus_one_gates(config, event_bus):
 # ---------------------------------------------------------------------------
 
 
-def test_build_prompt_includes_pre_mortem_for_full(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_includes_pre_mortem_for_full(config, event_bus, issue):
     """Full plan prompt includes the pre-mortem section."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task, scale="full")
-    assert "pre-mortem" in prompt.lower()
-    assert "top 3 most likely reasons" in prompt.lower()
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task, scale="full")
+        assert "pre-mortem" in prompt.lower()
+        assert "top 3 most likely reasons" in prompt.lower()
 
 
-def test_build_prompt_no_pre_mortem_for_lite(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_no_pre_mortem_for_lite(config, event_bus, issue):
     """Lite plan prompt does NOT include the pre-mortem section."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
-    prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
-    assert "pre-mortem" not in prompt.lower()
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        prompt, _ = await runner._build_prompt_with_stats(task, scale="lite")
+        assert "pre-mortem" not in prompt.lower()
 
 
-def test_build_prompt_indicates_plan_mode(config, event_bus, issue):
+@pytest.mark.asyncio
+async def test_build_prompt_indicates_plan_mode(config, event_bus, issue):
     """Prompt indicates the plan mode (LITE or FULL)."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
 
-    full_prompt, _ = runner._build_prompt_with_stats(task, scale="full")
-    assert "FULL" in full_prompt
+    with patch.object(
+        runner, "_inject_manifest_and_memory", AsyncMock(return_value=("", ""))
+    ):
+        full_prompt, _ = await runner._build_prompt_with_stats(task, scale="full")
+        assert "FULL" in full_prompt
 
-    lite_prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
-    assert "LITE" in lite_prompt
+        lite_prompt, _ = await runner._build_prompt_with_stats(task, scale="lite")
+        assert "LITE" in lite_prompt
 
 
 # ---------------------------------------------------------------------------

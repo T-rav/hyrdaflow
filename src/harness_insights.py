@@ -6,12 +6,10 @@ escalations, detects recurring patterns, and generates improvement suggestions.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
@@ -135,35 +133,13 @@ def extract_subcategories(details: str) -> list[str]:
 
 
 class HarnessInsightStore:
-    """File-backed store for pipeline failure records and proposed-pattern tracking."""
+    """Hindsight-backed store for pipeline failure records."""
 
-    def __init__(
-        self,
-        memory_dir: Path,
-        hindsight: HindsightClient | None = None,
-    ) -> None:
-        self._memory_dir = memory_dir
-        self._failures_path = memory_dir / "harness_failures.jsonl"
-        self._proposed_path = memory_dir / "harness_proposed.json"
+    def __init__(self, hindsight: HindsightClient) -> None:
         self._hindsight = hindsight
 
-    def append_failure(self, record: FailureRecord) -> None:
-        """Append *record* as a JSON line to ``harness_failures.jsonl``."""
-        try:
-            from file_util import append_jsonl  # noqa: PLC0415
-
-            append_jsonl(self._failures_path, record.model_dump_json())
-        except OSError:
-            logger.warning(
-                "Could not append failure to %s",
-                self._failures_path,
-                exc_info=True,
-            )
-
-    async def retain_failure(self, record: FailureRecord) -> None:
-        """Dual-write a failure record to Hindsight."""
-        if self._hindsight is None:
-            return
+    async def record_failure(self, record: FailureRecord) -> None:
+        """Record a failure to Hindsight."""
         from hindsight import BANK_HARNESS_INSIGHTS, retain_safe
 
         await retain_safe(
@@ -180,39 +156,20 @@ class HarnessInsightStore:
             },
         )
 
-    def load_recent(self, n: int = 20) -> list[FailureRecord]:
-        """Load the last *n* failure records from disk."""
-        if not self._failures_path.exists():
-            return []
-        try:
-            lines = self._failures_path.read_text().strip().splitlines()
-        except OSError:
-            return []
-        tail = lines[-n:] if len(lines) > n else lines
+    async def load_recent(self, n: int = 20) -> list[FailureRecord]:
+        """Load the last *n* failure records from Hindsight."""
+        from hindsight import BANK_HARNESS_INSIGHTS, recall_safe
+
+        memories = await recall_safe(
+            self._hindsight, BANK_HARNESS_INSIGHTS, "pipeline failures", limit=n
+        )
         records: list[FailureRecord] = []
-        for line in tail:
+        for m in memories:
             try:
-                records.append(FailureRecord.model_validate_json(line))
-            except Exception:  # noqa: BLE001
-                logger.warning("Skipping malformed harness record: %s", line[:80])
+                records.append(FailureRecord.model_validate_json(m.content))
+            except Exception:
+                logger.warning("Skipping malformed harness record from Hindsight")
         return records
-
-    def get_proposed_patterns(self) -> set[str]:
-        """Return the set of pattern keys that already have filed proposals."""
-        if not self._proposed_path.exists():
-            return set()
-        try:
-            data = json.loads(self._proposed_path.read_text())
-            return set(data) if isinstance(data, list) else set()
-        except (json.JSONDecodeError, TypeError, OSError):
-            return set()
-
-    def mark_pattern_proposed(self, key: str) -> None:
-        """Record that an improvement proposal has been filed for *key*."""
-        proposed = self.get_proposed_patterns()
-        proposed.add(key)
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        self._proposed_path.write_text(json.dumps(sorted(proposed)))
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +447,7 @@ async def file_harness_suggestions(
                 state.set_hitl_origin(issue_number, improve_label[0])
             if not use_memory_flow:
                 state.set_hitl_cause(issue_number, f"Harness pattern detected: {desc}")
-            store.mark_pattern_proposed(key)
+            state.mark_pattern_proposed("harness", key)
             filed += 1
 
     return filed

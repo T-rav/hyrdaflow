@@ -559,7 +559,7 @@ diff — you may catch things `make quality` won't.
         language = "general"
         if self._troubleshooting_store is not None:
             language = self._detect_language(wt_path)
-            patterns = self._troubleshooting_store.load_patterns(
+            patterns = await self._troubleshooting_store.load_patterns(
                 language=language,
                 limit=10,
             )
@@ -671,7 +671,7 @@ diff — you may catch things `make quality` won't.
                 transcript, issue_number, language
             )
             if pattern is not None:
-                self._troubleshooting_store.append_pattern(pattern)
+                await self._troubleshooting_store.record_pattern(pattern)
                 logger.info(
                     "Persisted troubleshooting pattern '%s' from issue #%d (explicit)",
                     pattern.pattern_name,
@@ -682,7 +682,7 @@ diff — you may catch things `make quality` won't.
             # Stage 2: self-reflection via cheap model
             pattern = await self._reflect_on_fix(transcript, issue_number, language)
             if pattern is not None:
-                self._troubleshooting_store.append_pattern(pattern)
+                await self._troubleshooting_store.record_pattern(pattern)
                 logger.info(
                     "Persisted troubleshooting pattern '%s' from issue #%d (reflection)",
                     pattern.pattern_name,
@@ -714,7 +714,7 @@ diff — you may catch things `make quality` won't.
         if store is None:
             return None
 
-        known = store.load_patterns(limit=50)
+        known = await store.load_patterns(limit=50)
         known_block = "\n".join(f"- {p.pattern_name}: {p.description}" for p in known)
 
         # Truncate transcript to keep the prompt small

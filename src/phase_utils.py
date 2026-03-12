@@ -182,7 +182,7 @@ async def safe_file_memory_suggestion(
         )
 
 
-def record_harness_failure(
+async def record_harness_failure(
     harness_insights: HarnessInsightStore | None,
     issue_number: int,
     category: FailureCategory,
@@ -210,7 +210,7 @@ def record_harness_failure(
             details=details,
             stage=stage,
         )
-        harness_insights.append_failure(record)
+        await harness_insights.record_failure(record)
     except Exception:  # noqa: BLE001
         logger.warning(
             "Failed to record harness failure for issue #%d",
@@ -481,7 +481,7 @@ class PipelineEscalator:
             hitl_label=self._hitl_label,
         )
         self._store.enqueue_transition(issue, "hitl")
-        record_harness_failure(
+        await record_harness_failure(
             self._harness_insights,
             issue_number,
             category,

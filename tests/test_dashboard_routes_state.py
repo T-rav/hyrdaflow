@@ -1836,38 +1836,57 @@ class TestTroubleshootingEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
+        from unittest.mock import patch
 
-        from troubleshooting_store import (
-            TroubleshootingPattern,
-            TroubleshootingPatternStore,
+        from hindsight import HindsightMemory
+        from troubleshooting_store import TroubleshootingPattern
+
+        pattern1 = TroubleshootingPattern(
+            language="python",
+            pattern_name="truthy_asyncmock",
+            description="AsyncMock is always truthy",
+            fix_strategy="Use .called or .call_count instead",
+            frequency=3,
+            source_issues=[10, 20, 30],
+        )
+        pattern2 = TroubleshootingPattern(
+            language="node",
+            pattern_name="jest_open_handles",
+            description="Jest hangs due to open handles",
+            fix_strategy="Use --forceExit or close resources",
+            frequency=1,
+            source_issues=[42],
         )
 
-        memory_dir = config.data_path("memory")
-        store = TroubleshootingPatternStore(memory_dir)
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="truthy_asyncmock",
-                description="AsyncMock is always truthy",
-                fix_strategy="Use .called or .call_count instead",
-                frequency=3,
-                source_issues=[10, 20, 30],
+        memories = [
+            HindsightMemory(content=pattern1.model_dump_json()),
+            HindsightMemory(content=pattern2.model_dump_json()),
+        ]
+
+        mock_hindsight = MagicMock()
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=memories
+        ):
+            router = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+                hindsight=mock_hindsight,
             )
-        )
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="node",
-                pattern_name="jest_open_handles",
-                description="Jest hangs due to open handles",
-                fix_strategy="Use --forceExit or close resources",
-                frequency=1,
-                source_issues=[42],
-            )
-        )
+            endpoint = self._find_endpoint(router, "/api/troubleshooting")
+            response = await endpoint()
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/troubleshooting")
-        response = await endpoint()
         data = json.loads(response.body)
         assert data["total_patterns"] == 2
         assert len(data["patterns"]) == 2
@@ -1883,28 +1902,47 @@ class TestTroubleshootingEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
+        from unittest.mock import patch
 
-        from troubleshooting_store import (
-            TroubleshootingPattern,
-            TroubleshootingPatternStore,
-        )
+        from hindsight import HindsightMemory
+        from troubleshooting_store import TroubleshootingPattern
 
-        memory_dir = config.data_path("memory")
-        store = TroubleshootingPatternStore(memory_dir)
+        # Build 110 patterns as HindsightMemory objects
+        memories = []
         for i in range(110):
-            store.append_pattern(
-                TroubleshootingPattern(
-                    language="python",
-                    pattern_name=f"pattern_{i}",
-                    description=f"Description {i}",
-                    fix_strategy=f"Fix {i}",
-                    source_issues=[i],
-                )
+            p = TroubleshootingPattern(
+                language="python",
+                pattern_name=f"pattern_{i}",
+                description=f"Description {i}",
+                fix_strategy=f"Fix {i}",
+                source_issues=[i],
             )
+            memories.append(HindsightMemory(content=p.model_dump_json()))
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/troubleshooting")
-        response = await endpoint()
+        mock_hindsight = MagicMock()
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=memories
+        ):
+            router = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+                hindsight=mock_hindsight,
+            )
+            endpoint = self._find_endpoint(router, "/api/troubleshooting")
+            response = await endpoint()
+
         data = json.loads(response.body)
         assert data["total_patterns"] == 110
         assert len(data["patterns"]) == 100

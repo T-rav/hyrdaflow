@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -45,6 +48,13 @@ def _make_record(
         fixes_made=fixes_made,
         categories=categories or [],
     )
+
+
+def _make_hindsight_memory(content: str, context: str = "") -> object:
+    """Create a mock HindsightMemory-like object with content/context attrs."""
+    from hindsight import HindsightMemory
+
+    return HindsightMemory(content=content, context=context)
 
 
 # ---------------------------------------------------------------------------
@@ -114,90 +124,153 @@ class TestExtractCategories:
 
 
 class TestReviewInsightStore:
-    """Tests for ReviewInsightStore persistence."""
+    """Tests for ReviewInsightStore with Hindsight backend."""
 
-    def test_append_creates_file(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        record = _make_record(categories=["missing_tests"])
-        store.append_review(record)
+    def test_constructor_accepts_hindsight_client(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+        assert store._hindsight is hindsight
 
-        reviews_path = tmp_path / "memory" / "reviews.jsonl"
-        assert reviews_path.exists()
-        lines = reviews_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+    @pytest.mark.asyncio
+    async def test_record_review_calls_retain_safe(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+        record = _make_record(pr_number=101, categories=["missing_tests"])
 
-    def test_append_multiple_records(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        for i in range(3):
-            store.append_review(_make_record(pr_number=100 + i))
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await store.record_review(record)
 
-        reviews_path = tmp_path / "memory" / "reviews.jsonl"
-        lines = reviews_path.read_text().strip().splitlines()
-        assert len(lines) == 3
+            mock_retain.assert_called_once()
+            call_args = mock_retain.call_args
+            assert call_args[0][0] is hindsight
+            # Second positional arg is bank_id
+            assert call_args[0][1] == "hydraflow-review-insights"
+            # Third positional arg is the JSON content
+            assert "101" in call_args[0][2]
+            # Check keyword args
+            assert "PR #101" in call_args[1]["context"]
+            assert call_args[1]["metadata"]["source"] == "review"
+            assert call_args[1]["metadata"]["pr_number"] == "101"
 
-    def test_load_recent_returns_tail(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        for i in range(15):
-            store.append_review(_make_record(pr_number=100 + i))
+    @pytest.mark.asyncio
+    async def test_record_review_includes_verdict_in_context(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+        record = _make_record(verdict=ReviewVerdict.REQUEST_CHANGES)
 
-        recent = store.load_recent(5)
-        assert len(recent) == 5
-        assert recent[0].pr_number == 110
-        assert recent[-1].pr_number == 114
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await store.record_review(record)
 
-    def test_load_recent_returns_all_when_fewer(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        for i in range(3):
-            store.append_review(_make_record(pr_number=100 + i))
+            context = mock_retain.call_args[1]["context"]
+            assert "request-changes" in context
 
-        recent = store.load_recent(10)
-        assert len(recent) == 3
+    @pytest.mark.asyncio
+    async def test_record_review_includes_categories_in_metadata(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+        record = _make_record(categories=["missing_tests", "security"])
 
-    def test_load_recent_handles_missing_file(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        assert store.load_recent() == []
+        with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
+            await store.record_review(record)
 
-    def test_get_proposed_categories_empty_when_no_file(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        assert store.get_proposed_categories() == set()
+            metadata = mock_retain.call_args[1]["metadata"]
+            assert "missing_tests" in metadata["categories"]
+            assert "security" in metadata["categories"]
 
-    def test_mark_and_get_proposed_categories(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        store.mark_category_proposed("missing_tests")
-        store.mark_category_proposed("security")
+    @pytest.mark.asyncio
+    async def test_load_recent_calls_recall_safe(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
 
-        proposed = store.get_proposed_categories()
-        assert proposed == {"missing_tests", "security"}
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=[]
+        ) as mock_recall:
+            result = await store.load_recent(5)
 
-    def test_mark_proposed_is_idempotent(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path / "memory")
-        store.mark_category_proposed("missing_tests")
-        store.mark_category_proposed("missing_tests")
+            mock_recall.assert_called_once()
+            call_args = mock_recall.call_args
+            assert call_args[0][0] is hindsight
+            assert call_args[0][1] == "hydraflow-review-insights"
+            assert call_args[1]["limit"] == 5
 
-        proposed = store.get_proposed_categories()
-        assert proposed == {"missing_tests"}
+        assert result == []
 
-    def test_get_proposed_handles_corrupt_file(self, tmp_path: Path) -> None:
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir(parents=True)
-        (memory_dir / "proposed_categories.json").write_text("not valid json{{{")
+    @pytest.mark.asyncio
+    async def test_load_recent_parses_valid_records(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
 
-        store = ReviewInsightStore(memory_dir)
-        assert store.get_proposed_categories() == set()
+        record = _make_record(pr_number=201, categories=["security"])
+        memory = _make_hindsight_memory(record.model_dump_json())
 
-    def test_load_recent_skips_malformed_lines(self, tmp_path: Path) -> None:
-        memory_dir = tmp_path / "memory"
-        memory_dir.mkdir(parents=True)
-        reviews_path = memory_dir / "reviews.jsonl"
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=[memory]
+        ):
+            result = await store.load_recent()
 
-        # Write one valid and one invalid line
-        valid = _make_record(pr_number=101)
-        reviews_path.write_text(valid.model_dump_json() + "\n" + "not valid json\n")
+        assert len(result) == 1
+        assert result[0].pr_number == 201
+        assert result[0].categories == ["security"]
 
-        store = ReviewInsightStore(memory_dir)
-        records = store.load_recent()
-        assert len(records) == 1
-        assert records[0].pr_number == 101
+    @pytest.mark.asyncio
+    async def test_load_recent_skips_malformed_records(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+
+        valid_record = _make_record(pr_number=101)
+        valid_memory = _make_hindsight_memory(valid_record.model_dump_json())
+        bad_memory = _make_hindsight_memory("not valid json{{{")
+
+        with patch(
+            "hindsight.recall_safe",
+            new_callable=AsyncMock,
+            return_value=[valid_memory, bad_memory],
+        ):
+            result = await store.load_recent()
+
+        assert len(result) == 1
+        assert result[0].pr_number == 101
+
+    @pytest.mark.asyncio
+    async def test_load_recent_returns_empty_when_no_memories(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+
+        with patch("hindsight.recall_safe", new_callable=AsyncMock, return_value=[]):
+            result = await store.load_recent()
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_load_recent_default_limit(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=[]
+        ) as mock_recall:
+            await store.load_recent()
+
+            assert mock_recall.call_args[1]["limit"] == 10
+
+    @pytest.mark.asyncio
+    async def test_load_recent_multiple_valid_records(self) -> None:
+        hindsight = AsyncMock()
+        store = ReviewInsightStore(hindsight)
+
+        memories = [
+            _make_hindsight_memory(_make_record(pr_number=100 + i).model_dump_json())
+            for i in range(3)
+        ]
+
+        with patch(
+            "hindsight.recall_safe", new_callable=AsyncMock, return_value=memories
+        ):
+            result = await store.load_recent()
+
+        assert len(result) == 3
+        pr_numbers = [r.pr_number for r in result]
+        assert pr_numbers == [100, 101, 102]
 
 
 # ---------------------------------------------------------------------------
@@ -449,48 +522,6 @@ class TestReviewRecord:
 
 
 # ---------------------------------------------------------------------------
-# append_review OSError handling (issue #1038)
-# ---------------------------------------------------------------------------
-
-
-class TestAppendReviewOSError:
-    """Verify ReviewInsightStore.append_review catches OSError gracefully."""
-
-    def test_append_review_logs_warning_on_oserror(self, tmp_path, caplog) -> None:
-        """When the reviews file can't be written, log warning and don't raise."""
-        import logging
-        from unittest.mock import patch
-
-        store = ReviewInsightStore(tmp_path / "memory")
-        record = _make_record(categories=["missing_tests"])
-
-        with (
-            patch("file_util.open", side_effect=OSError("disk full")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.review_insights"),
-        ):
-            store.append_review(record)  # should not raise
-
-        assert "Could not append review" in caplog.text
-
-    def test_append_review_handles_mkdir_failure(self, tmp_path, caplog) -> None:
-        """When mkdir fails with PermissionError, log warning and don't raise."""
-        import logging
-        from pathlib import Path
-        from unittest.mock import patch
-
-        store = ReviewInsightStore(tmp_path / "memory")
-        record = _make_record(categories=["security"])
-
-        with (
-            patch.object(Path, "mkdir", side_effect=PermissionError("not allowed")),
-            caplog.at_level(logging.WARNING, logger="hydraflow.review_insights"),
-        ):
-            store.append_review(record)  # should not raise
-
-        assert "Could not append review" in caplog.text
-
-
-# ---------------------------------------------------------------------------
 # ReviewRecord timestamp validation (issue #1048)
 # ---------------------------------------------------------------------------
 
@@ -499,7 +530,6 @@ class TestReviewRecordTimestamp:
     """Tests for ReviewRecord IsoTimestamp validation."""
 
     def test_invalid_timestamp_rejected(self) -> None:
-        import pytest
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError, match="Invalid ISO 8601 timestamp"):

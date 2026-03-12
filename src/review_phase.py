@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from visual_validator import VisualValidator
 
 from baseline_policy import BaselinePolicy
@@ -104,6 +105,7 @@ class ReviewPhase:
         post_merge: PostMergeHandler | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -117,7 +119,9 @@ class ReviewPhase:
         self._suggest_memory = MemorySuggester(config, prs, state)
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
-        self._insights = ReviewInsightStore(config.memory_dir)
+        self._insights: ReviewInsightStore | None = (
+            ReviewInsightStore(hindsight) if hindsight is not None else None
+        )
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._conflict_resolver = conflict_resolver or MergeConflictResolver(
@@ -128,6 +132,7 @@ class ReviewPhase:
             event_bus=self._bus,
             state=state,
             summarizer=None,
+            hindsight=hindsight,
         )
         self._post_merge = post_merge or PostMergeHandler(
             config=config,
@@ -695,7 +700,7 @@ class ReviewPhase:
             self._state.record_review_duration(result.duration_seconds)
         await self._record_review_insight(result)
         if result.verdict != ReviewVerdict.APPROVE:
-            record_harness_failure(
+            await record_harness_failure(
                 self._harness_insights,
                 pr.issue_number,
                 FailureCategory.REVIEW_REJECTION,
@@ -1296,7 +1301,7 @@ class ReviewPhase:
     ) -> None:
         """Record state, record harness failure, escalate to HITL."""
         self._state.record_ci_fix_rounds(ci_fix_attempts)
-        record_harness_failure(
+        await record_harness_failure(
             self._harness_insights,
             issue.id,
             FailureCategory.CI_FAILURE,
@@ -1418,11 +1423,16 @@ class ReviewPhase:
                 fixes_made=result.fixes_made,
                 categories=extract_categories(result.summary),
             )
-            self._insights.append_review(record)
+            if self._insights is not None:
+                await self._insights.record_review(record)
 
-            recent = self._insights.load_recent(self._config.review_insight_window)
+                recent = await self._insights.load_recent(
+                    self._config.review_insight_window
+                )
+            else:
+                recent = []
             patterns = analyze_patterns(recent, self._config.review_pattern_threshold)
-            proposed = self._insights.get_proposed_categories()
+            proposed = self._state.get_proposed_patterns("review")
 
             for category, count, evidence in patterns:
                 if category in proposed:
@@ -1432,7 +1442,7 @@ class ReviewPhase:
                 title = f"[Review Insight] Recurring feedback: {desc}"
                 labels = self._config.improve_label[:1]
                 await self._transitioner.create_task(title, body, labels)
-                self._insights.mark_category_proposed(category)
+                self._state.mark_pattern_proposed("review", category)
         except (RuntimeError, OSError):
             status = "error"
             details["error"] = "review insight recording failed"
@@ -1513,7 +1523,7 @@ class ReviewPhase:
         category = (
             FailureCategory.VISUAL_FAIL if fail_items else FailureCategory.VISUAL_WARN
         )
-        record_harness_failure(
+        await record_harness_failure(
             self._harness_insights,
             issue_number,
             category,
@@ -1688,7 +1698,7 @@ class ReviewPhase:
                 max_attempts,
                 pr.issue_number,
             )
-            record_harness_failure(
+            await record_harness_failure(
                 self._harness_insights,
                 pr.issue_number,
                 FailureCategory.HITL_ESCALATION,

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent import AgentRunner
 from events import EventBus
 from planner import PlannerRunner
@@ -28,9 +30,10 @@ def _cfg(tmp_path: Path, **overrides: object):
     )
 
 
-def test_planner_prompt_eval_normal(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_planner_prompt_eval_normal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_issue_body_chars=4000)
-    runner = PlannerRunner(cfg, EventBus())
+    runner = PlannerRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(
         title="Fix login race",
         body="Investigate auth race condition and patch session locking.",
@@ -38,7 +41,7 @@ def test_planner_prompt_eval_normal(tmp_path: Path) -> None:
         tags=["bug"],
     )
 
-    prompt, _ = runner._build_prompt_with_stats(task, scale="full")
+    prompt, _ = await runner._build_prompt_with_stats(task, scale="full")
 
     assert "PLAN_START" in prompt
     assert "PLAN_END" in prompt
@@ -47,43 +50,46 @@ def test_planner_prompt_eval_normal(tmp_path: Path) -> None:
     assert "ALREADY_SATISFIED_START" in prompt
 
 
-def test_planner_prompt_eval_error_oversized_input(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_planner_prompt_eval_error_oversized_input(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_issue_body_chars=4000)
-    runner = PlannerRunner(cfg, EventBus())
+    runner = PlannerRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(
         title="Large issue body",
         body="X" * 30000,
         comments=["C" * 8000 for _ in range(10)],
     )
 
-    prompt, _ = runner._build_prompt_with_stats(task, scale="full")
+    prompt, _ = await runner._build_prompt_with_stats(task, scale="full")
 
     assert "…(truncated)" in prompt
     assert "more comments omitted" in prompt
     assert len(prompt) < 30000
 
 
-def test_planner_prompt_eval_edge_empty_inputs(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_planner_prompt_eval_edge_empty_inputs(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = PlannerRunner(cfg, EventBus())
+    runner = PlannerRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(body="", comments=[], tags=[])
 
-    prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
+    prompt, _ = await runner._build_prompt_with_stats(task, scale="lite")
 
     assert "LITE" in prompt
     assert "PLAN_START" in prompt
     assert "Discussion" not in prompt
 
 
-def test_implementer_prompt_eval_normal(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_implementer_prompt_eval_normal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_issue_body_chars=4000)
-    runner = AgentRunner(cfg, EventBus())
+    runner = AgentRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(
         body="Implement endpoint and include tests.",
         comments=["## Implementation Plan\n\n1. Add handler\n2. Add tests\n"],
     )
 
-    prompt, _ = runner._build_prompt_with_stats(task)
+    prompt, _ = await runner._build_prompt_with_stats(task)
 
     assert "## Implementation Plan" in prompt
     assert "Follow this plan closely" in prompt
@@ -91,9 +97,10 @@ def test_implementer_prompt_eval_normal(tmp_path: Path) -> None:
     assert "make quality" in prompt
 
 
-def test_implementer_prompt_eval_error_oversized_sections(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_implementer_prompt_eval_error_oversized_sections(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_issue_body_chars=4000)
-    runner = AgentRunner(cfg, EventBus())
+    runner = AgentRunner(cfg, EventBus(), hindsight=None)
     long_plan = "## Implementation Plan\n\n" + ("step\n" * 8000)
     task = TaskFactory.create(
         body="B" * 20000,
@@ -101,46 +108,51 @@ def test_implementer_prompt_eval_error_oversized_sections(tmp_path: Path) -> Non
     )
     review_feedback = "feedback\n" * 5000
 
-    prompt, _ = runner._build_prompt_with_stats(task, review_feedback=review_feedback)
+    prompt, _ = await runner._build_prompt_with_stats(
+        task, review_feedback=review_feedback
+    )
 
     assert "summarized from" in prompt
     assert "more comments omitted" in prompt
     assert len(prompt) < 35000
 
 
-def test_implementer_prompt_eval_edge_no_plan(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_implementer_prompt_eval_edge_no_plan(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = AgentRunner(cfg, EventBus())
+    runner = AgentRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(body="Short body", comments=[])
 
-    prompt, _ = runner._build_prompt_with_stats(task)
+    prompt, _ = await runner._build_prompt_with_stats(task)
 
     assert "Follow this plan closely" not in prompt
     assert "## Rules" in prompt
 
 
-def test_reviewer_prompt_eval_normal(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_reviewer_prompt_eval_normal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_review_diff_chars=7000)
-    runner = ReviewRunner(cfg, EventBus())
+    runner = ReviewRunner(cfg, EventBus(), hindsight=None)
     issue = TaskFactory.create(body="Fix API response shape.")
     pr = PRInfoFactory.create()
     diff = "diff --git a/foo.py b/foo.py\n+added line\n"
 
-    prompt, _ = runner._build_review_prompt_with_stats(pr, issue, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr, issue, diff)
 
     assert "## PR Diff" in prompt
     assert diff in prompt
     assert "VERDICT: APPROVE" in prompt
 
 
-def test_reviewer_prompt_eval_error_large_payload(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_reviewer_prompt_eval_error_large_payload(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_issue_body_chars=4000, max_review_diff_chars=7000)
-    runner = ReviewRunner(cfg, EventBus())
+    runner = ReviewRunner(cfg, EventBus(), hindsight=None)
     issue = TaskFactory.create(body="I" * 25000)
     pr = PRInfoFactory.create()
     diff = "diff --git a/a.py b/a.py\n" + ("+x\n-y\n" * 12000)
 
-    prompt, _ = runner._build_review_prompt_with_stats(pr, issue, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr, issue, diff)
 
     assert "Issue body summarized for token efficiency" in prompt
     assert "### Diff Summary" in prompt
@@ -148,14 +160,15 @@ def test_reviewer_prompt_eval_error_large_payload(tmp_path: Path) -> None:
     assert len(prompt) < 25000
 
 
-def test_reviewer_prompt_eval_edge_malformed_diff(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_reviewer_prompt_eval_edge_malformed_diff(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_review_diff_chars=5000)
-    runner = ReviewRunner(cfg, EventBus())
+    runner = ReviewRunner(cfg, EventBus(), hindsight=None)
     issue = TaskFactory.create(body="Check malformed diff handling.")
     pr = PRInfoFactory.create()
     diff = "x" * 10000  # no diff headers
 
-    prompt, _ = runner._build_review_prompt_with_stats(pr, issue, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr, issue, diff)
 
     assert "### Diff Summary" in prompt
     assert "(could not detect files)" in prompt
@@ -164,7 +177,7 @@ def test_reviewer_prompt_eval_edge_malformed_diff(tmp_path: Path) -> None:
 
 def test_triage_prompt_eval_normal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = TriageRunner(cfg, EventBus())
+    runner = TriageRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(body="Need to fix login bug with repro steps.")
 
     prompt, _ = runner._build_prompt_with_stats(task, max_body=2000)
@@ -175,7 +188,7 @@ def test_triage_prompt_eval_normal(tmp_path: Path) -> None:
 
 def test_triage_prompt_eval_error_oversized_issue_body(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, max_issue_body_chars=4000)
-    runner = TriageRunner(cfg, EventBus())
+    runner = TriageRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(body="T" * 12000)
 
     prompt, _ = runner._build_prompt_with_stats(task, max_body=1500)
@@ -186,7 +199,7 @@ def test_triage_prompt_eval_error_oversized_issue_body(tmp_path: Path) -> None:
 
 def test_triage_prompt_eval_edge_empty_body(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = TriageRunner(cfg, EventBus())
+    runner = TriageRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(body="")
 
     prompt, _ = runner._build_prompt_with_stats(task, max_body=1200)
@@ -195,9 +208,10 @@ def test_triage_prompt_eval_edge_empty_body(tmp_path: Path) -> None:
     assert "**Body:**" in prompt
 
 
-def test_planner_retry_prompt_eval_normal(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_planner_retry_prompt_eval_normal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = PlannerRunner(cfg, EventBus())
+    runner = PlannerRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(title="Retry planner prompt")
     failed_plan = "## Files to Modify\n- a.py"
     errors = ["Missing required section: ## Testing Strategy"]
@@ -210,13 +224,14 @@ def test_planner_retry_prompt_eval_normal(tmp_path: Path) -> None:
     assert "Missing required section" in prompt
 
 
-def test_planner_prompt_eval_edge_full_vs_lite_schema(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_planner_prompt_eval_edge_full_vs_lite_schema(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = PlannerRunner(cfg, EventBus())
+    runner = PlannerRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(tags=["bug"])
 
-    full_prompt, _ = runner._build_prompt_with_stats(task, scale="full")
-    lite_prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
+    full_prompt, _ = await runner._build_prompt_with_stats(task, scale="full")
+    lite_prompt, _ = await runner._build_prompt_with_stats(task, scale="lite")
 
     assert "REQUIRED SCHEMA" in full_prompt
     assert "LITE SCHEMA" in lite_prompt
@@ -226,7 +241,7 @@ def test_planner_prompt_eval_edge_full_vs_lite_schema(tmp_path: Path) -> None:
 
 def test_implementer_quality_fix_prompt_eval_error_truncation(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, error_output_max_chars=1200)
-    runner = AgentRunner(cfg, EventBus())
+    runner = AgentRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create()
     long_error = "E" * 5000
 
@@ -237,12 +252,15 @@ def test_implementer_quality_fix_prompt_eval_error_truncation(tmp_path: Path) ->
     assert "E" * 1500 not in prompt
 
 
-def test_implementer_pre_quality_review_prompt_eval_contract(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_implementer_pre_quality_review_prompt_eval_contract(
+    tmp_path: Path,
+) -> None:
     cfg = _cfg(tmp_path)
-    runner = AgentRunner(cfg, EventBus())
+    runner = AgentRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(title="Contract check")
 
-    prompt = runner._build_pre_quality_review_prompt(task, attempt=1)
+    prompt = await runner._build_pre_quality_review_prompt(task, attempt=1)
 
     assert "PRE_QUALITY_REVIEW_RESULT: OK" in prompt
     assert "PRE_QUALITY_REVIEW_RESULT: RETRY" in prompt
@@ -251,7 +269,7 @@ def test_implementer_pre_quality_review_prompt_eval_contract(tmp_path: Path) -> 
 
 def test_implementer_run_tool_prompt_eval_contract(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, test_command="pytest -q")
-    runner = AgentRunner(cfg, EventBus())
+    runner = AgentRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create(title="Run-tool contract")
 
     prompt = runner._build_pre_quality_run_tool_prompt(task, attempt=3)
@@ -263,7 +281,7 @@ def test_implementer_run_tool_prompt_eval_contract(tmp_path: Path) -> None:
 
 def test_reviewer_ci_fix_prompt_eval_normal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path, test_command="pytest -q")
-    runner = ReviewRunner(cfg, EventBus())
+    runner = ReviewRunner(cfg, EventBus(), hindsight=None)
     issue = TaskFactory.create(title="CI fix")
     pr = PRInfoFactory.create()
 
@@ -279,7 +297,7 @@ def test_reviewer_ci_fix_prompt_eval_normal(tmp_path: Path) -> None:
 
 def test_reviewer_ci_fix_prompt_eval_edge_with_logs(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = ReviewRunner(cfg, EventBus())
+    runner = ReviewRunner(cfg, EventBus(), hindsight=None)
     issue = TaskFactory.create()
     pr = PRInfoFactory.create()
     ci_logs = "Traceback:\n" + ("line\n" * 100)
@@ -295,7 +313,7 @@ def test_reviewer_ci_fix_prompt_eval_edge_with_logs(tmp_path: Path) -> None:
 
 def test_triage_prompt_eval_edge_json_contract_markers(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    runner = TriageRunner(cfg, EventBus())
+    runner = TriageRunner(cfg, EventBus(), hindsight=None)
     task = TaskFactory.create()
 
     prompt, _ = runner._build_prompt_with_stats(task, max_body=1000)

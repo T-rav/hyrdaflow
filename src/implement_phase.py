@@ -138,12 +138,16 @@ class ImplementPhase:
 
                 def _on_worker_failure(exc_name: str) -> WorkerResult:
                     self._state.mark_issue(issue.id, "failed")
-                    record_harness_failure(
-                        self._harness_insights,
-                        issue.id,
-                        FailureCategory.IMPLEMENTATION_ERROR,
-                        f"Worker {exc_name} for issue #{issue.id}",
-                        stage=PipelineStage.IMPLEMENT,
+                    # Fire-and-forget: record_harness_failure is async but
+                    # this callback is sync; schedule it without blocking.
+                    asyncio.ensure_future(
+                        record_harness_failure(
+                            self._harness_insights,
+                            issue.id,
+                            FailureCategory.IMPLEMENTATION_ERROR,
+                            f"Worker {exc_name} for issue #{issue.id}",
+                            stage=PipelineStage.IMPLEMENT,
+                        )
                     )
                     return WorkerResult(
                         issue_number=issue.id,
@@ -338,7 +342,7 @@ class ImplementPhase:
             self._state.record_quality_fix_rounds(result.quality_fix_attempts)
             for _ in range(result.quality_fix_attempts):
                 self._state.record_stage_retry(issue.id, "quality_fix")
-            record_harness_failure(
+            await record_harness_failure(
                 self._harness_insights,
                 issue.id,
                 FailureCategory.QUALITY_GATE,

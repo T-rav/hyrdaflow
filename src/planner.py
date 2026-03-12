@@ -104,7 +104,9 @@ class PlannerRunner(BaseRunner):
             logger.info("Issue #%d classified as %s plan", task.id, scale)
 
             cmd = self._build_command()
-            prompt, prompt_stats = self._build_prompt_with_stats(task, scale=scale)
+            prompt, prompt_stats = await self._build_prompt_with_stats(
+                task, scale=scale
+            )
 
             def _check_plan_complete(accumulated: str) -> bool:
                 if "PLAN_END" in accumulated:
@@ -333,7 +335,7 @@ class PlannerRunner(BaseRunner):
                 lines.append(f"- `{header}` \u2014 {desc}")
         return "\n".join(lines)
 
-    def _build_prompt_with_stats(
+    async def _build_prompt_with_stats(
         self, issue: Task, *, scale: PlanScale = "full"
     ) -> tuple[str, dict[str, object]]:
         """Build the planning prompt and pruning stats.
@@ -371,7 +373,9 @@ class PlannerRunner(BaseRunner):
                 "the surrounding text describes what they show."
             )
 
-        manifest_section, memory_section = self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=issue.title
+        )
 
         find_label = self._config.find_label[0]
 

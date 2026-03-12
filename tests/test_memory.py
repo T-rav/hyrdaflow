@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from execution import SimpleResult
 from memory import (
     MemorySyncWorker,
     _parse_memory_type,
     build_memory_issue_body,
     file_memory_suggestion,
-    load_memory_digest,
     parse_memory_suggestion,
 )
 from models import MEMORY_TYPE_DISPLAY_ORDER, ManifestRefreshResult, MemoryType
@@ -322,74 +319,6 @@ class TestBuildMemoryIssueBody:
         assert "**Type:** knowledge" in body
 
 
-# --- load_memory_digest tests ---
-
-
-class TestLoadMemoryDigest:
-    """Tests for loading the memory digest from disk."""
-
-    def test_reads_existing_file(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_dir = tmp_path / ".hydraflow" / "memory"
-        digest_dir.mkdir(parents=True)
-        digest_file = digest_dir / "digest.md"
-        digest_file.write_text("## Learnings\n\nSome content here")
-
-        result = load_memory_digest(config)
-        assert "Some content here" in result
-
-    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        result = load_memory_digest(config)
-        assert result == ""
-
-    def test_empty_file_returns_empty(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_dir = tmp_path / ".hydraflow" / "memory"
-        digest_dir.mkdir(parents=True)
-        (digest_dir / "digest.md").write_text("   \n  ")
-
-        result = load_memory_digest(config)
-        assert result == ""
-
-    def test_caps_at_max_chars(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_dir = tmp_path / ".hydraflow" / "memory"
-        digest_dir.mkdir(parents=True)
-        # Write content longer than max_memory_prompt_chars (4000)
-        long_content = "x" * 5000
-        (digest_dir / "digest.md").write_text(long_content)
-
-        result = load_memory_digest(config)
-        assert len(result) < 5000
-        assert "truncated" in result
-
-    def test_at_exact_max_chars_no_truncation(self, tmp_path: Path) -> None:
-        """Content at exactly max_memory_prompt_chars should NOT be truncated."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_dir = tmp_path / ".hydraflow" / "memory"
-        digest_dir.mkdir(parents=True)
-        exact_content = "x" * config.max_memory_prompt_chars
-        (digest_dir / "digest.md").write_text(exact_content)
-
-        result = load_memory_digest(config)
-        assert result == exact_content
-        assert "truncated" not in result
-
-    def test_one_over_max_chars_triggers_truncation(self, tmp_path: Path) -> None:
-        """Content at max_memory_prompt_chars + 1 should be truncated."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_dir = tmp_path / ".hydraflow" / "memory"
-        digest_dir.mkdir(parents=True)
-        over_content = "x" * (config.max_memory_prompt_chars + 1)
-        (digest_dir / "digest.md").write_text(over_content)
-
-        result = load_memory_digest(config)
-        assert "truncated" in result
-        # The truncated content should start with the original prefix
-        assert result.startswith("x" * 100)
-
-
 # --- MemorySyncWorker tests ---
 
 
@@ -419,187 +348,6 @@ class TestMemorySyncWorkerExtractLearning:
         assert result == ""
 
 
-class TestMemorySyncWorkerBuildDigest:
-    """Tests for digest building."""
-
-    def test_sorts_newest_first(self) -> None:
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Old learning", "2024-01-01T00:00:00", MemoryType.KNOWLEDGE),
-            (2, "New learning", "2024-06-01T00:00:00", MemoryType.KNOWLEDGE),
-        ]
-        # Pre-sorted newest-first (caller's responsibility)
-        learnings_sorted = sorted(learnings, key=lambda x: x[2], reverse=True)
-        digest = MemorySyncWorker._build_digest(learnings_sorted)
-        # New learning should come before old
-        pos_new = digest.index("New learning")
-        pos_old = digest.index("Old learning")
-        assert pos_new < pos_old
-
-    def test_formats_with_separators(self) -> None:
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Learning config", "2024-01-01", MemoryType.CONFIG),
-            (2, "Learning knowledge", "2024-01-02", MemoryType.KNOWLEDGE),
-        ]
-        digest = MemorySyncWorker._build_digest(learnings)
-        assert "---" in digest
-
-    def test_header_includes_count(self) -> None:
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Learning one", "2024-01-01", MemoryType.KNOWLEDGE),
-            (2, "Learning two", "2024-01-02", MemoryType.KNOWLEDGE),
-            (3, "Learning three", "2024-01-03", MemoryType.KNOWLEDGE),
-        ]
-        digest = MemorySyncWorker._build_digest(learnings)
-        assert "3 learnings" in digest
-
-    def test_build_digest__groups_by_type(self) -> None:
-        """Learnings should be grouped by type with section headers."""
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "A knowledge item", "2024-01-01", MemoryType.KNOWLEDGE),
-            (2, "A config suggestion", "2024-01-02", MemoryType.CONFIG),
-            (3, "An instruction", "2024-01-03", MemoryType.INSTRUCTION),
-            (4, "A code change", "2024-01-04", MemoryType.CODE),
-        ]
-        digest = MemorySyncWorker._build_digest(learnings)
-        assert "### Config" in digest
-        assert "### Instruction" in digest
-        assert "### Code" in digest
-        assert "### Knowledge" in digest
-
-    def test_build_digest__actionable_before_knowledge(self) -> None:
-        """Actionable type sections should appear before knowledge."""
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Knowledge item", "2024-01-01", MemoryType.KNOWLEDGE),
-            (2, "Config item", "2024-01-02", MemoryType.CONFIG),
-        ]
-        digest = MemorySyncWorker._build_digest(learnings)
-        config_pos = digest.index("### Config")
-        knowledge_pos = digest.index("### Knowledge")
-        assert config_pos < knowledge_pos
-
-    def test_build_digest__skips_empty_type_sections(self) -> None:
-        """Type sections with no learnings should not appear."""
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Knowledge only", "2024-01-01", MemoryType.KNOWLEDGE),
-        ]
-        digest = MemorySyncWorker._build_digest(learnings)
-        assert "### Knowledge" in digest
-        assert "### Config" not in digest
-        assert "### Instruction" not in digest
-        assert "### Code" not in digest
-
-    def test_build_digest__single_type_no_separator(self) -> None:
-        """When all learnings are the same type, no --- separator needed."""
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Item A", "2024-01-01", MemoryType.KNOWLEDGE),
-            (2, "Item B", "2024-01-02", MemoryType.KNOWLEDGE),
-        ]
-        digest = MemorySyncWorker._build_digest(learnings)
-        # Only one type section, so no ---
-        assert "---" not in digest
-
-
-class TestMemorySyncWorkerCompactDigest:
-    """Tests for digest compaction."""
-
-    @pytest.mark.asyncio
-    async def test_under_limit_no_truncation(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Short learning", "2024-01-01", MemoryType.KNOWLEDGE),
-        ]
-        result = await worker._compact_digest(learnings, max_chars=10000)
-        assert "truncated" not in result
-
-    @pytest.mark.asyncio
-    async def test_dedup_removes_near_duplicates(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (
-                1,
-                "Always run make lint before make test to catch formatting",
-                "2024-01-01",
-                MemoryType.KNOWLEDGE,
-            ),
-            (
-                2,
-                "Always run make lint before make test to catch issues",
-                "2024-01-02",
-                MemoryType.KNOWLEDGE,
-            ),
-            (
-                3,
-                "Use atomic writes for state persistence",
-                "2024-01-03",
-                MemoryType.KNOWLEDGE,
-            ),
-        ]
-        result = await worker._compact_digest(learnings, max_chars=10000)
-        # Should have deduped the similar lint learnings
-        assert "compacted" in result
-
-    @pytest.mark.asyncio
-    async def test_over_limit_calls_model(self, tmp_path: Path) -> None:
-        """When dedup isn't enough, the worker calls a cheap model for summarisation."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (
-                i,
-                f"A very long learning about topic number {i} " * 10,
-                f"2024-01-{i:02d}",
-                MemoryType.KNOWLEDGE,
-            )
-            for i in range(1, 20)
-        ]
-        # Mock the model call to return a short summary
-        worker._summarise_with_model = AsyncMock(  # type: ignore[method-assign]
-            return_value="## Accumulated Learnings\n*Summarised*\n\n- Condensed.\n"
-        )
-        result = await worker._compact_digest(learnings, max_chars=500)
-        worker._summarise_with_model.assert_called_once()
-        assert "Condensed" in result
-
-    @pytest.mark.asyncio
-    async def test_over_limit_model_failure_falls_back_to_truncation(
-        self, tmp_path: Path
-    ) -> None:
-        """If the model call fails, fall back to truncation."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (
-                i,
-                f"A very long learning about topic number {i} " * 10,
-                f"2024-01-{i:02d}",
-                MemoryType.KNOWLEDGE,
-            )
-            for i in range(1, 20)
-        ]
-        # Mock the model call to return None (failure)
-        worker._summarise_with_model = AsyncMock(return_value=None)  # type: ignore[method-assign]
-        result = await worker._compact_digest(learnings, max_chars=500)
-        assert len(result) <= 520  # 500 + truncation marker
-        assert "truncated" in result
-
-    @pytest.mark.asyncio
-    async def test_compact_digest__preserves_type_grouping(
-        self, tmp_path: Path
-    ) -> None:
-        """Compacted digest should still group by type."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Config learning alpha", "2024-01-01", MemoryType.CONFIG),
-            (2, "Knowledge learning beta", "2024-01-02", MemoryType.KNOWLEDGE),
-        ]
-        result = await worker._compact_digest(learnings, max_chars=10000)
-        assert "### Config" in result
-        assert "### Knowledge" in result
-
-
 class TestMemorySyncWorkerSync:
     """Tests for the full sync method."""
 
@@ -610,7 +358,7 @@ class TestMemorySyncWorkerSync:
         state.get_memory_state.return_value = ([], "", None)
         bus = MagicMock()
 
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
         stats = await worker.sync([])
 
         assert stats["item_count"] == 0
@@ -623,7 +371,7 @@ class TestMemorySyncWorkerSync:
         state.get_memory_state.return_value = ([], "", None)
         bus = MagicMock()
 
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
         issues = [
             {
                 "number": 10,
@@ -642,12 +390,6 @@ class TestMemorySyncWorkerSync:
 
         assert stats["item_count"] == 2
         assert stats["action"] == "synced"
-        # Digest file should exist
-        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
-        assert digest_path.exists()
-        content = digest_path.read_text()
-        assert "Always test first" in content
-        assert "Use type hints" in content
 
     @pytest.mark.asyncio
     async def test_skips_compaction_when_no_change(self, tmp_path: Path) -> None:
@@ -656,12 +398,7 @@ class TestMemorySyncWorkerSync:
         state.get_memory_state.return_value = ([10, 20], "somehash", "2024-06-01")
         bus = MagicMock()
 
-        # Write a digest so the read works
-        digest_dir = tmp_path / ".hydraflow" / "memory"
-        digest_dir.mkdir(parents=True)
-        (digest_dir / "digest.md").write_text("existing digest")
-
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
         issues = [
             {"number": 10, "title": "A", "body": "B", "createdAt": ""},
             {"number": 20, "title": "C", "body": "D", "createdAt": ""},
@@ -678,7 +415,7 @@ class TestMemorySyncWorkerSync:
         state.get_memory_state.return_value = ([10], "oldhash", "2024-05-01")
         bus = MagicMock()
 
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
         issues = [
             {
                 "number": 10,
@@ -708,7 +445,7 @@ class TestMemorySyncWorkerSync:
         state.get_memory_state.return_value = ([], "", None)
         bus = MagicMock()
 
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
         issues = [
             {
                 "number": 5,
@@ -736,7 +473,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=0)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 5,
@@ -771,7 +508,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock(side_effect=RuntimeError("close failed"))
         prs.create_issue = AsyncMock(return_value=0)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 5,
@@ -798,7 +535,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=0)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 5,
@@ -832,7 +569,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=101)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 5,
@@ -868,7 +605,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=101)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         worker._build_adr_task = MagicMock(  # type: ignore[method-assign]
             return_value=(
                 "[ADR] Draft decision from memory #5: bad",
@@ -903,7 +640,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=101)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issue = {
             "number": 5,
             "title": "[Memory] Architecture update",
@@ -930,7 +667,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=101)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 10,
@@ -974,7 +711,7 @@ class TestMemorySyncWorkerSync:
         prs.close_issue = AsyncMock()
         prs.create_issue = AsyncMock(return_value=101)
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 20,
@@ -1030,7 +767,7 @@ class TestMemorySyncWorkerSync:
         prs = MagicMock()
         prs.close_issue = AsyncMock()
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 11,
@@ -1062,6 +799,7 @@ class TestMemorySyncWorkerSync:
             config,
             state,
             bus,
+            AsyncMock(),
             manifest_store=manifest_store,
             manifest_manager=manifest_manager,
             manifest_syncer=manifest_syncer,
@@ -1091,7 +829,7 @@ class TestMemorySyncWorkerSync:
         bus = MagicMock()
         bus.publish = AsyncMock()
 
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
         stats = {
             "action": "synced",
             "item_count": 3,
@@ -1115,7 +853,7 @@ class TestMemorySyncWorkerSync:
         state.get_memory_state.return_value = ([], "", None)
         bus = MagicMock()
 
-        worker = MemorySyncWorker(config, state, bus)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock())
 
         issues_a = [
             {
@@ -1145,56 +883,6 @@ class TestMemorySyncWorkerSync:
             assert not isinstance(r, Exception), f"sync() raised: {r}"
 
     @pytest.mark.asyncio
-    async def test_sync_prunes_stale_item_files(self, tmp_path: Path) -> None:
-        """Stale .md files in items/ should be removed when their issue is gone."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        state = MagicMock()
-        state.get_memory_state.return_value = ([10, 20, 30], "oldhash", "")
-        bus = MagicMock()
-
-        # Pre-populate items dir with files for issues 10, 20, 30
-        items_dir = tmp_path / ".hydraflow" / "memory" / "items"
-        items_dir.mkdir(parents=True)
-        for n in [10, 20, 30]:
-            (items_dir / f"{n}.md").write_text(f"learning for {n}")
-
-        worker = MemorySyncWorker(config, state, bus)
-        # Only issue 10 is still active
-        issues = [
-            {"number": 10, "title": "A", "body": "B", "createdAt": ""},
-        ]
-        stats = await worker.sync(issues)
-
-        assert stats["pruned"] == 2
-        assert (items_dir / "10.md").exists()
-        assert not (items_dir / "20.md").exists()
-        assert not (items_dir / "30.md").exists()
-
-    @pytest.mark.asyncio
-    async def test_sync_prune_disabled_by_config(self, tmp_path: Path) -> None:
-        """When memory_prune_stale_items is False, no files should be removed."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path, memory_prune_stale_items=False
-        )
-        state = MagicMock()
-        state.get_memory_state.return_value = ([10, 20], "oldhash", "")
-        bus = MagicMock()
-
-        items_dir = tmp_path / ".hydraflow" / "memory" / "items"
-        items_dir.mkdir(parents=True)
-        (items_dir / "10.md").write_text("active")
-        (items_dir / "99.md").write_text("stale")
-
-        worker = MemorySyncWorker(config, state, bus)
-        issues = [
-            {"number": 10, "title": "A", "body": "B", "createdAt": ""},
-        ]
-        stats = await worker.sync(issues)
-
-        assert stats.get("pruned", 0) == 0
-        assert (items_dir / "99.md").exists()
-
-    @pytest.mark.asyncio
     async def test_sync_returns_issues_closed_count(self, tmp_path: Path) -> None:
         """Sync result should include issues_closed count."""
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -1204,7 +892,7 @@ class TestMemorySyncWorkerSync:
         prs = AsyncMock()
         prs.close_issue = AsyncMock()
 
-        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        worker = MemorySyncWorker(config, state, bus, AsyncMock(), prs=prs)
         issues = [
             {
                 "number": 10,
@@ -1218,27 +906,6 @@ class TestMemorySyncWorkerSync:
 
         assert stats["issues_closed"] == 1
         prs.close_issue.assert_awaited_once_with(10)
-
-    @pytest.mark.asyncio
-    async def test_sync_empty_issues_prunes_all_stale_files(
-        self, tmp_path: Path
-    ) -> None:
-        """When no issues remain, all item files should be pruned."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        state = MagicMock()
-        state.get_memory_state.return_value = ([10], "hash", "")
-        bus = MagicMock()
-
-        items_dir = tmp_path / ".hydraflow" / "memory" / "items"
-        items_dir.mkdir(parents=True)
-        (items_dir / "10.md").write_text("stale")
-
-        worker = MemorySyncWorker(config, state, bus)
-        stats = await worker.sync([])
-
-        assert stats["pruned"] == 1
-        assert stats["issues_closed"] == 0
-        assert not (items_dir / "10.md").exists()
 
 
 # --- State tracking tests ---
@@ -1307,12 +974,6 @@ class TestMemoryConfig:
 
         config = HydraFlowConfig(repo="test/repo")
         assert config.memory_sync_interval == 3600
-
-    def test_max_memory_chars_default(self) -> None:
-        from config import HydraFlowConfig
-
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.max_memory_chars == 4000
 
     def test_max_memory_prompt_chars_default(self) -> None:
         from config import HydraFlowConfig
@@ -1420,177 +1081,6 @@ class TestMemoryModels:
 
         issue = GitHubIssue(number=1, title="Test", created_at="2024-01-01")
         assert issue.created_at == "2024-01-01"
-
-
-# --- Config: memory_compaction_model tests ---
-
-
-class TestMemoryCompactionModelConfig:
-    """Tests for the memory_compaction_model config field."""
-
-    def test_default_is_haiku(self) -> None:
-        from config import HydraFlowConfig
-
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_compaction_model == "haiku"
-
-    def test_custom_model(self) -> None:
-        config = ConfigFactory.create(memory_compaction_model="sonnet")
-        assert config.memory_compaction_model == "sonnet"
-
-
-# --- Model-based summarisation tests ---
-
-
-class TestSummariseWithModel:
-    """Tests for _summarise_with_model."""
-
-    @pytest.mark.asyncio
-    async def test_success_returns_wrapped_summary(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(
-            repo_root=tmp_path, memory_compaction_model="haiku"
-        )
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(
-            return_value=SimpleResult(
-                stdout="- Condensed learning one\n- Condensed learning two",
-                stderr="",
-                returncode=0,
-            )
-        )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        result = await worker._summarise_with_model("long content", 4000)
-
-        assert result is not None
-        assert "Accumulated Learnings" in result
-        assert "Summarised" in result
-        assert "Condensed learning one" in result
-
-    @pytest.mark.asyncio
-    async def test_nonzero_returncode_returns_none(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(
-            return_value=SimpleResult(stdout="", stderr="error", returncode=1)
-        )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        result = await worker._summarise_with_model("content", 4000)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_nonzero_returncode_logs_stdout_and_model(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        config = ConfigFactory.create(
-            repo_root=tmp_path, memory_compaction_model="haiku"
-        )
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(
-            return_value=SimpleResult(
-                stdout="You've hit your limit",
-                stderr="",
-                returncode=1,
-            )
-        )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-
-        with caplog.at_level(logging.WARNING, logger="hydraflow.memory"):
-            result = await worker._summarise_with_model("content", 4000)
-
-        assert result is None
-        assert "Memory compaction model failed" in caplog.text
-        assert "model=haiku" in caplog.text
-        assert 'stdout="You\'ve hit your limit"' in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_timeout_returns_none(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(side_effect=TimeoutError)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        result = await worker._summarise_with_model("content", 4000)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_file_not_found_returns_none(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(side_effect=FileNotFoundError("claude not found"))
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        result = await worker._summarise_with_model("content", 4000)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_runtime_error_returns_none(self, tmp_path: Path) -> None:
-        """Should return None when run_simple raises RuntimeError."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(side_effect=RuntimeError("event loop closed"))
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        result = await worker._summarise_with_model("content", 4000)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_uses_configured_timeout(self, tmp_path: Path) -> None:
-        """run_simple is called with timeout from config.memory_compaction_timeout."""
-        config = ConfigFactory.create(repo_root=tmp_path, memory_compaction_timeout=90)
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(
-            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
-        )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        await worker._summarise_with_model("content", 4000)
-
-        runner.run_simple.assert_awaited_once()
-        call_kwargs = runner.run_simple.call_args[1]
-        assert call_kwargs["timeout"] == 90
-
-    @pytest.mark.asyncio
-    async def test_calls_run_simple_not_raw_subprocess(self, tmp_path: Path) -> None:
-        """Verify run_simple is used and prompt is passed as CLI arg (not stdin)."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(
-            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
-        )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-        await worker._summarise_with_model("content", 4000)
-
-        runner.run_simple.assert_awaited_once()
-        call_args = runner.run_simple.call_args
-        cmd = call_args[0][0]
-        assert cmd[0] == "claude"
-        assert cmd[1] == "-p"
-        # Prompt must be immediately after -p for the CLI to recognise it.
-        assert cmd[2] not in ("--model",), "prompt must follow -p, not a flag"
-        assert call_args[1].get("input") is None
-
-    @pytest.mark.asyncio
-    async def test_codex_tool_passes_prompt_as_cli_arg(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(
-            repo_root=tmp_path,
-            memory_compaction_tool="codex",
-            memory_compaction_model="gpt-5-codex",
-        )
-        runner = AsyncMock()
-        runner.run_simple = AsyncMock(
-            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
-        )
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
-
-        await worker._summarise_with_model("content", 4000)
-
-        runner.run_simple.assert_awaited_once()
-        call_args = runner.run_simple.call_args[0][0]
-        call_kwargs = runner.run_simple.call_args[1]
-        assert call_args[:3] == ["codex", "exec", "--json"]
-        assert call_args[call_args.index("--model") + 1] == "gpt-5-codex"
-        assert call_args[-1].endswith("content")
-        assert call_kwargs["input"] is None
 
 
 # --- PR Manager tests ---
@@ -2265,86 +1755,6 @@ class TestFileMemorySuggestionAutoApprove:
         assert state.get_hitl_cause(91) is None
 
 
-class TestSyncWithTypedIssues:
-    """Tests for MemorySyncWorker.sync with typed issue bodies."""
-
-    @pytest.mark.asyncio
-    async def test_sync__typed_issues_produce_grouped_digest(
-        self, tmp_path: Path
-    ) -> None:
-        """Sync with typed issues should produce a digest grouped by type."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        state = MagicMock()
-        state.get_memory_state.return_value = ([], "", None)
-        bus = MagicMock()
-
-        worker = MemorySyncWorker(config, state, bus)
-        issues = [
-            {
-                "number": 10,
-                "title": "[Memory] Config change",
-                "body": (
-                    "## Memory Suggestion\n\n"
-                    "**Type:** config\n\n"
-                    "**Learning:** Increase timeout\n\n"
-                    "**Context:** CI failures\n"
-                ),
-                "createdAt": "2024-06-01T00:00:00Z",
-            },
-            {
-                "number": 20,
-                "title": "[Memory] Knowledge item",
-                "body": (
-                    "## Memory Suggestion\n\n"
-                    "**Type:** knowledge\n\n"
-                    "**Learning:** Use type hints\n\n"
-                    "**Context:** Code review\n"
-                ),
-                "createdAt": "2024-05-01T00:00:00Z",
-            },
-        ]
-        stats = await worker.sync(issues)
-
-        assert stats["item_count"] == 2
-        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
-        content = digest_path.read_text()
-        assert "### Config" in content
-        assert "### Knowledge" in content
-        # Config should come before Knowledge
-        assert content.index("### Config") < content.index("### Knowledge")
-
-    @pytest.mark.asyncio
-    async def test_sync__untyped_issues_default_to_knowledge(
-        self, tmp_path: Path
-    ) -> None:
-        """Issues without a Type field should be grouped under Knowledge."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        state = MagicMock()
-        state.get_memory_state.return_value = ([], "", None)
-        bus = MagicMock()
-
-        worker = MemorySyncWorker(config, state, bus)
-        issues = [
-            {
-                "number": 10,
-                "title": "[Memory] Legacy item",
-                "body": (
-                    "## Memory Suggestion\n\n"
-                    "**Learning:** Old learning without type\n\n"
-                    "**Context:** Before types existed\n"
-                ),
-                "createdAt": "2024-01-01T00:00:00Z",
-            },
-        ]
-        stats = await worker.sync(issues)
-
-        assert stats["item_count"] == 1
-        digest_path = tmp_path / ".hydraflow" / "memory" / "digest.md"
-        content = digest_path.read_text()
-        assert "### Knowledge" in content
-        assert "### Config" not in content
-
-
 # --- Orchestrator tests ---
 
 
@@ -2361,22 +1771,3 @@ class TestMemorySyncLoop:
         source = inspect.getsource(HydraFlowOrchestrator._supervise_loops)
         assert "memory_sync" in source
         assert "_memory_sync_loop" in source
-
-
-# --- _write_digest delegates to atomic_write ---
-
-
-class TestWriteDigestUsesAtomicWrite:
-    """Verify _write_digest delegates to the shared atomic_write utility."""
-
-    def test_write_digest_calls_atomic_write(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        with patch("memory.atomic_write") as mock_aw:
-            worker._write_digest("# Digest content")
-
-        mock_aw.assert_called_once()
-        call_args = mock_aw.call_args[0]
-        assert call_args[0] == tmp_path / ".hydraflow" / "memory" / "digest.md"
-        assert call_args[1] == "# Digest content"

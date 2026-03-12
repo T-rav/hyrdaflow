@@ -366,39 +366,44 @@ class TestReviewInsightIntegration:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=[])
+        phase._insights = mock_insights
+
         await phase.review_prs([pr], [issue])
 
-        # Check that a review record was written
-        reviews_path = config.repo_root / ".hydraflow" / "memory" / "reviews.jsonl"
-        assert reviews_path.exists()
-        lines = reviews_path.read_text().strip().splitlines()
-        assert len(lines) == 1
+        # Check that a review record was stored via Hindsight
+        mock_insights.record_review.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_review_insight_files_proposal_when_threshold_met(
         self, config: HydraFlowConfig
     ) -> None:
         """When a category crosses the threshold, an improvement issue is filed."""
-        from review_insights import ReviewInsightStore, ReviewRecord
+        from review_insights import ReviewRecord
 
         phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        # Pre-populate the insight store with records near threshold
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
-        for i in range(3):
-            store.append_review(
-                ReviewRecord(
-                    pr_number=90 + i,
-                    issue_number=30 + i,
-                    timestamp="2026-02-20T10:00:00Z",
-                    verdict=ReviewVerdict.REQUEST_CHANGES,
-                    summary="Missing test coverage",
-                    fixes_made=False,
-                    categories=["missing_tests"],
-                )
+        # Pre-populate mock insight store to return records near threshold
+        existing_records = [
+            ReviewRecord(
+                pr_number=90 + i,
+                issue_number=30 + i,
+                timestamp="2026-02-20T10:00:00Z",
+                verdict=ReviewVerdict.REQUEST_CHANGES,
+                summary="Missing test coverage",
+                fixes_made=False,
+                categories=["missing_tests"],
             )
+            for i in range(3)
+        ]
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=existing_records)
+        phase._insights = mock_insights
 
         # This review will also have "test" in summary → missing_tests
         review_result = ReviewResult(
@@ -425,7 +430,7 @@ class TestReviewInsightIntegration:
         self, config: HydraFlowConfig
     ) -> None:
         """Once a category has been proposed, it should not be re-filed."""
-        from review_insights import ReviewInsightStore, ReviewRecord
+        from review_insights import ReviewRecord
 
         review_result = ReviewResult(
             pr_number=101,
@@ -440,21 +445,26 @@ class TestReviewInsightIntegration:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        # Pre-populate and mark as proposed
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
-        for i in range(4):
-            store.append_review(
-                ReviewRecord(
-                    pr_number=90 + i,
-                    issue_number=30 + i,
-                    timestamp="2026-02-20T10:00:00Z",
-                    verdict=ReviewVerdict.REQUEST_CHANGES,
-                    summary="Missing test coverage",
-                    fixes_made=False,
-                    categories=["missing_tests"],
-                )
+        # Pre-populate mock insight store with records above threshold
+        existing_records = [
+            ReviewRecord(
+                pr_number=90 + i,
+                issue_number=30 + i,
+                timestamp="2026-02-20T10:00:00Z",
+                verdict=ReviewVerdict.REQUEST_CHANGES,
+                summary="Missing test coverage",
+                fixes_made=False,
+                categories=["missing_tests"],
             )
-        store.mark_category_proposed("missing_tests")
+            for i in range(4)
+        ]
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=existing_records)
+        phase._insights = mock_insights
+
+        # Mark category as already proposed via state
+        phase._state.mark_pattern_proposed("review", "missing_tests")
 
         phase._prs.create_issue = AsyncMock(return_value=999)
 
@@ -468,17 +478,16 @@ class TestReviewInsightIntegration:
         self, config: HydraFlowConfig
     ) -> None:
         """If insight recording fails, the review should still complete."""
-        from unittest.mock import patch
-
         phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
         # Make the insight store raise
-        with patch.object(
-            phase._insights, "append_review", side_effect=OSError("disk full")
-        ):
-            results = await phase.review_prs([pr], [issue])
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock(side_effect=OSError("disk full"))
+        phase._insights = mock_insights
+
+        results = await phase.review_prs([pr], [issue])
 
         # Review should still succeed
         assert len(results) == 1
@@ -1469,15 +1478,15 @@ class TestRecordReviewInsight:
             fixes_made=False,
         )
 
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = []
-        mock_insights.get_proposed_categories.return_value = set()
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=[])
         phase._insights = mock_insights
 
         with patch("review_phase.analyze_patterns", return_value=[]):
             await phase._record_review_insight(result)
 
-        mock_insights.append_review.assert_called_once()
+        mock_insights.record_review.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_creates_issue_when_pattern_detected(
@@ -1488,9 +1497,9 @@ class TestRecordReviewInsight:
         result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
         phase._prs.create_task = AsyncMock(return_value=123)
 
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = [MagicMock()] * 5
-        mock_insights.get_proposed_categories.return_value = set()
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=[MagicMock()] * 5)
         phase._insights = mock_insights
 
         from review_insights import ReviewRecord
@@ -1527,7 +1536,7 @@ class TestRecordReviewInsight:
             "test_coverage" in call_title.lower() or "Recurring feedback" in call_title
         )
         assert config.improve_label[0] in call_labels
-        mock_insights.mark_category_proposed.assert_called_once_with("test_coverage")
+        assert "test_coverage" in phase._state.get_proposed_patterns("review")
 
     @pytest.mark.asyncio
     async def test_skips_already_proposed_category(
@@ -1538,10 +1547,13 @@ class TestRecordReviewInsight:
         result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
         phase._prs.create_task = AsyncMock(return_value=None)
 
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = [MagicMock()] * 5
-        mock_insights.get_proposed_categories.return_value = {"test_coverage"}
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=[MagicMock()] * 5)
         phase._insights = mock_insights
+
+        # Mark category as already proposed via state
+        phase._state.mark_pattern_proposed("review", "test_coverage")
 
         mock_evidence = [
             MagicMock(pr_number=1, issue_number=10, summary="needs tests"),
@@ -1561,8 +1573,8 @@ class TestRecordReviewInsight:
         phase = make_review_phase(config)
         result = ReviewResultFactory.create()
 
-        mock_insights = MagicMock()
-        mock_insights.append_review.side_effect = RuntimeError("disk full")
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock(side_effect=RuntimeError("disk full"))
         phase._insights = mock_insights
 
         # Should not raise
@@ -1576,9 +1588,9 @@ class TestRecordReviewInsight:
         status_cb = MagicMock()
         phase._update_bg_worker_status = status_cb
 
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = []
-        mock_insights.get_proposed_categories.return_value = set()
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=[])
         phase._insights = mock_insights
 
         with patch("review_phase.analyze_patterns", return_value=[]):
@@ -1598,8 +1610,8 @@ class TestRecordReviewInsight:
         status_cb = MagicMock()
         phase._update_bg_worker_status = status_cb
 
-        mock_insights = MagicMock()
-        mock_insights.append_review.side_effect = RuntimeError("disk full")
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock(side_effect=RuntimeError("disk full"))
         phase._insights = mock_insights
 
         await phase._record_review_insight(result)
@@ -1624,15 +1636,15 @@ class TestRecordReviewInsight:
         status_cb = MagicMock(side_effect=RuntimeError("status boom"))
         phase._update_bg_worker_status = status_cb
 
-        mock_insights = MagicMock()
-        mock_insights.load_recent.return_value = []
-        mock_insights.get_proposed_categories.return_value = set()
+        mock_insights = AsyncMock()
+        mock_insights.record_review = AsyncMock()
+        mock_insights.load_recent = AsyncMock(return_value=[])
         phase._insights = mock_insights
 
         with patch("review_phase.analyze_patterns", return_value=[]):
             await phase._record_review_insight(result)
 
-        mock_insights.append_review.assert_called_once()
+        mock_insights.record_review.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

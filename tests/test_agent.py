@@ -149,55 +149,98 @@ class TestBuildCommand:
 class TestBuildPrompt:
     """Tests for AgentRunner._build_prompt_with_stats."""
 
-    def test_prompt_includes_issue_number(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_issue_number(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should reference the issue number."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert str(agent_task.id) in prompt
 
-    def test_prompt_includes_title(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_title(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the issue title."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert agent_task.title in prompt
 
-    def test_prompt_includes_body(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_body(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the issue body text."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert agent_task.body in prompt
 
-    def test_prompt_includes_rules(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_rules(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should contain the mandatory rules section."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Rules" in prompt or "rules" in prompt.lower()
 
-    def test_prompt_references_make_quality(
+    @pytest.mark.asyncio
+    async def test_prompt_references_make_quality(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should instruct the agent to run make quality."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "make quality" in prompt
 
-    def test_prompt_does_not_reference_make_test_fast(
+    @pytest.mark.asyncio
+    async def test_prompt_does_not_reference_make_test_fast(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should not reference make test-fast anywhere (replaced by configurable test_command)."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "make test-fast" not in prompt
 
-    def test_prompt_includes_comments_section_when_comments_exist(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_comments_section_when_comments_exist(
         self, config, event_bus: EventBus
     ) -> None:
         """Prompt should include a Discussion section when the issue has comments."""
@@ -208,22 +251,36 @@ class TestBuildPrompt:
             comments=["Please also handle edge case Y", "What about Z?"],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue_with_comments)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue_with_comments)
 
         assert "Discussion" in prompt
         assert "Please also handle edge case Y" in prompt
         assert "What about Z?" in prompt
 
-    def test_prompt_omits_comments_section_when_no_comments(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_comments_section_when_no_comments(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should not include a Discussion section when there are no comments."""
         # Default agent_task fixture has empty comments
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Discussion" not in prompt
 
-    def test_prompt_extracts_plan_comment_as_dedicated_section(
+    @pytest.mark.asyncio
+    async def test_prompt_extracts_plan_comment_as_dedicated_section(
         self, config, event_bus: EventBus
     ) -> None:
         """When a comment contains '## Implementation Plan', it should be rendered
@@ -238,7 +295,13 @@ class TestBuildPrompt:
             ],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Implementation Plan" in prompt
         assert "Follow this plan closely" in prompt
@@ -250,7 +313,8 @@ class TestBuildPrompt:
         assert "Discussion" in prompt
         assert "Please also handle edge case Y" in prompt
 
-    def test_prompt_plan_comment_excluded_from_discussion(
+    @pytest.mark.asyncio
+    async def test_prompt_plan_comment_excluded_from_discussion(
         self, config, event_bus: EventBus
     ) -> None:
         """The plan comment should NOT appear in the Discussion section."""
@@ -263,149 +327,210 @@ class TestBuildPrompt:
             ],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         # Plan is in dedicated section, no Discussion section at all
         assert "## Implementation Plan" in prompt
         assert "Discussion" not in prompt
 
-    def test_prompt_no_plan_section_when_no_plan_comment(
+    @pytest.mark.asyncio
+    async def test_prompt_no_plan_section_when_no_plan_comment(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """When no comment contains a plan, no plan section should appear."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
 
         assert "Follow this plan closely" not in prompt
 
-    def test_prompt_includes_ui_guidelines(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_ui_guidelines(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include UI guidelines for component reuse and responsive design."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "UI Guidelines" in prompt
         assert "src/ui/src/components/" in prompt
         assert "never duplicate" in prompt.lower()
         assert "minWidth" in prompt
         assert "theme" in prompt.lower()
 
-    def test_prompt_instructs_no_push_or_pr(
+    @pytest.mark.asyncio
+    async def test_prompt_instructs_no_push_or_pr(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should explicitly tell the agent not to push or create PRs."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "push" in prompt.lower() or "Do NOT push" in prompt
         assert "pull request" in prompt.lower() or "pr create" in prompt.lower()
 
-    def test_prompt_forbids_interactive_git(
+    @pytest.mark.asyncio
+    async def test_prompt_forbids_interactive_git(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should forbid interactive git commands (no TTY in Docker)."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "git add -i" in prompt
         assert "git add -p" in prompt
         assert "git rebase -i" in prompt
 
-    def test_prompt_includes_common_feedback_when_reviews_exist(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_common_feedback_when_reviews_exist(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include Common Review Feedback when review data exists."""
-        from review_insights import ReviewInsightStore, ReviewRecord
-
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
-        for i in range(4):
-            store.append_review(
-                ReviewRecord(
-                    pr_number=90 + i,
-                    issue_number=30 + i,
-                    timestamp="2026-02-20T10:00:00Z",
-                    verdict=ReviewVerdict.REQUEST_CHANGES,
-                    summary="Missing test coverage",
-                    fixes_made=False,
-                    categories=["missing_tests"],
-                )
-            )
-
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        feedback_section = (
+            "## Common Review Feedback\n\n- Missing or insufficient test coverage"
+        )
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner,
+                "_get_review_feedback_section",
+                new_callable=AsyncMock,
+                return_value=feedback_section,
+            ),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Common Review Feedback" in prompt
         assert "Missing or insufficient test coverage" in prompt
 
-    def test_prompt_includes_escalation_block_when_threshold_met(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_escalation_block_when_threshold_met(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include mandatory escalation block when patterns exceed threshold."""
-        from review_insights import ReviewInsightStore, ReviewRecord
-
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
-        for i in range(3):
-            store.append_review(
-                ReviewRecord(
-                    pr_number=200 + i,
-                    issue_number=50 + i,
-                    timestamp="2026-02-20T11:00:00Z",
-                    verdict=ReviewVerdict.REQUEST_CHANGES,
-                    summary="Missing coverage",
-                    fixes_made=False,
-                    categories=["missing_tests"],
-                )
-            )
-
+        escalation_data = [
+            {
+                "category": "missing_tests",
+                "count": 3,
+                "mandatory_block": "## Mandatory Requirements: Test Coverage\n\nmissing or insufficient test coverage",
+                "checklist_items": [],
+                "pre_quality_guidance": "Check tests.",
+            }
+        ]
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner,
+                "_get_escalation_data",
+                new_callable=AsyncMock,
+                return_value=escalation_data,
+            ),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Mandatory Requirements: Test Coverage" in prompt
         assert "missing or insufficient test coverage" in prompt
 
-    def test_prompt_omits_escalation_below_threshold(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_escalation_below_threshold(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
-        from review_insights import ReviewInsightStore, ReviewRecord
-
-        store = ReviewInsightStore(config.repo_root / ".hydraflow" / "memory")
-        # Below default threshold of 3
-        for i in range(2):
-            store.append_review(
-                ReviewRecord(
-                    pr_number=300 + i,
-                    issue_number=70 + i,
-                    timestamp="2026-02-22T11:00:00Z",
-                    verdict=ReviewVerdict.REQUEST_CHANGES,
-                    summary="Missing coverage",
-                    fixes_made=False,
-                    categories=["missing_tests"],
-                )
-            )
-
+        feedback_section = "## Common Review Feedback\n\n- Missing coverage"
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner,
+                "_get_review_feedback_section",
+                new_callable=AsyncMock,
+                return_value=feedback_section,
+            ),
+            patch.object(
+                runner, "_get_escalation_data", new_callable=AsyncMock, return_value=[]
+            ),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Mandatory Requirements" not in prompt
         assert "## Common Review Feedback" in prompt
 
-    def test_prompt_includes_new_self_check_items(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_new_self_check_items(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the new dead-code and failure-path checklist items."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "New code is reachable" in prompt
         assert "Tests verify issue requirements" in prompt
         assert "Failure paths are tested" in prompt
 
-    def test_prompt_works_without_review_data(
+    @pytest.mark.asyncio
+    async def test_prompt_works_without_review_data(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should work normally when no review data exists."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Common Review Feedback" not in prompt
         # The rest of the prompt should still be there
         assert "## Instructions" in prompt
         assert "## Rules" in prompt
 
-    def test_prompt_truncates_long_discussion_comments(
+    @pytest.mark.asyncio
+    async def test_prompt_truncates_long_discussion_comments(
         self, config, event_bus: EventBus
     ) -> None:
         issue = Task(
@@ -415,45 +540,78 @@ class TestBuildPrompt:
             comments=["A" * 5000],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, stats = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, stats = await runner._build_prompt_with_stats(issue)
         assert "[Comment truncated from" in prompt
         assert int(stats["pruned_chars_total"]) > 0
 
-    def test_prompt_truncates_common_feedback_section(
+    @pytest.mark.asyncio
+    async def test_prompt_truncates_common_feedback_section(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         runner = AgentRunner(config, event_bus)
-        with patch.object(
-            runner,
-            "_get_review_feedback_section",
-            return_value="B" * 10000,
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner,
+                "_get_review_feedback_section",
+                new_callable=AsyncMock,
+                return_value="B" * 10000,
+            ),
         ):
-            prompt, stats = runner._build_prompt_with_stats(agent_task)
+            prompt, stats = await runner._build_prompt_with_stats(agent_task)
         assert "Common review feedback summarized" in prompt
         assert int(stats["pruned_chars_total"]) > 0
 
-    def test_prompt_includes_review_feedback_when_provided(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_review_feedback_when_provided(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include Review Feedback section when feedback is provided."""
         runner = AgentRunner(config, event_bus)
         feedback = "Missing error handling in the parse_config function"
-        prompt, _ = runner._build_prompt_with_stats(
-            agent_task, review_feedback=feedback
-        )
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(
+                agent_task, review_feedback=feedback
+            )
         assert "## Review Feedback" in prompt
         assert "Missing error handling in the parse_config function" in prompt
         assert "reviewer rejected" in prompt.lower()
 
-    def test_prompt_omits_review_feedback_when_empty(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_review_feedback_when_empty(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should not include Review Feedback section when feedback is empty."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task, review_feedback="")
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(
+                agent_task, review_feedback=""
+            )
         assert "## Review Feedback" not in prompt
 
-    def test_prompt_review_feedback_after_plan_section(
+    @pytest.mark.asyncio
+    async def test_prompt_review_feedback_after_plan_section(
         self, config, event_bus: EventBus
     ) -> None:
         """Review feedback should appear after the plan section."""
@@ -467,7 +625,15 @@ class TestBuildPrompt:
         )
         runner = AgentRunner(config, event_bus)
         feedback = "Tests are missing for edge cases"
-        prompt, _ = runner._build_prompt_with_stats(issue, review_feedback=feedback)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(
+                issue, review_feedback=feedback
+            )
 
         plan_pos = prompt.index("## Implementation Plan")
         feedback_pos = prompt.index("## Review Feedback")
@@ -475,12 +641,19 @@ class TestBuildPrompt:
 
         assert plan_pos < feedback_pos < instructions_pos
 
-    def test_prompt_includes_self_check_checklist(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_self_check_checklist(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the self-check checklist section."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Self-Check Before Committing" in prompt
         assert "Tests cover all new/changed code" in prompt
         assert "No missing imports" in prompt
@@ -488,12 +661,19 @@ class TestBuildPrompt:
         assert "Edge cases handled" in prompt
         assert "No leftover debug code" in prompt
 
-    def test_self_check_appears_after_instructions(
+    @pytest.mark.asyncio
+    async def test_self_check_appears_after_instructions(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check should appear after Instructions and before UI Guidelines."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         instructions_pos = prompt.index("## Instructions")
         self_check_pos = prompt.index("## Self-Check Before Committing")
         ui_pos = prompt.index("## UI Guidelines")
@@ -504,7 +684,8 @@ class TestBuildPrompt:
         assert hasattr(AgentRunner, "_SELF_CHECK_CHECKLIST")
         assert len(AgentRunner._SELF_CHECK_CHECKLIST) > 100
 
-    def test_prompt_includes_escalated_mandatory_block_when_recurring(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_escalated_mandatory_block_when_recurring(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """When missing_tests is recurring, prompt should include mandatory block."""
@@ -520,21 +701,46 @@ class TestBuildPrompt:
             }
         ]
         runner = AgentRunner(config, event_bus)
-        with patch.object(runner, "_get_escalation_data", return_value=escalation_data):
-            prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner,
+                "_get_escalation_data",
+                new_callable=AsyncMock,
+                return_value=escalation_data,
+            ),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Mandatory Requirements" in prompt
         assert "Every new function MUST have a test" in prompt
 
-    def test_prompt_no_mandatory_block_when_no_escalations(
+    @pytest.mark.asyncio
+    async def test_prompt_no_mandatory_block_when_no_escalations(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """When no escalations, prompt should not include mandatory block."""
         runner = AgentRunner(config, event_bus)
-        with patch.object(runner, "_get_escalation_data", return_value=[]):
-            prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner, "_get_escalation_data", new_callable=AsyncMock, return_value=[]
+            ),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Mandatory Requirements" not in prompt
 
-    def test_self_check_includes_dynamic_items_when_escalated(
+    @pytest.mark.asyncio
+    async def test_self_check_includes_dynamic_items_when_escalated(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check should include category-specific items when escalated."""
@@ -551,12 +757,26 @@ class TestBuildPrompt:
             }
         ]
         runner = AgentRunner(config, event_bus)
-        with patch.object(runner, "_get_escalation_data", return_value=escalation_data):
-            prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch.object(
+                runner,
+                "_get_escalation_data",
+                new_callable=AsyncMock,
+                return_value=escalation_data,
+            ),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Every new/modified public function has a dedicated test" in prompt
         assert "Edge cases (None, empty, boundary) are tested" in prompt
 
-    def test_pre_quality_review_includes_escalation_guidance(
+    @pytest.mark.asyncio
+    async def test_pre_quality_review_includes_escalation_guidance(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review prompt should include escalation guidance when present."""
@@ -570,85 +790,129 @@ class TestBuildPrompt:
             }
         ]
         runner = AgentRunner(config, event_bus)
-        with patch.object(runner, "_get_escalation_data", return_value=escalation_data):
-            prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        with patch.object(
+            runner,
+            "_get_escalation_data",
+            new_callable=AsyncMock,
+            return_value=escalation_data,
+        ):
+            prompt = await runner._build_pre_quality_review_prompt(
+                agent_task, attempt=1
+            )
         assert "Verify every new public function has a unit test" in prompt
 
-    def test_pre_quality_review_no_escalation_when_empty(
+    @pytest.mark.asyncio
+    async def test_pre_quality_review_no_escalation_when_empty(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review prompt should not have escalation section when empty."""
         runner = AgentRunner(config, event_bus)
-        with patch.object(runner, "_get_escalation_data", return_value=[]):
-            prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        with patch.object(
+            runner, "_get_escalation_data", new_callable=AsyncMock, return_value=[]
+        ):
+            prompt = await runner._build_pre_quality_review_prompt(
+                agent_task, attempt=1
+            )
         assert "Escalated Requirements" not in prompt
 
-    def test_pre_quality_review_includes_edge_case_checks(
+    @pytest.mark.asyncio
+    async def test_pre_quality_review_includes_edge_case_checks(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review prompt should include expanded scope items."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        prompt = await runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "type hints" in prompt
         assert "edge cases" in prompt
         assert "empty inputs" in prompt
 
-    def test_pre_quality_review_checks_logic_errors(
+    @pytest.mark.asyncio
+    async def test_pre_quality_review_checks_logic_errors(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review should check for logic errors."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        prompt = await runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "logic errors" in prompt
 
-    def test_pre_quality_review_checks_failure_paths(
+    @pytest.mark.asyncio
+    async def test_pre_quality_review_checks_failure_paths(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review should verify failure paths are tested."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        prompt = await runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "failure/error paths" in prompt
 
-    def test_pre_quality_review_checks_missing_implementation(
+    @pytest.mark.asyncio
+    async def test_pre_quality_review_checks_missing_implementation(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Pre-quality review should check for gaps vs plan/issue description."""
         runner = AgentRunner(config, event_bus)
-        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        prompt = await runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "is anything missing" in prompt
 
-    def test_prompt_includes_test_step(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_test_step(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Implementation prompt should include a test-writing step."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Write tests" in prompt
         assert "prevent regressions" in prompt
 
-    def test_self_check_includes_dead_code_check(
+    @pytest.mark.asyncio
+    async def test_self_check_includes_dead_code_check(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check checklist should verify no dead code is introduced."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "New code is reachable" in prompt
         assert "dead code" in prompt
 
-    def test_self_check_includes_issue_requirements_check(
+    @pytest.mark.asyncio
+    async def test_self_check_includes_issue_requirements_check(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check checklist should verify tests match issue requirements."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Tests verify issue requirements" in prompt
 
-    def test_prompt_forbids_already_satisfied(
+    @pytest.mark.asyncio
+    async def test_prompt_forbids_already_satisfied(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt must instruct agent to never claim issue is already satisfied."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "NEVER conclude that the issue is" in prompt
         assert "already satisfied" in prompt.lower()
         assert "Always produce commits" in prompt
@@ -660,69 +924,56 @@ class TestBuildPrompt:
 
 
 class TestGetEscalationData:
-    """Tests for the _get_escalation_data method (JSON round-trip and error handling)."""
+    """Tests for the _get_escalation_data method (Hindsight-backed and error handling)."""
 
-    def test_returns_empty_list_when_no_reviews(
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_insights(
         self, config, event_bus: EventBus
     ) -> None:
-        """Returns [] when context cache returns empty string."""
+        """Returns [] when _insights is None (no hindsight client)."""
         runner = AgentRunner(config, event_bus)
-        with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            return_value=("", False),
-        ):
-            result = runner._get_escalation_data()
+        assert runner._insights is None
+        result = await runner._get_escalation_data()
         assert result == []
 
-    def test_returns_deserialized_escalations(
+    @pytest.mark.asyncio
+    async def test_returns_escalation_data_from_insights(
         self, config, event_bus: EventBus
     ) -> None:
-        """Deserializes JSON returned from cache back to list of dicts."""
-        import json
+        """Returns escalation data when insights store has review records."""
+        from review_insights import ReviewRecord
 
-        escalation = {
-            "category": "missing_tests",
-            "count": 4,
-            "mandatory_block": "## Mandatory Requirements\nTests are required.",
-            "checklist_items": ["- [ ] Every function has a test"],
-            "pre_quality_guidance": "Check tests.",
-        }
         runner = AgentRunner(config, event_bus)
-        with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            return_value=(json.dumps([escalation]), False),
-        ):
-            result = runner._get_escalation_data()
-        assert len(result) == 1
+        mock_store = MagicMock()
+        records = [
+            ReviewRecord(
+                pr_number=200 + i,
+                issue_number=50 + i,
+                timestamp="2026-02-20T11:00:00Z",
+                verdict=ReviewVerdict.REQUEST_CHANGES,
+                summary="Missing coverage",
+                fixes_made=False,
+                categories=["missing_tests"],
+            )
+            for i in range(4)
+        ]
+        mock_store.load_recent = AsyncMock(return_value=records)
+        runner._insights = mock_store
+
+        result = await runner._get_escalation_data()
+        assert len(result) >= 1
         assert result[0]["category"] == "missing_tests"
-        assert result[0]["count"] == 4
 
-    def test_returns_empty_list_on_json_error(
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_on_cache_exception(
         self, config, event_bus: EventBus
     ) -> None:
-        """Returns [] when cache contains malformed JSON."""
+        """Returns [] when the insights store raises an unexpected exception."""
         runner = AgentRunner(config, event_bus)
-        with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            return_value=("not-valid-json", False),
-        ):
-            result = runner._get_escalation_data()
-        assert result == []
-
-    def test_returns_empty_list_on_cache_exception(
-        self, config, event_bus: EventBus
-    ) -> None:
-        """Returns [] when the cache raises an unexpected exception."""
-        runner = AgentRunner(config, event_bus)
-        with patch.object(
-            runner._context_cache,
-            "get_or_load",
-            side_effect=OSError("disk error"),
-        ):
-            result = runner._get_escalation_data()
+        mock_store = MagicMock()
+        mock_store.load_recent = AsyncMock(side_effect=OSError("disk error"))
+        runner._insights = mock_store
+        result = await runner._get_escalation_data()
         assert result == []
 
 
@@ -2660,7 +2911,8 @@ class TestLoadPlanFallback:
 class TestBuildPromptFallbackAndTruncation:
     """Tests for plan fallback, body truncation, and test_command in _build_prompt_with_stats."""
 
-    def test_falls_back_to_plan_file(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_falls_back_to_plan_file(self, config, event_bus: EventBus) -> None:
         """When no plan comment exists, should fall back to .hydraflow/plans/."""
         plan_dir = config.repo_root / ".hydraflow" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
@@ -2675,11 +2927,20 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "Step 1: saved plan" in prompt
         assert "Follow this plan closely" in prompt
 
-    def test_logs_error_when_no_plan_found(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_logs_error_when_no_plan_found(
+        self, config, event_bus: EventBus
+    ) -> None:
         """Should log error when neither comment nor file has a plan."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         issue = Task(
@@ -2689,14 +2950,23 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        with patch("agent.logger") as mock_logger:
-            prompt, _ = runner._build_prompt_with_stats(issue)
+        with (
+            patch.object(
+                runner,
+                "_inject_manifest_and_memory",
+                new_callable=AsyncMock,
+                return_value=("", ""),
+            ),
+            patch("agent.logger") as mock_logger,
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
         mock_logger.error.assert_called_once()
         # Should still produce a valid prompt without a plan section
         assert "Follow this plan closely" not in prompt
         assert "## Instructions" in prompt
 
-    def test_truncates_long_body(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_truncates_long_body(self, config, event_bus: EventBus) -> None:
         """Body exceeding max_issue_body_chars should be truncated with a note."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         long_body = "x" * 15_000
@@ -2707,12 +2977,19 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "x" * 10_000 in prompt
         assert "x" * 15_000 not in prompt
         assert "Body truncated" in prompt
 
-    def test_preserves_short_body(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_preserves_short_body(self, config, event_bus: EventBus) -> None:
         """Body under max_issue_body_chars should pass through unchanged."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         short_body = "This is a short body."
@@ -2723,11 +3000,18 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
         assert short_body in prompt
         assert "Body truncated" not in prompt
 
-    def test_uses_configured_test_command(
+    @pytest.mark.asyncio
+    async def test_uses_configured_test_command(
         self, event_bus: EventBus, tmp_path: Path
     ) -> None:
         """Prompt should use test_command from config."""
@@ -2745,16 +3029,29 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(cfg, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "npm test" in prompt
         assert "make test-fast" not in prompt
 
-    def test_default_test_command_is_make_test(
+    @pytest.mark.asyncio
+    async def test_default_test_command_is_make_test(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Default test_command should produce 'make test' in the prompt."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
+        ):
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "`make test`" in prompt
 
 
@@ -2869,7 +3166,8 @@ class TestCountCommitsTimeout:
 class TestBuildPromptRuntimeLogs:
     """Tests for runtime log injection in _build_prompt_with_stats."""
 
-    def test_prompt_includes_runtime_logs_when_enabled(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_runtime_logs_when_enabled(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
         """When inject_runtime_logs is True and logs exist, prompt includes them."""
@@ -2885,31 +3183,37 @@ class TestBuildPromptRuntimeLogs:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" in prompt
         assert "ERROR: timeout" in prompt
 
-    def test_prompt_excludes_runtime_logs_when_disabled(
+    @pytest.mark.asyncio
+    async def test_prompt_excludes_runtime_logs_when_disabled(
         self, config, event_bus: EventBus
     ) -> None:
         """Default config does not include runtime logs."""
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" not in prompt
 
-    def test_prompt_excludes_runtime_logs_when_empty(
+    @pytest.mark.asyncio
+    async def test_prompt_excludes_runtime_logs_when_empty(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
         """Enabled but no log file — no log section in prompt."""
@@ -2920,11 +3224,13 @@ class TestBuildPromptRuntimeLogs:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" not in prompt
 
@@ -2937,17 +3243,20 @@ class TestBuildPromptRuntimeLogs:
 class TestPriorFailureInPrompt:
     """Tests that prior_failure is included in the implementation prompt."""
 
-    def test_prior_failure_included_in_prompt(
+    @pytest.mark.asyncio
+    async def test_prior_failure_included_in_prompt(
         self, config, event_bus: EventBus
     ) -> None:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(
+            prompt, _ = await runner._build_prompt_with_stats(
                 issue,
                 prior_failure="TDD red phase modified non-test files: docs/adr/001.md",
             )
@@ -2956,16 +3265,19 @@ class TestPriorFailureInPrompt:
         assert "TDD red phase modified non-test files: docs/adr/001.md" in prompt
         assert "Avoid repeating the same mistake" in prompt
 
-    def test_no_prior_failure_section_when_empty(
+    @pytest.mark.asyncio
+    async def test_no_prior_failure_section_when_empty(
         self, config, event_bus: EventBus
     ) -> None:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
+        with patch.object(
+            runner,
+            "_inject_manifest_and_memory",
+            new_callable=AsyncMock,
+            return_value=("", ""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue, prior_failure="")
+            prompt, _ = await runner._build_prompt_with_stats(issue, prior_failure="")
 
         assert "## Prior Attempt Failure" not in prompt

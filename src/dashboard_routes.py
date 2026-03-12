@@ -85,6 +85,7 @@ from transcript_summarizer import TranscriptSummarizer
 from update_check import load_cached_update_result
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from orchestrator import HydraFlowOrchestrator
 from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
@@ -596,6 +597,7 @@ def create_router(
     remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
     list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
     default_repo_slug: str | None = None,
+    hindsight: HindsightClient | None = None,
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers.
 
@@ -2920,10 +2922,19 @@ def create_router(
             generate_suggestions,
         )
 
-        memory_dir = config.data_path("memory")
-        store = HarnessInsightStore(memory_dir)
-        records = store.load_recent(config.harness_insight_window)
-        proposed = store.get_proposed_patterns()
+        if hindsight is None:
+            return JSONResponse(
+                {
+                    "total_failures": 0,
+                    "category_counts": {},
+                    "subcategory_counts": {},
+                    "suggestions": [],
+                    "proposed_patterns": [],
+                }
+            )
+        store = HarnessInsightStore(hindsight)
+        records = await store.load_recent(config.harness_insight_window)
+        proposed = state.get_proposed_patterns("harness")
         suggestions = generate_suggestions(
             records, config.harness_pattern_threshold, proposed
         )
@@ -2950,9 +2961,10 @@ def create_router(
         """Return raw failure records for historical analysis."""
         from harness_insights import HarnessInsightStore
 
-        memory_dir = config.data_path("memory")
-        store = HarnessInsightStore(memory_dir)
-        records = store.load_recent(config.harness_insight_window)
+        if hindsight is None:
+            return JSONResponse([])
+        store = HarnessInsightStore(hindsight)
+        records = await store.load_recent(config.harness_insight_window)
         return JSONResponse([r.model_dump() for r in records])
 
     @router.get("/api/review-insights")
@@ -2960,10 +2972,20 @@ def create_router(
         """Return aggregated review feedback patterns and category breakdown."""
         from review_insights import ReviewInsightStore, analyze_patterns
 
-        memory_dir = config.data_path("memory")
-        store = ReviewInsightStore(memory_dir)
-        records = store.load_recent(config.review_insight_window)
-        proposed = store.get_proposed_categories()
+        if hindsight is None:
+            return JSONResponse(
+                {
+                    "total_reviews": 0,
+                    "verdict_counts": {},
+                    "category_counts": {},
+                    "fixes_made_count": 0,
+                    "patterns": [],
+                    "proposed_categories": [],
+                }
+            )
+        store = ReviewInsightStore(hindsight)
+        records = await store.load_recent(config.review_insight_window)
+        proposed = state.get_proposed_patterns("review")
 
         verdict_counts: Counter[str] = Counter(r.verdict.value for r in records)
         category_counts: Counter[str] = Counter(
@@ -3004,13 +3026,31 @@ def create_router(
         """Return aggregated retrospective stats and recent entries."""
         from retrospective import RetrospectiveEntry
 
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
+        if hindsight is None:
+            return JSONResponse(
+                {
+                    "total_entries": 0,
+                    "avg_plan_accuracy": 0,
+                    "avg_quality_fix_rounds": 0,
+                    "avg_ci_fix_rounds": 0,
+                    "avg_duration_seconds": 0,
+                    "reviewer_fix_rate": 0,
+                    "verdict_counts": {},
+                    "entries": [],
+                }
+            )
+        from hindsight import BANK_RETROSPECTIVES, recall_safe
+
+        memories = await recall_safe(
+            hindsight,
+            BANK_RETROSPECTIVES,
+            "retrospective entries",
+            limit=config.retrospective_window,
+        )
         entries: list[RetrospectiveEntry] = []
-        if retro_path.exists():
-            for line in retro_path.read_text().strip().splitlines():
-                with contextlib.suppress(Exception):
-                    entries.append(RetrospectiveEntry.model_validate_json(line))
-        entries = entries[-config.retrospective_window :]
+        for m in memories:
+            with contextlib.suppress(Exception):
+                entries.append(RetrospectiveEntry.model_validate_json(m.content))
 
         if not entries:
             return JSONResponse(
@@ -3093,9 +3133,10 @@ def create_router(
         """Return learned troubleshooting patterns."""
         from troubleshooting_store import TroubleshootingPatternStore
 
-        memory_dir = config.data_path("memory")
-        store = TroubleshootingPatternStore(memory_dir)
-        all_patterns = store.load_patterns(limit=None)
+        if hindsight is None:
+            return JSONResponse({"total_patterns": 0, "patterns": []})
+        store = TroubleshootingPatternStore(hindsight)
+        all_patterns = await store.load_patterns(limit=None)
         total = len(all_patterns)
         capped = all_patterns[:100]
 

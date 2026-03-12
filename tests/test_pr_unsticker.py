@@ -1239,16 +1239,16 @@ class TestCITimeoutResolution:
             TroubleshootingPatternStore,
         )
 
-        store = TroubleshootingPatternStore(tmp_path / "memory")
-        store.append_pattern(
-            TroubleshootingPattern(
-                language="python",
-                pattern_name="truthy_asyncmock",
-                description="AsyncMock returns truthy MagicMock",
-                fix_strategy="Set return_value to falsy",
-                frequency=5,
-            )
+        store = TroubleshootingPatternStore(hindsight=AsyncMock())
+        existing_pattern = TroubleshootingPattern(
+            language="python",
+            pattern_name="truthy_asyncmock",
+            description="AsyncMock returns truthy MagicMock",
+            fix_strategy="Set return_value to falsy",
+            frequency=5,
         )
+        store.load_patterns = AsyncMock(return_value=[existing_pattern])
+        store.record_pattern = AsyncMock()
 
         issue = GitHubIssue(
             number=42,
@@ -1310,7 +1310,9 @@ class TestCITimeoutResolution:
         """Successful fix with structured block persists pattern to store."""
         from troubleshooting_store import TroubleshootingPatternStore
 
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        store = TroubleshootingPatternStore(hindsight=AsyncMock())
+        store.load_patterns = AsyncMock(return_value=[])
+        store.record_pattern = AsyncMock()
 
         transcript_with_pattern = """Fixed the hanging test.
 
@@ -1366,11 +1368,11 @@ Done."""
             )
 
         assert stats["resolved"] == 1
-        patterns = store.load_patterns()
-        assert len(patterns) == 1
-        assert patterns[0].pattern_name == "missing_event_set"
-        assert patterns[0].language == "python"
-        assert 42 in patterns[0].source_issues
+        store.record_pattern.assert_called_once()
+        recorded = store.record_pattern.call_args[0][0]
+        assert recorded.pattern_name == "missing_event_set"
+        assert recorded.language == "python"
+        assert 42 in recorded.source_issues
 
     @pytest.mark.asyncio
     async def test_ci_timeout_works_without_store(self, tmp_path: Path) -> None:
@@ -1446,7 +1448,9 @@ Done."""
         """When agent doesn't emit a block, reflection model extracts a pattern."""
         from troubleshooting_store import TroubleshootingPatternStore
 
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        store = TroubleshootingPatternStore(hindsight=AsyncMock())
+        store.load_patterns = AsyncMock(return_value=[])
+        store.record_pattern = AsyncMock()
 
         # Transcript with NO explicit TROUBLESHOOTING_PATTERN block
         transcript_no_block = "Fixed the test by adding return_value=False to the mock."
@@ -1514,9 +1518,9 @@ TROUBLESHOOTING_PATTERN_END
             )
 
         assert stats["resolved"] == 1
-        patterns = store.load_patterns()
-        names = [p.pattern_name for p in patterns]
-        assert "mock_missing_return_value" in names
+        store.record_pattern.assert_called_once()
+        recorded = store.record_pattern.call_args[0][0]
+        assert recorded.pattern_name == "mock_missing_return_value"
 
     @pytest.mark.asyncio
     async def test_ci_timeout_reflection_skips_known_pattern(
@@ -1525,7 +1529,9 @@ TROUBLESHOOTING_PATTERN_END
         """Reflection returns NO_NEW_PATTERN when the pattern is already known."""
         from troubleshooting_store import TroubleshootingPatternStore
 
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        store = TroubleshootingPatternStore(hindsight=AsyncMock())
+        store.load_patterns = AsyncMock(return_value=[])
+        store.record_pattern = AsyncMock()
 
         issue = GitHubIssue(
             number=42,
@@ -1579,7 +1585,7 @@ TROUBLESHOOTING_PATTERN_END
             )
 
         # No new patterns should have been added
-        assert store.load_patterns() == []
+        store.record_pattern.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ci_timeout_reflection_failure_does_not_crash(
@@ -1588,7 +1594,9 @@ TROUBLESHOOTING_PATTERN_END
         """If the reflection model fails, the fix still succeeds."""
         from troubleshooting_store import TroubleshootingPatternStore
 
-        store = TroubleshootingPatternStore(tmp_path / "memory")
+        store = TroubleshootingPatternStore(hindsight=AsyncMock())
+        store.load_patterns = AsyncMock(return_value=[])
+        store.record_pattern = AsyncMock()
 
         issue = GitHubIssue(
             number=42,

@@ -398,6 +398,19 @@ class StateTracker:
         """Return worker result metadata for *issue_number*, or empty dict."""
         return self._data.worker_result_meta.get(str(issue_number), {})
 
+    # --- proposed pattern tracking (insight dedup) ---
+
+    def get_proposed_patterns(self, namespace: str) -> set[str]:
+        """Return the set of already-proposed pattern keys for *namespace*."""
+        return set(self._data.proposed_patterns.get(namespace, []))
+
+    def mark_pattern_proposed(self, namespace: str, key: str) -> None:
+        """Record that a pattern *key* has been proposed in *namespace*."""
+        existing = self._data.proposed_patterns.get(namespace, [])
+        if key not in existing:
+            self._data.proposed_patterns[namespace] = sorted({*existing, key})
+            self.save()
+
     # --- issue outcome tracking ---
 
     def record_outcome(

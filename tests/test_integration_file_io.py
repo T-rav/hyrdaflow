@@ -2,7 +2,6 @@
 
 Covers: file_util.py (atomic_write, append_jsonl, file_lock),
         state.py (save/load roundtrip, crash recovery, concurrent mutations),
-        memory.py (digest persistence, load_memory_digest),
         manifest.py (detect_*, build_manifest_markdown, ProjectManifestManager).
 """
 
@@ -251,58 +250,6 @@ class TestStateTrackerPersistence:
         assert data["active_worktrees"]["2"] == "/wt/2"
         assert data["active_branches"]["3"] == "branch-3"
         assert data["reviewed_prs"]["4"] == "reviewed"
-
-
-# ---------------------------------------------------------------------------
-# memory.py — digest persistence
-# ---------------------------------------------------------------------------
-
-
-class TestMemoryDigestPersistence:
-    """Integration tests for memory digest file operations."""
-
-    def test_load_memory_digest_missing_file(self, tmp_path: Path) -> None:
-        from memory import load_memory_digest
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo_root=tmp_path)
-        assert load_memory_digest(config) == ""
-
-    def test_load_memory_digest_roundtrip(self, tmp_path: Path) -> None:
-        from file_util import atomic_write
-        from memory import load_memory_digest
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_path = config.data_path("memory", "digest.md")
-        digest_path.parent.mkdir(parents=True, exist_ok=True)
-        content = "# Digest\n\n- Learning 1\n- Learning 2\n"
-        atomic_write(digest_path, content)
-        assert load_memory_digest(config) == content
-
-    def test_load_memory_digest_truncates(self, tmp_path: Path) -> None:
-        from file_util import atomic_write
-        from memory import load_memory_digest
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo_root=tmp_path, max_memory_prompt_chars=500)
-        digest_path = config.data_path("memory", "digest.md")
-        digest_path.parent.mkdir(parents=True, exist_ok=True)
-        long_content = "A" * 1000
-        atomic_write(digest_path, long_content)
-        result = load_memory_digest(config)
-        assert len(result) < 1000
-        assert result.endswith("…(truncated)")
-
-    def test_load_memory_digest_empty_file(self, tmp_path: Path) -> None:
-        from memory import load_memory_digest
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo_root=tmp_path)
-        digest_path = config.data_path("memory", "digest.md")
-        digest_path.parent.mkdir(parents=True, exist_ok=True)
-        digest_path.write_text("   \n  ")
-        assert load_memory_digest(config) == ""
 
 
 # ---------------------------------------------------------------------------

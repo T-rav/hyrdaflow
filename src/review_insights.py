@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -190,35 +188,16 @@ def extract_categories(summary: str) -> list[str]:
 
 
 class ReviewInsightStore:
-    """File-backed store for review records and proposed-category tracking."""
+    """Hindsight-backed store for review records."""
 
     def __init__(
         self,
-        memory_dir: Path,
-        hindsight: HindsightClient | None = None,
+        hindsight: HindsightClient,
     ) -> None:
-        self._memory_dir = memory_dir
-        self._reviews_path = memory_dir / "reviews.jsonl"
-        self._proposed_path = memory_dir / "proposed_categories.json"
         self._hindsight = hindsight
 
-    def append_review(self, record: ReviewRecord) -> None:
-        """Append *record* as a JSON line to ``reviews.jsonl``."""
-        try:
-            from file_util import append_jsonl  # noqa: PLC0415
-
-            append_jsonl(self._reviews_path, record.model_dump_json())
-        except OSError:
-            logger.warning(
-                "Could not append review to %s",
-                self._reviews_path,
-                exc_info=True,
-            )
-
-    async def retain_review(self, record: ReviewRecord) -> None:
-        """Dual-write a review record to Hindsight."""
-        if self._hindsight is None:
-            return
+    async def record_review(self, record: ReviewRecord) -> None:
+        """Record a review to Hindsight."""
         from hindsight import BANK_REVIEW_INSIGHTS, retain_safe
 
         await retain_safe(
@@ -234,36 +213,20 @@ class ReviewInsightStore:
             },
         )
 
-    def load_recent(self, n: int = 10) -> list[ReviewRecord]:
-        """Load the last *n* review records from disk."""
-        if not self._reviews_path.exists():
-            return []
-        lines = self._reviews_path.read_text().strip().splitlines()
-        tail = lines[-n:] if len(lines) > n else lines
+    async def load_recent(self, n: int = 10) -> list[ReviewRecord]:
+        """Load the last *n* review records from Hindsight."""
+        from hindsight import BANK_REVIEW_INSIGHTS, recall_safe
+
+        memories = await recall_safe(
+            self._hindsight, BANK_REVIEW_INSIGHTS, "review feedback patterns", limit=n
+        )
         records: list[ReviewRecord] = []
-        for line in tail:
+        for m in memories:
             try:
-                records.append(ReviewRecord.model_validate_json(line))
-            except Exception:  # noqa: BLE001
-                logger.warning("Skipping malformed review record: %s", line[:80])
+                records.append(ReviewRecord.model_validate_json(m.content))
+            except Exception:
+                logger.warning("Skipping malformed review record from Hindsight")
         return records
-
-    def get_proposed_categories(self) -> set[str]:
-        """Return the set of categories that already have filed proposals."""
-        if not self._proposed_path.exists():
-            return set()
-        try:
-            data = json.loads(self._proposed_path.read_text())
-            return set(data)
-        except (json.JSONDecodeError, TypeError):
-            return set()
-
-    def mark_category_proposed(self, category: str) -> None:
-        """Record that an improvement proposal has been filed for *category*."""
-        proposed = self.get_proposed_categories()
-        proposed.add(category)
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        self._proposed_path.write_text(json.dumps(sorted(proposed)))
 
 
 # ---------------------------------------------------------------------------

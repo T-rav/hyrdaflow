@@ -1,37 +1,32 @@
-"""Memory digest system for persistent agent learnings."""
+"""Memory system for persistent agent learnings — backed by Hindsight."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
-from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from execution import SubprocessRunner, get_default_runner
 from file_util import atomic_write
 from hindsight import (
     BANK_LEARNINGS,
     HindsightClient,
     format_memories_as_markdown,
+    recall_safe,
     retain_safe,
 )
 from manifest import ProjectManifestManager
 from manifest_curator import CuratedLearning, CuratedManifestStore
 from manifest_issue_syncer import ManifestIssueSyncer
 from models import (
-    MEMORY_TYPE_DISPLAY_ORDER,
     MemoryIssueData,
     MemorySyncResult,
     MemoryType,
 )
 from state import StateTracker
-from subprocess_util import make_clean_env
 
 if TYPE_CHECKING:
     from ports import PRPort
@@ -123,27 +118,6 @@ def build_memory_issue_body(
     )
 
 
-def load_memory_digest(config: HydraFlowConfig) -> str:
-    """Read the memory digest from disk if it exists.
-
-    Returns an empty string if the file is missing or empty.
-    Content is capped at ``config.max_memory_prompt_chars``.
-    """
-    digest_path = config.data_path("memory", "digest.md")
-    if not digest_path.is_file():
-        return ""
-    try:
-        content = digest_path.read_text()
-    except OSError:
-        return ""
-    if not content.strip():
-        return ""
-    max_chars = config.max_memory_prompt_chars
-    if len(content) > max_chars:
-        content = content[:max_chars] + "\n\n…(truncated)"
-    return content
-
-
 async def recall_contextual_memory(
     hindsight: HindsightClient,
     query: str,
@@ -154,11 +128,7 @@ async def recall_contextual_memory(
     """Recall relevant memories from Hindsight for a given task context.
 
     Returns formatted markdown, or empty string on failure.
-    Falls back gracefully — callers should use ``load_memory_digest``
-    when this returns empty.
     """
-    from hindsight import recall_safe
-
     memories = await recall_safe(hindsight, BANK_LEARNINGS, query, limit=limit)
     if not memories:
         return ""
@@ -227,53 +197,33 @@ async def file_memory_suggestion(
 
 
 class MemorySyncWorker:
-    """Polls ``hydraflow-memory`` issues and compiles them into a local digest."""
+    """Syncs memory issues to Hindsight and maintains the manifest."""
 
     def __init__(
         self,
         config: HydraFlowConfig,
         state: StateTracker,
         event_bus: EventBus,
-        runner: SubprocessRunner | None = None,
+        hindsight: HindsightClient,
         prs: PRPort | None = None,
         *,
         manifest_store: CuratedManifestStore | None = None,
         manifest_manager: ProjectManifestManager | None = None,
         manifest_syncer: ManifestIssueSyncer | None = None,
-        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._bus = event_bus
-        self._runner = runner or get_default_runner()
+        self._hindsight = hindsight
         self._prs = prs
         self._manifest_store = manifest_store or CuratedManifestStore(config)
         self._manifest_manager = manifest_manager or ProjectManifestManager(
             config, curator=self._manifest_store
         )
         self._manifest_syncer = manifest_syncer
-        self._hindsight = hindsight
-
-    _TypedLearning = tuple[int, str, str, MemoryType]
-    _LearningRecord = CuratedLearning | _TypedLearning
-
-    @staticmethod
-    def _coerce_learning_tuple(
-        record: _LearningRecord,
-    ) -> tuple[int, str, str, MemoryType]:
-        """Normalize curated objects and legacy tuple records to a single shape."""
-        if isinstance(record, tuple):
-            num, learning, created, memory_type = record
-            return num, learning, created, memory_type
-        return (
-            record.number,
-            record.learning,
-            record.created_at,
-            record.memory_type,
-        )
 
     async def sync(self, issues: list[MemoryIssueData]) -> MemorySyncResult:
-        """Main sync entry point.
+        """Main sync entry point — retains learnings to Hindsight.
 
         *issues* is a list of dicts with ``number``, ``title``, ``body``,
         and ``createdAt`` keys (from ``gh issue list --json``).
@@ -281,12 +231,9 @@ class MemorySyncWorker:
         Returns stats dict for event publishing.
         """
         current_ids = sorted(i["number"] for i in issues)
-        prev_ids, prev_hash, _ = self._state.get_memory_state()
+        _, prev_hash, _ = self._state.get_memory_state()
 
         if not issues:
-            pruned = 0
-            if self._config.memory_prune_stale_items:
-                pruned = self._prune_stale_items([])
             self._state.update_memory_state([], prev_hash)
             self._manifest_store.update_from_learnings([])
             await self._refresh_manifest("memory-sync-empty")
@@ -295,11 +242,11 @@ class MemorySyncWorker:
                 "item_count": 0,
                 "compacted": False,
                 "digest_chars": 0,
-                "pruned": pruned,
+                "pruned": 0,
                 "issues_closed": 0,
             }
 
-        # Extract learnings (now typed) and build digest
+        # Extract learnings
         learnings: list[CuratedLearning] = []
         for issue in issues:
             body = issue.get("body", "")
@@ -318,65 +265,39 @@ class MemorySyncWorker:
                     )
                 )
 
-        # Sort newest first
-        learnings.sort(key=lambda item: item.created_at, reverse=True)
-
-        # Build digest
-        compacted = False
-        digest = self._build_digest(learnings)
-        max_chars = self._config.max_memory_chars
-        if len(digest) > max_chars:
-            digest = await self._compact_digest(learnings, max_chars)
-            compacted = True
-
-        # Write individual items (file + Hindsight dual-write)
-        items_dir = self._config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
+        # Retain each learning to Hindsight
         for record in learnings:
-            num, learning, _, mtype = self._coerce_learning_tuple(record)
-            item_path = items_dir / f"{num}.md"
-            item_path.write_text(learning)
             await retain_safe(
                 self._hindsight,
                 BANK_LEARNINGS,
-                learning,
-                context=record.title if isinstance(record, CuratedLearning) else "",
+                record.learning,
+                context=record.title,
                 metadata={
                     "source": "memory_sync",
-                    "memory_type": mtype.value,
-                    "issue_number": str(num),
+                    "memory_type": record.memory_type.value,
+                    "issue_number": str(record.number),
                 },
             )
 
-        # Prune stale item files
-        pruned = 0
-        if self._config.memory_prune_stale_items:
-            pruned = self._prune_stale_items(current_ids)
+        # Trigger Hindsight reflection to build mental models
+        try:
+            await self._hindsight.reflect(BANK_LEARNINGS)
+        except Exception:
+            logger.warning("Hindsight reflect failed", exc_info=True)
 
-        # Atomic write of digest
-        self._write_digest(digest)
-
-        # Update state
-        digest_hash = hashlib.sha256(digest.encode()).hexdigest()[:16]
-        self._state.update_memory_state(current_ids, digest_hash)
+        # Update state and manifest
+        self._state.update_memory_state(current_ids, "hindsight")
         self._manifest_store.update_from_learnings(learnings)
         await self._refresh_manifest("memory-sync")
         await self._route_adr_candidates(issues)
         closed, _close_failed = await self._close_synced_issues(issues)
 
-        # Trigger Hindsight reflection to build mental models
-        if self._hindsight is not None:
-            try:
-                await self._hindsight.reflect(BANK_LEARNINGS)
-            except Exception:
-                logger.warning("Hindsight reflect failed", exc_info=True)
-
         return {
             "action": "synced",
             "item_count": len(learnings),
-            "compacted": compacted,
-            "digest_chars": len(digest),
-            "pruned": pruned,
+            "compacted": False,
+            "digest_chars": 0,
+            "pruned": 0,
             "issues_closed": closed,
         }
 
@@ -395,28 +316,6 @@ class MemorySyncWorker:
             title.startswith("[Transcript Summary]") and has_transcript_label
         )
         return is_memory or is_transcript
-
-    def _prune_stale_items(self, current_ids: list[int]) -> int:
-        """Remove item files whose source issue is no longer active.
-
-        Returns the number of pruned files.
-        """
-        items_dir = self._config.data_path("memory", "items")
-        if not items_dir.is_dir():
-            return 0
-        active = set(current_ids)
-        pruned = 0
-        for path in items_dir.glob("*.md"):
-            try:
-                file_id = int(path.stem)
-            except ValueError:
-                continue
-            if file_id not in active:
-                path.unlink()
-                pruned += 1
-        if pruned:
-            logger.info("Pruned %d stale memory item files", pruned)
-        return pruned
 
     async def _close_synced_issues(
         self, issues: list[MemoryIssueData]
@@ -654,15 +553,9 @@ class MemorySyncWorker:
 
     @staticmethod
     def _extract_learning(body: str) -> str:
-        """Extract the learning content from an issue body.
-
-        Looks for a ``## Memory Suggestion`` section with a
-        ``**Learning:**`` line.  Falls back to the full body.
-        """
+        """Extract the learning content from an issue body."""
         if not body or not body.strip():
             return ""
-
-        # Try structured extraction
         learning_match = re.search(
             r"\*\*Learning:\*\*\s*(.+?)(?=\n\*\*|\n##|\Z)",
             body,
@@ -670,198 +563,20 @@ class MemorySyncWorker:
         )
         if learning_match:
             return learning_match.group(1).strip()
-
-        # Fallback: return full body (stripped)
         return body.strip()
 
     @staticmethod
     def _extract_memory_type(body: str) -> MemoryType:
-        """Extract the memory type from an issue body.
-
-        Looks for a ``**Type:**`` line.  Defaults to ``MemoryType.KNOWLEDGE``
-        when the field is missing or unrecognised.
-        """
+        """Extract the memory type from an issue body."""
         if not body:
             return MemoryType.KNOWLEDGE
-
         type_match = re.search(
             r"\*\*Type:\*\*\s*(\S+)",
             body,
         )
         if type_match:
             return _parse_memory_type(type_match.group(1))
-
         return MemoryType.KNOWLEDGE
-
-    @staticmethod
-    def _build_digest(learnings: Sequence[_LearningRecord]) -> str:
-        """Build the digest markdown grouped by memory type.
-
-        Learnings are organised into sections by type (actionable types
-        first, then knowledge) for easy scanning by agents.
-        """
-        now = datetime.now(UTC).isoformat()
-        header = (
-            f"## Accumulated Learnings\n"
-            f"*{len(learnings)} learnings — last synced {now}*\n"
-        )
-
-        # Group learnings by type
-        by_type: dict[MemoryType, list[tuple[int, str]]] = {}
-        for record in learnings:
-            num, learning, _, memory_type = MemorySyncWorker._coerce_learning_tuple(
-                record
-            )
-            by_type.setdefault(memory_type, []).append((num, learning))
-
-        sections: list[str] = []
-        for mtype in MEMORY_TYPE_DISPLAY_ORDER:
-            items = by_type.get(mtype, [])
-            if not items:
-                continue
-            type_header = f"### {mtype.value.title()}"
-            type_items = [f"- **#{num}:** {learning}" for num, learning in items]
-            sections.append(type_header + "\n" + "\n".join(type_items))
-
-        return header + "\n" + "\n---\n".join(sections) + "\n"
-
-    async def _compact_digest(
-        self, learnings: Sequence[_LearningRecord], max_chars: int
-    ) -> str:
-        """Deduplicate and optionally summarise learnings to fit within *max_chars*.
-
-        Pipeline:
-        1. Keyword-overlap deduplication (>70% overlap → drop duplicate).
-        2. Rebuild digest from unique items (grouped by type).
-        3. If still over *max_chars*: call a cheap model to summarise.
-        4. Final truncation safety-net in case the model returns too much.
-        """
-        # --- Step 1: Deduplicate by keyword overlap ---
-        seen_keywords: list[set[str]] = []
-        unique: list[MemorySyncWorker._LearningRecord] = []
-
-        for record in learnings:
-            num, learning, created, mtype = self._coerce_learning_tuple(record)
-            words = {
-                w.lower() for w in re.findall(r"[a-zA-Z]+", learning) if len(w) >= 4
-            }
-            is_dup = False
-            for existing in seen_keywords:
-                if not words or not existing:
-                    continue
-                overlap = len(words & existing) / max(len(words), 1)
-                if overlap > 0.7:
-                    is_dup = True
-                    break
-            if not is_dup:
-                unique.append((num, learning, created, mtype))
-                seen_keywords.append(words)
-
-        # --- Step 2: Build digest from unique items (grouped by type) ---
-        now = datetime.now(UTC).isoformat()
-        header = (
-            f"## Accumulated Learnings\n"
-            f"*{len(unique)} learnings (compacted) — last synced {now}*\n"
-        )
-
-        by_type: dict[MemoryType, list[tuple[int, str]]] = {}
-        for record in unique:
-            num, learning, _, memory_type = self._coerce_learning_tuple(record)
-            by_type.setdefault(memory_type, []).append((num, learning))
-
-        sections: list[str] = []
-        for mtype in MEMORY_TYPE_DISPLAY_ORDER:
-            items = by_type.get(mtype, [])
-            if not items:
-                continue
-            type_header = f"### {mtype.value.title()}"
-            type_items = [f"- **#{num}:** {learning}" for num, learning in items]
-            sections.append(type_header + "\n" + "\n".join(type_items))
-
-        digest = header + "\n" + "\n---\n".join(sections) + "\n"
-
-        # --- Step 3: Model-based summarisation if still over limit ---
-        if len(digest) > max_chars:
-            summarised = await self._summarise_with_model(digest, max_chars)
-            if summarised:
-                digest = summarised
-
-        # --- Step 4: Final truncation safety-net ---
-        if len(digest) > max_chars:
-            digest = digest[:max_chars] + "\n\n…(truncated)"
-
-        return digest
-
-    async def _summarise_with_model(self, content: str, max_chars: int) -> str | None:
-        """Use a cheap model to condense the digest.
-
-        Returns the summarised text or ``None`` on failure (caller
-        falls back to truncation).
-        """
-        tool = self._config.memory_compaction_tool
-        model = self._config.memory_compaction_model
-        prompt = (
-            f"Condense the following agent learnings into at most {max_chars} characters. "
-            "Preserve every distinct insight but merge overlapping ones. "
-            "Output ONLY the condensed markdown list — no preamble.\n\n"
-            f"{content}"
-        )
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = ["claude", "-p", prompt, "--model", model]
-            cmd_input = None
-        env = make_clean_env(self._config.gh_token)
-
-        try:
-            result = await self._runner.run_simple(
-                cmd,
-                env=env,
-                input=cmd_input,
-                timeout=self._config.memory_compaction_timeout,
-            )
-            if result.returncode != 0:
-                stderr_excerpt = result.stderr[:200]
-                stdout_excerpt = result.stdout[:200]
-                logger.warning(
-                    "Memory compaction model failed (rc=%d, model=%s): stderr=%r stdout=%r",
-                    result.returncode,
-                    model,
-                    stderr_excerpt,
-                    stdout_excerpt,
-                )
-                return None
-            if not result.stdout:
-                return None
-            now = datetime.now(UTC).isoformat()
-            return (
-                f"## Accumulated Learnings\n"
-                f"*Summarised — last synced {now}*\n\n"
-                f"{result.stdout}\n"
-            )
-        except TimeoutError:
-            logger.warning("Memory compaction model timed out")
-            return None
-        except (OSError, FileNotFoundError, NotImplementedError, RuntimeError) as exc:
-            logger.warning("Memory compaction model unavailable: %s", exc)
-            return None
-
-    def _write_digest(self, content: str) -> None:
-        """Write digest to disk atomically."""
-        digest_path = self._config.data_path("memory", "digest.md")
-        atomic_write(digest_path, content)
 
     async def publish_sync_event(self, stats: MemorySyncResult) -> None:
         """Publish a MEMORY_SYNC event with *stats*."""

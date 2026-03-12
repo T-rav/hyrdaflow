@@ -69,7 +69,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("visual_max_retries", "HYDRAFLOW_VISUAL_MAX_RETRIES", 2),
     ("agent_timeout", "HYDRAFLOW_AGENT_TIMEOUT", 3600),
     ("transcript_summary_timeout", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", 120),
-    ("memory_compaction_timeout", "HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", 60),
+    ("hindsight_timeout", "HYDRAFLOW_HINDSIGHT_TIMEOUT", 30),
     ("quality_timeout", "HYDRAFLOW_QUALITY_TIMEOUT", 3600),
     ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
     ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
@@ -94,7 +94,6 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
     ("system_model", "HYDRAFLOW_SYSTEM_MODEL", ""),
     ("background_model", "HYDRAFLOW_BACKGROUND_MODEL", ""),
-    ("memory_compaction_model", "HYDRAFLOW_MEMORY_COMPACTION_MODEL", "haiku"),
     ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
     ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
@@ -161,7 +160,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
-    ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -177,7 +175,6 @@ _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
     ("planner_tool", "HYDRAFLOW_PLANNER_TOOL"),
     ("triage_tool", "HYDRAFLOW_TRIAGE_TOOL"),
     ("transcript_summary_tool", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL"),
-    ("memory_compaction_tool", "HYDRAFLOW_MEMORY_COMPACTION_TOOL"),
     ("ac_tool", "HYDRAFLOW_AC_TOOL"),
     ("verification_judge_tool", "HYDRAFLOW_VERIFICATION_JUDGE_TOOL"),
     ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
@@ -692,31 +689,17 @@ class HydraFlowConfig(BaseModel):
         le=200_000,
         description="Max characters for PR diff in reviewer prompts before truncation",
     )
-    max_memory_chars: int = Field(
-        default=4000,
-        ge=500,
-        le=50_000,
-        description="Max characters for memory digest before compaction",
-    )
     max_memory_prompt_chars: int = Field(
         default=4000,
         ge=500,
         le=50_000,
-        description="Max characters for memory digest injected into agent prompts",
+        description="Max characters for recalled memories injected into agent prompts",
     )
     max_troubleshooting_prompt_chars: int = Field(
         default=3000,
         ge=500,
         le=10_000,
         description="Max characters for learned troubleshooting patterns in CI timeout prompts",
-    )
-    memory_compaction_tool: Literal["claude", "codex", "pi"] = Field(
-        default="claude",
-        description="CLI backend for memory digest compaction",
-    )
-    memory_compaction_model: str = Field(
-        default="haiku",
-        description="Cheap model for summarising memory digest when over size limit",
     )
 
     # Memory auto-approve
@@ -725,16 +708,7 @@ class HydraFlowConfig(BaseModel):
         description="When True, memory suggestions skip HITL and go directly to the sync queue",
     )
 
-    memory_prune_stale_items: bool = Field(
-        default=True,
-        description="Remove local memory item files whose source issue is no longer active",
-    )
-
     # Hindsight memory backend
-    hindsight_enabled: bool = Field(
-        default=False,
-        description="Use Hindsight as the unified memory backend for semantic recall",
-    )
     hindsight_url: str = Field(
         default="http://localhost:8888",
         description="Base URL for the Hindsight REST API",
@@ -1137,11 +1111,11 @@ class HydraFlowConfig(BaseModel):
         le=600,
         description="Timeout in seconds for transcript summarization model calls",
     )
-    memory_compaction_timeout: int = Field(
-        default=60,
-        ge=30,
-        le=600,
-        description="Timeout in seconds for memory compaction model calls",
+    hindsight_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="Timeout in seconds for Hindsight API calls",
     )
 
     # Execution mode
@@ -1442,7 +1416,6 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
         for field in (
             "triage_tool",
             "transcript_summary_tool",
-            "memory_compaction_tool",
             "report_issue_tool",
         ):
             _apply_if_default(field, config.background_tool)
@@ -1451,7 +1424,6 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
         for field in (
             "triage_model",
             "transcript_summary_model",
-            "memory_compaction_model",
             "report_issue_model",
         ):
             _apply_if_default(field, config.background_model)

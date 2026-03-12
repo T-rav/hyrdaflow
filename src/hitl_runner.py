@@ -133,7 +133,7 @@ class HITLRunner(BaseRunner):
 
         try:
             cmd = self._build_command(worktree_path)
-            prompt, prompt_stats = self._build_prompt_with_stats(
+            prompt, prompt_stats = await self._build_prompt_with_stats(
                 issue, correction, cause
             )
             transcript = await self._execute(
@@ -179,7 +179,7 @@ class HITLRunner(BaseRunner):
 
         return result
 
-    def _build_prompt_with_stats(
+    async def _build_prompt_with_stats(
         self, issue: GitHubIssue, correction: str, cause: str
     ) -> tuple[str, dict[str, object]]:
         """Build the HITL prompt with pruning stats."""
@@ -197,7 +197,9 @@ class HITLRunner(BaseRunner):
             correction or "", _MAX_HITL_CORRECTION_CHARS, label="Human guidance"
         )
 
-        manifest_section, memory_section = self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"HITL correction for {issue.title}"
+        )
 
         prompt = f"""You are applying a human-in-the-loop correction for GitHub issue #{issue.number}.
 

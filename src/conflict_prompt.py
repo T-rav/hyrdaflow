@@ -9,22 +9,28 @@ additional context it needs via ``gh`` CLI.
 
 from __future__ import annotations
 
-from config import HydraFlowConfig
+from typing import TYPE_CHECKING
+
 from manifest import load_project_manifest
-from memory import load_memory_digest
+from memory import recall_contextual_memory
 from runner_constants import MEMORY_SUGGESTION_PROMPT
+
+if TYPE_CHECKING:
+    from config import HydraFlowConfig
+    from hindsight import HindsightClient
 
 # Max characters of error output to include in conflict resolution prompts.
 _ERROR_OUTPUT_MAX_CHARS: int = 3000
 
 
-def build_conflict_prompt(
+async def build_conflict_prompt(
     issue_url: str,
     pr_url: str,
     last_error: str | None,
     attempt: int,
     *,
     config: HydraFlowConfig | None = None,
+    hindsight: HindsightClient | None = None,
 ) -> str:
     """Build a conflict resolution prompt.
 
@@ -49,14 +55,19 @@ def build_conflict_prompt(
         "Commit when done. Do not push."
     )
 
-    # --- Project manifest & memory digest ---
+    # --- Project manifest & memory ---
     if config is not None:
         manifest = load_project_manifest(config)
         if manifest:
             sections.append(f"## Project Context\n\n{manifest}")
-        digest = load_memory_digest(config)
-        if digest:
-            sections.append(f"## Accumulated Learnings\n\n{digest}")
+        if hindsight is not None:
+            recalled = await recall_contextual_memory(
+                hindsight,
+                "merge conflict resolution patterns and learnings",
+                max_chars=config.max_memory_prompt_chars,
+            )
+            if recalled:
+                sections.append(f"## Accumulated Learnings\n\n{recalled}")
 
     # --- Previous attempt error ---
     if last_error and attempt > 1:
@@ -79,13 +90,14 @@ def build_conflict_prompt(
     return "\n\n".join(sections)
 
 
-def build_rebuild_prompt(
+async def build_rebuild_prompt(
     issue_url: str,
     pr_url: str,
     issue_number: int,
     pr_diff: str,
     *,
     config: HydraFlowConfig | None = None,
+    hindsight: HindsightClient | None = None,
 ) -> str:
     """Build a prompt for re-applying PR changes on a fresh branch from main.
 
@@ -100,7 +112,7 @@ def build_rebuild_prompt(
     pr_diff:
         The diff of the original PR (truncated to ``max_review_diff_chars``).
     config:
-        Optional config for injecting project manifest and memory digest.
+        Optional config for injecting project manifest and memory.
     """
     max_diff_chars = config.max_review_diff_chars if config is not None else 15_000
     truncated_diff = pr_diff[:max_diff_chars]
@@ -115,14 +127,19 @@ def build_rebuild_prompt(
         f"- PR: {pr_url}"
     )
 
-    # --- Project manifest & memory digest ---
+    # --- Project manifest & memory ---
     if config is not None:
         manifest = load_project_manifest(config)
         if manifest:
             sections.append(f"## Project Context\n\n{manifest}")
-        digest = load_memory_digest(config)
-        if digest:
-            sections.append(f"## Accumulated Learnings\n\n{digest}")
+        if hindsight is not None:
+            recalled = await recall_contextual_memory(
+                hindsight,
+                "rebuild branch from main patterns and learnings",
+                max_chars=config.max_memory_prompt_chars,
+            )
+            if recalled:
+                sections.append(f"## Accumulated Learnings\n\n{recalled}")
 
     # --- Original PR diff ---
     sections.append(

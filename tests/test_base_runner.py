@@ -249,60 +249,71 @@ class TestExecute:
 class TestInjectManifestAndMemory:
     """Tests for BaseRunner._inject_manifest_and_memory."""
 
-    def test_inject_returns_manifest_and_memory_when_both_present(
+    @pytest.mark.asyncio
+    async def test_inject_returns_manifest_and_memory_when_both_present(
         self, config, event_bus: EventBus
     ) -> None:
-        runner = _TestRunner(config, event_bus)
+        mock_hindsight = AsyncMock()
+        runner = _TestRunner(config, event_bus, hindsight=mock_hindsight)
+        runner._context_cache = MagicMock()
+        runner._context_cache.get_or_load.return_value = ("manifest text", False)
 
-        with (
-            patch("base_runner.load_project_manifest", return_value="manifest text"),
-            patch("base_runner.load_memory_digest", return_value="digest text"),
+        with patch(
+            "base_runner.recall_contextual_memory",
+            new_callable=AsyncMock,
+            return_value="## Recalled Memory\nrecalled text",
         ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="test query"
+            )
 
         assert "## Project Context" in manifest_sec
         assert "manifest text" in manifest_sec
-        assert "## Accumulated Learnings" in memory_sec
-        assert "digest text" in memory_sec
+        assert "recalled text" in memory_sec
 
-    def test_inject_returns_manifest_section_when_only_manifest_exists(
+    @pytest.mark.asyncio
+    async def test_inject_returns_manifest_section_when_only_manifest_exists(
         self, config, event_bus: EventBus
     ) -> None:
-        runner = _TestRunner(config, event_bus)
+        runner = _TestRunner(config, event_bus, hindsight=None)
+        runner._context_cache = MagicMock()
+        runner._context_cache.get_or_load.return_value = ("manifest text", False)
 
-        with (
-            patch("base_runner.load_project_manifest", return_value="manifest text"),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+        manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
 
         assert "## Project Context" in manifest_sec
         assert memory_sec == ""
 
-    def test_inject_returns_memory_section_when_only_digest_exists(
+    @pytest.mark.asyncio
+    async def test_inject_returns_memory_section_when_only_digest_exists(
         self, config, event_bus: EventBus
     ) -> None:
-        runner = _TestRunner(config, event_bus)
+        mock_hindsight = AsyncMock()
+        runner = _TestRunner(config, event_bus, hindsight=mock_hindsight)
+        runner._context_cache = MagicMock()
+        runner._context_cache.get_or_load.return_value = ("", False)
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value="digest text"),
+        with patch(
+            "base_runner.recall_contextual_memory",
+            new_callable=AsyncMock,
+            return_value="## Recalled Memory\nrecalled text",
         ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="test query"
+            )
 
         assert manifest_sec == ""
-        assert "## Accumulated Learnings" in memory_sec
+        assert "recalled text" in memory_sec
 
-    def test_inject_returns_empty_strings_when_no_manifest_or_digest(
+    @pytest.mark.asyncio
+    async def test_inject_returns_empty_strings_when_no_manifest_or_digest(
         self, config, event_bus: EventBus
     ) -> None:
-        runner = _TestRunner(config, event_bus)
+        runner = _TestRunner(config, event_bus, hindsight=None)
+        runner._context_cache = MagicMock()
+        runner._context_cache.get_or_load.return_value = ("", False)
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+        manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
 
         assert manifest_sec == ""
         assert memory_sec == ""
