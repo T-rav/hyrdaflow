@@ -93,10 +93,11 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
     onClose?.()
   }, [slug, path, submitting, addRepoBySlug, addRepoByPath, onClose])
 
-  const handlePickerSelect = useCallback(async () => {
-    if (fetchRepos) await fetchRepos()
+  const handlePickerSelect = useCallback(async (slug) => {
+    if (slug) await addRepoBySlug(slug)
+    else if (fetchRepos) await fetchRepos()
     onClose?.()
-  }, [fetchRepos, onClose])
+  }, [addRepoBySlug, fetchRepos, onClose])
 
   if (!isOpen) return null
 
