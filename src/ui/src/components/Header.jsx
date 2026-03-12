@@ -191,7 +191,7 @@ export function Header({ connected, orchestratorStatus }) {
     stageStatus,
     config,
     submitReport,
-    trackedReports,
+    trackedReports = [],
     updateTrackedReport,
     startOrchestrator,
     stopOrchestrator,

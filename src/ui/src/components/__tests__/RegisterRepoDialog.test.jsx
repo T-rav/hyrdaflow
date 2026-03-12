@@ -2,24 +2,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const mockUseHydraFlow = vi.fn()
+let capturedPickerOnSelect = null
 
 vi.mock('../../context/HydraFlowContext', () => ({
   useHydraFlow: (...args) => mockUseHydraFlow(...args),
+}))
+
+vi.mock('../GitHubRepoPicker', () => ({
+  GitHubRepoPicker: ({ onSelect }) => {
+    capturedPickerOnSelect = onSelect
+    return <div data-testid="mock-github-picker"><button data-testid="mock-pick-btn" onClick={() => onSelect('acme/app')}>Pick</button></div>
+  },
 }))
 
 const { RegisterRepoDialog, extractSlugFromUrl } = await import('../RegisterRepoDialog')
 
 describe('RegisterRepoDialog', () => {
   beforeEach(() => {
+    capturedPickerOnSelect = null
     mockUseHydraFlow.mockReturnValue({
       addRepoBySlug: vi.fn().mockResolvedValue({ ok: true }),
       addRepoByPath: vi.fn().mockResolvedValue({ ok: true }),
       fetchRepos: vi.fn().mockResolvedValue(undefined),
-    })
-    // Suppress fetch calls from GitHubRepoPicker auto-load
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ repos: [] }),
     })
   })
 
@@ -283,6 +287,52 @@ describe('RegisterRepoDialog', () => {
     fireEvent.click(screen.getByTestId('register-submit'))
     await waitFor(() => expect(screen.getByText('Path not found')).toBeInTheDocument())
     expect(screen.getByTestId('register-submit')).not.toBeDisabled()
+  })
+
+  // -------------------------------------------------------------------------
+  // GitHub picker tab flow
+  // -------------------------------------------------------------------------
+
+  it('calls addRepoBySlug with slug from picker and closes on success', async () => {
+    const addRepoBySlug = vi.fn().mockResolvedValue({ ok: true })
+    const onClose = vi.fn()
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug,
+      addRepoByPath: vi.fn(),
+      fetchRepos: vi.fn(),
+    })
+    render(<RegisterRepoDialog isOpen onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('mock-pick-btn'))
+    await waitFor(() => expect(addRepoBySlug).toHaveBeenCalledWith('acme/app'))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('shows error and stays open when picker addRepoBySlug returns failure', async () => {
+    const addRepoBySlug = vi.fn().mockResolvedValue({ ok: false, error: 'Repo not found' })
+    const onClose = vi.fn()
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug,
+      addRepoByPath: vi.fn(),
+      fetchRepos: vi.fn(),
+    })
+    render(<RegisterRepoDialog isOpen onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('mock-pick-btn'))
+    await waitFor(() => expect(screen.getByText('Repo not found')).toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('shows error and stays open when picker addRepoBySlug throws', async () => {
+    const addRepoBySlug = vi.fn().mockRejectedValue(new Error('Network failure'))
+    const onClose = vi.fn()
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug,
+      addRepoByPath: vi.fn(),
+      fetchRepos: vi.fn(),
+    })
+    render(<RegisterRepoDialog isOpen onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('mock-pick-btn'))
+    await waitFor(() => expect(screen.getByText('Network failure')).toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
   })
 })
 

@@ -16,7 +16,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -3890,7 +3890,10 @@ def create_router(
                 },
                 status_code=422,
             )
-        action_map = {
+        action_map: dict[
+            str,
+            tuple[Literal["queued", "in-progress", "fixed", "closed", "reopened"], str],
+        ] = {
             "confirm_fixed": ("closed", "Confirmed fixed by reporter"),
             "reopen": ("reopened", "Reopened by reporter"),
             "cancel": ("closed", "Cancelled by reporter"),

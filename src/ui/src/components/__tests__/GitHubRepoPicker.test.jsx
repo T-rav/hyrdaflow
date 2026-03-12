@@ -143,7 +143,7 @@ describe('GitHubRepoPicker', () => {
         body: JSON.stringify({ slug: 'alice/myrepo' }),
       })
     })
-    expect(onSelect).toHaveBeenCalled()
+    expect(onSelect).toHaveBeenCalledWith('alice/myrepo')
   })
 
   it('shows error when clone fails', async () => {

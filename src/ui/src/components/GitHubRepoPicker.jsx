@@ -84,7 +84,7 @@ export function GitHubRepoPicker({ onSelect, disabled }) {
         return
       }
       setCloningSlug(null)
-      onSelect?.()
+      onSelect?.(slug)
     } catch (err) {
       setError(err.message || 'Clone failed')
       setCloningSlug(null)

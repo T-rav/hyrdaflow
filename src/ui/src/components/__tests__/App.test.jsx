@@ -43,6 +43,8 @@ const { mockState } = vi.hoisted(() => {
       retrospectives: null,
       troubleshooting: null,
       memories: null,
+      trackedReports: [],
+      updateTrackedReport: () => {},
       pipelineIssues: {
         triage: [],
         plan: [],

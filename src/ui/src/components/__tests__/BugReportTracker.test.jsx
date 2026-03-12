@@ -85,8 +85,8 @@ describe('BugReportTracker', () => {
     expect(screen.getByTestId('tracker-actions-r1')).toBeTruthy()
   })
 
-  it('shows confirm fixed button for in-progress reports', () => {
-    const reports = [makeReport({ id: 'r1', status: 'in-progress' })]
+  it('shows confirm fixed button for fixed reports', () => {
+    const reports = [makeReport({ id: 'r1', status: 'fixed' })]
     render(
       <BugReportTracker isOpen={true} onClose={onClose} reports={reports} onAction={onAction} />
     )

@@ -1545,10 +1545,11 @@ export function HydraFlowProvider({ children }) {
 
   // Fetch tracked reports on mount and periodically
   useEffect(() => {
+    if (isSeeded) return
     fetchTrackedReports()
     const interval = setInterval(fetchTrackedReports, 30_000)
     return () => clearInterval(interval)
-  }, [fetchTrackedReports])
+  }, [fetchTrackedReports, isSeeded])
 
   const value = {
     ...state,

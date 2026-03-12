@@ -258,6 +258,7 @@ export const seedState = {
   retrospectives: null,
   troubleshooting: null,
   memories: null,
+  trackedReports: [],
 }
 
 /**
