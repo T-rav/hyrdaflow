@@ -104,6 +104,8 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
+    ("hindsight_url", "HYDRAFLOW_HINDSIGHT_URL", "http://localhost:8888"),
+    ("hindsight_api_key", "HYDRAFLOW_HINDSIGHT_API_KEY", ""),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -159,6 +161,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
+    ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -725,6 +728,20 @@ class HydraFlowConfig(BaseModel):
     memory_prune_stale_items: bool = Field(
         default=True,
         description="Remove local memory item files whose source issue is no longer active",
+    )
+
+    # Hindsight memory backend
+    hindsight_enabled: bool = Field(
+        default=False,
+        description="Use Hindsight as the unified memory backend for semantic recall",
+    )
+    hindsight_url: str = Field(
+        default="http://localhost:8888",
+        description="Base URL for the Hindsight REST API",
+    )
+    hindsight_api_key: str = Field(
+        default="",
+        description="API key for Hindsight authentication",
     )
 
     # Observability context injection

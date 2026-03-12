@@ -57,6 +57,7 @@ from workspace import WorkspaceManager
 from workspace_gc_loop import WorkspaceGCLoop
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from metrics_manager import MetricsManager
 
 
@@ -86,6 +87,9 @@ class ServiceRegistry:
     hitl_phase: HITLPhase
     implementer: ImplementPhase
     reviewer: ReviewPhase
+
+    # Memory backend (optional)
+    hindsight: HindsightClient | None
 
     # Background workers and support
     run_recorder: RunRecorder
@@ -156,11 +160,25 @@ def build_services(
     crate_manager = CrateManager(config, state, prs, event_bus)
     store.set_crate_manager(crate_manager)
 
+    # Hindsight memory backend (optional)
+    hindsight_client: HindsightClient | None = None
+    if config.hindsight_enabled:
+        from hindsight import HindsightClient as _HindsightClient
+
+        hindsight_client = _HindsightClient(
+            base_url=config.hindsight_url,
+            api_key=config.hindsight_api_key,
+        )
+
     # Harness insight store (shared across phases)
-    harness_insights = HarnessInsightStore(config.data_path("memory"))
+    harness_insights = HarnessInsightStore(
+        config.data_path("memory"), hindsight=hindsight_client
+    )
 
     # Troubleshooting pattern store (CI timeout feedback loop)
-    troubleshooting_store = TroubleshootingPatternStore(config.data_path("memory"))
+    troubleshooting_store = TroubleshootingPatternStore(
+        config.data_path("memory"), hindsight=hindsight_client
+    )
 
     # Epic management
     epic_checker = EpicCompletionChecker(config, prs, fetcher, state=state)
@@ -246,8 +264,11 @@ def build_services(
         runner=subprocess_runner,
         prs=prs,
         manifest_syncer=manifest_syncer,
+        hindsight=hindsight_client,
     )
-    retrospective = RetrospectiveCollector(config, state, prs)
+    retrospective = RetrospectiveCollector(
+        config, state, prs, hindsight=hindsight_client
+    )
     ac_generator = AcceptanceCriteriaGenerator(
         config, prs, event_bus, runner=subprocess_runner
     )
@@ -431,6 +452,7 @@ def build_services(
         fetcher=fetcher,
         store=store,
         crate_manager=crate_manager,
+        hindsight=hindsight_client,
         triager=triager,
         planner_phase=planner_phase,
         hitl_phase=hitl_phase,

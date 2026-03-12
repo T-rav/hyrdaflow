@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from models import IsoTimestamp, PipelineStage
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from pr_manager import PRManager
     from state import StateTracker
 
@@ -136,10 +137,15 @@ def extract_subcategories(details: str) -> list[str]:
 class HarnessInsightStore:
     """File-backed store for pipeline failure records and proposed-pattern tracking."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(
+        self,
+        memory_dir: Path,
+        hindsight: HindsightClient | None = None,
+    ) -> None:
         self._memory_dir = memory_dir
         self._failures_path = memory_dir / "harness_failures.jsonl"
         self._proposed_path = memory_dir / "harness_proposed.json"
+        self._hindsight = hindsight
 
     def append_failure(self, record: FailureRecord) -> None:
         """Append *record* as a JSON line to ``harness_failures.jsonl``."""
@@ -153,6 +159,26 @@ class HarnessInsightStore:
                 self._failures_path,
                 exc_info=True,
             )
+
+    async def retain_failure(self, record: FailureRecord) -> None:
+        """Dual-write a failure record to Hindsight."""
+        if self._hindsight is None:
+            return
+        from hindsight import BANK_HARNESS_INSIGHTS, retain_safe
+
+        await retain_safe(
+            self._hindsight,
+            BANK_HARNESS_INSIGHTS,
+            record.model_dump_json(),
+            context=f"Issue #{record.issue_number} {record.category} failure",
+            metadata={
+                "source": "harness",
+                "category": record.category.value,
+                "subcategories": ",".join(record.subcategories),
+                "stage": str(record.stage),
+                "issue_number": str(record.issue_number),
+            },
+        )
 
     def load_recent(self, n: int = 20) -> list[FailureRecord]:
         """Load the last *n* failure records from disk."""

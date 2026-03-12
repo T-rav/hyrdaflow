@@ -15,6 +15,7 @@ from models import IsoTimestamp, PlanAccuracyResult, ReviewVerdict
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from hindsight import HindsightClient
     from models import ReviewResult
     from pr_manager import PRManager
     from state import StateTracker
@@ -48,12 +49,14 @@ class RetrospectiveCollector:
         config: HydraFlowConfig,
         state: StateTracker,
         prs: PRManager,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._prs = prs
         self._retro_path = config.data_path("memory", "retrospectives.jsonl")
         self._filed_patterns_path = config.data_path("memory", "filed_patterns.json")
+        self._hindsight = hindsight
 
     async def record(
         self,
@@ -69,6 +72,7 @@ class RetrospectiveCollector:
         try:
             entry = await self._collect(issue_number, pr_number, review_result)
             self._append_entry(entry)
+            await self._retain_to_hindsight(entry)
             recent = self._load_recent(self._config.retrospective_window)
             await self._detect_patterns(recent)
         except Exception:
@@ -201,6 +205,26 @@ class RetrospectiveCollector:
             accuracy = round(len(intersection) / len(planned_set) * 100, 1)
 
         return PlanAccuracyResult(accuracy=accuracy, unplanned=unplanned, missed=missed)
+
+    async def _retain_to_hindsight(self, entry: RetrospectiveEntry) -> None:
+        """Dual-write retrospective entry to Hindsight."""
+        if self._hindsight is None:
+            return
+        from hindsight import BANK_RETROSPECTIVES, retain_safe
+
+        await retain_safe(
+            self._hindsight,
+            BANK_RETROSPECTIVES,
+            entry.model_dump_json(),
+            context=f"Issue #{entry.issue_number} PR #{entry.pr_number} retrospective",
+            metadata={
+                "source": "retrospective",
+                "issue_number": str(entry.issue_number),
+                "pr_number": str(entry.pr_number),
+                "plan_accuracy": str(entry.plan_accuracy_pct),
+                "verdict": str(entry.review_verdict),
+            },
+        )
 
     def _append_entry(self, entry: RetrospectiveEntry) -> None:
         """Append a JSON line to the retrospective log."""

@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from models import IsoTimestamp, ReviewVerdict
+
+if TYPE_CHECKING:
+    from hindsight import HindsightClient
 
 logger = logging.getLogger("hydraflow.review_insights")
 
@@ -188,10 +192,15 @@ def extract_categories(summary: str) -> list[str]:
 class ReviewInsightStore:
     """File-backed store for review records and proposed-category tracking."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(
+        self,
+        memory_dir: Path,
+        hindsight: HindsightClient | None = None,
+    ) -> None:
         self._memory_dir = memory_dir
         self._reviews_path = memory_dir / "reviews.jsonl"
         self._proposed_path = memory_dir / "proposed_categories.json"
+        self._hindsight = hindsight
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
@@ -205,6 +214,25 @@ class ReviewInsightStore:
                 self._reviews_path,
                 exc_info=True,
             )
+
+    async def retain_review(self, record: ReviewRecord) -> None:
+        """Dual-write a review record to Hindsight."""
+        if self._hindsight is None:
+            return
+        from hindsight import BANK_REVIEW_INSIGHTS, retain_safe
+
+        await retain_safe(
+            self._hindsight,
+            BANK_REVIEW_INSIGHTS,
+            record.model_dump_json(),
+            context=f"PR #{record.pr_number} review ({record.verdict})",
+            metadata={
+                "source": "review",
+                "pr_number": str(record.pr_number),
+                "verdict": str(record.verdict),
+                "categories": ",".join(record.categories),
+            },
+        )
 
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
         """Load the last *n* review records from disk."""

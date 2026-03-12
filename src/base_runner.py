@@ -15,7 +15,7 @@ from context_cache import ContextSectionCache
 from events import EventBus
 from execution import get_default_runner
 from manifest import load_project_manifest
-from memory import load_memory_digest
+from memory import load_memory_digest, recall_contextual_memory
 from models import LoopResult, TranscriptEventData
 from prompt_telemetry import PromptTelemetry, parse_command_tool_model
 from runner_utils import (
@@ -26,6 +26,7 @@ from runner_utils import (
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
+    from hindsight import HindsightClient
 
 
 class BaseRunner:
@@ -44,6 +45,7 @@ class BaseRunner:
         config: HydraFlowConfig,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -52,6 +54,7 @@ class BaseRunner:
         self._context_cache = ContextSectionCache(config)
         self._prompt_telemetry = PromptTelemetry(config)
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
+        self._hindsight = hindsight
 
     def terminate(self) -> None:
         """Kill all active subprocesses."""
@@ -197,6 +200,28 @@ class BaseRunner:
             "context_chars_before": len(manifest) + len(digest),
             "context_chars_after": len(manifest_section) + len(memory_section),
         }
+
+        return manifest_section, memory_section
+
+    async def _inject_manifest_and_memory_async(
+        self, query_context: str = ""
+    ) -> tuple[str, str]:
+        """Like ``_inject_manifest_and_memory`` but uses Hindsight recall when available.
+
+        When Hindsight is enabled and *query_context* is provided, memories are
+        retrieved via semantic recall instead of the static digest file.
+        Falls back to the file-based digest on any failure.
+        """
+        manifest_section, memory_section = self._inject_manifest_and_memory()
+
+        if self._hindsight is not None and query_context:
+            recalled = await recall_contextual_memory(
+                self._hindsight,
+                query_context,
+                max_chars=self._config.max_memory_prompt_chars,
+            )
+            if recalled:
+                memory_section = f"\n\n{recalled}"
 
         return manifest_section, memory_section
 

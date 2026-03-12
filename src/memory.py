@@ -15,6 +15,12 @@ from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
 from file_util import atomic_write
+from hindsight import (
+    BANK_LEARNINGS,
+    HindsightClient,
+    format_memories_as_markdown,
+    retain_safe,
+)
 from manifest import ProjectManifestManager
 from manifest_curator import CuratedLearning, CuratedManifestStore
 from manifest_issue_syncer import ManifestIssueSyncer
@@ -138,6 +144,30 @@ def load_memory_digest(config: HydraFlowConfig) -> str:
     return content
 
 
+async def recall_contextual_memory(
+    hindsight: HindsightClient,
+    query: str,
+    *,
+    limit: int = 20,
+    max_chars: int = 4000,
+) -> str:
+    """Recall relevant memories from Hindsight for a given task context.
+
+    Returns formatted markdown, or empty string on failure.
+    Falls back gracefully — callers should use ``load_memory_digest``
+    when this returns empty.
+    """
+    from hindsight import recall_safe
+
+    memories = await recall_safe(hindsight, BANK_LEARNINGS, query, limit=limit)
+    if not memories:
+        return ""
+    content = format_memories_as_markdown(memories)
+    if len(content) > max_chars:
+        content = content[:max_chars] + "\n\n…(truncated)"
+    return content
+
+
 async def file_memory_suggestion(
     transcript: str,
     source: str,
@@ -210,6 +240,7 @@ class MemorySyncWorker:
         manifest_store: CuratedManifestStore | None = None,
         manifest_manager: ProjectManifestManager | None = None,
         manifest_syncer: ManifestIssueSyncer | None = None,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -221,6 +252,7 @@ class MemorySyncWorker:
             config, curator=self._manifest_store
         )
         self._manifest_syncer = manifest_syncer
+        self._hindsight = hindsight
 
     _TypedLearning = tuple[int, str, str, MemoryType]
     _LearningRecord = CuratedLearning | _TypedLearning
@@ -297,13 +329,24 @@ class MemorySyncWorker:
             digest = await self._compact_digest(learnings, max_chars)
             compacted = True
 
-        # Write individual items
+        # Write individual items (file + Hindsight dual-write)
         items_dir = self._config.data_path("memory", "items")
         items_dir.mkdir(parents=True, exist_ok=True)
         for record in learnings:
-            num, learning, _, _ = self._coerce_learning_tuple(record)
+            num, learning, _, mtype = self._coerce_learning_tuple(record)
             item_path = items_dir / f"{num}.md"
             item_path.write_text(learning)
+            await retain_safe(
+                self._hindsight,
+                BANK_LEARNINGS,
+                learning,
+                context=record.title if isinstance(record, CuratedLearning) else "",
+                metadata={
+                    "source": "memory_sync",
+                    "memory_type": mtype.value,
+                    "issue_number": str(num),
+                },
+            )
 
         # Prune stale item files
         pruned = 0
@@ -320,6 +363,13 @@ class MemorySyncWorker:
         await self._refresh_manifest("memory-sync")
         await self._route_adr_candidates(issues)
         closed, _close_failed = await self._close_synced_issues(issues)
+
+        # Trigger Hindsight reflection to build mental models
+        if self._hindsight is not None:
+            try:
+                await self._hindsight.reflect(BANK_LEARNINGS)
+            except Exception:
+                logger.warning("Hindsight reflect failed", exc_info=True)
 
         return {
             "action": "synced",
