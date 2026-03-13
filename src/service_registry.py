@@ -48,6 +48,7 @@ from reviewer import ReviewRunner
 from run_recorder import RunRecorder
 from runs_gc_loop import RunsGCLoop
 from state import StateTracker
+from tdd_orchestrator import TDDOrchestrator
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
@@ -205,6 +206,7 @@ def build_services(
         active_issues_cb=callbacks.sync_active_issue_numbers,
     )
     run_recorder = RunRecorder(config)
+    tdd_orchestrator = TDDOrchestrator(config, agents, subprocess_runner)
     implementer = ImplementPhase(
         config,
         state,
@@ -215,6 +217,7 @@ def build_services(
         stop_event,
         run_recorder=run_recorder,
         harness_insights=harness_insights,
+        tdd_orchestrator=tdd_orchestrator,
     )
 
     from metrics_manager import MetricsManager

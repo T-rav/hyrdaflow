@@ -472,6 +472,22 @@ class ResearchResult(BaseModel):
     )
 
 
+class TDDPhaseResult(BaseModel):
+    """Outcome of a single TDD phase (RED/GREEN/VALIDATE)."""
+
+    phase_id: str = Field(description="Task Graph phase ID (e.g. P1)")
+    red_success: bool = Field(default=False, description="Whether RED step succeeded")
+    green_success: bool = Field(
+        default=False, description="Whether GREEN step succeeded"
+    )
+    validate_success: bool = Field(
+        default=False, description="Whether VALIDATE step succeeded"
+    )
+    remediation_attempts: int = Field(
+        default=0, ge=0, description="Number of fix attempts after validation failure"
+    )
+
+
 class EpicGapReview(BaseModel):
     """Result of a gap review across an epic's child plans."""
 
