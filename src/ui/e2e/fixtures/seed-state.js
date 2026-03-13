@@ -250,6 +250,7 @@ export const seedState = {
   selectedSessionId: null,
   selectedRepoSlug: null,
   selectedRepoSlugRaw: null,
+  canRegisterRepos: true,
   supervisedRepos: seedSupervisedRepos,
   runtimes: [],
   issueHistory: null,
