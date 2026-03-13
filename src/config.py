@@ -537,20 +537,6 @@ class HydraFlowConfig(BaseModel):
         description="CLI backend for planning agents",
     )
     planner_model: str = Field(default="opus", description="Model for planning agents")
-    research_enabled: bool = Field(
-        default=True,
-        description="Enable pre-plan research step for complex issues",
-    )
-    research_complexity_threshold: int = Field(
-        default=6,
-        ge=1,
-        le=10,
-        description="Minimum triage complexity_score to trigger research (1-10)",
-    )
-    tdd_isolation_enabled: bool = Field(
-        default=False,
-        description="Enable per-phase TDD isolation (RED/GREEN/VALIDATE) for Task Graph plans",
-    )
     tdd_max_remediation_loops: int = Field(
         default=4,
         ge=0,
