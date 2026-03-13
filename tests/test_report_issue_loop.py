@@ -15,8 +15,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import PendingReport
-from report_issue_loop import ReportIssueLoop
+from models import PendingReport, TrackedReport
+from report_issue_loop import ReportIssueLoop, _MAX_REPORT_ATTEMPTS
 from state import StateTracker
 from tests.helpers import make_bg_loop_deps
 
@@ -726,3 +726,82 @@ class TestSaveScreenshotResourceManagement:
 
         fd_after = len(os.listdir(f"/proc/{pid}/fd"))
         assert fd_after <= fd_before, "FD leaked after _save_screenshot"
+
+
+class TestTrackedReportStatusUpdates:
+    """Tracked report status is updated after processing."""
+
+    @pytest.mark.asyncio
+    async def test_success_updates_tracked_report_to_fixed(self, tmp_path: Path) -> None:
+        """A successfully processed report updates the tracked report to 'fixed'."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Button is broken")
+        state.enqueue_report(report)
+
+        tracked = TrackedReport(
+            id=report.id, reporter_id="user-1", description=report.description
+        )
+        state.add_tracked_report(tracked)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/77"
+            await loop._do_work()
+
+        updated = state.get_tracked_report(report.id)
+        assert updated is not None
+        assert updated.status == "fixed"
+        assert any("issue #77" in h.detail.lower() for h in updated.history)
+
+    @pytest.mark.asyncio
+    async def test_escalation_updates_tracked_report_to_closed(
+        self, tmp_path: Path
+    ) -> None:
+        """A report that exhausts retries updates the tracked report to 'closed'."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Persistent failure")
+        state.enqueue_report(report)
+
+        tracked = TrackedReport(
+            id=report.id, reporter_id="user-1", description=report.description
+        )
+        state.add_tracked_report(tracked)
+
+        # Exhaust all attempts
+        for _ in range(_MAX_REPORT_ATTEMPTS - 1):
+            state.fail_report(report.id)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = ""  # No issue URL — failure
+            await loop._do_work()
+
+        updated = state.get_tracked_report(report.id)
+        assert updated is not None
+        assert updated.status == "closed"
+        assert any("escalated" in h.action for h in updated.history)
+
+    @pytest.mark.asyncio
+    async def test_retry_adds_history_entry(self, tmp_path: Path) -> None:
+        """A failed attempt that will be retried adds a history entry."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Intermittent failure")
+        state.enqueue_report(report)
+
+        tracked = TrackedReport(
+            id=report.id, reporter_id="user-1", description=report.description
+        )
+        state.add_tracked_report(tracked)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = ""  # No issue URL — failure
+            await loop._do_work()
+
+        updated = state.get_tracked_report(report.id)
+        assert updated is not None
+        assert updated.status == "queued"  # Not changed on retry
+        assert any("retry" in h.action for h in updated.history)

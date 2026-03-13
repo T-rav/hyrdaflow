@@ -189,8 +189,14 @@ class ReportIssueLoop(BaseBackgroundLoop):
             # Verify the agent applied the correct label and screenshot
             await self._verify_issue(issue_number, ready_label, screenshot_url)
 
-            # Success — remove from queue
+            # Success — remove from queue and update tracked report
             self._state.remove_report(report.id)
+            self._state.update_tracked_report(
+                report.id,
+                status="fixed",
+                detail=f"Created issue #{issue_number}",
+                action_label="processed",
+            )
             logger.info(
                 "Processed report %s as issue #%d: %s",
                 report.id,
@@ -207,6 +213,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
         attempt_count = self._state.fail_report(report.id)
         if attempt_count >= _MAX_REPORT_ATTEMPTS:
             self._state.remove_report(report.id)
+            self._state.update_tracked_report(
+                report.id,
+                status="closed",
+                detail=f"Failed {attempt_count} times — escalated to HITL",
+                action_label="escalated",
+            )
             await self._escalate_failed_report(report)
             logger.error(
                 "Report %s failed %d times — escalated to HITL",
@@ -220,6 +232,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 "escalated": True,
             }
 
+        self._state.update_tracked_report(
+            report.id,
+            detail=f"Attempt {attempt_count}/{_MAX_REPORT_ATTEMPTS} failed — retrying",
+            action_label="retry",
+        )
         logger.warning(
             "Report %s failed (attempt %d/%d) — will retry next cycle",
             report.id,
