@@ -379,6 +379,11 @@ class ImplementPhase:
             issue, branch, reset_for_retry=reset_for_retry
         )
 
+        # Enrich the task with comments so the agent can find the plan
+        # comment posted by the planner.  The IssueStore bulk fetch
+        # does not include comment bodies.
+        issue = await self._store.enrich_with_comments(issue)
+
         result = await self._agents.run(
             issue,
             wt_path,

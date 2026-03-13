@@ -382,6 +382,34 @@ class IssueStore:
         """Return up to *max_count* issues from the plan queue."""
         return self._take_from_queue(STAGE_PLAN, max_count)
 
+    async def enrich_with_comments(self, task: Task) -> Task:
+        """Fetch issue comments from GitHub and return an enriched copy.
+
+        The bulk ``refresh()`` fetch does not include comment bodies
+        (the REST list endpoint returns a count, not content).  Call
+        this before handing a task to an agent that needs the plan
+        comment or discussion history.
+        """
+        # Try the fetcher directly first; if it's a wrapper (e.g.
+        # GitHubTaskFetcher), reach through to the inner IssueFetcher.
+        fetch_fn = getattr(self._fetcher, "fetch_issue_comments", None)
+        if fetch_fn is None or not callable(fetch_fn):
+            inner = getattr(self._fetcher, "_fetcher", None)
+            fetch_fn = getattr(inner, "fetch_issue_comments", None) if inner else None
+        if fetch_fn is None or not callable(fetch_fn):
+            return task
+        try:
+            comments = await fetch_fn(task.id)
+        except Exception:
+            logger.warning(
+                "Could not fetch comments for issue #%d — proceeding without",
+                task.id,
+            )
+            return task
+        if comments:
+            return task.model_copy(update={"comments": comments})
+        return task
+
     def get_implementable(self, max_count: int) -> list[Task]:
         """Return up to *max_count* issues from the ready queue."""
         return self._take_from_queue(STAGE_READY, max_count)
