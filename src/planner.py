@@ -6,71 +6,26 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import NewIssueSpec, PlannerStatus, PlannerUpdatePayload, PlanResult, Task
 from phase_utils import is_likely_bug
+from plan_constants import (
+    LITE_BODY_THRESHOLD,
+    LITE_REQUIRED_SECTIONS,
+    PLAN_SECTION_DESCRIPTIONS,
+    REQUIRED_SECTIONS,
+    SMALL_FIX_WORDS,
+    PlanScale,
+)
+from plan_scoring import score_actionability
+from plan_validation import run_phase_gates, validate_plan
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.planner")
-
-PlanScale = Literal["lite", "full"]
-
-# Canonical section descriptions — single source of truth for prompt generation.
-# Each entry is (header, description).  Order matches the desired prompt order.
-_PLAN_SECTION_DESCRIPTIONS: tuple[tuple[str, str], ...] = (
-    (
-        "## Files to Modify",
-        "list each existing file and what changes are needed "
-        "(must reference at least one file path)",
-    ),
-    (
-        "## New Files",
-        'list new files to create, or state "None" if no new files needed',
-    ),
-    (
-        "## File Delta",
-        "structured list of all planned file changes using this exact format:\n"
-        "  ```\n"
-        "  MODIFIED: path/to/file.py\n"
-        "  ADDED: path/to/new_file.py\n"
-        "  REMOVED: path/to/old_file.py\n"
-        "  ```\n"
-        "  Each line must start with MODIFIED:, ADDED:, or REMOVED: "
-        "followed by the file path.",
-    ),
-    (
-        "## Task Graph",
-        "dependency-ordered implementation phases using `### P{N} — Name` subsections. "
-        "Each phase lists **Files:** (paths to create/modify), "
-        "**Tests:** (behavioral specs — observable outcomes, not test code), "
-        "and **Depends on:** (prior phase numbers or 'none'). "
-        "Lower-numbered phases execute first; independent phases at the same level "
-        "can run in parallel. Max 6 phases per plan.",
-    ),
-    (
-        "## Implementation Steps",
-        "actionable implementation checklist/steps (numbered, bulleted, checkbox, or heading-style) "
-        "with concrete code targets and at least one verification step",
-    ),
-    (
-        "## Testing Strategy",
-        "what tests to write and what to verify "
-        "(must reference specific test file paths or patterns; do NOT defer testing)",
-    ),
-    (
-        "## Acceptance Criteria",
-        "extracted or synthesized from the issue",
-    ),
-    (
-        "## Key Considerations",
-        "edge cases, backward compatibility, dependencies",
-    ),
-)
 
 
 class PlannerRunner(BaseRunner):
@@ -326,18 +281,11 @@ class PlannerRunner(BaseRunner):
 
     @classmethod
     def _format_sections_list(cls, scale: PlanScale = "full") -> str:
-        """Return a formatted bullet list of required sections for *scale*.
-
-        Filters :data:`_PLAN_SECTION_DESCRIPTIONS` to only include sections
-        present in :attr:`LITE_REQUIRED_SECTIONS` when *scale* is ``"lite"``,
-        or :attr:`REQUIRED_SECTIONS` for any other value (including ``"full"``).
-        """
-        required = (
-            cls.LITE_REQUIRED_SECTIONS if scale == "lite" else cls.REQUIRED_SECTIONS
-        )
+        """Return a formatted bullet list of required sections for *scale*."""
+        required = LITE_REQUIRED_SECTIONS if scale == "lite" else REQUIRED_SECTIONS
         required_set = set(required)
         lines = []
-        for header, desc in _PLAN_SECTION_DESCRIPTIONS:
+        for header, desc in PLAN_SECTION_DESCRIPTIONS:
             if header in required_set:
                 lines.append(f"- `{header}` \u2014 {desc}")
         return "\n".join(lines)
@@ -560,525 +508,40 @@ This closes the issue automatically. False positives waste significant human tim
         }
         return prompt, stats
 
-    # Required plan sections — each must appear as a ## header.
-    REQUIRED_SECTIONS: tuple[str, ...] = (
-        "## Files to Modify",
-        "## New Files",
-        "## File Delta",
-        "## Task Graph",
-        "## Testing Strategy",
-        "## Acceptance Criteria",
-        "## Key Considerations",
-    )
-
-    # Lite plans require only these three sections.
-    LITE_REQUIRED_SECTIONS: tuple[str, ...] = (
-        "## Files to Modify",
-        "## Implementation Steps",
-        "## Testing Strategy",
-    )
-
-    # Body length threshold for scale detection heuristic.
-    _LITE_BODY_THRESHOLD = 500
-
-    # Title keywords suggesting a small fix (used with body length heuristic).
-    _SMALL_FIX_WORDS: frozenset[str] = frozenset(
-        {"fix", "typo", "correct", "patch", "update", "rename", "bump", "tweak"}
-    )
-
-    # Pattern for detecting deferred testing strategy.
-    _TEST_LATER_RE = re.compile(
-        r"\b(later|tbd|todo|to\s+be\s+determined|will\s+be\s+added\s+later)\b",
-        re.IGNORECASE,
-    )
-
     def _detect_plan_scale(self, issue: Task) -> PlanScale:
-        """Determine whether *issue* needs a ``"lite"`` or ``"full"`` plan.
-
-        Lite plans are used for small issues (bug fixes, typos, docs).
-        Full plans are the default for features and multi-file changes.
-        """
+        """Determine whether *issue* needs a ``"lite"`` or ``"full"`` plan."""
         lite_labels = {lbl.lower() for lbl in self._config.lite_plan_labels}
         for label in issue.tags:
             if label.lower() in lite_labels:
                 return "lite"
 
         body_len = len(issue.body or "")
-        if body_len < self._LITE_BODY_THRESHOLD:
+        if body_len < LITE_BODY_THRESHOLD:
             title_words = {w.lower() for w in issue.title.split()}
-            if title_words & self._SMALL_FIX_WORDS:
+            if title_words & SMALL_FIX_WORDS:
                 return "lite"
 
         return "full"
 
-    @staticmethod
-    def _significant_words(text: str, min_length: int = 4) -> set[str]:
-        """Return lowercase words from *text* that are at least *min_length* chars.
-
-        Filters out common stop words to focus on meaningful terms.
-        """
-        stop = {
-            "this",
-            "that",
-            "with",
-            "from",
-            "have",
-            "been",
-            "will",
-            "should",
-            "would",
-            "could",
-            "about",
-            "into",
-            "when",
-            "them",
-            "then",
-            "than",
-            "also",
-            "more",
-            "some",
-            "only",
-            "each",
-            "make",
-            "like",
-            "need",
-            "does",
-        }
-        words = set()
-        for w in re.findall(r"[a-zA-Z]+", text.lower()):
-            if len(w) >= min_length and w not in stop:
-                words.add(w)
-        return words
+    # --- Backward-compatible class attributes (now in plan_constants) ---
+    REQUIRED_SECTIONS = REQUIRED_SECTIONS
+    LITE_REQUIRED_SECTIONS = LITE_REQUIRED_SECTIONS
 
     def _validate_plan(
         self, issue: Task, plan: str, scale: PlanScale = "full"
     ) -> list[str]:
-        """Validate that *plan* has all required sections and minimum content.
-
-        *scale* is ``"lite"`` or ``"full"``.  Lite plans only require three
-        sections and skip the minimum word count check.
-
-        Returns a list of validation error strings.  An empty list means the
-        plan is valid.
-        """
-        errors: list[str] = []
-
-        required = (
-            self.LITE_REQUIRED_SECTIONS if scale == "lite" else self.REQUIRED_SECTIONS
-        )
-
-        # --- Required sections ---
-        for section in required:
-            if not re.search(re.escape(section), plan, re.IGNORECASE):
-                errors.append(f"Missing required section: {section}")
-
-        # --- Files to Modify must reference at least one file path ---
-        files_to_modify_match = re.search(
-            r"## Files to Modify\s*\n(.*?)(?=\n## |\Z)", plan, re.DOTALL | re.IGNORECASE
-        )
-        if files_to_modify_match:
-            files_to_modify_body = files_to_modify_match.group(1)
-            # Look for path-like patterns: word/word or word.ext
-            if not re.search(
-                r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+", files_to_modify_body
-            ):
-                errors.append(
-                    "## Files to Modify must reference at least one file path"
-                )
-
-        # --- Testing Strategy must reference at least one test file/pattern ---
-        testing_strategy_match = re.search(
-            r"## Testing Strategy\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if testing_strategy_match:
-            testing_strategy_body = testing_strategy_match.group(1)
-            if not re.search(
-                r"test[\w\-]*\.[\w]+|tests/", testing_strategy_body, re.IGNORECASE
-            ):
-                errors.append(
-                    "## Testing Strategy must reference at least one test file or pattern"
-                )
-
-        # --- Task Graph validation (full plans) ---
-        if scale != "lite":
-            task_graph_match = re.search(
-                r"## Task Graph\s*\n(.*?)(?=\n## |\Z)",
-                plan,
-                re.DOTALL | re.IGNORECASE,
-            )
-            if task_graph_match:
-                task_graph_body = task_graph_match.group(1)
-                phases = self._extract_task_graph_phases(task_graph_body)
-                if not phases:
-                    errors.append(
-                        "## Task Graph must contain at least one ### P{N} phase"
-                    )
-                else:
-                    for phase in phases:
-                        if not phase.get("files"):
-                            errors.append(
-                                f"Task Graph phase {phase['name']} must include "
-                                f"**Files:** with at least one path"
-                            )
-                        if not phase.get("tests"):
-                            errors.append(
-                                f"Task Graph phase {phase['name']} must include "
-                                f"**Tests:** with at least one behavioral spec"
-                            )
-                    # Validate dependency references
-                    phase_ids = {p["id"] for p in phases}
-                    for phase in phases:
-                        for dep in phase.get("depends_on", []):
-                            if dep not in phase_ids:
-                                errors.append(
-                                    f"Task Graph phase {phase['name']} depends on "
-                                    f"{dep} which does not exist"
-                                )
-
-        # --- Implementation Steps must contain at least one actionable step ---
-        impl_steps_match = re.search(
-            r"## Implementation Steps\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if impl_steps_match:
-            impl_steps_body = impl_steps_match.group(1)
-            impl_step_texts = self._extract_implementation_step_texts(impl_steps_body)
-            if not impl_step_texts:
-                errors.append(
-                    "## Implementation Steps must include at least one actionable step"
-                )
-            else:
-                if scale != "lite" and len(impl_step_texts) < 2:
-                    errors.append(
-                        "## Implementation Steps must include at least 2 steps for full plans"
-                    )
-                shallow_steps = [
-                    s for s in impl_step_texts if len(re.findall(r"\b\w+\b", s)) < 3
-                ]
-                if shallow_steps:
-                    errors.append(
-                        "## Implementation Steps must include enough detail per step "
-                        "(at least 3 words each)"
-                    )
-                if scale != "lite":
-                    has_concrete_target = any(
-                        re.search(
-                            r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+|`[^`]+`|\w+\(",
-                            s,
-                        )
-                        for s in impl_step_texts
-                    )
-                    if not has_concrete_target:
-                        errors.append(
-                            "## Implementation Steps must reference at least one concrete code target "
-                            "(file path, symbol, or callable)"
-                        )
-
-        # --- Minimum word count (full plans only) ---
-        if scale != "lite":
-            word_count = len(plan.split())
-            min_words = self._config.min_plan_words
-            if word_count < min_words:
-                errors.append(f"Plan has {word_count} words, minimum is {min_words}")
-
-        # --- [NEEDS CLARIFICATION] marker count ---
-        clarification_markers = re.findall(
-            r"\[NEEDS CLARIFICATION(?::\s*[^\]]+)?\]", plan, re.IGNORECASE
-        )
-        if len(clarification_markers) >= 4:
-            errors.append(
-                f"Plan has {len(clarification_markers)} [NEEDS CLARIFICATION] markers "
-                f"(max 3) — issue needs more detail before implementation"
-            )
-
-        # --- Soft word-overlap check (warning only) ---
-        title_words = self._significant_words(issue.title)
-        plan_words = self._significant_words(plan)
-        overlap = title_words & plan_words
-        if not overlap and title_words:
-            logger.warning(
-                "Plan for issue #%d may not address the issue title %r "
-                "(no significant word overlap)",
-                issue.id,
-                issue.title,
-            )
-
-        return errors
-
-    def _extract_implementation_step_texts(self, section_body: str) -> list[str]:
-        """Extract step text from Implementation Steps section body."""
-        list_steps = re.findall(
-            r"^\s*(?:\d+[\.\)]|[-*+]|\[[ xX]\])\s+(.+)$",
-            section_body,
-            re.MULTILINE,
-        )
-        heading_steps = re.findall(
-            r"^\s*#{2,6}\s*(?:Step\s*\d+[:\.\-]?\s+(.+)|\d+[\.\)]\s+(.+))$",
-            section_body,
-            re.MULTILINE | re.IGNORECASE,
-        )
-        impl_step_texts = [s.strip() for s in list_steps]
-        impl_step_texts.extend((s1 or s2).strip() for s1, s2 in heading_steps)
-        return [s for s in impl_step_texts if s]
-
-    # Regex for task graph phase headers: ### P1 — Name or ### P1 - Name
-    _TASK_GRAPH_PHASE_RE = re.compile(
-        r"^###\s+P(\d+)\s*[\u2014\-]+\s*(.+)$", re.MULTILINE
-    )
-
-    def _extract_task_graph_phases(self, section_body: str) -> list[dict[str, Any]]:
-        """Extract structured phases from a Task Graph section body.
-
-        Returns a list of dicts with keys: ``id``, ``name``, ``files``,
-        ``tests``, ``depends_on``.
-        """
-        headers = list(self._TASK_GRAPH_PHASE_RE.finditer(section_body))
-        if not headers:
-            return []
-
-        phases: list[dict[str, Any]] = []
-        for i, match in enumerate(headers):
-            phase_num = match.group(1)
-            phase_name = match.group(2).strip()
-            # Extract body between this header and the next (or end)
-            start = match.end()
-            end = headers[i + 1].start() if i + 1 < len(headers) else len(section_body)
-            body = section_body[start:end]
-
-            # Extract **Files:** content
-            files_match = re.search(
-                r"\*\*Files:\*\*\s*(.+?)(?=\n\*\*|\Z)", body, re.DOTALL
-            )
-            files: list[str] = []
-            if files_match:
-                files = re.findall(
-                    r"[\w\-]+(?:/[\w\-]+)+\.?[\w]*|[\w\-]+\.[\w]+",
-                    files_match.group(1),
-                )
-
-            # Extract **Tests:** content (behavioral specs)
-            tests_match = re.search(
-                r"\*\*Tests:\*\*\s*(.+?)(?=\n\*\*|\Z)", body, re.DOTALL
-            )
-            tests: list[str] = []
-            if tests_match:
-                tests = [
-                    s.strip()
-                    for s in re.findall(
-                        r"^\s*[-*]\s+(.+)$", tests_match.group(1), re.MULTILINE
-                    )
-                    if s.strip()
-                ]
-
-            # Extract **Depends on:** content
-            deps_match = re.search(
-                r"\*\*Depends on:\*\*\s*(.+?)(?=\n\*\*|\n###|\Z)", body, re.DOTALL
-            )
-            depends_on: list[str] = []
-            if deps_match:
-                dep_text = deps_match.group(1).strip().lower()
-                if dep_text not in ("none", "(none)", "n/a", "-"):
-                    depends_on = re.findall(r"P(\d+)", deps_match.group(1))
-                    depends_on = [f"P{d}" for d in depends_on]
-
-            phases.append(
-                {
-                    "id": f"P{phase_num}",
-                    "name": f"P{phase_num} — {phase_name}",
-                    "files": files,
-                    "tests": tests,
-                    "depends_on": depends_on,
-                }
-            )
-
-        return phases
+        """Delegate to :func:`plan_validation.validate_plan`."""
+        return validate_plan(issue, plan, scale, config=self._config)
 
     def _score_actionability(
         self, plan: str, *, scale: PlanScale = "full"
     ) -> tuple[int, str]:
-        """Return actionability ``(score, rank)`` for *plan*."""
-        score = 0
-
-        # --- Task Graph scoring (full plans) ---
-        task_graph_match = re.search(
-            r"## Task Graph\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if task_graph_match and scale != "lite":
-            phases = self._extract_task_graph_phases(task_graph_match.group(1))
-            if phases:
-                score += 20  # Has phases
-                if len(phases) >= 2:
-                    score += 15  # Multiple phases
-                # Check for file references
-                has_files = any(p.get("files") for p in phases)
-                if has_files:
-                    score += 25
-                # Check for behavioral test specs
-                has_tests = any(p.get("tests") for p in phases)
-                if has_tests:
-                    score += 10
-                # Check for dependency structure
-                has_deps = any(p.get("depends_on") for p in phases)
-                if has_deps:
-                    score += 10
-
-        # --- Implementation Steps scoring (lite plans only, or fallback when
-        #     no Task Graph phases were found) ---
-        task_graph_already_scored = (
-            task_graph_match
-            and scale != "lite"
-            and bool(
-                self._extract_task_graph_phases(task_graph_match.group(1))
-                if task_graph_match
-                else []
-            )
-        )
-        impl_steps_match = re.search(
-            r"## Implementation Steps\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        impl_step_texts = (
-            self._extract_implementation_step_texts(impl_steps_match.group(1))
-            if impl_steps_match
-            else []
-        )
-
-        if not task_graph_already_scored and impl_step_texts:
-            score += 20
-            if scale != "lite" and len(impl_step_texts) >= 2:
-                score += 15
-            elif scale == "lite" and impl_step_texts:
-                score += 10
-
-            has_concrete_target = any(
-                re.search(r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+|`[^`]+`|\w+\(", s)
-                for s in impl_step_texts
-            )
-            if has_concrete_target:
-                score += 25
-
-            if impl_step_texts:
-                shallow_steps = [
-                    s for s in impl_step_texts if len(re.findall(r"\b\w+\b", s)) < 3
-                ]
-                if not shallow_steps:
-                    score += 10
-                avg_words = sum(
-                    len(re.findall(r"\b\w+\b", s)) for s in impl_step_texts
-                ) / len(impl_step_texts)
-                if avg_words >= 6:
-                    score += 10
-
-        file_delta_match = re.search(
-            r"## File Delta\s*\n(.*?)(?=\n## |\Z)", plan, re.DOTALL | re.IGNORECASE
-        )
-        if file_delta_match and re.search(
-            r"^\s*(MODIFIED|ADDED|REMOVED):\s+\S",
-            file_delta_match.group(1),
-            re.MULTILINE,
-        ):
-            score += 10
-
-        testing_strategy_match = re.search(
-            r"## Testing Strategy\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if testing_strategy_match and re.search(
-            r"test[\w\-]*\.[\w]+|tests/|pytest|unit test|integration test",
-            testing_strategy_match.group(1),
-            re.IGNORECASE,
-        ):
-            score += 10
-
-        score = max(0, min(100, score))
-        if score >= 85:
-            rank = "high"
-        elif score >= 65:
-            rank = "medium"
-        else:
-            rank = "low"
-        return score, rank
+        """Delegate to :func:`plan_scoring.score_actionability`."""
+        return score_actionability(plan, scale=scale)
 
     def _run_phase_minus_one_gates(self, plan: str) -> tuple[list[str], list[str]]:
-        """Run Phase -1 gates on *plan*.
-
-        Returns ``(blocking_errors, warnings)``.  Blocking errors prevent
-        the plan from being accepted; warnings are logged but non-blocking.
-        """
-        blocking: list[str] = []
-        warnings: list[str] = []
-
-        # --- Simplicity gate: warn if > max_new_files_warning new files ---
-        new_files_match = re.search(
-            r"## New Files\s*\n(.*?)(?=\n## |\Z)", plan, re.DOTALL | re.IGNORECASE
-        )
-        if new_files_match:
-            new_files_body = new_files_match.group(1)
-            # Count path-like entries (lines starting with - or * followed by path-like text)
-            new_file_entries = re.findall(
-                r"[\w\-]+(?:/[\w\-]+)+\.[\w]+|[\w\-]+\.[\w]+", new_files_body
-            )
-            threshold = self._config.max_new_files_warning
-            if len(new_file_entries) > threshold:
-                warnings.append(
-                    f"Simplicity gate: plan creates {len(new_file_entries)} new files "
-                    f"(threshold is {threshold})"
-                )
-
-        # --- Testing gate: reject if Testing Strategy is empty or deferred ---
-        testing_strategy_match = re.search(
-            r"## Testing Strategy\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if testing_strategy_match:
-            testing_strategy_body = testing_strategy_match.group(1).strip()
-            if not testing_strategy_body or testing_strategy_body.lower() in (
-                "none",
-                "n/a",
-                "-",
-            ):
-                blocking.append("Testing gate: Testing Strategy section is empty")
-            elif self._TEST_LATER_RE.search(testing_strategy_body):
-                blocking.append(
-                    "Testing gate: Testing Strategy defers tests (e.g. 'later', 'TBD')"
-                )
-        else:
-            # Section missing entirely — already caught by _validate_plan
-            pass
-
-        # --- Constitution gate: check against constitution.md ---
-        constitution_path = self._config.repo_root / "constitution.md"
-        if constitution_path.is_file():
-            try:
-                constitution_text = constitution_path.read_text()
-                principles = [
-                    line.strip().lstrip("-*").strip()
-                    for line in constitution_text.splitlines()
-                    if line.strip() and not line.strip().startswith("#")
-                ]
-                plan_lower = plan.lower()
-                for principle in principles:
-                    if principle and principle.lower() in plan_lower:
-                        blocking.append(
-                            f"Constitution gate: plan may violate principle: "
-                            f"{principle!r}"
-                        )
-            except OSError:
-                logger.warning("Could not read constitution.md")
-
-        # Log warnings
-        for w in warnings:
-            logger.warning(w)
-
-        return blocking, warnings
+        """Delegate to :func:`plan_validation.run_phase_gates`."""
+        return run_phase_gates(plan, self._config)
 
     def _extract_plan(self, transcript: str) -> str:
         """Extract the plan from between PLAN_START/PLAN_END markers.

@@ -535,8 +535,9 @@ def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus)
 
 
 def test_significant_words_extracts_long_words(config, event_bus):
-    runner = _make_runner(config, event_bus)
-    words = runner._significant_words("Fix the broken authentication handler")
+    from plan_validation import _significant_words
+
+    words = _significant_words("Fix the broken authentication handler")
     assert "broken" in words
     assert "authentication" in words
     assert "handler" in words
@@ -547,8 +548,9 @@ def test_significant_words_extracts_long_words(config, event_bus):
 
 
 def test_significant_words_filters_stop_words(config, event_bus):
-    runner = _make_runner(config, event_bus)
-    words = runner._significant_words("This should have been done with more care")
+    from plan_validation import _significant_words
+
+    words = _significant_words("This should have been done with more care")
     # All are stop words or short
     assert "this" not in words
     assert "should" not in words
@@ -561,8 +563,9 @@ def test_significant_words_filters_stop_words(config, event_bus):
 
 
 def test_significant_words_empty_string(config, event_bus):
-    runner = _make_runner(config, event_bus)
-    words = runner._significant_words("")
+    from plan_validation import _significant_words
+
+    words = _significant_words("")
     assert words == set()
 
 
@@ -805,7 +808,7 @@ def test_validate_plan_logs_warning_on_word_mismatch(config, event_bus):
     # Valid plan but title words don't overlap with plan
     plan = _valid_plan().replace("authentication", "database")
 
-    with mock_patch("planner.logger") as mock_logger:
+    with mock_patch("plan_validation.logger") as mock_logger:
         runner._validate_plan(task, plan)
 
     mock_logger.warning.assert_called_once()
@@ -1889,7 +1892,7 @@ def test_build_retry_prompt_full_has_all_sections(config, event_bus, issue):
 
 def test_section_descriptions_cover_all_required_sections():
     """Every header in REQUIRED_SECTIONS has a corresponding entry in _PLAN_SECTION_DESCRIPTIONS."""
-    from planner import _PLAN_SECTION_DESCRIPTIONS
+    from plan_constants import PLAN_SECTION_DESCRIPTIONS as _PLAN_SECTION_DESCRIPTIONS
 
     desc_headers = {h for h, _ in _PLAN_SECTION_DESCRIPTIONS}
     for header in PlannerRunner.REQUIRED_SECTIONS:
@@ -1900,7 +1903,7 @@ def test_section_descriptions_cover_all_required_sections():
 
 def test_section_descriptions_cover_all_lite_sections():
     """Every header in LITE_REQUIRED_SECTIONS has a corresponding entry in _PLAN_SECTION_DESCRIPTIONS."""
-    from planner import _PLAN_SECTION_DESCRIPTIONS
+    from plan_constants import PLAN_SECTION_DESCRIPTIONS as _PLAN_SECTION_DESCRIPTIONS
 
     desc_headers = {h for h, _ in _PLAN_SECTION_DESCRIPTIONS}
     for header in PlannerRunner.LITE_REQUIRED_SECTIONS:
@@ -1936,8 +1939,9 @@ def test_format_sections_list_lite_has_only_three_sections():
 
 
 def test_extract_task_graph_phases_parses_valid_graph(config, event_bus):
-    """_extract_task_graph_phases extracts phases with files, tests, and deps."""
-    runner = _make_runner(config, event_bus)
+    """extract_phases extracts phases with files, tests, and deps."""
+    from task_graph import extract_phases
+
     body = (
         "### P1 \u2014 Data Model\n"
         "**Files:** src/models.py (modify), migrations/001.py (create)\n"
@@ -1951,21 +1955,22 @@ def test_extract_task_graph_phases_parses_valid_graph(config, event_bus):
         "- Service.create() with valid input returns a Widget\n"
         "**Depends on:** P1\n"
     )
-    phases = runner._extract_task_graph_phases(body)
+    phases = extract_phases(body)
     assert len(phases) == 2
-    assert phases[0]["id"] == "P1"
-    assert phases[0]["name"] == "P1 \u2014 Data Model"
-    assert "src/models.py" in phases[0]["files"]
-    assert len(phases[0]["tests"]) == 2
-    assert phases[0]["depends_on"] == []
-    assert phases[1]["id"] == "P2"
-    assert phases[1]["depends_on"] == ["P1"]
+    assert phases[0].id == "P1"
+    assert phases[0].name == "P1 \u2014 Data Model"
+    assert "src/models.py" in phases[0].files
+    assert len(phases[0].tests) == 2
+    assert phases[0].depends_on == []
+    assert phases[1].id == "P2"
+    assert phases[1].depends_on == ["P1"]
 
 
 def test_extract_task_graph_phases_returns_empty_for_no_phases(config, event_bus):
-    """_extract_task_graph_phases returns [] when no P{N} headers found."""
-    runner = _make_runner(config, event_bus)
-    assert runner._extract_task_graph_phases("Just some text") == []
+    """extract_phases returns [] when no P{N} headers found."""
+    from task_graph import extract_phases
+
+    assert extract_phases("Just some text") == []
 
 
 def test_validate_plan_rejects_task_graph_without_phases(config, event_bus):

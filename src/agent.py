@@ -22,6 +22,7 @@ from review_insights import (
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
+from task_graph import has_task_graph
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
 if TYPE_CHECKING:
@@ -424,10 +425,7 @@ Run through this checklist before your final commit:
             )
             history_after += len(plan_comment)
             # Detect whether the plan uses Task Graph format
-            has_task_graph = bool(
-                re.search(r"## Task Graph\b", plan_comment, re.IGNORECASE)
-            )
-            if has_task_graph:
+            if has_task_graph(plan_comment):
                 plan_section = (
                     f"\n\n## Implementation Plan\n\n"
                     f"Follow this plan closely. It uses a **Task Graph** with ordered phases.\n"
