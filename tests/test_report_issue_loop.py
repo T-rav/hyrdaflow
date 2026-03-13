@@ -61,6 +61,15 @@ def _make_loop(
     return loop, deps.stop_event, state, pr_manager
 
 
+class TestReportIssueLoopStartup:
+    """Tests for ReportIssueLoop startup behaviour."""
+
+    def test_run_on_startup_enabled(self, tmp_path: Path) -> None:
+        """ReportIssueLoop should process queued reports immediately on startup."""
+        loop, _stop, _state, _pr = _make_loop(tmp_path)
+        assert loop._run_on_startup is True
+
+
 class TestReportIssueLoopDoWork:
     """Tests for ReportIssueLoop._do_work."""
 
