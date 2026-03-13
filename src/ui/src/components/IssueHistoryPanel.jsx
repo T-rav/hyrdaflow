@@ -159,6 +159,7 @@ function renderLinkedIssue(linked, index) {
   if (typeof linked === 'number') {
     return <span key={linked} style={styles.linkedPill}>#{linked}</span>
   }
+  if (!linked?.target_id) return null
   const kind = linked.kind || 'relates_to'
   const meta = LINK_KIND_META[kind] || LINK_KIND_META.relates_to
   const pillStyle = {
