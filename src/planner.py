@@ -921,7 +921,15 @@ This closes the issue automatically. False positives waste significant human tim
                 if has_deps:
                     score += 10
 
-        # --- Implementation Steps scoring (lite plans or fallback) ---
+        # --- Implementation Steps scoring (lite plans only, or fallback when
+        #     no Task Graph phases were found) ---
+        tg_scored = (
+            tg_match
+            and scale != "lite"
+            and bool(
+                self._extract_task_graph_phases(tg_match.group(1)) if tg_match else []
+            )
+        )
         is_match = re.search(
             r"## Implementation Steps\s*\n(.*?)(?=\n## |\Z)",
             plan,
@@ -933,31 +941,31 @@ This closes the issue automatically. False positives waste significant human tim
             else []
         )
 
-        if step_texts:
+        if not tg_scored and step_texts:
             score += 20
-        if scale != "lite" and len(step_texts) >= 2:
-            score += 15
-        elif scale == "lite" and step_texts:
-            score += 10
-
-        has_concrete_target = any(
-            re.search(r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+|`[^`]+`|\w+\(", s)
-            for s in step_texts
-        )
-        if has_concrete_target:
-            score += 25
-
-        if step_texts:
-            shallow_steps = [
-                s for s in step_texts if len(re.findall(r"\b\w+\b", s)) < 3
-            ]
-            if not shallow_steps:
+            if scale != "lite" and len(step_texts) >= 2:
+                score += 15
+            elif scale == "lite" and step_texts:
                 score += 10
-            avg_words = sum(len(re.findall(r"\b\w+\b", s)) for s in step_texts) / len(
-                step_texts
+
+            has_concrete_target = any(
+                re.search(r"[\w\-]+(?:/[\w\-]+)+|[\w\-]+\.[\w]+|`[^`]+`|\w+\(", s)
+                for s in step_texts
             )
-            if avg_words >= 6:
-                score += 10
+            if has_concrete_target:
+                score += 25
+
+            if step_texts:
+                shallow_steps = [
+                    s for s in step_texts if len(re.findall(r"\b\w+\b", s)) < 3
+                ]
+                if not shallow_steps:
+                    score += 10
+                avg_words = sum(
+                    len(re.findall(r"\b\w+\b", s)) for s in step_texts
+                ) / len(step_texts)
+                if avg_words >= 6:
+                    score += 10
 
         fd_match = re.search(
             r"## File Delta\s*\n(.*?)(?=\n## |\Z)", plan, re.DOTALL | re.IGNORECASE
