@@ -271,6 +271,46 @@ describe('OutcomesPanel (merged History+Outcomes)', () => {
     expect(screen.getByText('Merge docs')).toBeInTheDocument()
   })
 
+  it('skips linked issues with null target_id instead of rendering #null pill', () => {
+    const payload = makePayload()
+    payload.items[0].linked_issues = [
+      { target_id: null, kind: 'supersedes', target_url: null },
+      { target_id: 5, kind: 'relates_to', target_url: null },
+    ]
+    mockUseHydraFlow.mockReturnValue({ issueHistory: payload, selectedRepoSlug: null })
+    render(<OutcomesPanel />)
+    fireEvent.click(screen.getByLabelText('Toggle issue 10'))
+    // Should render the valid linked issue
+    expect(screen.getByText('relates to #5')).toBeInTheDocument()
+    // Should NOT render #null
+    expect(screen.queryByText(/#null/)).not.toBeInTheDocument()
+  })
+
+  it('skips linked issues with undefined target_id', () => {
+    const payload = makePayload()
+    payload.items[0].linked_issues = [
+      { kind: 'supersedes', target_url: null },
+      { target_id: 7, kind: 'duplicates', target_url: null },
+    ]
+    mockUseHydraFlow.mockReturnValue({ issueHistory: payload, selectedRepoSlug: null })
+    render(<OutcomesPanel />)
+    fireEvent.click(screen.getByLabelText('Toggle issue 10'))
+    expect(screen.getByText('duplicates #7')).toBeInTheDocument()
+    expect(screen.queryByText(/supersedes/)).not.toBeInTheDocument()
+  })
+
+  it('skips linked issue objects with target_id of 0', () => {
+    const payload = makePayload()
+    payload.items[0].linked_issues = [
+      { target_id: 0, kind: 'relates_to', target_url: null },
+    ]
+    mockUseHydraFlow.mockReturnValue({ issueHistory: payload, selectedRepoSlug: null })
+    render(<OutcomesPanel />)
+    fireEvent.click(screen.getByLabelText('Toggle issue 10'))
+    // target_id=0 is falsy, should be skipped
+    expect(screen.queryByText('relates to #0')).not.toBeInTheDocument()
+  })
+
   it('handles missing issue_url gracefully for repo extraction', async () => {
     const payload = makePayload()
     payload.items[0].issue_url = ''
