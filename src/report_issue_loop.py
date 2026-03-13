@@ -62,6 +62,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
             enabled_cb=enabled_cb,
             sleep_fn=sleep_fn,
             interval_cb=interval_cb,
+            run_on_startup=True,
         )
         self._state = state
         self._pr_manager = pr_manager
