@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from labels import Label
 from memory import (
     MemorySyncWorker,
     _parse_memory_type,
@@ -591,7 +592,7 @@ class TestMemorySyncWorkerSync:
         assert args[0].startswith("[ADR] Draft decision from memory #5:")
         assert "## Decision" in args[1]
         assert "<Chosen architecture/workflow shift>" not in args[1]
-        assert args[2] == [config.find_label[0]]
+        assert args[2] == [Label.FIND]
 
     @pytest.mark.asyncio
     async def test_sync_rejects_invalid_adr_candidate_and_deduplicates(
@@ -959,16 +960,6 @@ class TestMemoryState:
 class TestMemoryConfig:
     """Tests for memory-related config fields."""
 
-    def test_memory_label_default(self) -> None:
-        from config import HydraFlowConfig
-
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_label == ["hydraflow-memory"]
-
-    def test_memory_label_custom(self) -> None:
-        config = ConfigFactory.create(memory_label=["custom-memory"])
-        assert config.memory_label == ["custom-memory"]
-
     def test_memory_sync_interval_default(self) -> None:
         from config import HydraFlowConfig
 
@@ -980,13 +971,6 @@ class TestMemoryConfig:
 
         config = HydraFlowConfig(repo="test/repo")
         assert config.max_memory_prompt_chars == 4000
-
-    def test_memory_label_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from config import HydraFlowConfig
-
-        monkeypatch.setenv("HYDRAFLOW_LABEL_MEMORY", "my-memory-label")
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_label == ["my-memory-label"]
 
     def test_memory_sync_interval_env_override(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1086,25 +1070,6 @@ class TestMemoryModels:
 # --- PR Manager tests ---
 
 
-class TestMemoryPRManager:
-    """Tests for memory label in PR manager."""
-
-    def test_hydraflow_labels_includes_memory(self) -> None:
-        from pr_manager import PRManager
-
-        label_fields = [entry[0] for entry in PRManager._HYDRAFLOW_LABELS]
-        assert "memory_label" in label_fields
-
-    def test_memory_label_color(self) -> None:
-        from pr_manager import PRManager
-
-        for field, color, _ in PRManager._HYDRAFLOW_LABELS:
-            if field == "memory_label":
-                assert color == "1d76db"
-                return
-        pytest.fail("memory_label not found in _HYDRAFLOW_LABELS")
-
-
 # --- Orchestrator tests ---
 
 
@@ -1171,8 +1136,8 @@ class TestFileSuggestionSetsOrigin:
         # Knowledge type: improve label only, no HITL label
         mock_prs.create_issue.assert_awaited_once()
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] not in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL not in call_labels
 
         # No HITL state set for knowledge type
         assert state.get_hitl_origin(99) is None
@@ -1245,8 +1210,8 @@ class TestFileMemorySuggestionRouting:
         assert "**Type:** knowledge" in call_body
         # Labels should be improve only, no hitl
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] not in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL not in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__config_type_actionable_cause(
@@ -1275,13 +1240,13 @@ class TestFileMemorySuggestionRouting:
         )
 
         assert state.get_hitl_cause(101) == "Actionable memory suggestion (config)"
-        assert state.get_hitl_origin(101) == config.improve_label[0]
+        assert state.get_hitl_origin(101) == Label.IMPROVE
         call_body = mock_prs.create_issue.call_args.args[1]
         assert "**Type:** config" in call_body
         # Actionable: both improve and hitl labels
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__instruction_type_actionable_cause(
@@ -1310,10 +1275,10 @@ class TestFileMemorySuggestionRouting:
         )
 
         assert state.get_hitl_cause(102) == "Actionable memory suggestion (instruction)"
-        assert state.get_hitl_origin(102) == config.improve_label[0]
+        assert state.get_hitl_origin(102) == Label.IMPROVE
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__code_type_actionable_cause(
@@ -1342,10 +1307,10 @@ class TestFileMemorySuggestionRouting:
         )
 
         assert state.get_hitl_cause(103) == "Actionable memory suggestion (code)"
-        assert state.get_hitl_origin(103) == config.improve_label[0]
+        assert state.get_hitl_origin(103) == Label.IMPROVE
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__missing_type_defaults_to_knowledge(
@@ -1376,8 +1341,8 @@ class TestFileMemorySuggestionRouting:
         assert state.get_hitl_cause(104) is None
         assert state.get_hitl_origin(104) is None
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] not in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL not in call_labels
 
 
 class TestFileMemorySuggestionLabelRouting:
@@ -1417,8 +1382,8 @@ class TestFileMemorySuggestionLabelRouting:
         )
 
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert call_labels == list(config.improve_label)
-        assert config.hitl_label[0] not in call_labels
+        assert call_labels == [Label.IMPROVE]
+        assert Label.HITL not in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__actionable_gets_both_labels(
@@ -1443,7 +1408,7 @@ class TestFileMemorySuggestionLabelRouting:
         )
 
         call_labels = mock_prs.create_issue.call_args.args[2]
-        expected = list(config.improve_label) + list(config.hitl_label)
+        expected = [Label.IMPROVE] + [Label.HITL]
         assert call_labels == expected
 
     @pytest.mark.asyncio
@@ -1537,7 +1502,7 @@ class TestFileMemorySuggestionLabelRouting:
             state,
         )
 
-        assert state.get_hitl_origin(401) == config.improve_label[0]
+        assert state.get_hitl_origin(401) == Label.IMPROVE
         assert state.get_hitl_cause(401) == "Actionable memory suggestion (code)"
 
 
@@ -1575,9 +1540,9 @@ class TestFileMemorySuggestionAutoApprove:
 
         mock_prs.create_issue.assert_awaited_once()
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.memory_label[0] in call_labels
-        assert config.improve_label[0] not in call_labels
-        assert config.hitl_label[0] not in call_labels
+        assert Label.MEMORY in call_labels
+        assert Label.IMPROVE not in call_labels
+        assert Label.HITL not in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__auto_approve__skips_hitl_state(
@@ -1636,9 +1601,9 @@ class TestFileMemorySuggestionAutoApprove:
         )
 
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] not in call_labels
-        assert config.memory_label[0] not in call_labels
+        assert Label.IMPROVE in call_labels
+        assert Label.HITL not in call_labels
+        assert Label.MEMORY not in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__auto_approve__no_suggestion_is_noop(
@@ -1720,9 +1685,9 @@ class TestFileMemorySuggestionAutoApprove:
         )
 
         call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.memory_label[0] in call_labels
-        assert config.improve_label[0] not in call_labels
-        assert config.hitl_label[0] not in call_labels
+        assert Label.MEMORY in call_labels
+        assert Label.IMPROVE not in call_labels
+        assert Label.HITL not in call_labels
 
     @pytest.mark.asyncio
     async def test_file_memory_suggestion__auto_approve__actionable_skips_hitl_state(

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from hindsight import HindsightMemory
+from labels import Label
 from models import ReviewVerdict
 from retrospective import RetrospectiveCollector, RetrospectiveEntry
 from state import StateTracker
@@ -770,7 +771,7 @@ class TestFileImprovementIssueSetsOrigin:
         mock_prs.create_issue.assert_awaited_once()
         args = mock_prs.create_issue.call_args[0]
         assert args[0].startswith("[Memory] ")
-        assert args[2] == [config.improve_label[0], config.memory_label[0]]
+        assert args[2] == [Label.IMPROVE, Label.MEMORY]
         assert state.get_hitl_origin(99) is None
         assert state.get_hitl_cause(99) is None
 

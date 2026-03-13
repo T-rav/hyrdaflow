@@ -15,6 +15,7 @@ import logging
 import re
 
 from config import HydraFlowConfig
+from labels import Label
 from models import VisualValidationDecision, VisualValidationPolicy
 
 logger = logging.getLogger("hydraflow.visual_validation")
@@ -97,11 +98,11 @@ def compute_visual_validation(
     # 2–3. Check for override labels
     override = _find_override_label(
         issue_labels,
-        config.visual_required_label,
-        config.visual_skip_label,
+        Label.VISUAL_REQUIRED,
+        Label.VISUAL_SKIP,
     )
 
-    if override is not None and override == config.visual_required_label:
+    if override is not None and override == Label.VISUAL_REQUIRED:
         audit_reason = _extract_override_reason(comments, override)
         return VisualValidationDecision(
             policy=VisualValidationPolicy.REQUIRED,
@@ -109,13 +110,13 @@ def compute_visual_validation(
             override_label=override,
         )
 
-    if override is not None and override == config.visual_skip_label:
+    if override is not None and override == Label.VISUAL_SKIP:
         audit_reason = _extract_override_reason(comments, override)
         if not audit_reason:
             logger.warning(
                 "Visual skip override applied without audit reason; "
                 "add a comment with '%s: <reason>'",
-                config.visual_skip_label,
+                Label.VISUAL_SKIP,
             )
         return VisualValidationDecision(
             policy=VisualValidationPolicy.SKIPPED,

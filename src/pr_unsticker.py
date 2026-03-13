@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from labels import Label
 from models import ConflictResolutionResult, HITLUpdatePayload
 from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
@@ -251,7 +252,7 @@ class PRUnsticker:
         if item.pr is not None and item.pr > 0:
             claim_kwargs["pr_number"] = item.pr
         await self._prs.swap_pipeline_labels(
-            issue_number, self._config.hitl_active_label[0], **claim_kwargs
+            issue_number, Label.HITL_ACTIVE, **claim_kwargs
         )
 
         cause_desc = cause.value.replace("_", " ")
@@ -309,8 +310,7 @@ class PRUnsticker:
                             issue_number, origin, **origin_kwargs
                         )
                     else:
-                        for lbl in self._config.hitl_active_label:
-                            await self._prs.remove_label(issue_number, lbl)
+                        await self._prs.remove_label(issue_number, Label.HITL_ACTIVE)
 
                     self._state.remove_hitl_origin(issue_number)
                     self._state.remove_hitl_cause(issue_number)
@@ -1056,7 +1056,7 @@ TROUBLESHOOTING_PATTERN_END
             release_kwargs["pr_number"] = pr_number
         await self._prs.swap_pipeline_labels(
             issue_number,
-            self._config.hitl_label[0],
+            Label.HITL,
             **release_kwargs,
         )
         await self._prs.post_comment(

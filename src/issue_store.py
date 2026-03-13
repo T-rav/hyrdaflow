@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 from models import PipelineIssueStatus, PipelineSnapshotEntry, QueueStats, Task
 from subprocess_util import AuthenticationError
 from task_source import TaskFetcher
@@ -291,20 +292,14 @@ class IssueStore:
 
     def _build_label_map(self) -> dict[str, IssueStoreStage]:
         """Build a mapping from label name → pipeline stage."""
-        m: dict[str, IssueStoreStage] = {}
-        for lbl in self._config.find_label:
-            m[lbl] = STAGE_FIND
-        for lbl in self._config.planner_label:
-            m[lbl] = STAGE_PLAN
-        for lbl in self._config.ready_label:
-            m[lbl] = STAGE_READY
-        for lbl in self._config.review_label:
-            m[lbl] = STAGE_REVIEW
-        for lbl in self._config.hitl_label:
-            m[lbl] = STAGE_HITL
-        for lbl in self._config.hitl_active_label:
-            m[lbl] = STAGE_HITL
-        return m
+        return {
+            Label.FIND: STAGE_FIND,
+            Label.PLAN: STAGE_PLAN,
+            Label.READY: STAGE_READY,
+            Label.REVIEW: STAGE_REVIEW,
+            Label.HITL: STAGE_HITL,
+            Label.HITL_ACTIVE: STAGE_HITL,
+        }
 
     def _find_queue_stage(self, issue_number: int) -> IssueStoreStage | None:
         """Return the stage name if the issue is in any queue, else None."""
@@ -503,9 +498,8 @@ class IssueStore:
 
     def _epic_metadata(self, task: Task) -> dict[str, int | bool]:
         """Return epic metadata fields for a pipeline snapshot entry."""
-        epic_child_labels = {lbl.lower() for lbl in self._config.epic_child_label}
         task_labels = {t.lower() for t in task.tags}
-        if not (epic_child_labels & task_labels):
+        if Label.EPIC_CHILD.lower() not in task_labels:
             return {}
         result: dict[str, int | bool] = {"is_epic_child": True}
         epic_num = task.metadata.get("epic_number")

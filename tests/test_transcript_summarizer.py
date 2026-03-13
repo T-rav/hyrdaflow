@@ -693,11 +693,11 @@ class TestSummarizeAndPublish:
     @pytest.mark.asyncio
     async def test_labels_match_transcript_routing(self, tmp_path: Path) -> None:
         """Labels should be improve_label + transcript_label."""
+        from labels import Label
+
         config = ConfigFactory.create(
             repo_root=tmp_path,
             transcript_summary_as_issue=True,
-            improve_label=["custom-improve"],
-            transcript_label=["custom-transcript"],
         )
         prs = MagicMock()
         prs.create_issue = AsyncMock(return_value=1)
@@ -713,7 +713,7 @@ class TestSummarizeAndPublish:
 
         call_args = prs.create_issue.call_args
         labels = call_args[0][2]
-        assert labels == ["custom-improve", "custom-transcript"]
+        assert labels == [Label.IMPROVE, Label.TRANSCRIPT]
 
     @pytest.mark.asyncio
     async def test_empty_model_output(self, tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from typing import Any
 from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
+from labels import Label
 from models import StatusCallback
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
@@ -48,7 +49,7 @@ class PRUnstickerLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Resolve all HITL causes (conflicts, CI failures, generic)."""
-        hitl_items = await self._prs.list_hitl_items(self._config.hitl_label)
+        hitl_items = await self._prs.list_hitl_items([Label.HITL])
         # Only process HITL issues that currently have an open PR.
         active_pr_items = [item for item in hitl_items if int(item.pr or 0) > 0]
         stats = await self._pr_unsticker.unstick(active_pr_items)

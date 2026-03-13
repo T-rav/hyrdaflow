@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from events import EventBus
+from labels import Label
 from models import (
     CriterionResult,
     CriterionVerdict,
@@ -537,7 +538,7 @@ class TestPostMergeHandler:
         handler._prs.create_issue.assert_awaited_once()
         # Verification issue should use verify_label, not hitl_label.
         call_args = handler._prs.create_issue.call_args
-        assert config.verify_label[0] in call_args[0][2]
+        assert Label.VERIFY in call_args[0][2]
         # Should record VERIFY_PENDING outcome with verification_issue_number.
         outcome = handler._state.get_outcome(issue.id)
         assert outcome is not None
@@ -587,8 +588,8 @@ class TestPostMergeHandler:
 
         # Label used should be verify_label, not hitl_label
         call_args = handler._prs.create_issue.call_args
-        assert config.verify_label[0] in call_args[0][2]
-        assert config.hitl_label[0] not in call_args[0][2]
+        assert Label.VERIFY in call_args[0][2]
+        assert Label.HITL not in call_args[0][2]
         # Should NOT set hitl_origin (verify issues aren't HITL items)
         assert handler._state.get_hitl_origin(99) is None
 

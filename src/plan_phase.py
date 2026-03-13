@@ -12,6 +12,7 @@ from config import HydraFlowConfig
 from events import EventBus
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
+from labels import Label
 from models import EpicGapReview, IssueOutcomeType, PipelineStage, PlanResult, Task
 from phase_utils import (
     MemorySuggester,
@@ -69,8 +70,8 @@ class PlanPhase:
             prs,
             store,
             harness_insights,
-            origin_label=config.planner_label[0],
-            hitl_label=config.hitl_label[0],
+            origin_label=Label.PLAN,
+            hitl_label=Label.HITL,
             stage=PipelineStage.PLAN,
         )
 
@@ -110,7 +111,7 @@ class PlanPhase:
             )
             return False
 
-        await self._prs.swap_pipeline_labels(issue.id, self._config.dup_label[0])
+        await self._prs.swap_pipeline_labels(issue.id, Label.DUP)
         await self._transitioner.post_comment(
             issue.id,
             f"## Already Satisfied\n\n"
@@ -181,7 +182,7 @@ class PlanPhase:
                     _MIN_ISSUE_BODY_CHARS,
                 )
                 continue
-            labels = new_issue.labels or [self._config.planner_label[0]]
+            labels = new_issue.labels or [Label.PLAN]
             await self._transitioner.create_task(
                 new_issue.title, new_issue.body, labels
             )
@@ -255,8 +256,7 @@ class PlanPhase:
 
     def _is_epic_child(self, issue: Task) -> bool:
         """Return True if *issue* has an epic-child label."""
-        epic_child_labels = {lbl.lower() for lbl in self._config.epic_child_label}
-        return bool(epic_child_labels & {t.lower() for t in issue.tags})
+        return Label.EPIC_CHILD in issue.tags
 
     def _resolve_epic_number(self, issue: Task) -> int | None:
         """Extract the parent epic number from metadata or body text."""

@@ -11,6 +11,7 @@ from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
 from issue_fetcher import IssueFetcher
+from labels import MEMORY_SYNC_LABELS
 from memory import MemorySyncWorker
 from models import MemoryIssueData, StatusCallback
 
@@ -51,7 +52,7 @@ class MemorySyncLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         issues = await self._fetcher.fetch_issues_by_labels(
-            self._config.memory_sync_labels, limit=_MEMORY_SYNC_FETCH_LIMIT
+            MEMORY_SYNC_LABELS, limit=_MEMORY_SYNC_FETCH_LIMIT
         )
         issue_dicts: list[MemoryIssueData] = [
             MemoryIssueData(

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from events import EventType
+from labels import Label
 from models import (
     BaselineApprovalResult,
     ConflictResolutionResult,
@@ -2324,9 +2325,7 @@ class TestADRReviewPath:
 
         assert len(results) == 1
         assert results[0].verdict == ReviewVerdict.APPROVE
-        phase._prs.swap_pipeline_labels.assert_awaited_once_with(
-            710, config.fixed_label[0]
-        )
+        phase._prs.swap_pipeline_labels.assert_awaited_once_with(710, Label.FIXED)
         phase._prs.close_task.assert_awaited_once_with(710)
 
     @pytest.mark.asyncio

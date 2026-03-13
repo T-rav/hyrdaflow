@@ -36,6 +36,7 @@ from config import HydraFlowConfig, save_config_file
 from events import EventBus, EventType, HydraFlowEvent
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStoreStage
+from labels import ALL_PIPELINE_LABELS, Label
 from metrics_manager import get_metrics_cache_dir
 from models import (
     BackgroundWorkersResponse,
@@ -122,12 +123,12 @@ _STAGE_NAME_MAP: dict[str, str] = {
     IssueStoreStage.HITL: "hitl",
 }
 
-# Frontend stage key → config label field name (for request-changes)
-_FRONTEND_STAGE_TO_LABEL_FIELD = {
-    "triage": "find_label",
-    "plan": "planner_label",
-    "implement": "ready_label",
-    "review": "review_label",
+# Frontend stage key → pipeline Label (for request-changes)
+_FRONTEND_STAGE_TO_LABEL: dict[str, Label] = {
+    "triage": Label.FIND,
+    "plan": Label.PLAN,
+    "implement": Label.READY,
+    "review": Label.REVIEW,
 }
 
 
@@ -1403,17 +1404,14 @@ def create_router(
                 status_code=400,
             )
 
-        label_field = _FRONTEND_STAGE_TO_LABEL_FIELD.get(stage)
-        if not label_field:
+        origin_label = _FRONTEND_STAGE_TO_LABEL.get(stage)
+        if not origin_label:
             return JSONResponse(
                 {"status": "error", "detail": f"Unknown stage: {stage}"},
                 status_code=400,
             )
 
-        stage_labels: list[str] = getattr(config, label_field, [])
-        origin_label: str = stage_labels[0]
-
-        await pr_manager.swap_pipeline_labels(issue_number, config.hitl_label[0])
+        await pr_manager.swap_pipeline_labels(issue_number, Label.HITL)
 
         state.set_hitl_cause(issue_number, feedback)
         state.set_hitl_origin(issue_number, origin_label)
@@ -1490,17 +1488,15 @@ def create_router(
         """Fetch all open HydraFlow PRs from GitHub."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         manager = _pr_manager_for(_cfg, _bus)
-        all_labels = list(
-            {
-                *_cfg.ready_label,
-                *_cfg.review_label,
-                *_cfg.fixed_label,
-                *_cfg.hitl_label,
-                *_cfg.hitl_active_label,
-                *_cfg.planner_label,
-                *_cfg.improve_label,
-            }
-        )
+        all_labels: list[str] = [
+            Label.READY,
+            Label.REVIEW,
+            Label.FIXED,
+            Label.HITL,
+            Label.HITL_ACTIVE,
+            Label.PLAN,
+            Label.IMPROVE,
+        ]
         items = await manager.list_open_prs(all_labels)
         return JSONResponse([item.model_dump() for item in items])
 
@@ -1758,7 +1754,7 @@ def create_router(
     ) -> JSONResponse:
         """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        hitl_labels = list(dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label]))
+        hitl_labels: list[str] = [Label.HITL, Label.HITL_ACTIVE]
         manager = _pr_manager_for(_cfg, _bus)
         items = await manager.list_hitl_items(hitl_labels)
         orch = _get_orch()
@@ -1770,17 +1766,17 @@ def create_router(
             cause = _state.get_hitl_cause(item.issue)
             origin = _state.get_hitl_origin(item.issue)
             if not cause and origin:
-                if origin in _cfg.improve_label:
+                if origin == Label.IMPROVE:
                     cause = "Self-improvement proposal"
-                elif origin in _cfg.review_label:
+                elif origin == Label.REVIEW:
                     cause = "Review escalation"
-                elif origin in _cfg.find_label:
+                elif origin == Label.FIND:
                     cause = "Triage escalation"
                 else:
                     cause = "Escalation (reason not recorded)"
             if cause:
                 data["cause"] = cause
-            if origin and origin in _cfg.improve_label:
+            if origin and origin == Label.IMPROVE:
                 data["isMemorySuggestion"] = True
             # Flag items held for issue type review
             if cause and (
@@ -1863,7 +1859,7 @@ def create_router(
         orch.submit_hitl_correction(issue_number, correction)
 
         # Swap labels for immediate dashboard feedback
-        await pr_manager.swap_pipeline_labels(issue_number, config.hitl_active_label[0])
+        await pr_manager.swap_pipeline_labels(issue_number, Label.HITL_ACTIVE)
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -1965,11 +1961,11 @@ def create_router(
         origin = state.get_hitl_origin(issue_number)
 
         # If this was an improve issue, transition to triage for implementation
-        if origin and origin in config.improve_label and config.find_label:
-            await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
+        if origin and origin == Label.IMPROVE:
+            await pr_manager.swap_pipeline_labels(issue_number, Label.FIND)
         else:
             # Just remove all pipeline labels
-            for lbl in config.all_pipeline_labels:
+            for lbl in ALL_PIPELINE_LABELS:
                 await pr_manager.remove_label(issue_number, lbl)
 
         return await _resolve_hitl_item(
@@ -2004,9 +2000,9 @@ def create_router(
     async def hitl_approve_memory(issue_number: int) -> JSONResponse:
         """Approve a HITL item as a memory suggestion, relabeling for sync."""
         # Remove all pipeline labels and add memory label
-        for lbl in config.all_pipeline_labels:
+        for lbl in ALL_PIPELINE_LABELS:
             await pr_manager.remove_label(issue_number, lbl)
-        await pr_manager.add_labels(issue_number, config.memory_label)
+        await pr_manager.add_labels(issue_number, [Label.MEMORY])
         _clear_hitl_state(get_orchestrator(), issue_number)
         await event_bus.publish(
             HydraFlowEvent(
@@ -2030,7 +2026,7 @@ def create_router(
         if not orch:
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
 
-        target_label = config.find_label[0]
+        target_label = Label.FIND
         target_stage = "triage"
 
         await pr_manager.swap_pipeline_labels(issue_number, target_label)
@@ -2142,16 +2138,16 @@ def create_router(
                 latest_version=latest_version,
                 update_available=update_available,
                 repo=_cfg.repo,
-                ready_label=_cfg.ready_label,
-                find_label=_cfg.find_label,
-                planner_label=_cfg.planner_label,
-                review_label=_cfg.review_label,
-                hitl_label=_cfg.hitl_label,
-                hitl_active_label=_cfg.hitl_active_label,
-                fixed_label=_cfg.fixed_label,
-                improve_label=_cfg.improve_label,
-                memory_label=_cfg.memory_label,
-                transcript_label=_cfg.transcript_label,
+                ready_label=[Label.READY],
+                find_label=[Label.FIND],
+                planner_label=[Label.PLAN],
+                review_label=[Label.REVIEW],
+                hitl_label=[Label.HITL],
+                hitl_active_label=[Label.HITL_ACTIVE],
+                fixed_label=[Label.FIXED],
+                improve_label=[Label.IMPROVE],
+                memory_label=[Label.MEMORY],
+                transcript_label=[Label.TRANSCRIPT],
                 max_triagers=_cfg.max_triagers,
                 max_workers=_cfg.max_workers,
                 max_planners=_cfg.max_planners,
@@ -3838,7 +3834,7 @@ def create_router(
         """Create a GitHub issue from a user intent typed in the dashboard."""
         title = request.text[:120]
         body = request.text
-        labels = list(config.planner_label)
+        labels: list[str] = [Label.PLAN]
 
         issue_number = await pr_manager.create_issue(
             title=title, body=body, labels=labels

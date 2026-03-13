@@ -58,9 +58,7 @@ class TestRouting:
 
     def test_routes_ready_labeled_issues_to_ready_queue(self) -> None:
         store = _make_store()
-        issue = TaskFactory.create(
-            id=3, tags=["test-label"]
-        )  # ConfigFactory uses "test-label" as ready_label
+        issue = TaskFactory.create(id=3, tags=["hydraflow-ready"])
         store._route_issues([issue])
 
         assert store._queue_members[STAGE_READY] == {3}
@@ -105,7 +103,7 @@ class TestRouting:
         issues = [
             TaskFactory.create(id=10, tags=["hydraflow-find"]),
             TaskFactory.create(id=11, tags=["hydraflow-plan"]),
-            TaskFactory.create(id=12, tags=["test-label"]),  # ready
+            TaskFactory.create(id=12, tags=["hydraflow-ready"]),  # ready
             TaskFactory.create(id=13, tags=["hydraflow-review"]),
         ]
         store._route_issues(issues)
@@ -140,7 +138,7 @@ class TestRouting:
         assert store._queue_members[STAGE_PLAN] == {30}
 
         # Second: same issue now has ready label
-        issue_ready = TaskFactory.create(id=30, tags=["test-label"])
+        issue_ready = TaskFactory.create(id=30, tags=["hydraflow-ready"])
         store._route_issues([issue_ready])
 
         assert 30 not in store._queue_members[STAGE_PLAN]
@@ -225,7 +223,7 @@ class TestQueueAccessors:
 
     def test_get_implementable_returns_ready_queue_issues(self) -> None:
         store = _make_store()
-        store._route_issues([TaskFactory.create(id=3, tags=["test-label"])])
+        store._route_issues([TaskFactory.create(id=3, tags=["hydraflow-ready"])])
 
         result = store.get_implementable(10)
         assert len(result) == 1
@@ -243,8 +241,8 @@ class TestQueueAccessors:
         store = _make_store()
         store._route_issues(
             [
-                TaskFactory.create(id=10, tags=["test-label"]),
-                TaskFactory.create(id=11, tags=["test-label"]),
+                TaskFactory.create(id=10, tags=["hydraflow-ready"]),
+                TaskFactory.create(id=11, tags=["hydraflow-ready"]),
             ]
         )
         store.mark_active(10, STAGE_READY)
@@ -256,7 +254,7 @@ class TestQueueAccessors:
     def test_get_implementable_respects_limit(self) -> None:
         store = _make_store()
         store._route_issues(
-            [TaskFactory.create(id=i, tags=["test-label"]) for i in range(1, 6)]
+            [TaskFactory.create(id=i, tags=["hydraflow-ready"]) for i in range(1, 6)]
         )
 
         result = store.get_implementable(2)
@@ -406,7 +404,7 @@ class TestRefresh:
 
         # Second poll: issue now in ready queue
         fetcher.fetch_all = AsyncMock(
-            return_value=[TaskFactory.create(id=10, tags=["test-label"])]
+            return_value=[TaskFactory.create(id=10, tags=["hydraflow-ready"])]
         )
         await store.refresh()
         assert 10 not in store._queue_members[STAGE_PLAN]
@@ -687,7 +685,7 @@ class TestFetchAllHydraFlowIssues:
             # Should include all pipeline labels
             assert "hydraflow-find" in labels
             assert "hydraflow-plan" in labels
-            assert "test-label" in labels  # ready_label from ConfigFactory
+            assert "hydraflow-ready" in labels
             assert "hydraflow-review" in labels
             assert "hydraflow-hitl" in labels
             assert result == []
@@ -770,7 +768,7 @@ class TestPipelineSnapshot:
         issue = TaskFactory.create(
             id=42,
             title="Fix the frobnicator",
-            tags=["test-label"],
+            tags=["hydraflow-ready"],
             source_url="https://github.com/org/repo/issues/42",
         )
         store._route_issues([issue])
@@ -819,7 +817,7 @@ class TestPipelineSnapshot:
         task = TaskFactory.create(
             id=7,
             title="In-flight task",
-            tags=["test-label"],
+            tags=["hydraflow-ready"],
             source_url="https://github.com/org/repo/issues/7",
         )
         store._route_issues([task])
@@ -1058,7 +1056,7 @@ class TestEagerTransitionProtection:
         assert 1 in store._eagerly_transitioned
 
         # Refresh with ready label (matches target) — protection clears
-        caught_up = TaskFactory.create(id=1, tags=["test-label"])  # ready
+        caught_up = TaskFactory.create(id=1, tags=["hydraflow-ready"])  # ready
         store._route_issues([caught_up])
 
         assert 1 not in store._eagerly_transitioned

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 from models import (
     BackgroundWorkerState,
     ErrorPayload,
@@ -783,7 +784,7 @@ class HydraFlowOrchestrator:
         logger.info(
             "HydraFlow starting — repo=%s label=%s workers=%d poll=%ds",
             self._config.repo,
-            ",".join(self._config.ready_label),
+            Label.READY,
             self._config.max_workers,
             self._config.poll_interval,
         )
@@ -1111,7 +1112,7 @@ class HydraFlowOrchestrator:
     async def _do_hitl_work(self) -> None:
         """Fetch HITL issues, attempt auto-fixes, then process human corrections."""
         hitl_issues = await self._svc.fetcher.fetch_issues_by_labels(
-            list(self._config.hitl_label),
+            [Label.HITL],
             limit=50,
         )
         if hitl_issues:

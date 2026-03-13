@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
+from labels import MEMORY_SYNC_LABELS
 from memory_sync_loop import MemorySyncLoop
 from tests.helpers import make_bg_loop_deps
 
@@ -160,7 +161,7 @@ class TestMemorySyncLoopRun:
         for call in loop._fetcher.fetch_issues_by_labels.await_args_list:
             args = call.args
             kwargs = call.kwargs
-            assert args[0] == loop._config.memory_sync_labels
+            assert args[0] == MEMORY_SYNC_LABELS
             assert kwargs["limit"] == 500
 
 

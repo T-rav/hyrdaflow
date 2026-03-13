@@ -13,6 +13,7 @@ from changelog import generate_changelog
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from issue_fetcher import IssueFetcher
+from labels import Label
 from models import (
     CIStatus,
     EpicChildInfo,
@@ -54,15 +55,15 @@ class ReleaseEpicResultError(RuntimeError):
 def _stage_from_labels(labels: list[str], config: HydraFlowConfig) -> str:
     """Derive pipeline stage name from issue labels."""
     label_set = set(labels)
-    if label_set & set(config.review_label):
+    if Label.REVIEW in label_set:
         return "review"
-    if label_set & set(config.ready_label):
+    if Label.READY in label_set:
         return "implement"
-    if label_set & set(config.planner_label):
+    if Label.PLAN in label_set:
         return "plan"
-    if label_set & set(config.find_label):
+    if Label.FIND in label_set:
         return "triage"
-    if label_set & set(config.fixed_label):
+    if Label.FIXED in label_set:
         return "merged"
     return ""
 
@@ -135,9 +136,7 @@ class EpicCompletionChecker:
         Returns True if at least one epic was successfully closed.
         """
         try:
-            epics = await self._fetcher.fetch_issues_by_labels(
-                self._config.epic_label, limit=50
-            )
+            epics = await self._fetcher.fetch_issues_by_labels([Label.EPIC], limit=50)
         except RuntimeError:
             logger.warning(
                 "Failed to fetch epic issues for completion check",
@@ -200,9 +199,9 @@ class EpicCompletionChecker:
         self, epic_number: int, epic_title: str, epic_body: str, sub_issues: list[int]
     ) -> bool:
         """Inner close logic — separated to allow recursion guard in _try_close_epic."""
-        fixed_label = self._config.fixed_label[0] if self._config.fixed_label else ""
-        hitl_labels = set(self._config.hitl_label)
-        epic_labels = set(self._config.epic_label)
+        fixed_label = Label.FIXED
+        hitl_labels = {Label.HITL}
+        epic_labels = {Label.EPIC}
 
         # Track sub-issue list changes for audit trail
         self._audit_sub_issue_changes(epic_number, sub_issues)
@@ -315,9 +314,7 @@ class EpicCompletionChecker:
         not be located on GitHub (missing label, API failure, etc.).
         """
         try:
-            epics = await self._fetcher.fetch_issues_by_labels(
-                self._config.epic_label, limit=50
-            )
+            epics = await self._fetcher.fetch_issues_by_labels([Label.EPIC], limit=50)
         except RuntimeError:
             logger.warning(
                 "Failed to fetch epic issues for specific-epic check",
@@ -797,7 +794,7 @@ class EpicManager:
             return None
 
         repo = self._config.repo
-        fixed_label = self._config.fixed_label[0] if self._config.fixed_label else ""
+        fixed_label = Label.FIXED
         children: list[EpicChildInfo] = []
         merged_count = 0
         active_count = 0

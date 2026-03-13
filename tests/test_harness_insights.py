@@ -23,6 +23,7 @@ from harness_insights import (
     file_harness_suggestions,
     generate_suggestions,
 )
+from labels import Label
 from models import PipelineStage
 from state import StateTracker
 from tests.conftest import ConfigFactory
@@ -592,8 +593,8 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
         )
 
         assert filed == 1
@@ -632,8 +633,8 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
             max_per_cycle=1,
         )
 
@@ -661,8 +662,8 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
         )
 
         assert state.get_hitl_origin(88) == "hydraflow-improve"
@@ -690,8 +691,8 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
         )
 
         assert "subcategory:lint_error" in state.get_proposed_patterns("harness")
@@ -708,8 +709,8 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
         )
 
         assert filed == 0
@@ -738,9 +739,9 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
-            memory_label=["hydraflow-memory"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
+            memory_label=[Label.MEMORY],
         )
 
         assert filed == 1
@@ -774,8 +775,8 @@ class TestFileHarnessSuggestions:
             store,
             mock_prs,
             state,
-            improve_label=["hydraflow-improve"],
-            hitl_label=["hydraflow-hitl"],
+            improve_label=[Label.IMPROVE],
+            hitl_label=[Label.HITL],
         )
 
         assert filed == 0

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from events import EventType
+from labels import Label
 from models import (
     CriterionResult,
     CriterionVerdict,
@@ -855,7 +856,7 @@ class TestSelfFixReReview:
         assert results[0].verdict == ReviewVerdict.APPROVE
         # Label should NOT be swapped to ready
         for call_args in phase._prs.add_labels.call_args_list:
-            assert call_args[0][1] != config.ready_label
+            assert call_args[0][1] != [Label.READY]
 
     @pytest.mark.asyncio
     async def test_self_fix_with_re_review_reject_preserves_behavior(
@@ -1535,7 +1536,7 @@ class TestRecordReviewInsight:
         assert (
             "test_coverage" in call_title.lower() or "Recurring feedback" in call_title
         )
-        assert config.improve_label[0] in call_labels
+        assert Label.IMPROVE in call_labels
         assert "test_coverage" in phase._state.get_proposed_patterns("review")
 
     @pytest.mark.asyncio

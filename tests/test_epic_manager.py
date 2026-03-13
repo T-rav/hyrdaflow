@@ -487,7 +487,7 @@ class TestGetDetailEnriched:
         await mgr.register_epic(100, "Epic", [10])
 
         child_10 = IssueFactory.create(
-            number=10, title="In Progress", labels=["test-label"]
+            number=10, title="In Progress", labels=["hydraflow-ready"]
         )
         fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
 
@@ -560,7 +560,9 @@ class TestGetDetailEnriched:
         child_10 = IssueFactory.create(
             number=10, title="Done", labels=["hydraflow-fixed"]
         )
-        child_20 = IssueFactory.create(number=20, title="Active", labels=["test-label"])
+        child_20 = IssueFactory.create(
+            number=20, title="Active", labels=["hydraflow-ready"]
+        )
         child_30 = IssueFactory.create(
             number=30, title="Queued", labels=["hydraflow-plan"]
         )

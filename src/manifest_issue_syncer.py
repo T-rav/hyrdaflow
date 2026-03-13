@@ -8,6 +8,7 @@ import os
 from datetime import UTC, datetime
 
 from config import HydraFlowConfig
+from labels import Label
 from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import run_subprocess
@@ -42,8 +43,6 @@ class ManifestIssueSyncer:
         source: str = "manifest-refresh",
     ) -> None:
         """Ensure the manifest issue has an up-to-date snapshot comment."""
-        if not self._config.manifest_label:
-            return
         if not manifest_markdown.strip():
             logger.debug("Skipping manifest sync — empty manifest body")
             return
@@ -88,7 +87,7 @@ class ManifestIssueSyncer:
         issue_number = await self._prs.create_issue(
             title,
             body,
-            list(self._config.manifest_label),
+            [Label.MANIFEST],
         )
         if issue_number:
             self._state.set_manifest_issue_number(issue_number)
@@ -96,9 +95,7 @@ class ManifestIssueSyncer:
 
     async def _find_existing_manifest_issue(self) -> int | None:
         """Search for an existing manifest issue (open or closed)."""
-        if not self._config.manifest_label:
-            return None
-        label = self._config.manifest_label[0]
+        label = Label.MANIFEST
         try:
             raw = await run_subprocess(
                 "gh",

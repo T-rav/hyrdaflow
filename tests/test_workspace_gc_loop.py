@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
+from labels import Label
 from state import StateTracker
 from tests.helpers import make_bg_loop_deps
 from workspace_gc_loop import _MAX_GC_PER_CYCLE, WorkspaceGCLoop
@@ -365,7 +366,7 @@ class TestWorktreeGCSubprocessArgs:
             WorkspaceGCLoop._issue_has_pipeline_label.__get__(loop)
         )  # type: ignore[attr-defined]
         with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
-            m.return_value = f"{loop._config.ready_label[0]}\nother-label\n"
+            m.return_value = f"{Label.READY}\nother-label\n"
             result = await loop._issue_has_pipeline_label(42)
         assert result is True
         args = m.call_args[0]

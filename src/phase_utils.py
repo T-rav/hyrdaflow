@@ -426,8 +426,8 @@ class PipelineEscalator:
 
         escalator = PipelineEscalator(
             state, prs, store, harness_insights,
-            origin_label=config.planner_label[0],
-            hitl_label=config.hitl_label[0],
+            origin_label=Label.PLAN,
+            hitl_label=Label.HITL,
             stage=PipelineStage.PLAN,
         )
         await escalator(issue, cause="...", details="...", category=FailureCategory.PLAN_VALIDATION)

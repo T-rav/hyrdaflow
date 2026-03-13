@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from admin_tasks import _seed_context_assets
+from labels import LABEL_METADATA, Label
 from models import AuditCheckStatus
 from prep import HYDRAFLOW_LABELS, PrepResult, _list_existing_labels, ensure_labels
 from tests.conftest import SubprocessMockBuilder
@@ -134,13 +135,8 @@ class TestEnsureLabels:
     async def test_reports_already_existing_labels_in_existed_list(self) -> None:
         """Labels already in the repo are classified as 'existed'."""
         config = ConfigFactory.create()
-        # Use actual label names from config (ConfigFactory uses "test-label"
-        # for ready_label, not "hydraflow-ready")
-        existing = (
-            list(config.find_label)
-            + list(config.planner_label)
-            + list(config.ready_label)
-        )
+        # Use actual label names from the Label enum
+        existing = [Label.FIND, Label.PLAN, Label.READY]
         existing_json = json.dumps([{"name": n} for n in existing])
 
         async def side_effect(*args, **_kwargs):
@@ -161,13 +157,9 @@ class TestEnsureLabels:
         assert len(result.failed) == 0
 
     @pytest.mark.asyncio
-    async def test_uses_config_label_names(self) -> None:
-        """Custom label names from config are used for creation."""
-        config = ConfigFactory.create(
-            find_label=["my-find"],
-            planner_label=["my-plan"],
-            ready_label=["my-ready"],
-        )
+    async def test_uses_hardcoded_label_names(self) -> None:
+        """Hardcoded Label enum values are used for creation."""
+        config = ConfigFactory.create()
 
         created_labels: list[str] = []
 
@@ -188,10 +180,10 @@ class TestEnsureLabels:
         with patch("asyncio.create_subprocess_exec", side_effect=side_effect):
             result = await ensure_labels(config)
 
-        assert "my-find" in created_labels
-        assert "my-plan" in created_labels
-        assert "my-ready" in created_labels
-        assert "my-find" in result.created
+        assert Label.FIND in created_labels
+        assert Label.PLAN in created_labels
+        assert Label.READY in created_labels
+        assert Label.FIND in result.created
 
     @pytest.mark.asyncio
     async def test_dry_run_skips_creation(self) -> None:
@@ -269,9 +261,7 @@ class TestEnsureLabels:
         """All labels already present are classified as 'existed'."""
         config = ConfigFactory.create()
         # Build the list of all default label names
-        all_names = []
-        for cfg_field, _, _ in HYDRAFLOW_LABELS:
-            all_names.extend(getattr(config, cfg_field))
+        all_names = list(LABEL_METADATA.keys())
         existing_json = json.dumps([{"name": n} for n in all_names])
 
         async def side_effect(*args, **_kwargs):

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
+from labels import Label
 from tests.conftest import TaskFactory
 from tests.helpers import make_triage_phase, supply_once
 
@@ -68,7 +69,7 @@ class TestTriagePhase:
 
         await phase.triage_issues()
 
-        prs.swap_pipeline_labels.assert_called_once_with(2, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_called_once_with(2, Label.HITL)
         prs.post_comment.assert_called_once()
         comment = prs.post_comment.call_args.args[1]
         assert "Needs More Information" in comment
@@ -264,7 +265,7 @@ class TestTriagePhase:
         await phase.triage_issues()
 
         triage.evaluate.assert_not_awaited()
-        prs.swap_pipeline_labels.assert_called_once_with(78, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_called_once_with(78, Label.HITL)
         prs.post_comment.assert_called_once()
         comment = prs.post_comment.call_args.args[1]
         assert "Needs More Information" in comment

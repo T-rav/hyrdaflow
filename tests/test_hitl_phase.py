@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import TYPE_CHECKING
 
 from events import EventType
+from labels import Label
 from models import GitHubIssue
 from tests.conftest import TaskFactory
 from tests.helpers import make_hitl_phase
@@ -128,7 +129,7 @@ class TestHITLPhaseProcessing:
         await phase._process_one_hitl(42, "Fix the tests", semaphore)
 
         # Verify HITL label was re-applied via swap
-        prs.swap_pipeline_labels.assert_any_call(42, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_any_call(42, Label.HITL)
 
         # Verify HITL state is preserved (not cleaned up) — spec: requeue retains evidence
         assert state.get_hitl_origin(42) == "hydraflow-review"
@@ -329,7 +330,7 @@ class TestHITLPhaseProcessing:
         await phase._process_one_hitl(42, "Fix it", semaphore)
 
         # Check that hitl_active_label was set via swap
-        prs.swap_pipeline_labels.assert_any_call(42, config.hitl_active_label[0])
+        prs.swap_pipeline_labels.assert_any_call(42, Label.HITL_ACTIVE)
 
     @pytest.mark.asyncio
     async def test_success_destroys_worktree(self, config: HydraFlowConfig) -> None:
@@ -385,7 +386,7 @@ class TestHITLGetStatus:
     ) -> None:
         """Memory suggestions with improve origin should show 'approval'."""
         phase, state, *_ = make_hitl_phase(config)
-        state.set_hitl_origin(42, config.improve_label[0])
+        state.set_hitl_origin(42, Label.IMPROVE)
         assert phase.get_status(42) == "approval"
 
     def test_get_status_returns_from_review_for_review_origin(
@@ -495,7 +496,7 @@ class TestHITLImproveTransition:
         await phase._process_one_hitl(42, "Improve the prompt", semaphore)
 
         # Verify find/triage label was set via swap (not the improve label)
-        prs.swap_pipeline_labels.assert_any_call(42, config.find_label[0])
+        prs.swap_pipeline_labels.assert_any_call(42, Label.FIND)
 
         # Verify HITL state was cleaned up
         assert state.get_hitl_origin(42) is None
@@ -525,7 +526,7 @@ class TestHITLImproveTransition:
 
         # Verify find label was NOT set
         swap_calls = [c.args for c in prs.swap_pipeline_labels.call_args_list]
-        assert (42, config.find_label[0]) not in swap_calls
+        assert (42, Label.FIND) not in swap_calls
 
     @pytest.mark.asyncio
     async def test_failure_improve_origin_preserves_state(
@@ -551,7 +552,7 @@ class TestHITLImproveTransition:
         await phase._process_one_hitl(42, "Improve the prompt", semaphore)
 
         # Verify HITL label was re-applied via swap
-        prs.swap_pipeline_labels.assert_any_call(42, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_any_call(42, Label.HITL)
 
         # Verify improve origin state is preserved for retry
         assert state.get_hitl_origin(42) == "hydraflow-improve"
@@ -576,7 +577,7 @@ class TestHITLImproveTransition:
         await phase._process_one_hitl(42, "Improve it", semaphore)
 
         comment = prs.post_comment.call_args.args[1]
-        assert config.find_label[0] in comment
+        assert Label.FIND in comment
 
 
 # ---------------------------------------------------------------------------
@@ -836,9 +837,7 @@ class TestHITLAutoFix:
         assert 42 in phase._hitl_corrections
         assert "AUTOMATIC FIX ATTEMPT" in phase._hitl_corrections[42]
         assert "CI failed" in phase._hitl_corrections[42]
-        prs.swap_pipeline_labels.assert_awaited_once_with(
-            42, config.hitl_autofix_label[0]
-        )
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, Label.HITL_AUTOFIX)
         prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio

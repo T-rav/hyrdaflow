@@ -396,7 +396,6 @@ class TestMetricsManagerExcInfo:
         config = MagicMock()
         config.repo = "test/repo"
         config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
         config.data_path = MagicMock(return_value="/tmp/test")
 
         prs = MagicMock()
@@ -431,7 +430,6 @@ class TestMetricsManagerExcInfo:
         config = MagicMock()
         config.repo = "test/repo"
         config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
         config.data_path = MagicMock(return_value="/tmp/test")
 
         prs = MagicMock()
@@ -469,7 +467,6 @@ class TestMetricsManagerExcInfo:
         config = MagicMock()
         config.repo = "test/repo"
         config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
         config.data_path = MagicMock(return_value="/tmp/test")
 
         prs = MagicMock()
@@ -506,7 +503,6 @@ class TestMetricsManagerExcInfo:
         config = MagicMock()
         config.repo = "test/repo"
         config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
         config.data_path = MagicMock(return_value="/tmp/test")
 
         prs = MagicMock()

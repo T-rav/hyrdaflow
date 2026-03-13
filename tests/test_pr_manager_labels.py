@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from labels import Label
 from pr_manager import PRManager
 from tests.conftest import SubprocessMockBuilder
 from tests.helpers import ConfigFactory
@@ -448,11 +449,11 @@ class TestSwapPipelineLabels:
         mgr._remove_label = AsyncMock()
         mgr._add_labels = AsyncMock()
 
-        await mgr.swap_pipeline_labels(42, config.ready_label[0])
+        await mgr.swap_pipeline_labels(42, Label.READY)
 
         # All pipeline labels except the target should be removed
         removed = [call.args[2] for call in mgr._remove_label.call_args_list]
-        assert config.ready_label[0] not in removed
+        assert Label.READY not in removed
         # At least some labels should be removed
         assert len(removed) > 0
 

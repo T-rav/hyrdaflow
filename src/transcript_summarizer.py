@@ -7,6 +7,7 @@ import logging
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
+from labels import Label
 from models import TranscriptSummaryPayload
 from pr_manager import PRManager
 from state import StateTracker
@@ -296,7 +297,7 @@ class TranscriptSummarizer:
         )
 
         title = f"[Transcript Summary] Issue #{issue_number} — {phase} phase"
-        labels = list(self._config.improve_label) + list(self._config.transcript_label)
+        labels: list[str] = [Label.IMPROVE, Label.TRANSCRIPT]
 
         created_issue_number = await self._prs.create_issue(title, body, labels)
         if created_issue_number:

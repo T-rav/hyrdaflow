@@ -18,6 +18,7 @@ from urllib.parse import quote
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from labels import LABEL_METADATA, Label
 from models import (
     CICheckPayload,
     Crate,
@@ -31,7 +32,6 @@ from models import (
     PRListItem,
     ReviewVerdict,
 )
-from prep import HYDRAFLOW_LABELS
 from subprocess_util import run_subprocess, run_subprocess_with_retry
 
 logger = logging.getLogger("hydraflow.pr_manager")
@@ -99,8 +99,8 @@ class PRManager:
     _TRUNCATION_MARKER = CommentFormatter.TRUNCATION_MARKER
     _HEADER_RESERVE = 50  # room for "*Part X/Y*\n\n" prefix
 
-    # Re-export from prep module for backward compatibility
-    _HYDRAFLOW_LABELS = HYDRAFLOW_LABELS
+    # Re-export from labels module for backward compatibility
+    _LABEL_METADATA = LABEL_METADATA
 
     _REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
@@ -710,7 +710,9 @@ class PRManager:
         hydraflow-hitl simultaneously).
         """
         self._assert_repo()
-        all_labels = self._config.all_pipeline_labels
+        from labels import ALL_PIPELINE_LABELS
+
+        all_labels = ALL_PIPELINE_LABELS
         for lbl in all_labels:
             if lbl != new_label:
                 await self._remove_label("issue", issue_number, lbl)
@@ -1722,17 +1724,17 @@ class PRManager:
         ):
             return self._label_counts_cache
 
-        label_map = {
-            "hydraflow-plan": config.planner_label,
-            "hydraflow-ready": config.ready_label,
-            "hydraflow-review": config.review_label,
-            "hydraflow-hitl": config.hitl_label,
-            "hydraflow-fixed": config.fixed_label,
+        label_map: dict[str, list[str]] = {
+            "hydraflow-plan": [Label.PLAN],
+            "hydraflow-ready": [Label.READY],
+            "hydraflow-review": [Label.REVIEW],
+            "hydraflow-hitl": [Label.HITL],
+            "hydraflow-fixed": [Label.FIXED],
         }
 
         open_by_label = await self._count_open_issues_by_label(label_map)
-        total_closed = await self._count_closed_issues(config.fixed_label)
-        fixed_label = config.fixed_label[0] if config.fixed_label else "hydraflow-fixed"
+        total_closed = await self._count_closed_issues([Label.FIXED])
+        fixed_label = Label.FIXED
         total_merged = await self._count_merged_prs(fixed_label)
 
         result: LabelCounts = {
@@ -1794,11 +1796,11 @@ class PRManager:
     ) -> None:
         """Implement :class:`task_source.TaskTransitioner` — swap pipeline labels."""
         _STAGE_LABEL = {
-            "find": (self._config.find_label or ["hydraflow-find"])[0],
-            "plan": (self._config.planner_label or ["hydraflow-plan"])[0],
-            "ready": (self._config.ready_label or ["hydraflow-ready"])[0],
-            "review": (self._config.review_label or ["hydraflow-review"])[0],
-            "hitl": (self._config.hitl_label or ["hydraflow-hitl"])[0],
+            "find": Label.FIND,
+            "plan": Label.PLAN,
+            "ready": Label.READY,
+            "review": Label.REVIEW,
+            "hitl": Label.HITL,
         }
         label = _STAGE_LABEL.get(new_stage, new_stage)
         await self.swap_pipeline_labels(issue_number, label, pr_number=pr_number)

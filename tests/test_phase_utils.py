@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
 from harness_insights import FailureCategory, HarnessInsightStore
+from labels import Label
 from models import PipelineStage
 from phase_utils import (
     LIKELY_BUG_EXCEPTIONS,
@@ -302,11 +303,11 @@ class TestEscalateToHitl:
             prs,
             issue_number=42,
             cause="Plan failed",
-            origin_label="hydraflow-plan",
-            hitl_label="hydraflow-hitl",
+            origin_label=Label.PLAN,
+            hitl_label=Label.HITL,
         )
 
-        state.set_hitl_origin.assert_called_once_with(42, "hydraflow-plan")
+        state.set_hitl_origin.assert_called_once_with(42, Label.PLAN)
         state.set_hitl_cause.assert_called_once_with(42, "Plan failed")
         state.record_hitl_escalation.assert_called_once()
 
@@ -321,11 +322,11 @@ class TestEscalateToHitl:
             prs,
             issue_number=42,
             cause="Failed",
-            origin_label="hydraflow-ready",
-            hitl_label="hydraflow-hitl",
+            origin_label=Label.READY,
+            hitl_label=Label.HITL,
         )
 
-        prs.swap_pipeline_labels.assert_awaited_once_with(42, "hydraflow-hitl")
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, Label.HITL)
 
 
 # ---------------------------------------------------------------------------
@@ -735,8 +736,8 @@ class TestPipelineEscalator:
         prs: AsyncMock | None = None,
         store: MagicMock | None = None,
         harness_insights: MagicMock | None = None,
-        origin_label: str = "hydraflow-plan",
-        hitl_label: str = "hydraflow-hitl",
+        origin_label: str = Label.PLAN,
+        hitl_label: str = Label.HITL,
         stage: PipelineStage = PipelineStage.PLAN,
     ) -> PipelineEscalator:
         return PipelineEscalator(
@@ -764,10 +765,10 @@ class TestPipelineEscalator:
             category=FailureCategory.PLAN_VALIDATION,
         )
 
-        state.set_hitl_origin.assert_called_once_with(42, "hydraflow-plan")
+        state.set_hitl_origin.assert_called_once_with(42, Label.PLAN)
         state.set_hitl_cause.assert_called_once_with(42, "Plan failed")
         state.record_hitl_escalation.assert_called_once()
-        prs.swap_pipeline_labels.assert_awaited_once_with(42, "hydraflow-hitl")
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, Label.HITL)
 
     @pytest.mark.asyncio
     async def test_enqueues_transition(self) -> None:
@@ -835,8 +836,8 @@ class TestPipelineEscalator:
             prs=prs,
             store=MagicMock(),
             harness_insights=harness,
-            origin_label="hydraflow-ready",
-            hitl_label="hydraflow-hitl",
+            origin_label=Label.READY,
+            hitl_label=Label.HITL,
             stage=PipelineStage.IMPLEMENT,
         )
         issue = MagicMock(id=99)
@@ -848,6 +849,6 @@ class TestPipelineEscalator:
             category=FailureCategory.HITL_ESCALATION,
         )
 
-        state.set_hitl_origin.assert_called_once_with(99, "hydraflow-ready")
+        state.set_hitl_origin.assert_called_once_with(99, Label.READY)
         record = harness.record_failure.call_args.args[0]
         assert record.stage == PipelineStage.IMPLEMENT

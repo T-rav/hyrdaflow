@@ -40,16 +40,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # ---------------------------------------------------------------------------
 
 # Canonical default pipeline labels (mirrors HydraFlowConfig defaults)
-ALL_PIPELINE_LABELS: list[str] = [
-    "hydraflow-find",
-    "hydraflow-plan",
-    "hydraflow-ready",
-    "hydraflow-review",
-    "hydraflow-hitl",
-    "hydraflow-hitl-active",
-    "hydraflow-fixed",
-    "hydraflow-improve",
-]
+from labels import ALL_PIPELINE_LABELS
+
+# Re-export for local use (imported from labels.py)
 
 # Valid stage names accepted by PRManager.transition()
 VALID_STAGES: list[str] = ["find", "plan", "ready", "review", "hitl"]
@@ -87,15 +80,6 @@ st_label = st.text(
 def _make_config(labels: list[str] | None = None) -> MagicMock:
     """Build a minimal HydraFlowConfig mock with default pipeline labels."""
     config = MagicMock()
-    config.all_pipeline_labels = labels or ALL_PIPELINE_LABELS
-    config.find_label = ["hydraflow-find"]
-    config.planner_label = ["hydraflow-plan"]
-    config.ready_label = ["hydraflow-ready"]
-    config.review_label = ["hydraflow-review"]
-    config.hitl_label = ["hydraflow-hitl"]
-    config.hitl_active_label = ["hydraflow-hitl-active"]
-    config.fixed_label = ["hydraflow-fixed"]
-    config.improve_label = ["hydraflow-improve"]
     config.repo = "org/repo"
     config.gh_token = None
     config.dry_run = False

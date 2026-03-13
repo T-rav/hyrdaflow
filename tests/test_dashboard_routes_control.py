@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
+from labels import Label
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +63,7 @@ class TestControlStatusImproveLabel:
         data = json.loads(response.body)
         assert "config" in data
         assert "improve_label" in data["config"]
-        assert data["config"]["improve_label"] == config.improve_label
+        assert data["config"]["improve_label"] == [Label.IMPROVE]
 
 
 class TestControlStatusMaxTriagers:

@@ -11,6 +11,7 @@ from typing import Any
 from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
+from labels import Label
 from models import StatusCallback
 from pr_manager import PRManager
 from state import StateTracker
@@ -162,15 +163,13 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
     async def _issue_has_pipeline_label(self, issue_number: int) -> bool:
         """Return True when the issue currently carries any pipeline label."""
         pipeline_labels = {
-            *(lbl.lower() for lbl in self._config.find_label),
-            *(lbl.lower() for lbl in self._config.planner_label),
-            *(lbl.lower() for lbl in self._config.ready_label),
-            *(lbl.lower() for lbl in self._config.review_label),
-            *(lbl.lower() for lbl in self._config.hitl_label),
-            *(lbl.lower() for lbl in self._config.hitl_active_label),
+            Label.FIND,
+            Label.PLAN,
+            Label.READY,
+            Label.REVIEW,
+            Label.HITL,
+            Label.HITL_ACTIVE,
         }
-        if not pipeline_labels:
-            return False
         try:
             output = await run_subprocess(
                 "gh",

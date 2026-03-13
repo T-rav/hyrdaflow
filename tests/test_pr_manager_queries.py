@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from labels import LABEL_METADATA
 from pr_manager import PRManager
 from tests.conftest import SubprocessMockBuilder
 from tests.helpers import ConfigFactory
@@ -514,7 +515,7 @@ class TestRetryWrapperUsage:
             await mgr.ensure_labels_exist()
 
         # 1 list call + 12 create calls = 13
-        assert mock_retry.await_count == 1 + len(PRManager._HYDRAFLOW_LABELS)
+        assert mock_retry.await_count == 1 + len(LABEL_METADATA)
 
     @pytest.mark.asyncio
     async def test_pull_main_uses_retry(self, config, event_bus):
@@ -770,7 +771,6 @@ class TestListHitlItemsExceptionHandling:
         from config import HydraFlowConfig
 
         cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
             repo=config.repo,
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -800,7 +800,6 @@ class TestListHitlItemsExceptionHandling:
         from config import HydraFlowConfig
 
         cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
             repo=config.repo,
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",
@@ -855,7 +854,6 @@ class TestListHitlItemsExceptionHandling:
         from config import HydraFlowConfig
 
         cfg = HydraFlowConfig(
-            ready_label=config.ready_label,
             repo=config.repo,
             repo_root=tmp_path,
             worktree_base=tmp_path / "worktrees",

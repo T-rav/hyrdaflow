@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
+from labels import Label
 
 
 def _make_router(config, event_bus, state, tmp_path):
@@ -73,7 +74,7 @@ class TestIntentEndpoint:
         pr_mgr.create_issue.assert_called_once_with(
             title="add rate limiting to the API endpoints",
             body="add rate limiting to the API endpoints",
-            labels=list(config.planner_label),
+            labels=[Label.PLAN],
         )
         assert data["issue_number"] == 42
         assert data["status"] == "created"

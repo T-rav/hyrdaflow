@@ -11,6 +11,7 @@ from typing import Literal
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
+from labels import Label
 from models import NewIssueSpec, PlannerStatus, PlannerUpdatePayload, PlanResult, Task
 from phase_utils import is_likely_bug
 from runner_constants import MEMORY_SUGGESTION_PROMPT
@@ -377,7 +378,7 @@ class PlannerRunner(BaseRunner):
             query_context=issue.title
         )
 
-        find_label = self._config.find_label[0]
+        find_label = Label.FIND
 
         # --- Scale-adaptive schema section ---
         sections_bullet_list = self._format_sections_list(scale)

@@ -24,6 +24,7 @@ from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from events import EventBus
 from execution import SubprocessRunner
+from labels import Label
 from models import PendingReport, StatusCallback, TranscriptEventData
 from pr_manager import PRManager
 from runner_utils import stream_claude_process
@@ -142,11 +143,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
 
         # Use hydraflow-ready so bug reports skip triage/planning and go
         # straight to implementation.
-        ready_label = (
-            self._config.ready_label[0]
-            if self._config.ready_label
-            else "hydraflow-ready"
-        )
+        ready_label = Label.READY
         description += (
             f"\n\nIMPORTANT: Use the label `{ready_label}` instead of "
             f"`hydraflow-find` for this issue."
@@ -252,7 +249,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 "Too large to include in this issue.\n"
             )
 
-        labels = list(self._config.hitl_label)
+        labels: list[str] = [Label.HITL]
         await self._pr_manager.create_issue(
             f"[Bug Report] Failed to process: {report.description[:80]}",
             body,

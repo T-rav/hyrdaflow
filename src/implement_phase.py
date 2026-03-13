@@ -11,6 +11,7 @@ from agent import AgentRunner
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
+from labels import Label
 from models import (
     GitHubIssue,
     PipelineStage,
@@ -71,14 +72,14 @@ class ImplementPhase:
             prs,
             store,
             harness_insights,
-            origin_label=config.ready_label[0],
-            hitl_label=config.hitl_label[0],
+            origin_label=Label.READY,
+            hitl_label=Label.HITL,
             stage=PipelineStage.IMPLEMENT,
         )
 
     def _hitl_cause(self, issue: Task, reason: str) -> str:
         """Build a HITL cause string, prefixing with epic context if applicable."""
-        epic_child_labels = {lbl.lower() for lbl in self._config.epic_child_label}
+        epic_child_labels = {Label.EPIC_CHILD}
         issue_labels = {t.lower() for t in issue.tags}
         if not (epic_child_labels & issue_labels):
             return reason

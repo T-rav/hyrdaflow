@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from agent import AgentRunner
 from config import HydraFlowConfig
 from events import EventBus
+from labels import Label
 
 if TYPE_CHECKING:
     from hindsight import HindsightClient
@@ -102,7 +103,7 @@ class MergeConflictResolver:
                 issue_number=pr.issue_number,
                 pr_number=pr.number,
                 cause="Merge conflict with main branch",
-                origin_label=self._config.review_label[0],
+                origin_label=Label.REVIEW,
                 comment=(
                     f"**Merge conflicts** with "
                     f"`{self._config.main_branch}` could not be "

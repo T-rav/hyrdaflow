@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from adr_reviewer import ADRCouncilReviewer
+from labels import Label
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
 from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory, make_triage_phase, supply_once
@@ -964,7 +965,7 @@ class TestRouteToTriage:
         labels = call_args.kwargs["labels"]
         assert "[ADR Follow-up]" in title
         assert "ADR-0005" in body
-        assert labels == reviewer._config.find_label
+        assert labels == [Label.FIND]
 
     @pytest.mark.asyncio
     async def test_returns_false_on_invalid_issue_number(self, tmp_path: Path) -> None:
@@ -1014,7 +1015,7 @@ class TestADRTriageIntegration:
         created_labels = reviewer._prs.create_issue.await_args.kwargs["labels"]
         assert "ADR-0012" in created_title
         assert "Council Summary" in created_body
-        assert created_labels == reviewer._config.find_label
+        assert created_labels == [Label.FIND]
 
         # Step 2: triage picks the created issue and sends it to planning.
         triage_phase, _state, triage_runner, prs, store, _stop = make_triage_phase(
@@ -1026,7 +1027,7 @@ class TestADRTriageIntegration:
             id=321,
             title=created_title,
             body=created_body,
-            tags=list(reviewer._config.find_label),
+            tags=[Label.FIND],
         )
         triage_runner.evaluate = AsyncMock(
             return_value=TriageResult(issue_number=321, ready=True)
@@ -1061,7 +1062,7 @@ class TestADRTriageIntegration:
             id=654,
             title="[ADR Follow-up] ADR-0022: Council requests changes",
             body="Needs more details before planning.",
-            tags=list(reviewer._config.find_label),
+            tags=[Label.FIND],
         )
         triage_runner.evaluate = AsyncMock(
             return_value=TriageResult(
@@ -1074,10 +1075,8 @@ class TestADRTriageIntegration:
 
         processed = await triage_phase.triage_issues()
         assert processed == 1
-        prs.swap_pipeline_labels.assert_called_once_with(
-            654, reviewer._config.hitl_label[0]
-        )
-        assert state.get_hitl_origin(654) == reviewer._config.find_label[0]
+        prs.swap_pipeline_labels.assert_called_once_with(654, Label.HITL)
+        assert state.get_hitl_origin(654) == Label.FIND
 
 
 class TestClerkAmendment:
@@ -2009,7 +2008,7 @@ class TestAutoTriage:
 
         call_args = reviewer._prs.create_issue.await_args
         labels_kwarg = call_args.kwargs.get("labels", [])
-        assert list(reviewer._config.hitl_label) == labels_kwarg
+        assert labels_kwarg == [Label.HITL]
         assert stats["escalated"] == 1
         assert stats["auto_triaged"] == 0
 
@@ -2131,7 +2130,7 @@ class TestPreValidationGate:
         labels_kwarg = call_args.kwargs.get("labels", [])
         assert "Pre-validation" in title
         assert "missing required section" in body
-        assert list(reviewer._config.find_label) == labels_kwarg
+        assert labels_kwarg == [Label.FIND]
         assert stats["auto_triaged"] == 1
         assert stats["escalated"] == 0
 
@@ -2185,7 +2184,7 @@ class TestPreValidationGate:
         reviewer._prs.create_issue.assert_awaited_once()
         call_args = reviewer._prs.create_issue.await_args
         labels_kwarg = call_args.kwargs.get("labels", [])
-        assert list(reviewer._config.hitl_label) == labels_kwarg
+        assert labels_kwarg == [Label.HITL]
         assert stats["auto_triaged"] == 0
         assert stats["escalated"] == 1
 

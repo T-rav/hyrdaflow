@@ -17,6 +17,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 from models import BGWorkerHealth, HITLItem, PRListItem
 from tests.conftest import EventFactory, make_orchestrator_mock, make_state
 from tests.helpers import ConfigFactory
@@ -1286,21 +1287,24 @@ class TestControlStatusEndpoint:
         body = response.json()
         assert body["config"]["app_version"] == get_app_version()
 
-    _STATUS_CONFIG_FIELDS = [
+    _STATUS_NON_LABEL_FIELDS = [
         "repo",
-        "ready_label",
-        "find_label",
-        "planner_label",
-        "review_label",
-        "hitl_label",
-        "hitl_active_label",
-        "fixed_label",
         "max_planners",
         "max_reviewers",
         "max_hitl_workers",
     ]
 
-    @pytest.mark.parametrize("config_field", _STATUS_CONFIG_FIELDS)
+    _STATUS_LABEL_FIELDS = {
+        "ready_label": [Label.READY],
+        "find_label": [Label.FIND],
+        "planner_label": [Label.PLAN],
+        "review_label": [Label.REVIEW],
+        "hitl_label": [Label.HITL],
+        "hitl_active_label": [Label.HITL_ACTIVE],
+        "fixed_label": [Label.FIXED],
+    }
+
+    @pytest.mark.parametrize("config_field", _STATUS_NON_LABEL_FIELDS)
     def test_status_includes_config_info(
         self,
         config: HydraFlowConfig,
@@ -1320,6 +1324,31 @@ class TestControlStatusEndpoint:
 
         body = response.json()
         assert body["config"][config_field] == getattr(config, config_field)
+
+    @pytest.mark.parametrize(
+        "label_field,expected",
+        list(_STATUS_LABEL_FIELDS.items()),
+    )
+    def test_status_includes_label_info(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state,
+        label_field: str,
+        expected: list[str],
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/api/control/status")
+
+        body = response.json()
+        assert body["config"][label_field] == expected
 
 
 # ---------------------------------------------------------------------------
@@ -2329,7 +2358,7 @@ class TestHITLApproveProcessEndpoint:
             response = client.post("/api/hitl/42/approve-process")
 
         assert response.status_code == 200
-        assert swapped == [(42, config.find_label[0])]
+        assert swapped == [(42, Label.FIND)]
 
     def test_epic_routes_to_find_label(
         self, config: HydraFlowConfig, event_bus: EventBus, state
@@ -2358,7 +2387,7 @@ class TestHITLApproveProcessEndpoint:
             response = client.post("/api/hitl/42/approve-process")
 
         assert response.status_code == 200
-        assert swapped == [(42, config.find_label[0])]
+        assert swapped == [(42, Label.FIND)]
 
     def test_returns_400_without_orchestrator(
         self, config: HydraFlowConfig, event_bus: EventBus, state

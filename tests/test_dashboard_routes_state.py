@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from events import EventBus
+from labels import Label
 from models import SessionStatus
 
 
@@ -271,7 +272,7 @@ class TestRequestChangesEndpoint:
         assert data["status"] == "ok"
 
         assert state.get_hitl_cause(42) == "Fix the tests"
-        assert state.get_hitl_origin(42) == config.review_label[0]
+        assert state.get_hitl_origin(42) == Label.REVIEW
 
     @pytest.mark.asyncio
     async def test_request_changes_swaps_labels(
@@ -286,7 +287,7 @@ class TestRequestChangesEndpoint:
             {"issue_number": 42, "feedback": "Fix the tests", "stage": "review"}
         )
 
-        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(42, config.hitl_label[0])
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(42, Label.HITL)
 
     @pytest.mark.asyncio
     async def test_request_changes_emits_escalation_event(
@@ -307,7 +308,7 @@ class TestRequestChangesEndpoint:
         assert event.type == "hitl_escalation"
         assert event.data["issue"] == 42
         assert event.data["cause"] == "Fix the tests"
-        assert event.data["origin"] == config.ready_label[0]
+        assert event.data["origin"] == Label.READY
 
     @pytest.mark.asyncio
     async def test_request_changes_rejects_empty_feedback(
@@ -423,9 +424,9 @@ class TestRequestChangesEndpoint:
         assert data["status"] == "ok"
 
         assert state.get_hitl_cause(10) == "Not the right issue"
-        assert state.get_hitl_origin(10) == config.find_label[0]
+        assert state.get_hitl_origin(10) == Label.FIND
 
-        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(10, config.hitl_label[0])
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(10, Label.HITL)
 
     @pytest.mark.asyncio
     async def test_request_changes_plan_stage(
@@ -445,9 +446,9 @@ class TestRequestChangesEndpoint:
         assert data["status"] == "ok"
 
         assert state.get_hitl_cause(7) == "Plan is incomplete"
-        assert state.get_hitl_origin(7) == config.planner_label[0]
+        assert state.get_hitl_origin(7) == Label.PLAN
 
-        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(7, config.hitl_label[0])
+        pr_mgr.swap_pipeline_labels.assert_awaited_once_with(7, Label.HITL)
 
 
 class TestDeleteSessionEndpoint:
@@ -2027,7 +2028,7 @@ class TestRepoScopedEndpoints:
 
             def get_hitl_origin(self, issue: int) -> str:
                 self.origin_calls.append(issue)
-                return config.review_label[0]
+                return Label.REVIEW
 
         runtime = SimpleNamespace(
             config=config.model_copy(),

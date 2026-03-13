@@ -12,6 +12,7 @@ from acceptance_criteria import AcceptanceCriteriaGenerator
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 
 if TYPE_CHECKING:
     from epic import EpicManager
@@ -274,9 +275,7 @@ class PostMergeHandler:
             self._state.reset_review_attempts(pr.issue_number)
             self._state.reset_issue_attempts(pr.issue_number)
             self._state.clear_review_feedback(pr.issue_number)
-            await self._prs.swap_pipeline_labels(
-                pr.issue_number, self._config.fixed_label[0]
-            )
+            await self._prs.swap_pipeline_labels(pr.issue_number, Label.FIXED)
             await self._prs.close_issue(pr.issue_number)
             await self._post_inference_totals_comment(pr, issue)
             await self._run_post_merge_hooks(pr, issue, result, diff, visual_decision)
@@ -303,7 +302,7 @@ class PostMergeHandler:
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     cause=cause,
-                    origin_label=self._config.review_label[0],
+                    origin_label=Label.REVIEW,
                     comment=comment,
                     event_cause="merge_failed",
                     task=issue,
@@ -601,7 +600,7 @@ class PostMergeHandler:
             title = title[:253] + "..."
 
         body = format_verification_issue_body(judge_result, issue, pr)
-        label = self._config.verify_label[0]
+        label = Label.VERIFY
         issue_number = await self._prs.create_issue(title, body, [label])
 
         if issue_number > 0:

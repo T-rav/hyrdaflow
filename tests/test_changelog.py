@@ -459,7 +459,6 @@ class TestEpicChangelogIntegration:
             ),
         }
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             release_on_epic_close=True,
         )
         prs = AsyncMock()
@@ -502,7 +501,7 @@ class TestEpicChangelogIntegration:
                 number=1, labels=["hydraflow-fixed"], title="Issue #1"
             ),
         }
-        config = ConfigFactory.create(epic_label=["hydraflow-epic"])
+        config = ConfigFactory.create()
         prs = AsyncMock()
         fetcher = AsyncMock()
         fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic])
@@ -525,7 +524,6 @@ class TestEpicChangelogIntegration:
         }
         changelog_path = tmp_path / "CHANGELOG.md"
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             repo_root=tmp_path,
         )
         # Set changelog_file directly
@@ -562,7 +560,6 @@ class TestEpicChangelogIntegration:
             ),
         }
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             release_on_epic_close=True,
         )
         # Default is empty string — no file output
@@ -593,7 +590,7 @@ class TestEpicChangelogIntegration:
                 number=1, labels=["hydraflow-fixed"], title="Issue #1"
             ),
         }
-        config = ConfigFactory.create(epic_label=["hydraflow-epic"])
+        config = ConfigFactory.create()
         prs = AsyncMock()
         fetcher = AsyncMock()
         fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic])
@@ -630,7 +627,6 @@ class TestEpicChangelogIntegration:
             ),
         }
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             release_on_epic_close=True,
             repo_root=tmp_path,
         )
@@ -676,7 +672,6 @@ class TestEpicChangelogIntegration:
             encoding="utf-8",
         )
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             repo_root=tmp_path,
         )
         config.changelog_file = "CHANGELOG.md"
@@ -715,7 +710,6 @@ class TestEpicChangelogIntegration:
             encoding="utf-8",
         )
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             repo_root=tmp_path,
         )
         config.changelog_file = "CHANGELOG.md"
@@ -747,7 +741,6 @@ class TestEpicChangelogIntegration:
             ),
         }
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             repo_root=tmp_path,
         )
         evil_path = tmp_path.parent / "evil_changelog.md"
@@ -780,7 +773,6 @@ class TestEpicChangelogIntegration:
             ),
         }
         config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
             repo_root=tmp_path,
         )
         # Attempt path traversal

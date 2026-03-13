@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from events import EventType
+from labels import Label
 from models import (
     HitlEscalation,
     LoopResult,
@@ -1340,7 +1341,7 @@ class TestVisualEvidenceEscalation:
         assert len(stored.items) == 2
 
         # Verify HITL state was set
-        assert phase._state.get_hitl_origin(42) == config.review_label[0]
+        assert phase._state.get_hitl_origin(42) == Label.REVIEW
         cause = phase._state.get_hitl_cause(42)
         assert cause is not None
         assert "Visual validation failed" in cause

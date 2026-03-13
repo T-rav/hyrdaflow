@@ -11,6 +11,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from hitl_runner import HITLRunner
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
+from labels import Label
 from models import GitHubIssue, HITLUpdatePayload
 from phase_utils import (
     MemorySuggester,
@@ -98,7 +99,7 @@ class HITLPhase:
             return "processing"
         origin = self._state.get_hitl_origin(issue_number)
         if origin:
-            if origin in self._config.improve_label:
+            if origin == Label.IMPROVE:
                 return "approval"
             return _HITL_ORIGIN_DISPLAY.get(origin, "pending")
         return "pending"
@@ -132,9 +133,7 @@ class HITLPhase:
             )
 
             # Swap label so the issue leaves the HITL dashboard immediately
-            await self._prs.swap_pipeline_labels(
-                issue_number, self._config.hitl_autofix_label[0]
-            )
+            await self._prs.swap_pipeline_labels(issue_number, Label.HITL_AUTOFIX)
 
             await self._prs.post_comment(
                 issue_number,
@@ -210,9 +209,7 @@ class HITLPhase:
                 self._state.set_worktree(issue_number, str(wt_path))
 
                 # Swap to active label
-                await self._prs.swap_pipeline_labels(
-                    issue_number, self._config.hitl_active_label[0]
-                )
+                await self._prs.swap_pipeline_labels(issue_number, Label.HITL_ACTIVE)
 
                 result = await self._hitl_runner.run(issue, correction, cause, wt_path)
 
@@ -225,14 +222,10 @@ class HITLPhase:
                 if result.success:
                     await self._prs.push_branch(wt_path, branch)
 
-                    if origin and origin in self._config.improve_label:
+                    if origin and origin == Label.IMPROVE:
                         # Improve issues go to triage for implementation
-                        target_label = (
-                            self._config.find_label[0]
-                            if self._config.find_label
-                            else None
-                        )
-                        target_stage = target_label or "pipeline"
+                        target_label = Label.FIND
+                        target_stage = Label.FIND
                     elif origin:
                         target_label = origin
                         target_stage = origin
@@ -244,8 +237,7 @@ class HITLPhase:
                         await self._prs.swap_pipeline_labels(issue_number, target_label)
                     else:
                         # No target label — just remove active
-                        for lbl in self._config.hitl_active_label:
-                            await self._prs.remove_label(issue_number, lbl)
+                        await self._prs.remove_label(issue_number, Label.HITL_ACTIVE)
 
                     self._state.remove_hitl_origin(issue_number)
                     self._state.remove_hitl_cause(issue_number)
@@ -274,9 +266,7 @@ class HITLPhase:
                         origin,
                     )
                 else:
-                    await self._prs.swap_pipeline_labels(
-                        issue_number, self._config.hitl_label[0]
-                    )
+                    await self._prs.swap_pipeline_labels(issue_number, Label.HITL)
                     await self._prs.post_comment(
                         issue_number,
                         f"**HITL correction failed.**\n\n"

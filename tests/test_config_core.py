@@ -309,17 +309,6 @@ class TestDetectRepoSlug:
 class TestHydraFlowConfigDefaults:
     """Tests that default field values are correct."""
 
-    def test_label_default(self, tmp_path: Path) -> None:
-        # Arrange / Act
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-
-        # Assert
-        assert cfg.ready_label == ["hydraflow-ready"]
-
     def test_batch_size_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -344,14 +333,6 @@ class TestHydraFlowConfigDefaults:
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_workers == 1
-
-    def test_find_label_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.find_label == ["hydraflow-find"]
 
     def test_max_planners_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -445,14 +426,6 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.max_hitl_workers == 1
 
-    def test_hitl_active_label_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.hitl_active_label == ["hydraflow-hitl-active"]
-
     def test_model_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -541,18 +514,6 @@ class TestHydraFlowConfigDefaults:
 
 class TestHydraFlowConfigCustomValues:
     """Tests that custom constructor values take precedence over defaults."""
-
-    def test_custom_label_overrides_ready_label_default(self, tmp_path: Path) -> None:
-        # Arrange / Act
-        cfg = HydraFlowConfig(
-            ready_label=["sprint"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-
-        # Assert
-        assert cfg.ready_label == ["sprint"]
 
     def test_custom_batch_size(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -643,24 +604,6 @@ class TestHydraFlowConfigCustomValues:
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_hitl_workers == 3
-
-    def test_custom_hitl_active_label(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            hitl_active_label=["custom-active"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.hitl_active_label == ["custom-active"]
-
-    def test_custom_improve_label(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            improve_label=["my-improve"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.improve_label == ["my-improve"]
 
     def test_custom_dry_run_true(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
@@ -1276,39 +1219,3 @@ class TestTwoPhasePathResolution:
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
         scoped_sessions = cfg.state_file.parent / "sessions.jsonl"
         assert not scoped_sessions.exists()  # copy failed
-
-
-# ---------------------------------------------------------------------------
-# memory_sync_labels property
-# ---------------------------------------------------------------------------
-
-
-class TestMemorySyncLabels:
-    """Tests for the memory_sync_labels property."""
-
-    def test_includes_improve_label(self, tmp_path: Path) -> None:
-        """memory_sync_labels must include improve_label so [Memory] issues are consumed."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        labels = cfg.memory_sync_labels
-        for lbl in cfg.improve_label:
-            assert lbl in labels, (
-                f"improve_label '{lbl}' missing from memory_sync_labels"
-            )
-
-    def test_includes_memory_and_transcript_labels(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        labels = cfg.memory_sync_labels
-        for lbl in cfg.memory_label:
-            assert lbl in labels
-        for lbl in cfg.transcript_label:
-            assert lbl in labels
-
-    def test_no_duplicates(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            repo="acme/widgets",
-            memory_label=["shared"],
-            improve_label=["shared"],
-            transcript_label=["shared"],
-        )
-        assert cfg.memory_sync_labels == ["shared"]

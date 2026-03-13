@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 from models import MetricsSnapshot, MetricsSyncResult, QueueStats
 from pr_manager import PRManager
 from state import StateTracker
@@ -263,21 +264,16 @@ class MetricsManager:
             return cached
 
         # Search by label
-        if self._config.metrics_label:
-            try:
-                from issue_fetcher import IssueFetcher
+        try:
+            from issue_fetcher import IssueFetcher
 
-                fetcher = IssueFetcher(self._config)
-                issues = await fetcher.fetch_issues_by_labels(
-                    self._config.metrics_label, limit=1
-                )
-                if issues:
-                    self._state.set_metrics_issue_number(issues[0].number)
-                    return issues[0].number
-            except Exception:
-                logger.warning(
-                    "Could not search for metrics issue by label", exc_info=True
-                )
+            fetcher = IssueFetcher(self._config)
+            issues = await fetcher.fetch_issues_by_labels([Label.METRICS], limit=1)
+            if issues:
+                self._state.set_metrics_issue_number(issues[0].number)
+                return issues[0].number
+        except Exception:
+            logger.warning("Could not search for metrics issue by label", exc_info=True)
 
         # Create a new one
         title = "HydraFlow Metrics"
@@ -289,9 +285,7 @@ class MetricsManager:
             "metrics persistence.\n\n"
             "---\n*Managed by HydraFlow Metrics Manager*"
         )
-        issue_number = await self._prs.create_issue(
-            title, body, list(self._config.metrics_label)
-        )
+        issue_number = await self._prs.create_issue(title, body, [Label.METRICS])
         if issue_number:
             self._state.set_metrics_issue_number(issue_number)
         return issue_number

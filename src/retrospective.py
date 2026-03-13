@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
+from labels import Label
 from models import IsoTimestamp, PlanAccuracyResult, ReviewVerdict
 
 if TYPE_CHECKING:
@@ -328,6 +329,6 @@ class RetrospectiveCollector:
 
     async def _file_improvement_issue(self, title: str, body: str) -> None:
         """File a memory-routed retrospective proposal for automatic ingestion."""
-        labels = self._config.improve_label[:1] + self._config.memory_label[:1]
+        labels: list[str] = [Label.IMPROVE, Label.MEMORY]
         memory_title = title if title.startswith("[Memory]") else f"[Memory] {title}"
         await self._prs.create_issue(memory_title, body, labels)

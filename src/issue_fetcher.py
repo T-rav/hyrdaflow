@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from config import HydraFlowConfig
+from labels import Label
 from models import GitHubIssue, PRInfo, Task
 from subprocess_util import run_subprocess
 
@@ -296,18 +297,14 @@ class IssueFetcher:
         Collects all configured pipeline labels and calls
         :meth:`fetch_issues_by_labels` once, deduplicating by issue number.
         """
-        all_labels = list(
-            {
-                *self._config.find_label,
-                *self._config.planner_label,
-                *self._config.ready_label,
-                *self._config.review_label,
-                *self._config.hitl_label,
-                *self._config.hitl_active_label,
-            }
-        )
-        if not all_labels:
-            return []
+        all_labels: list[str] = [
+            Label.FIND,
+            Label.PLAN,
+            Label.READY,
+            Label.REVIEW,
+            Label.HITL,
+            Label.HITL_ACTIVE,
+        ]
         return await self.fetch_issues_by_labels(
             all_labels,
             limit=500,
@@ -342,7 +339,7 @@ class IssueFetcher:
     async def fetch_plan_issues(self) -> list[GitHubIssue]:
         """Fetch issues labeled with the planner label (e.g. ``hydraflow-plan``)."""
         issues = await self.fetch_issues_by_labels(
-            self._config.planner_label,
+            [Label.PLAN],
             self._config.batch_size,
         )
         logger.info("Fetched %d issues for planning", len(issues))
@@ -357,7 +354,7 @@ class IssueFetcher:
         queue_size = 2 * self._config.max_workers
 
         all_issues = await self.fetch_issues_by_labels(
-            self._config.ready_label,
+            [Label.READY],
             queue_size,
         )
         # Only skip issues already active in this run (GitHub labels are
@@ -385,7 +382,7 @@ class IssueFetcher:
             issues = [i for i in prefetched_issues if i.number not in active_issues]
         else:
             all_issues = await self.fetch_issues_by_labels(
-                self._config.review_label,
+                [Label.REVIEW],
                 self._config.batch_size,
             )
             # Only skip issues already active in this run

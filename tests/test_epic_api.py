@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from events import EventType
+from labels import Label
 from models import EpicChildInfo, EpicDetail, EpicProgress, EpicReadiness, MergeStrategy
 from tests.helpers import find_endpoint, make_dashboard_router
 
@@ -271,27 +272,27 @@ class TestStageFromLabels:
     def test_review_label(self, config) -> None:
         from epic import _stage_from_labels
 
-        assert _stage_from_labels(config.review_label, config) == "review"
+        assert _stage_from_labels([Label.REVIEW], config) == "review"
 
     def test_ready_label(self, config) -> None:
         from epic import _stage_from_labels
 
-        assert _stage_from_labels(config.ready_label, config) == "implement"
+        assert _stage_from_labels([Label.READY], config) == "implement"
 
     def test_plan_label(self, config) -> None:
         from epic import _stage_from_labels
 
-        assert _stage_from_labels(config.planner_label, config) == "plan"
+        assert _stage_from_labels([Label.PLAN], config) == "plan"
 
     def test_find_label(self, config) -> None:
         from epic import _stage_from_labels
 
-        assert _stage_from_labels(config.find_label, config) == "triage"
+        assert _stage_from_labels([Label.FIND], config) == "triage"
 
     def test_fixed_label(self, config) -> None:
         from epic import _stage_from_labels
 
-        assert _stage_from_labels(config.fixed_label, config) == "merged"
+        assert _stage_from_labels([Label.FIXED], config) == "merged"
 
     def test_no_matching_label(self, config) -> None:
         from epic import _stage_from_labels

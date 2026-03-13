@@ -8,6 +8,7 @@ import pytest
 
 from events import EventType
 from issue_store import IssueStoreStage
+from labels import Label
 from models import IssueOutcomeType, ReviewVerdict
 from tests.conftest import PlanResultFactory, TaskFactory
 from tests.helpers import PipelineHarness, PipelineRunResult
@@ -40,7 +41,7 @@ async def test_plannable_data_flow_uses_issue_store_objects(tmp_path):
     harness = PipelineHarness(tmp_path)
     task = TaskFactory.create(
         id=777,
-        tags=[harness.config.planner_label[0]],
+        tags=[Label.PLAN],
     )
     harness.seed_issue(task, "plan")
     harness.planners.plan.return_value = PlanResultFactory.create(issue_number=task.id)

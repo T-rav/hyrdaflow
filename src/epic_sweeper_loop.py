@@ -16,6 +16,7 @@ from base_background_loop import BaseBackgroundLoop
 from config import HydraFlowConfig
 from epic import check_all_checkboxes, parse_epic_sub_issues
 from events import EventBus
+from labels import Label
 from models import StatusCallback
 
 if TYPE_CHECKING:
@@ -60,9 +61,7 @@ class EpicSweeperLoop(BaseBackgroundLoop):
         return self._config.epic_sweep_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
-        epics = await self._fetcher.fetch_issues_by_labels(
-            self._config.epic_label, limit=50
-        )
+        epics = await self._fetcher.fetch_issues_by_labels([Label.EPIC], limit=50)
         if len(epics) == 50:
             logger.warning(
                 "Epic sweeper fetched exactly 50 epics — result may be truncated;"
@@ -104,7 +103,7 @@ class EpicSweeperLoop(BaseBackgroundLoop):
 
         Returns True if the epic was closed.
         """
-        fixed_label = self._config.fixed_label[0] if self._config.fixed_label else ""
+        fixed_label = Label.FIXED
 
         for issue_number in sub_issues:
             issue = await self._fetcher.fetch_issue_by_number(issue_number)

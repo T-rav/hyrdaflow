@@ -299,7 +299,6 @@ def _make_release_checker(
     tmp_path: Path | None = None,
 ) -> tuple[EpicCompletionChecker, AsyncMock, AsyncMock, StateTracker | None]:
     config = ConfigFactory.create(
-        epic_label=["hydraflow-epic"],
         release_on_epic_close=release_on_epic_close,
         release_tag_prefix=release_tag_prefix,
         repo="test-org/test-repo",

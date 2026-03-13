@@ -188,7 +188,6 @@ class ConfigFactory:
     @staticmethod
     def create(
         *,
-        ready_label: list[str] | None = None,
         batch_size: int = 3,
         max_workers: int = 2,
         max_planners: int = 1,
@@ -211,21 +210,6 @@ class ConfigFactory:
         max_merge_conflict_fix_attempts: int = 3,
         max_ci_timeout_fix_attempts: int = 2,
         max_issue_attempts: int = 3,
-        review_label: list[str] | None = None,
-        hitl_label: list[str] | None = None,
-        hitl_active_label: list[str] | None = None,
-        fixed_label: list[str] | None = None,
-        improve_label: list[str] | None = None,
-        memory_label: list[str] | None = None,
-        transcript_label: list[str] | None = None,
-        manifest_label: list[str] | None = None,
-        metrics_label: list[str] | None = None,
-        dup_label: list[str] | None = None,
-        epic_label: list[str] | None = None,
-        epic_child_label: list[str] | None = None,
-        verify_label: list[str] | None = None,
-        find_label: list[str] | None = None,
-        planner_label: list[str] | None = None,
         planner_tool: Literal["claude", "codex", "pi"] = "claude",
         planner_model: str = "opus",
         triage_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -265,9 +249,6 @@ class ConfigFactory:
         state_file: Path | None = None,
         event_log_path: Path | None = None,
         config_file: Path | None = None,
-        memory_compaction_model: str = "haiku",
-        memory_compaction_tool: Literal["claude", "codex", "pi"] = "claude",
-        max_memory_chars: int = 4000,
         max_memory_prompt_chars: int = 4000,
         memory_sync_interval: int = 120,
         metrics_sync_interval: int = 7200,
@@ -311,7 +292,6 @@ class ConfigFactory:
         visual_per_screen_budget_bytes: int = 5_000_000,
         agent_timeout: int = 3600,
         transcript_summary_timeout: int = 120,
-        memory_compaction_timeout: int = 60,
         quality_timeout: int = 3600,
         git_command_timeout: int = 30,
         summarizer_timeout: int = 120,
@@ -347,8 +327,6 @@ class ConfigFactory:
         baseline_max_audit_records: int = 100,
         visual_validation_enabled: bool = True,
         visual_validation_trigger_patterns: list[str] | None = None,
-        visual_required_label: str = "hydraflow-visual-required",
-        visual_skip_label: str = "hydraflow-visual-skip",
         visual_max_retries: int = 2,
         visual_retry_delay: float = 0.0,
         visual_warn_threshold: float = 0.05,
@@ -375,7 +353,6 @@ class ConfigFactory:
                 )
             return HydraFlowConfig(
                 config_file=config_file,
-                ready_label=ready_label if ready_label is not None else ["test-label"],
                 batch_size=batch_size,
                 max_workers=max_workers,
                 max_planners=max_planners,
@@ -398,45 +375,6 @@ class ConfigFactory:
                 max_merge_conflict_fix_attempts=max_merge_conflict_fix_attempts,
                 max_ci_timeout_fix_attempts=max_ci_timeout_fix_attempts,
                 max_issue_attempts=max_issue_attempts,
-                review_label=review_label
-                if review_label is not None
-                else ["hydraflow-review"],
-                hitl_label=hitl_label if hitl_label is not None else ["hydraflow-hitl"],
-                hitl_active_label=hitl_active_label
-                if hitl_active_label is not None
-                else ["hydraflow-hitl-active"],
-                fixed_label=fixed_label
-                if fixed_label is not None
-                else ["hydraflow-fixed"],
-                improve_label=improve_label
-                if improve_label is not None
-                else ["hydraflow-improve"],
-                memory_label=memory_label
-                if memory_label is not None
-                else ["hydraflow-memory"],
-                transcript_label=transcript_label
-                if transcript_label is not None
-                else ["hydraflow-transcript"],
-                manifest_label=manifest_label
-                if manifest_label is not None
-                else ["hydraflow-manifest"],
-                metrics_label=metrics_label
-                if metrics_label is not None
-                else ["hydraflow-metrics"],
-                dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
-                epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
-                epic_child_label=(
-                    epic_child_label
-                    if epic_child_label is not None
-                    else ["hydraflow-epic-child"]
-                ),
-                verify_label=(
-                    verify_label if verify_label is not None else ["hydraflow-verify"]
-                ),
-                find_label=find_label if find_label is not None else ["hydraflow-find"],
-                planner_label=planner_label
-                if planner_label is not None
-                else ["hydraflow-plan"],
                 planner_tool=planner_tool,
                 planner_model=planner_model,
                 triage_tool=triage_tool,
@@ -477,9 +415,6 @@ class ConfigFactory:
                 worktree_base=worktree_base or root.parent / "test-worktrees",
                 state_file=state_file or root / ".hydraflow-state.json",
                 event_log_path=event_log_path or root / ".hydraflow-events.jsonl",
-                memory_compaction_model=memory_compaction_model,
-                memory_compaction_tool=memory_compaction_tool,
-                max_memory_chars=max_memory_chars,
                 max_memory_prompt_chars=max_memory_prompt_chars,
                 memory_sync_interval=memory_sync_interval,
                 metrics_sync_interval=metrics_sync_interval,
@@ -522,7 +457,6 @@ class ConfigFactory:
                 visual_gate_bypass=visual_gate_bypass,
                 agent_timeout=agent_timeout,
                 transcript_summary_timeout=transcript_summary_timeout,
-                memory_compaction_timeout=memory_compaction_timeout,
                 quality_timeout=quality_timeout,
                 git_command_timeout=git_command_timeout,
                 summarizer_timeout=summarizer_timeout,
@@ -576,8 +510,6 @@ class ConfigFactory:
                         "*.html",
                     ]
                 ),
-                visual_required_label=visual_required_label,
-                visual_skip_label=visual_skip_label,
                 visual_max_retries=visual_max_retries,
                 visual_retry_delay=visual_retry_delay,
                 visual_fail_threshold=visual_fail_threshold,
@@ -794,6 +726,7 @@ class PipelineHarness:
         review_verdict="approve",
     ) -> PipelineRunResult:
         """Drive an issue through triage -> plan -> implement -> review."""
+        from labels import Label
         from models import ReviewVerdict
         from tests.conftest import (
             PlanResultFactory,
@@ -803,7 +736,7 @@ class PipelineHarness:
             WorkerResultFactory,
         )
 
-        tag_list = tags or [self.config.find_label[0]]
+        tag_list = tags or [Label.FIND]
         task = TaskFactory.create(id=issue_number, tags=tag_list)
         self.seed_issue(task, seed_stage)
 

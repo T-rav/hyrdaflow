@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from events import EventType
+from labels import LABEL_METADATA
 from models import ReviewVerdict
 from pr_manager import PRManager
 from tests.conftest import PRInfoFactory, SubprocessMockBuilder
@@ -466,7 +467,6 @@ async def test_create_issue_passes_correct_gh_args(config, event_bus, tmp_path):
     from config import HydraFlowConfig
 
     cfg = HydraFlowConfig(
-        ready_label=config.ready_label,
         repo=config.repo,
         repo_root=tmp_path,
         worktree_base=tmp_path / "worktrees",
@@ -1644,89 +1644,17 @@ async def test_ensure_labels_exist_creates_all_hydraflow_labels(event_bus, tmp_p
         await mgr.ensure_labels_exist()
 
     # 1 list call + 1 create per label
-    assert mock_create.call_count == 1 + len(PRManager._HYDRAFLOW_LABELS)
+    assert mock_create.call_count == 1 + len(LABEL_METADATA)
 
     # Verify create calls use gh label create --force
     create_calls = [c for c in mock_create.call_args_list if "create" in c[0]]
-    assert len(create_calls) == len(PRManager._HYDRAFLOW_LABELS)
+    assert len(create_calls) == len(LABEL_METADATA)
     for call in create_calls:
         args = call[0]
         assert args[0] == "gh"
         assert "--force" in args
         assert "--color" in args
         assert "--description" in args
-
-
-@pytest.mark.asyncio
-async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tmp_path):
-    """ensure_labels_exist should use label names from config (not hardcoded defaults)."""
-
-    cfg = ConfigFactory.create(
-        find_label=["custom-find"],
-        ready_label=["custom-ready"],
-        planner_label=["custom-plan"],
-        review_label=["custom-review"],
-        hitl_label=["custom-hitl"],
-        hitl_active_label=["custom-hitl-active"],
-        fixed_label=["custom-fixed"],
-        improve_label=["custom-improve"],
-        memory_label=["custom-memory"],
-        transcript_label=["custom-transcript"],
-        manifest_label=["custom-manifest"],
-        metrics_label=["custom-metrics"],
-        dup_label=["custom-dup"],
-        epic_label=["custom-epic"],
-        epic_child_label=["custom-epic-child"],
-        verify_label=["custom-verify"],
-        repo_root=tmp_path,
-        worktree_base=tmp_path / "worktrees",
-        state_file=tmp_path / "state.json",
-    )
-    mgr = _make_manager(cfg, event_bus)
-
-    async def side_effect(*args, **_kwargs):
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.wait = AsyncMock(return_value=0)
-        if args[1] == "label" and args[2] == "list":
-            mock_proc.communicate = AsyncMock(return_value=(b"[]", b""))
-        else:
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-        return mock_proc
-
-    mock_create = AsyncMock(side_effect=side_effect)
-
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        await mgr.ensure_labels_exist()
-
-    # Collect all label names passed to gh label create
-    created_labels = set()
-    for call in mock_create.call_args_list:
-        args = call[0]
-        if "create" not in args:
-            continue
-        # Label name is the arg after "create"
-        create_idx = list(args).index("create")
-        created_labels.add(args[create_idx + 1])
-
-    assert created_labels == {
-        "custom-find",
-        "custom-plan",
-        "custom-ready",
-        "custom-review",
-        "custom-hitl",
-        "custom-hitl-active",
-        "custom-fixed",
-        "custom-improve",
-        "custom-memory",
-        "custom-transcript",
-        "custom-manifest",
-        "custom-metrics",
-        "custom-dup",
-        "custom-epic",
-        "custom-epic-child",
-        "custom-verify",
-    }
 
 
 @pytest.mark.asyncio
@@ -1778,7 +1706,7 @@ async def test_ensure_labels_exist_handles_individual_failures(event_bus, tmp_pa
         await mgr.ensure_labels_exist()
 
     # All labels should be attempted even though first one failed
-    assert create_count == len(PRManager._HYDRAFLOW_LABELS)
+    assert create_count == len(LABEL_METADATA)
 
 
 def test_makefile_ensure_labels_calls_dedicated_task() -> None:

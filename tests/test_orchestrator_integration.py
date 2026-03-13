@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 from orchestrator import HydraFlowOrchestrator
 from state import StateTracker
 from subprocess_util import CreditExhaustedError
@@ -98,7 +99,7 @@ async def test_full_pipeline_lifecycle(tmp_path) -> None:
         issue = TaskFactory.create(
             id=101,
             title="Pipeline happy path",
-            tags=[config.find_label[0]],
+            tags=[Label.FIND],
         )
         orch._svc.store.enqueue_transition(issue, "find")
 
@@ -146,7 +147,7 @@ async def test_crash_recovery_releases_recovered_issue(tmp_path) -> None:
         issue = TaskFactory.create(
             id=202,
             title="Recovered issue",
-            tags=[config.ready_label[0]],
+            tags=[Label.READY],
         )
         orch._svc.store.enqueue_transition(issue, "ready")
 
@@ -199,7 +200,7 @@ async def test_hitl_round_trip_moves_issue_back_to_plan(tmp_path) -> None:
         issue = TaskFactory.create(
             id=issue_id,
             title="Needs HITL",
-            tags=[config.find_label[0]],
+            tags=[Label.FIND],
         )
         orch._svc.store.enqueue_transition(issue, "find")
 
@@ -229,7 +230,7 @@ async def test_failed_implementation_discards_worktree(tmp_path) -> None:
         issue = TaskFactory.create(
             id=issue_id,
             title="Implementation failure",
-            tags=[config.ready_label[0]],
+            tags=[Label.READY],
         )
         orch._svc.store.enqueue_transition(issue, "ready")
 
@@ -253,7 +254,7 @@ async def test_concurrent_loops_do_not_double_process_same_issue(tmp_path) -> No
         issue = TaskFactory.create(
             id=issue_id,
             title="Concurrent isolation check",
-            tags=[config.ready_label[0]],
+            tags=[Label.READY],
         )
         orch._svc.store.enqueue_transition(issue, "ready")
 
@@ -281,7 +282,7 @@ async def test_label_transition_atomicity(tmp_path) -> None:
         issue = TaskFactory.create(
             id=606,
             title="Atomicity check",
-            tags=[config.find_label[0]],
+            tags=[Label.FIND],
         )
 
         def _total_queue_depth() -> int:

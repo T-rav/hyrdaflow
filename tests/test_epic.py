@@ -106,7 +106,6 @@ def _make_checker(
     dry_run: bool = False,
 ) -> tuple[EpicCompletionChecker, AsyncMock, AsyncMock]:
     config = ConfigFactory.create(
-        epic_label=["hydraflow-epic"],
         dry_run=dry_run,
     )
     prs = AsyncMock()
@@ -198,7 +197,7 @@ class TestEpicCompletionChecker:
 
     @pytest.mark.asyncio
     async def test_handles_fetch_failure_gracefully(self) -> None:
-        config = ConfigFactory.create(epic_label=["hydraflow-epic"])
+        config = ConfigFactory.create()
         prs = AsyncMock()
         fetcher = AsyncMock()
         fetcher.fetch_issues_by_labels = AsyncMock(
@@ -294,10 +293,7 @@ def _make_checker_with_state(
     epic_state: EpicState | None = None,
 ) -> tuple[EpicCompletionChecker, AsyncMock, AsyncMock, MagicMock]:
     """Like _make_checker but with a mock StateTracker."""
-    config = ConfigFactory.create(
-        epic_label=["hydraflow-epic"],
-        hitl_label=["hydraflow-hitl"],
-    )
+    config = ConfigFactory.create()
     prs = AsyncMock()
     fetcher = AsyncMock()
     fetcher.fetch_issues_by_labels = AsyncMock(return_value=epics or [])
@@ -871,7 +867,7 @@ class TestCheckAndCloseEpicsReturnValue:
 
     @pytest.mark.asyncio
     async def test_returns_false_on_fetch_failure(self) -> None:
-        config = ConfigFactory.create(epic_label=["hydraflow-epic"])
+        config = ConfigFactory.create()
         prs = AsyncMock()
         fetcher = AsyncMock()
         fetcher.fetch_issues_by_labels = AsyncMock(
@@ -896,10 +892,7 @@ def _make_epic_manager(
     sub_issues: dict[int, GitHubIssue] | None = None,
 ) -> tuple[EpicManager, AsyncMock, AsyncMock]:
     """Build an EpicManager with a real StateTracker and mocked GitHub dependencies."""
-    config = ConfigFactory.create(
-        epic_label=["hydraflow-epic"],
-        hitl_label=["hydraflow-hitl"],
-    )
+    config = ConfigFactory.create()
     state = make_state(tmp_path)
     prs = AsyncMock()
     fetcher = AsyncMock()
@@ -1027,7 +1020,7 @@ class TestCloseSpecificEpic:
 
     @pytest.mark.asyncio
     async def test_returns_none_on_fetch_failure(self) -> None:
-        config = ConfigFactory.create(epic_label=["hydraflow-epic"])
+        config = ConfigFactory.create()
         prs = AsyncMock()
         fetcher = AsyncMock()
         fetcher.fetch_issues_by_labels = AsyncMock(

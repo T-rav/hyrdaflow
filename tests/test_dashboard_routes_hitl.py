@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType
+from labels import ALL_PIPELINE_LABELS, Label
 from models import HITLItem
 
 
@@ -74,8 +75,8 @@ class TestHITLEndpointCause:
         assert items[0]["cause"] == "CI failed after 2 fix attempt(s)"
         called_labels = pr_mgr.list_hitl_items.await_args.args[0]  # type: ignore[union-attr]
         assert set(called_labels) == {
-            *config.hitl_label,
-            *config.hitl_active_label,
+            Label.HITL,
+            Label.HITL_ACTIVE,
         }
 
     @pytest.mark.asyncio
@@ -198,12 +199,12 @@ class TestHITLEndpointCause:
                     ),
                     "",
                 )
-                if label_arg == f"labels={config.hitl_label[0]}":
+                if label_arg == f"labels={Label.HITL}":
                     return (
                         '[{"number": 42, "title": "Issue from hitl", '
                         '"url": "https://github.com/T-rav/hyrdaflow/issues/42"}]'
                     )
-                if label_arg == f"labels={config.hitl_active_label[0]}":
+                if label_arg == f"labels={Label.HITL_ACTIVE}":
                     return (
                         '[{"number": 77, "title": "Issue from hitl-active", '
                         '"url": "https://github.com/T-rav/hyrdaflow/issues/77"}]'
@@ -845,7 +846,7 @@ class TestHITLSkipImproveTransition:
         assert response.status_code == 200
 
         # Verify find/triage label was set via swap
-        pr_mgr.swap_pipeline_labels.assert_any_call(42, config.find_label[0])
+        pr_mgr.swap_pipeline_labels.assert_any_call(42, Label.FIND)
 
         # Verify state cleanup
         assert state.get_hitl_origin(42) is None
@@ -874,7 +875,7 @@ class TestHITLSkipImproveTransition:
         # Should NOT add find label for non-improve origins
         add_calls = [c.args for c in pr_mgr.add_labels.call_args_list]
         for call in add_calls:
-            assert call[1] != [config.find_label[0]]
+            assert call[1] != [Label.FIND]
 
     @pytest.mark.asyncio
     async def test_hitl_skip_no_origin_no_triage_transition(
@@ -897,7 +898,7 @@ class TestHITLSkipImproveTransition:
         # Should NOT add find label when no origin
         add_calls = [c.args for c in pr_mgr.add_labels.call_args_list]
         for call in add_calls:
-            assert call[1] != [config.find_label[0]]
+            assert call[1] != [Label.FIND]
 
     @pytest.mark.asyncio
     async def test_hitl_skip_cleans_up_hitl_cause(
@@ -1266,9 +1267,9 @@ class TestHITLApproveMemoryEndpoint:
         assert data["status"] == "ok"
         # Should remove all pipeline labels
         removed = {call.args[1] for call in pr_mgr.remove_label.call_args_list}
-        assert removed == set(config.all_pipeline_labels)
+        assert removed == set(ALL_PIPELINE_LABELS)
         # Should add memory label
-        pr_mgr.add_labels.assert_called_once_with(42, config.memory_label)
+        pr_mgr.add_labels.assert_called_once_with(42, [Label.MEMORY])
         # State should be cleaned up
         assert state.get_hitl_origin(42) is None
         assert state.get_hitl_cause(42) is None
@@ -1446,7 +1447,7 @@ class TestHITLApproveProcessEndpoint:
         assert data["status"] == "ok"
 
         # Label swap to find/triage label
-        pr_mgr.swap_pipeline_labels.assert_called_once_with(42, config.find_label[0])
+        pr_mgr.swap_pipeline_labels.assert_called_once_with(42, Label.FIND)
 
         # HITL state cleaned up
         mock_orch.skip_hitl_issue.assert_called_once_with(42)

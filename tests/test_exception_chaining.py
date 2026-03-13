@@ -621,7 +621,6 @@ class TestADRReviewerBugGates:
         reviewer._prs = AsyncMock()
         reviewer._prs.create_issue.side_effect = TypeError("bad arg")
         reviewer._config = MagicMock()
-        reviewer._config.find_label = ["hydraflow-find"]
 
         result = ADRCouncilResult(
             adr_number=1,
@@ -643,7 +642,6 @@ class TestADRReviewerBugGates:
         reviewer._prs = AsyncMock()
         reviewer._prs.create_issue.side_effect = RuntimeError("API timeout")
         reviewer._config = MagicMock()
-        reviewer._config.find_label = ["hydraflow-find"]
 
         result = ADRCouncilResult(
             adr_number=1,
@@ -667,7 +665,6 @@ class TestADRReviewerBugGates:
         reviewer._prs.create_issue.side_effect = TypeError("bad create_issue arg")
         reviewer._config = MagicMock()
         reviewer._config.adr_review_auto_triage = True
-        reviewer._config.find_label = ["hydraflow-find"]
 
         validation = ADRValidationResult(
             issues=[ADRValidationIssue(code="E001", message="Missing heading")]
@@ -689,8 +686,6 @@ class TestADRReviewerBugGates:
         reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
         reviewer._config = MagicMock()
         reviewer._config.adr_review_auto_triage = True
-        reviewer._config.find_label = ["hydraflow-find"]
-        reviewer._config.hitl_label = ["hydraflow-hitl"]
 
         validation = ADRValidationResult(
             issues=[ADRValidationIssue(code="E001", message="Missing heading")]
@@ -711,7 +706,6 @@ class TestADRReviewerBugGates:
         reviewer._prs.create_issue.side_effect = TypeError("bad dup arg")
         reviewer._config = MagicMock()
         reviewer._config.adr_review_auto_triage = True
-        reviewer._config.find_label = ["hydraflow-find"]
 
         result = ADRCouncilResult(
             adr_number=2,
@@ -738,8 +732,6 @@ class TestADRReviewerBugGates:
         reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
         reviewer._config = MagicMock()
         reviewer._config.adr_review_auto_triage = True
-        reviewer._config.find_label = ["hydraflow-find"]
-        reviewer._config.hitl_label = ["hydraflow-hitl"]
 
         result = ADRCouncilResult(
             adr_number=2,

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from events import EventBus, EventType, HydraFlowEvent
+from labels import Label
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -216,9 +217,9 @@ class TestHITLCorrection:
     def test_get_hitl_status_returns_approval_for_improve_origin(
         self, config: HydraFlowConfig
     ) -> None:
-        """Memory suggestions use config.improve_label, not a hardcoded string."""
+        """Memory suggestions use Label.IMPROVE for origin tracking."""
         orch = HydraFlowOrchestrator(config)
-        orch._state.set_hitl_origin(42, config.improve_label[0])
+        orch._state.set_hitl_origin(42, Label.IMPROVE)
         assert orch.get_hitl_status(42) == "approval"
 
     def test_get_hitl_status_falls_back_to_pending_for_unknown_label(

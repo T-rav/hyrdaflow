@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
+from labels import Label
 from models import PlanResult, Task
 from tests.conftest import TaskFactory
 from tests.helpers import make_plan_phase, supply_once
@@ -63,7 +64,7 @@ class TestPlanPhase:
     async def test_plan_issues_swaps_labels_on_success(
         self, config: HydraFlowConfig
     ) -> None:
-        """On success, planner_label should be removed and config.ready_label added."""
+        """On success, planner_label should be removed and Label.READY added."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResult(
@@ -298,7 +299,7 @@ class TestPlanPhase:
             "Discovered issue",
             "This issue was discovered during planning — the config "
             "parser does not handle nested environment variables.",
-            [config.planner_label[0]],
+            [Label.PLAN],
         )
 
     @pytest.mark.asyncio
@@ -390,10 +391,10 @@ class TestPlanPhase:
         assert "Testing Strategy" in comment
 
         # Planner label removed, HITL label added via swap (escalate_to_hitl still uses swap_pipeline_labels)
-        prs.swap_pipeline_labels.assert_awaited_once_with(42, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, Label.HITL)
 
         # HITL origin and cause tracked in state
-        assert state.get_hitl_origin(42) == config.planner_label[0]
+        assert state.get_hitl_origin(42) == Label.PLAN
         assert state.get_hitl_cause(42) == "Plan validation failed after retry"
 
     @pytest.mark.asyncio
@@ -558,7 +559,7 @@ class TestPlanPhaseAlreadySatisfied:
         await phase.plan_issues()
 
         # Should swap to dup label
-        prs.swap_pipeline_labels.assert_awaited_once_with(42, config.dup_label[0])
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, Label.DUP)
 
         # Comment should be posted
         prs.post_comment.assert_awaited_once()
@@ -595,7 +596,7 @@ class TestPlanPhaseAlreadySatisfied:
 
         # Should NOT add ready label
         add_calls = [c.args for c in prs.add_labels.call_args_list]
-        ready_calls = [c for c in add_calls if config.ready_label[0] in c[1]]
+        ready_calls = [c for c in add_calls if Label.READY in c[1]]
         assert len(ready_calls) == 0
 
     @pytest.mark.asyncio
@@ -622,7 +623,7 @@ class TestPlanPhaseAlreadySatisfied:
         # Should escalate to HITL (not swap to dup label)
         prs.swap_pipeline_labels.assert_awaited()
         swap_args = prs.swap_pipeline_labels.call_args.args
-        assert swap_args[1] == config.hitl_label[0]
+        assert swap_args[1] == Label.HITL
 
 
 # ---------------------------------------------------------------------------
@@ -988,7 +989,7 @@ class TestPlanPhaseEvidenceValidation:
         # Should escalate to HITL
         prs.swap_pipeline_labels.assert_awaited()
         swap_args = prs.swap_pipeline_labels.call_args.args
-        assert swap_args[1] == config.hitl_label[0]
+        assert swap_args[1] == Label.HITL
         assert state.get_hitl_origin(42) is not None
 
     @pytest.mark.asyncio

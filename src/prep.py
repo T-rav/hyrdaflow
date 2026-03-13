@@ -9,30 +9,14 @@ import tomllib
 from dataclasses import dataclass, field
 
 from config import HydraFlowConfig
+from labels import LABEL_METADATA
 from models import AuditCheck, AuditCheckStatus, AuditResult
 from subprocess_util import run_subprocess, run_subprocess_with_retry
 
 logger = logging.getLogger("hydraflow.prep")
 
-# Authoritative HydraFlow lifecycle label table: (config_field, color, description)
-HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
-    ("find_label", "e4e669", "New issue for HydraFlow to discover and triage"),
-    ("planner_label", "c5def5", "Issue needs planning before implementation"),
-    ("ready_label", "0e8a16", "Issue ready for implementation"),
-    ("review_label", "fbca04", "Issue/PR under review"),
-    ("hitl_label", "d93f0b", "Escalated to human-in-the-loop"),
-    ("hitl_active_label", "e99695", "Being processed by HITL correction agent"),
-    ("fixed_label", "0075ca", "PR merged — issue completed"),
-    ("improve_label", "7057ff", "Review insight improvement proposal"),
-    ("memory_label", "1d76db", "Approved memory suggestion for sync"),
-    ("transcript_label", "bfd4f2", "Transcript summary issue for memory ingestion"),
-    ("metrics_label", "006b75", "Metrics persistence issue"),
-    ("manifest_label", "1185fe", "Manifest persistence issue"),
-    ("dup_label", "cfd3d7", "Issue already satisfied — no changes needed"),
-    ("epic_label", "5319e7", "Epic tracking issue with linked sub-issues"),
-    ("epic_child_label", "9b59b6", "Child issue linked to a HydraFlow epic"),
-    ("verify_label", "c2e0c6", "Post-merge verification pending"),
-)
+# Re-export for backward compatibility
+HYDRAFLOW_LABELS = LABEL_METADATA
 
 
 @dataclass
@@ -86,43 +70,41 @@ async def ensure_labels(config: HydraFlowConfig) -> PrepResult:
     result = PrepResult()
 
     if config.dry_run:
-        for cfg_field, _color, _desc in HYDRAFLOW_LABELS:
-            for name in getattr(config, cfg_field):
-                result.created.append(name)
+        for label in LABEL_METADATA:
+            result.created.append(label)
         logger.info("[dry-run] Would create labels: %s", result.created)
         return result
 
     existing = await _list_existing_labels(config)
 
-    for cfg_field, color, description in HYDRAFLOW_LABELS:
-        label_names: list[str] = getattr(config, cfg_field)
-        for label_name in label_names:
-            try:
-                await run_subprocess_with_retry(
-                    "gh",
-                    "label",
-                    "create",
-                    label_name,
-                    "--repo",
-                    config.repo,
-                    "--color",
-                    color,
-                    "--description",
-                    description,
-                    "--force",
-                    cwd=config.repo_root,
-                    gh_token=config.gh_token,
-                    max_retries=config.gh_max_retries,
-                )
-                if label_name in existing:
-                    result.existed.append(label_name)
-                    logger.debug("Label %r already existed (updated)", label_name)
-                else:
-                    result.created.append(label_name)
-                    logger.info("Created label %r", label_name)
-            except RuntimeError as exc:
-                result.failed.append(label_name)
-                logger.warning("Could not create label %r: %s", label_name, exc)
+    for label, (color, description) in LABEL_METADATA.items():
+        label_name: str = label
+        try:
+            await run_subprocess_with_retry(
+                "gh",
+                "label",
+                "create",
+                label_name,
+                "--repo",
+                config.repo,
+                "--color",
+                color,
+                "--description",
+                description,
+                "--force",
+                cwd=config.repo_root,
+                gh_token=config.gh_token,
+                max_retries=config.gh_max_retries,
+            )
+            if label_name in existing:
+                result.existed.append(label_name)
+                logger.debug("Label %r already existed (updated)", label_name)
+            else:
+                result.created.append(label_name)
+                logger.info("Created label %r", label_name)
+        except RuntimeError as exc:
+            result.failed.append(label_name)
+            logger.warning("Could not create label %r: %s", label_name, exc)
 
     return result
 
@@ -156,23 +138,8 @@ _LOCK_FILES: tuple[tuple[str, str], ...] = (
     ("poetry.lock", "poetry"),
 )
 
-# Config label fields on HydraFlowConfig that map to HydraFlow lifecycle labels
-_LABEL_FIELDS: tuple[str, ...] = (
-    "find_label",
-    "planner_label",
-    "ready_label",
-    "review_label",
-    "hitl_label",
-    "hitl_active_label",
-    "fixed_label",
-    "improve_label",
-    "memory_label",
-    "transcript_label",
-    "metrics_label",
-    "dup_label",
-    "epic_label",
-    "epic_child_label",
-)
+# All HydraFlow lifecycle labels (derived from LABEL_METADATA)
+_ALL_LABEL_NAMES: list[str] = [str(lbl) for lbl in LABEL_METADATA]
 
 
 class RepoAuditor:
@@ -803,8 +770,5 @@ class RepoAuditor:
         )
 
     def _get_hydra_labels(self) -> list[str]:
-        """Return the full list of HydraFlow lifecycle label names from config."""
-        labels: list[str] = []
-        for label_field in _LABEL_FIELDS:
-            labels.extend(getattr(self._config, label_field))
-        return labels
+        """Return the full list of HydraFlow lifecycle label names."""
+        return list(_ALL_LABEL_NAMES)

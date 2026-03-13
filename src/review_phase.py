@@ -21,6 +21,7 @@ from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
+from labels import Label
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
     BaselineApprovalResult,
@@ -258,7 +259,7 @@ class ReviewPhase:
                     issue_number=issue.id,
                     pr_number=None,
                     cause="ADR review failed validation",
-                    origin_label=self._config.review_label[0],
+                    origin_label=Label.REVIEW,
                     comment=(
                         "## ADR Review Failed\n\n"
                         "The ADR draft is not ready for finalization.\n\n"
@@ -283,7 +284,7 @@ class ReviewPhase:
             "ADR draft validated and finalized by the review phase.\n\n"
             "Closing issue as complete.",
         )
-        await self._prs.swap_pipeline_labels(issue.id, self._config.fixed_label[0])
+        await self._prs.swap_pipeline_labels(issue.id, Label.FIXED)
         await self._transitioner.close_task(issue.id)
         self._state.mark_issue(issue.id, "completed")
         self._state.record_issue_completed()
@@ -454,7 +455,7 @@ class ReviewPhase:
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     cause="Baseline changes require approval",
-                    origin_label=self._config.review_label[0],
+                    origin_label=Label.REVIEW,
                     comment=(
                         "## Baseline Policy Violation\n\n"
                         "This PR modifies visual baseline files that require "
@@ -662,7 +663,7 @@ class ReviewPhase:
                 issue_number=task.id,
                 pr_number=pr.number,
                 cause=cause,
-                origin_label=self._config.review_label[0],
+                origin_label=Label.REVIEW,
                 comment=(
                     f"**Visual validation failed** — escalating to human review.\n\n"
                     f"{summary_text}"
@@ -1218,7 +1219,7 @@ class ReviewPhase:
                 issue_number=pr.issue_number,
                 pr_number=pr.number,
                 cause=f"Visual gate {verdict}",
-                origin_label=self._config.review_label[0],
+                origin_label=Label.REVIEW,
                 comment=f"Visual gate verdict: {verdict} — {reason}",
                 event_cause="visual_gate_failed",
                 task=issue,
@@ -1315,7 +1316,7 @@ class ReviewPhase:
                 issue_number=issue.id,
                 pr_number=pr.number,
                 cause=cause,
-                origin_label=self._config.review_label[0],
+                origin_label=Label.REVIEW,
                 comment=(
                     f"**CI failed** after {ci_fix_attempts} fix attempt(s).\n\n"
                     f"Last failure: {logs}\n\n"
@@ -1440,7 +1441,7 @@ class ReviewPhase:
                 body = build_insight_issue_body(category, count, len(recent), evidence)
                 desc = CATEGORY_DESCRIPTIONS.get(category, category)
                 title = f"[Review Insight] Recurring feedback: {desc}"
-                labels = self._config.improve_label[:1]
+                labels: list[str] = [Label.IMPROVE]
                 await self._transitioner.create_task(title, body, labels)
                 self._state.mark_pattern_proposed("review", category)
         except (RuntimeError, OSError):
@@ -1563,7 +1564,7 @@ class ReviewPhase:
                 issue_number=issue_number,
                 pr_number=pr_number,
                 cause=cause,
-                origin_label=self._config.review_label[0],
+                origin_label=Label.REVIEW,
                 comment=comment,
                 event_cause="visual_validation_failed",
                 task=task,
@@ -1712,7 +1713,7 @@ class ReviewPhase:
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
                     cause=f"Review fix cap exceeded after {max_attempts} attempt(s)",
-                    origin_label=self._config.review_label[0],
+                    origin_label=Label.REVIEW,
                     comment=(
                         f"**Review fix cap exceeded** — {max_attempts} review fix "
                         f"attempt(s) exhausted. Escalating to human review."
