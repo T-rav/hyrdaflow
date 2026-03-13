@@ -41,6 +41,7 @@ from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
 from report_issue_loop import ReportIssueLoop
+from research_runner import ResearchRunner
 from retrospective import RetrospectiveCollector
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
@@ -139,6 +140,7 @@ def build_services(
     subprocess_runner = get_docker_runner(config)
     agents = AgentRunner(config, event_bus, runner=subprocess_runner)
     planners = PlannerRunner(config, event_bus, runner=subprocess_runner)
+    researcher = ResearchRunner(config, event_bus, runner=subprocess_runner)
     prs = PRManager(config, event_bus)
     manifest_syncer = ManifestIssueSyncer(config, state, prs)
     reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner)
@@ -188,6 +190,7 @@ def build_services(
         transcript_summarizer=summarizer,
         harness_insights=harness_insights,
         epic_manager=epic_manager,
+        research_runner=researcher,
     )
     hitl_phase = HITLPhase(
         config,

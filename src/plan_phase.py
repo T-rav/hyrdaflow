@@ -23,6 +23,7 @@ from phase_utils import (
 )
 from planner import PlannerRunner
 from pr_manager import PRManager
+from research_runner import ResearchRunner
 from state import StateTracker
 from task_source import TaskTransitioner
 from transcript_summarizer import TranscriptSummarizer
@@ -51,6 +52,7 @@ class PlanPhase:
         transcript_summarizer: TranscriptSummarizer | None = None,
         harness_insights: HarnessInsightStore | None = None,
         epic_manager: EpicManager | None = None,
+        research_runner: ResearchRunner | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -63,6 +65,7 @@ class PlanPhase:
         self._summarizer = transcript_summarizer
         self._harness_insights = harness_insights
         self._epic_manager = epic_manager
+        self._research_runner = research_runner
         self._suggest_memory = MemorySuggester(config, prs, state)
         self._escalator = PipelineEscalator(
             state,
@@ -73,6 +76,14 @@ class PlanPhase:
             hitl_label=config.hitl_label[0],
             stage=PipelineStage.PLAN,
         )
+
+    def _should_research(self, issue: Task) -> bool:
+        """Return True if research should run before planning this issue."""
+        if not self._research_runner:
+            return False
+        if not self._config.research_enabled:
+            return False
+        return issue.complexity_score >= self._config.research_complexity_threshold
 
     async def _handle_already_satisfied(self, issue: Task, result: PlanResult) -> bool:
         """Validate evidence and close issue as already-satisfied.
@@ -343,7 +354,39 @@ class PlanPhase:
                 return PlanResult(issue_number=issue.id, error="stopped")
 
             async with store_lifecycle(self._store, issue.id, "plan"):
-                result = await self._planners.plan(issue, worker_id=idx)
+                research_context = ""
+                if self._should_research(issue):
+                    research_result = await self._research_runner.research(issue)  # type: ignore[union-attr]
+                    if research_result.success:
+                        research_context = research_result.research
+                        logger.info(
+                            "Research completed for issue #%d (%d chars)",
+                            issue.id,
+                            len(research_context),
+                        )
+                        # Post collapsed research as issue comment
+                        try:
+                            await self._prs.post_comment(
+                                issue.id,
+                                f"<details><summary>🔬 Research Context</summary>\n\n"
+                                f"{research_context}\n\n</details>",
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "Failed to post research comment for #%d",
+                                issue.id,
+                                exc_info=True,
+                            )
+                    else:
+                        logger.warning(
+                            "Research failed for issue #%d: %s",
+                            issue.id,
+                            research_result.error,
+                        )
+
+                result = await self._planners.plan(
+                    issue, worker_id=idx, research_context=research_context
+                )
 
                 already_handled = False
                 ts_status = "failed"

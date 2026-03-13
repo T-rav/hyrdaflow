@@ -41,6 +41,7 @@ class PlannerRunner(BaseRunner):
         self,
         task: Task,
         worker_id: int = 0,
+        research_context: str = "",
     ) -> PlanResult:
         """Run the planning agent for *task*.
 
@@ -68,7 +69,9 @@ class PlannerRunner(BaseRunner):
             logger.info("Issue #%d classified as %s plan", task.id, scale)
 
             cmd = self._build_command()
-            prompt, prompt_stats = self._build_prompt_with_stats(task, scale=scale)
+            prompt, prompt_stats = self._build_prompt_with_stats(
+                task, scale=scale, research_context=research_context
+            )
 
             def _check_plan_complete(accumulated: str) -> bool:
                 if "PLAN_END" in accumulated:
@@ -291,7 +294,11 @@ class PlannerRunner(BaseRunner):
         return "\n".join(lines)
 
     def _build_prompt_with_stats(
-        self, issue: Task, *, scale: PlanScale = "full"
+        self,
+        issue: Task,
+        *,
+        scale: PlanScale = "full",
+        research_context: str = "",
     ) -> tuple[str, dict[str, object]]:
         """Build the planning prompt and pruning stats.
 
@@ -389,11 +396,20 @@ class PlannerRunner(BaseRunner):
                 "`## Key Considerations` section."
             )
 
+        research_section = ""
+        if research_context:
+            research_section = (
+                f"\n\n## Pre-Plan Research\n\n"
+                f"A research agent has already explored the codebase for this issue. "
+                f"Use this context to inform your plan — do not repeat this exploration.\n\n"
+                f"{research_context}"
+            )
+
         prompt = f"""You are a planning agent for GitHub issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{body}{image_note}{comments_section}{manifest_section}{memory_section}
+{body}{image_note}{comments_section}{research_section}{manifest_section}{memory_section}
 
 ## Instructions
 

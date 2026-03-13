@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from models import PlanResult, Task
+from models import PlanResult, ResearchResult, Task
 from tests.conftest import TaskFactory
 from tests.helpers import make_plan_phase, supply_once
 
@@ -228,7 +228,7 @@ class TestPlanPhase:
         was_active_during_plan = False
 
         async def check_active_plan(
-            issue_obj: object, worker_id: int = 0
+            issue_obj: object, worker_id: int = 0, **kwargs: object
         ) -> PlanResult:
             nonlocal was_active_during_plan
             was_active_during_plan = store.is_active(42)
@@ -1051,3 +1051,109 @@ class TestPlanPhaseBatchScaling:
         config.max_planners = 5  # type: ignore[assignment]
         await phase.plan_issues()
         store.get_plannable.assert_called_with(1)
+
+
+# ---------------------------------------------------------------------------
+# Research integration
+# ---------------------------------------------------------------------------
+
+
+class TestPlanPhaseResearch:
+    """Tests for pre-plan research triggering."""
+
+    def test_should_research_true_when_complex(self, config):
+        """High complexity + enabled config triggers research."""
+        phase, *_ = make_plan_phase(config)
+        phase._research_runner = AsyncMock()
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 6
+
+        task = Task(id=1, title="Add feature", complexity_score=8)
+        assert phase._should_research(task) is True
+
+    def test_should_research_false_when_below_threshold(self, config):
+        """Low complexity skips research."""
+        phase, *_ = make_plan_phase(config)
+        phase._research_runner = AsyncMock()
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 6
+
+        task = Task(id=1, title="Fix typo", complexity_score=3)
+        assert phase._should_research(task) is False
+
+    def test_should_research_false_when_disabled(self, config):
+        """Disabled config skips research even for complex issues."""
+        phase, *_ = make_plan_phase(config)
+        phase._research_runner = AsyncMock()
+        phase._config.research_enabled = False
+
+        task = Task(id=1, title="Add feature", complexity_score=10)
+        assert phase._should_research(task) is False
+
+    def test_should_research_false_when_no_runner(self, config):
+        """No research_runner means no research."""
+        phase, *_ = make_plan_phase(config)
+        # phase._research_runner is None by default
+        task = Task(id=1, title="Add feature", complexity_score=10)
+        assert phase._should_research(task) is False
+
+    @pytest.mark.asyncio
+    async def test_plan_one_calls_research_for_complex_issue(self, config):
+        """When research is triggered, result context is passed to planner."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+
+        research_mock = AsyncMock()
+        research_mock.research = AsyncMock(
+            return_value=ResearchResult(
+                issue_number=1, success=True, research="Found relevant files"
+            )
+        )
+        phase._research_runner = research_mock
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 5
+
+        issue = TaskFactory.create(id=1, complexity_score=8)
+        plan_result = PlanResult(
+            issue_number=1,
+            success=True,
+            plan="## Files to Modify\n- src/main.py\n## Testing Strategy\n- tests/test.py",
+            summary="Plan summary",
+        )
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        research_mock.research.assert_awaited_once()
+        planners.plan.assert_awaited_once()
+        # Verify research_context was passed
+        call_kwargs = planners.plan.call_args
+        assert call_kwargs.kwargs.get("research_context") == "Found relevant files"
+
+    @pytest.mark.asyncio
+    async def test_plan_one_skips_research_for_simple_issue(self, config):
+        """Low complexity issues skip research entirely."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+
+        research_mock = AsyncMock()
+        research_mock.research = AsyncMock()
+        phase._research_runner = research_mock
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 6
+
+        issue = TaskFactory.create(id=1, complexity_score=3)
+        plan_result = PlanResult(
+            issue_number=1,
+            success=True,
+            plan="## Files to Modify\n- src/main.py\n## Testing Strategy\n- tests/test.py",
+            summary="Plan summary",
+        )
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        research_mock.research.assert_not_awaited()
+        # Planner called with empty research_context
+        call_kwargs = planners.plan.call_args
+        assert call_kwargs.kwargs.get("research_context") == ""
