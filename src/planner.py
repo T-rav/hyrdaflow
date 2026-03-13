@@ -6,7 +6,6 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -549,78 +548,6 @@ This closes the issue automatically. False positives waste significant human tim
     ) -> list[str]:
         """Delegate to :func:`plan_validation.validate_plan`."""
         return validate_plan(issue, plan, scale, config=self._config)
-
-    # Regex for task graph phase headers: ### P1 — Name or ### P1 - Name
-    _TASK_GRAPH_PHASE_RE = re.compile(
-        r"^###\s+P(\d+)\s*[\u2014\-]+\s*(.+)$", re.MULTILINE
-    )
-
-    def _extract_task_graph_phases(self, section_body: str) -> list[dict[str, Any]]:
-        """Extract structured phases from a Task Graph section body.
-
-        Returns a list of dicts with keys: ``id``, ``name``, ``files``,
-        ``tests``, ``depends_on``.
-        """
-        headers = list(self._TASK_GRAPH_PHASE_RE.finditer(section_body))
-        if not headers:
-            return []
-
-        phases: list[dict[str, Any]] = []
-        for i, match in enumerate(headers):
-            phase_num = match.group(1)
-            phase_name = match.group(2).strip()
-            # Extract body between this header and the next (or end)
-            start = match.end()
-            end = headers[i + 1].start() if i + 1 < len(headers) else len(section_body)
-            body = section_body[start:end]
-
-            # Extract **Files:** content
-            files_match = re.search(
-                r"\*\*Files:\*\*\s*(.+?)(?=\n\*\*|\Z)", body, re.DOTALL
-            )
-            files: list[str] = []
-            if files_match:
-                files = re.findall(
-                    r"[\w\-]+(?:/[\w\-]+)+\.?[\w]*|[\w\-]+\.[\w]+",
-                    files_match.group(1),
-                )
-
-            # Extract **Tests:** content (behavioral specs)
-            tests_match = re.search(
-                r"\*\*Tests:\*\*\s*(.+?)(?=\n\*\*|\Z)", body, re.DOTALL
-            )
-            tests: list[str] = []
-            if tests_match:
-                tests = [
-                    s.strip()
-                    for s in re.findall(
-                        r"^\s*[-*]\s+(.+)$", tests_match.group(1), re.MULTILINE
-                    )
-                    if s.strip()
-                ]
-
-            # Extract **Depends on:** content
-            deps_match = re.search(
-                r"\*\*Depends on:\*\*\s*(.+?)(?=\n\*\*|\n###|\Z)", body, re.DOTALL
-            )
-            depends_on: list[str] = []
-            if deps_match:
-                dep_text = deps_match.group(1).strip().lower()
-                if dep_text not in ("none", "(none)", "n/a", "-"):
-                    depends_on = re.findall(r"P(\d+)", deps_match.group(1))
-                    depends_on = [f"P{d}" for d in depends_on]
-
-            phases.append(
-                {
-                    "id": f"P{phase_num}",
-                    "name": f"P{phase_num} — {phase_name}",
-                    "files": files,
-                    "tests": tests,
-                    "depends_on": depends_on,
-                }
-            )
-
-        return phases
 
     def _score_actionability(
         self, plan: str, *, scale: PlanScale = "full"
