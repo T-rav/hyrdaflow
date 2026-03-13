@@ -1061,17 +1061,41 @@ class TestPlanPhaseBatchScaling:
 class TestPlanPhaseResearch:
     """Tests for pre-plan research triggering."""
 
-    def test_should_research_true_when_runner_present(self, config):
-        """Research runs when runner is wired."""
+    def test_should_research_true_when_complex(self, config):
+        """High complexity + enabled config triggers research."""
         phase, *_ = make_plan_phase(config)
         phase._research_runner = AsyncMock()
-        assert phase._should_research() is True
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 6
+
+        task = Task(id=1, title="Add feature", complexity_score=8)
+        assert phase._should_research(task) is True
+
+    def test_should_research_false_when_below_threshold(self, config):
+        """Low complexity skips research."""
+        phase, *_ = make_plan_phase(config)
+        phase._research_runner = AsyncMock()
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 6
+
+        task = Task(id=1, title="Fix typo", complexity_score=3)
+        assert phase._should_research(task) is False
+
+    def test_should_research_false_when_disabled(self, config):
+        """Disabled config skips research even for complex issues."""
+        phase, *_ = make_plan_phase(config)
+        phase._research_runner = AsyncMock()
+        phase._config.research_enabled = False
+
+        task = Task(id=1, title="Add feature", complexity_score=10)
+        assert phase._should_research(task) is False
 
     def test_should_research_false_when_no_runner(self, config):
         """No research_runner means no research."""
         phase, *_ = make_plan_phase(config)
         # phase._research_runner is None by default
-        assert phase._should_research() is False
+        task = Task(id=1, title="Add feature", complexity_score=10)
+        assert phase._should_research(task) is False
 
     @pytest.mark.asyncio
     async def test_plan_one_calls_research_for_complex_issue(self, config):
@@ -1085,8 +1109,10 @@ class TestPlanPhaseResearch:
             )
         )
         phase._research_runner = research_mock
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 5
 
-        issue = TaskFactory.create(id=1)
+        issue = TaskFactory.create(id=1, complexity_score=8)
         plan_result = PlanResult(
             issue_number=1,
             success=True,
@@ -1105,12 +1131,17 @@ class TestPlanPhaseResearch:
         assert call_kwargs.kwargs.get("research_context") == "Found relevant files"
 
     @pytest.mark.asyncio
-    async def test_plan_one_skips_research_when_no_runner(self, config):
-        """Without a research runner, planning proceeds without research."""
+    async def test_plan_one_skips_research_for_simple_issue(self, config):
+        """Low complexity issues skip research entirely."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
 
-        # No research_runner set (default None)
-        issue = TaskFactory.create(id=1)
+        research_mock = AsyncMock()
+        research_mock.research = AsyncMock()
+        phase._research_runner = research_mock
+        phase._config.research_enabled = True
+        phase._config.research_complexity_threshold = 6
+
+        issue = TaskFactory.create(id=1, complexity_score=3)
         plan_result = PlanResult(
             issue_number=1,
             success=True,
@@ -1122,6 +1153,7 @@ class TestPlanPhaseResearch:
 
         await phase.plan_issues()
 
+        research_mock.research.assert_not_awaited()
         # Planner called with empty research_context
         call_kwargs = planners.plan.call_args
         assert call_kwargs.kwargs.get("research_context") == ""
