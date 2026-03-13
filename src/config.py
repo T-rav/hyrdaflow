@@ -552,6 +552,15 @@ class HydraFlowConfig(BaseModel):
         le=10,
         description="Minimum triage complexity_score to trigger research (1-10)",
     )
+    tdd_isolation_enabled: bool = Field(
+        default=False,
+        description="Enable per-phase TDD isolation (RED/GREEN/VALIDATE) for Task Graph plans",
+    )
+    tdd_max_remediation_loops: int = Field(
+        default=4,
+        ge=0,
+        description="Max remediation attempts per TDD phase before falling back to single-agent",
+    )
     triage_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for triage agents",
