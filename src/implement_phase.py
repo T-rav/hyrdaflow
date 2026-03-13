@@ -6,16 +6,11 @@ import asyncio
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from agent import AgentRunner
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
-from task_graph import has_task_graph
-
-if TYPE_CHECKING:
-    from tdd_orchestrator import TDDOrchestrator
 from models import (
     GitHubIssue,
     PipelineStage,
@@ -57,7 +52,6 @@ class ImplementPhase:
         stop_event: asyncio.Event,
         run_recorder: RunRecorder | None = None,
         harness_insights: HarnessInsightStore | None = None,
-        tdd_orchestrator: TDDOrchestrator | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -69,7 +63,6 @@ class ImplementPhase:
         self._stop_event = stop_event
         self._run_recorder = run_recorder
         self._harness_insights = harness_insights
-        self._tdd = tdd_orchestrator
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._suggest_memory = MemorySuggester(config, prs, state)

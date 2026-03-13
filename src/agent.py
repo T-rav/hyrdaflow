@@ -415,10 +415,10 @@ Run through this checklist before your final commit:
 
         rules = (
             "### Rules\n\n"
-            "- Complete each phase fully (RED → GREEN → REFACTOR) before "
+            "- Complete each phase fully (RED \u2192 GREEN \u2192 REFACTOR) before "
             "starting the next\n"
             "- Each sub-agent runs in the same worktree and sees prior commits\n"
-            "- If a sub-agent fails, report the failure with details — do NOT "
+            "- If a sub-agent fails, report the failure with details \u2014 do NOT "
             "retry silently\n"
             f"- REFACTOR sub-agent may attempt up to **{max_fix}** fix cycles "
             "before reporting failure\n\n"
@@ -436,17 +436,17 @@ Run through this checklist before your final commit:
                 f"### Phase {i}: {phase.name}\n\n"
                 f"**Files:** {files_str}  \n"
                 f"**Depends on:** {deps_str}\n\n"
-                f"**1. RED sub-agent** — Launch with prompt:\n"
+                f"**1. RED sub-agent** \u2014 Launch with prompt:\n"
                 f'> "Write FAILING tests for {phase.name}. '
                 f"Test these behavioral specs:\n{tests_str}\n"
                 f"ONLY create/modify files in `tests/`. Do NOT touch source files. "
                 f'Commit when done."\n\n'
-                f"**2. GREEN sub-agent** — Launch with prompt:\n"
+                f"**2. GREEN sub-agent** \u2014 Launch with prompt:\n"
                 f'> "Implement the MINIMUM code to make all failing tests pass '
                 f"for {phase.name}. Modify these files: {files_str}. "
                 f"ONLY change source/implementation files (NOT test files). "
                 f'Commit when done."\n\n'
-                f"**3. REFACTOR sub-agent** — Launch with prompt:\n"
+                f"**3. REFACTOR sub-agent** \u2014 Launch with prompt:\n"
                 f'> "Run `make test`. If tests fail, fix implementation code '
                 f"(not tests). Repeat until the full suite passes (max "
                 f'{max_fix} attempts). Commit fixes."\n\n'
@@ -460,7 +460,7 @@ Run through this checklist before your final commit:
                 "ordered phases.\n"
                 "Execute phases in order (P1 before P2, etc.). For each phase:\n"
                 "1. Write tests that encode the behavioral specs listed.\n"
-                "2. Run tests — they should FAIL.\n"
+                "2. Run tests \u2014 they should FAIL.\n"
                 "3. Implement the minimum code to make tests pass.\n"
                 "4. Run the full test suite before moving to the next phase.\n\n"
                 f"{plan_comment}"

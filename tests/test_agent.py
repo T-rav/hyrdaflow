@@ -325,6 +325,31 @@ class TestBuildPrompt:
         # Old generic instructions NOT present
         assert "Execute phases in order" not in prompt
 
+    def test_prompt_uses_tdd_subagent_instructions_when_isolation_enabled(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """When TDD isolation is enabled and plan has Task Graph, prompt instructs sub-agent usage."""
+        config.tdd_isolation_enabled = True
+        issue = Task(
+            id=10,
+            title="Add widget feature",
+            body="We need widgets",
+            comments=[
+                "## Implementation Plan\n\n## Task Graph\n\n"
+                "### P1 \u2014 Model\n**Files:** src/models.py\n"
+                "**Tests:**\n- Widget persists\n**Depends on:** (none)\n",
+            ],
+        )
+        runner = AgentRunner(config, event_bus)
+        prompt, _ = runner._build_prompt_with_stats(issue)
+
+        assert "TDD Sub-Agent Isolation" in prompt
+        assert "RED sub-agent" in prompt
+        assert "GREEN sub-agent" in prompt
+        assert "REFACTOR sub-agent" in prompt
+        assert "Agent tool" in prompt
+        assert "Execute phases in order" not in prompt  # old instructions replaced
+
     def test_prompt_uses_standard_instructions_when_plan_has_no_task_graph(
         self, config, event_bus: EventBus
     ) -> None:
