@@ -397,6 +397,47 @@ Run through this checklist before your final commit:
             + f"\n[Comment truncated from {len(raw):,} chars]"
         )
 
+    @staticmethod
+    def _build_tdd_subagent_plan(plan_comment: str) -> str:
+        """Build a Task Graph plan that instructs the agent to use sub-agents.
+
+        When TDD isolation is enabled, each phase is executed via three
+        sub-agents launched with the Agent tool:
+          1. **RED** — writes failing tests only (no source changes)
+          2. **GREEN** — implements minimum code to pass tests (no test changes)
+          3. **REFACTOR** — runs the full test suite and fixes any failures
+        """
+        return (
+            "\n\n## Implementation Plan — TDD Sub-Agent Isolation\n\n"
+            "This plan uses a **Task Graph** with ordered phases. You MUST use "
+            "the **Agent tool** to launch a separate sub-agent for each TDD step.\n\n"
+            "### Execution Protocol\n\n"
+            "For each phase (P1, P2, ... in dependency order):\n\n"
+            "1. **RED sub-agent** — Launch a sub-agent with this instruction:\n"
+            '   > "You are the RED agent for phase {id}. Write FAILING tests that '
+            "encode the behavioral specs listed below. ONLY create or modify files "
+            "in `tests/`. Do NOT touch any source/implementation files. Commit your "
+            'test files when done."\n'
+            "   Pass the phase's **Tests** specs as context. Wait for it to complete.\n\n"
+            "2. **GREEN sub-agent** — Launch a sub-agent with this instruction:\n"
+            '   > "You are the GREEN agent for phase {id}. Implement the MINIMUM code '
+            "to make all failing tests pass. ONLY modify source/implementation files "
+            '(NOT test files). Commit your changes when done."\n'
+            "   Pass the phase's **Files** list as context. Wait for it to complete.\n\n"
+            "3. **REFACTOR sub-agent** — Launch a sub-agent with this instruction:\n"
+            '   > "Run `make test` (or the project test command). If any tests fail, '
+            "fix the implementation code (not tests) to make them pass. Repeat until "
+            'the full suite is green. Commit fixes."\n'
+            "   Wait for it to complete before moving to the next phase.\n\n"
+            "### Rules\n\n"
+            "- Execute phases in dependency order (P1 before P2, etc.)\n"
+            "- Do NOT skip ahead — each phase's REFACTOR must pass before starting "
+            "the next phase's RED\n"
+            "- Each sub-agent runs in the same worktree and sees prior phases' commits\n"
+            "- If a sub-agent fails, report the failure — do NOT retry silently\n\n"
+            f"{plan_comment}"
+        )
+
     def _build_prompt_with_stats(
         self, issue: Task, review_feedback: str = "", prior_failure: str = ""
     ) -> tuple[str, dict[str, object]]:
@@ -426,17 +467,20 @@ Run through this checklist before your final commit:
             history_after += len(plan_comment)
             # Detect whether the plan uses Task Graph format
             if has_task_graph(plan_comment):
-                plan_section = (
-                    f"\n\n## Implementation Plan\n\n"
-                    f"Follow this plan closely. It uses a **Task Graph** with ordered phases.\n"
-                    f"Execute phases in order (P1 before P2, etc.). For each phase:\n"
-                    f"1. Write tests that encode the behavioral specs listed for that phase.\n"
-                    f"2. Run tests — they should FAIL (you haven't implemented yet).\n"
-                    f"3. Implement the minimum code to make tests pass.\n"
-                    f"4. Run the full test suite before moving to the next phase.\n\n"
-                    f"Do NOT skip ahead to later phases before earlier ones pass.\n\n"
-                    f"{plan_comment}"
-                )
+                if self._config.tdd_isolation_enabled:
+                    plan_section = self._build_tdd_subagent_plan(plan_comment)
+                else:
+                    plan_section = (
+                        f"\n\n## Implementation Plan\n\n"
+                        f"Follow this plan closely. It uses a **Task Graph** with ordered phases.\n"
+                        f"Execute phases in order (P1 before P2, etc.). For each phase:\n"
+                        f"1. Write tests that encode the behavioral specs listed for that phase.\n"
+                        f"2. Run tests — they should FAIL (you haven't implemented yet).\n"
+                        f"3. Implement the minimum code to make tests pass.\n"
+                        f"4. Run the full test suite before moving to the next phase.\n\n"
+                        f"Do NOT skip ahead to later phases before earlier ones pass.\n\n"
+                        f"{plan_comment}"
+                    )
             else:
                 plan_section = (
                     f"\n\n## Implementation Plan\n\n"

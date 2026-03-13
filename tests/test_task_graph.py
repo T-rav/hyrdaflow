@@ -12,6 +12,7 @@ from task_graph import (
     extract_impl_step_texts,
     extract_phases,
     has_task_graph,
+    topological_sort,
 )
 
 # ---------------------------------------------------------------------------
@@ -178,3 +179,65 @@ class TestExtractImplStepTexts:
         body = "1. Good step\n2.  \n3. Another step\n"
         steps = extract_impl_step_texts(body)
         assert all(s.strip() for s in steps)
+
+
+# ---------------------------------------------------------------------------
+# topological_sort
+# ---------------------------------------------------------------------------
+
+
+class TestTopologicalSort:
+    def test_no_deps(self):
+        phases = [
+            TaskGraphPhase(id="P1", name="P1 — A", files=[], tests=[], depends_on=[]),
+            TaskGraphPhase(id="P2", name="P2 — B", files=[], tests=[], depends_on=[]),
+        ]
+        result = topological_sort(phases)
+        assert [p.id for p in result] == ["P1", "P2"]
+
+    def test_respects_deps(self):
+        phases = [
+            TaskGraphPhase(
+                id="P2", name="P2 — B", files=[], tests=[], depends_on=["P1"]
+            ),
+            TaskGraphPhase(id="P1", name="P1 — A", files=[], tests=[], depends_on=[]),
+        ]
+        result = topological_sort(phases)
+        assert [p.id for p in result] == ["P1", "P2"]
+
+    def test_cycle_returns_original_order(self):
+        phases = [
+            TaskGraphPhase(
+                id="P1", name="P1 — A", files=[], tests=[], depends_on=["P2"]
+            ),
+            TaskGraphPhase(
+                id="P2", name="P2 — B", files=[], tests=[], depends_on=["P1"]
+            ),
+        ]
+        result = topological_sort(phases)
+        assert [p.id for p in result] == ["P1", "P2"]
+
+    def test_missing_dep_skipped(self):
+        phases = [
+            TaskGraphPhase(
+                id="P1", name="P1 — A", files=[], tests=[], depends_on=["P99"]
+            ),
+        ]
+        result = topological_sort(phases)
+        assert [p.id for p in result] == ["P1"]
+
+    def test_diamond_deps(self):
+        phases = [
+            TaskGraphPhase(id="P1", name="P1", files=[], tests=[], depends_on=[]),
+            TaskGraphPhase(id="P2", name="P2", files=[], tests=[], depends_on=["P1"]),
+            TaskGraphPhase(id="P3", name="P3", files=[], tests=[], depends_on=["P1"]),
+            TaskGraphPhase(
+                id="P4", name="P4", files=[], tests=[], depends_on=["P2", "P3"]
+            ),
+        ]
+        result = topological_sort(phases)
+        ids = [p.id for p in result]
+        assert ids.index("P1") < ids.index("P2")
+        assert ids.index("P1") < ids.index("P3")
+        assert ids.index("P2") < ids.index("P4")
+        assert ids.index("P3") < ids.index("P4")

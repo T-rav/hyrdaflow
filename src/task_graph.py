@@ -91,6 +91,46 @@ def extract_phases(body: str) -> list[TaskGraphPhase]:
     return phases
 
 
+def topological_sort(phases: list[TaskGraphPhase]) -> list[TaskGraphPhase]:
+    """Sort phases respecting dependency order.
+
+    Phases with no dependencies come first.  If dependencies are
+    missing or circular, the function falls back to the original order.
+    """
+    import logging
+
+    _logger = logging.getLogger("hydraflow.task_graph")
+
+    by_id = {p.id: p for p in phases}
+    visited: set[str] = set()
+    result: list[TaskGraphPhase] = []
+    in_progress: set[str] = set()
+
+    def _visit(pid: str) -> bool:
+        if pid in visited:
+            return True
+        if pid in in_progress:
+            return False  # cycle
+        in_progress.add(pid)
+        phase = by_id.get(pid)
+        if phase is None:
+            return True  # missing dep — skip
+        for dep in phase.depends_on:
+            if not _visit(dep):
+                return False
+        in_progress.discard(pid)
+        visited.add(pid)
+        result.append(phase)
+        return True
+
+    for p in phases:
+        if not _visit(p.id):
+            _logger.warning("Cycle detected in task graph — using original order")
+            return list(phases)
+
+    return result
+
+
 def extract_impl_step_texts(body: str) -> list[str]:
     """Extract step text from an Implementation Steps section body."""
     list_steps = re.findall(
