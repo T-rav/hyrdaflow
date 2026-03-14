@@ -435,7 +435,7 @@ class TestGenerateChangelog:
 def _make_epic_issue(number: int, sub_issues: list[int]) -> GitHubIssue:
     lines = [f"- [ ] #{n} — Sub-issue {n}" for n in sub_issues]
     body = "## Epic\n\n" + "\n".join(lines)
-    return GitHubIssue(
+    return IssueFactory.create(
         number=number, title="[Epic] Test", body=body, labels=["hydraflow-epic"]
     )
 
@@ -444,7 +444,7 @@ class TestEpicChangelogIntegration:
     @pytest.mark.asyncio
     async def test_epic_close_generates_changelog_and_release(self) -> None:
         epic = _make_epic_issue(100, [1, 2])
-        epic = GitHubIssue(
+        epic = IssueFactory.create(
             number=100,
             title="[Epic] v1.0.0 — Features",
             body=epic.body,
@@ -550,7 +550,7 @@ class TestEpicChangelogIntegration:
     @pytest.mark.asyncio
     async def test_epic_close_no_changelog_file_when_not_configured(self) -> None:
         epic = _make_epic_issue(100, [1])
-        epic = GitHubIssue(
+        epic = IssueFactory.create(
             number=100,
             title="[Epic] v1.0.0 — Feature",
             body=epic.body,
@@ -618,7 +618,7 @@ class TestEpicChangelogIntegration:
         """With both release_on_epic_close and changelog_file set, generate_changelog
         should only be called once — the result is reused for both paths."""
         epic = _make_epic_issue(100, [1])
-        epic = GitHubIssue(
+        epic = IssueFactory.create(
             number=100,
             title="[Epic] v2.0.0 — Big Release",
             body=epic.body,

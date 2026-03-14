@@ -10,8 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from models import ResearchResult, Task
+from models import ResearchResult
 from research_runner import ResearchRunner
+from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ class TestResearchRunner:
     async def test_dry_run_returns_success(self, event_bus):
         config = ConfigFactory.create(dry_run=True)
         runner = _make_runner(config, event_bus)
-        task = Task(id=42, title="Add feature")
+        task = TaskFactory.create(title="Add feature")
         result = await runner.research(task)
         assert result.success is True
         assert isinstance(result, ResearchResult)
@@ -53,7 +54,7 @@ class TestResearchRunner:
         with patch.object(
             runner, "_execute", new_callable=AsyncMock, return_value=transcript
         ):
-            task = Task(id=1, title="Add feature")
+            task = TaskFactory.create(id=1, title="Add feature")
             result = await runner.research(task)
 
         assert result.success is True
@@ -67,7 +68,7 @@ class TestResearchRunner:
         with patch.object(
             runner, "_execute", new_callable=AsyncMock, return_value=transcript
         ):
-            task = Task(id=1, title="Add feature")
+            task = TaskFactory.create(id=1, title="Add feature")
             result = await runner.research(task)
 
         assert result.success is False
@@ -79,7 +80,7 @@ class TestResearchRunner:
         with patch.object(
             runner, "_execute", new_callable=AsyncMock, side_effect=RuntimeError("boom")
         ):
-            task = Task(id=1, title="Add feature")
+            task = TaskFactory.create(id=1, title="Add feature")
             result = await runner.research(task)
 
         assert result.success is False
@@ -94,7 +95,9 @@ class TestResearchRunner:
 class TestResearchPrompt:
     def test_prompt_contains_issue_info(self, config, event_bus):
         runner = _make_runner(config, event_bus)
-        task = Task(id=42, title="Add widget support", body="Need to add widgets")
+        task = TaskFactory.create(
+            title="Add widget support", body="Need to add widgets"
+        )
         prompt = runner._build_prompt(task)
         assert "#42" in prompt
         assert "Add widget support" in prompt
@@ -103,7 +106,7 @@ class TestResearchPrompt:
 
     def test_prompt_is_read_only(self, config, event_bus):
         runner = _make_runner(config, event_bus)
-        task = Task(id=1, title="Feature")
+        task = TaskFactory.create(id=1, title="Feature")
         prompt = runner._build_prompt(task)
         assert "READ-ONLY" in prompt
 

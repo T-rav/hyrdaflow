@@ -158,8 +158,12 @@ class IssueFactory:
         labels: list[str] | None = None,
         comments: list[str] | None = None,
         url: str = "",
+        author: str = "",
+        state: Any = None,
+        milestone_number: int | None = None,
+        created_at: str = "",
     ):
-        from models import GitHubIssue
+        from models import GitHubIssue, GitHubIssueState
 
         return GitHubIssue(
             number=number,
@@ -168,6 +172,10 @@ class IssueFactory:
             labels=labels or ["ready"],
             comments=comments or [],
             url=url or f"https://github.com/test-org/test-repo/issues/{number}",
+            author=author,
+            state=state if state is not None else GitHubIssueState.OPEN,
+            milestone_number=milestone_number,
+            created_at=created_at,
         )
 
 
@@ -193,6 +201,9 @@ class TaskFactory:
         source_url: str = "",
         links: list[Any] | None = None,
         complexity_score: int = 0,
+        created_at: str = "",
+        metadata: dict[str, Any] | None = None,
+        parent_epic: int | None = None,
     ):
         from models import Task
 
@@ -206,6 +217,9 @@ class TaskFactory:
             or f"https://github.com/test-org/test-repo/issues/{id}",
             links=links if links is not None else [],
             complexity_score=complexity_score,
+            created_at=created_at,
+            metadata=metadata if metadata is not None else {},
+            parent_epic=parent_epic,
         )
 
 
@@ -453,13 +467,16 @@ class ReviewResultFactory:
         pr_number: int = 101,
         issue_number: int = 42,
         verdict: ReviewVerdict | None = None,
+        success: bool = False,
         summary: str = "Looks good.",
+        error: str | None = None,
         fixes_made: bool = False,
         transcript: str = "THOROUGH_REVIEW_COMPLETE",
         merged: bool = False,
         duration_seconds: float = 0.0,
         ci_passed: bool | None = None,
         ci_fix_attempts: int = 0,
+        visual_passed: bool | None = None,
     ) -> ReviewResult:
         from models import ReviewResult as RR
         from models import ReviewVerdict as RV
@@ -468,13 +485,16 @@ class ReviewResultFactory:
             pr_number=pr_number,
             issue_number=issue_number,
             verdict=verdict if verdict is not None else RV.APPROVE,
+            success=success,
             summary=summary,
+            error=error,
             fixes_made=fixes_made,
             transcript=transcript,
             merged=merged,
             duration_seconds=duration_seconds,
             ci_passed=ci_passed,
             ci_fix_attempts=ci_fix_attempts,
+            visual_passed=visual_passed,
         )
 
 

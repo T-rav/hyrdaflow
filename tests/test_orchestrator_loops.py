@@ -379,7 +379,7 @@ class TestLoopExceptionIsolation:
         orch = HydraFlowOrchestrator(config)
         fetch_count = 0
 
-        requeued_task = Task(id=99, title="Test issue", body="")
+        requeued_task = TaskFactory.create(id=99, title="Test issue", body="")
 
         def fake_get_reviewable(max_count: int) -> list[Task]:
             nonlocal fetch_count

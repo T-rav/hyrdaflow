@@ -17,11 +17,11 @@ from models import (
     EpicProgress,
     EpicState,
     MergeStrategy,
-    Task,
     TaskLinkKind,
     parse_task_links,
 )
 from state import StateTracker
+from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory
 
 # ---------------------------------------------------------------------------
@@ -102,15 +102,15 @@ class TestTaskParentEpic:
     """Tests for the Task.parent_epic field."""
 
     def test_parent_epic_defaults_to_none(self) -> None:
-        task = Task(id=1, title="test")
+        task = TaskFactory.create(id=1, title="test")
         assert task.parent_epic is None
 
     def test_parent_epic_can_be_set(self) -> None:
-        task = Task(id=1, title="test", parent_epic=42)
+        task = TaskFactory.create(id=1, title="test", parent_epic=42)
         assert task.parent_epic == 42
 
     def test_parent_epic_mutable(self) -> None:
-        task = Task(id=1, title="test")
+        task = TaskFactory.create(id=1, title="test")
         task.parent_epic = 100
         assert task.parent_epic == 100
 
@@ -1009,7 +1009,7 @@ class TestTriageParentEpicEnrichment:
         )
         state.upsert_epic_state(epic)
 
-        task = Task(id=2, title="Sub-issue")
+        task = TaskFactory.create(id=2, title="Sub-issue")
         phase._enrich_parent_epic(task)
 
         assert task.parent_epic == 100
@@ -1018,7 +1018,7 @@ class TestTriageParentEpicEnrichment:
     async def test_enrich_no_parent(self, tmp_path: Path) -> None:
         phase, state, _ = self._make_triage_phase(tmp_path)
 
-        task = Task(id=99, title="Standalone issue")
+        task = TaskFactory.create(id=99, title="Standalone issue")
         phase._enrich_parent_epic(task)
 
         assert task.parent_epic is None
@@ -1048,7 +1048,7 @@ class TestTriageParentEpicEnrichment:
             epic_manager=None,
         )
 
-        task = Task(id=1, title="Issue")
+        task = TaskFactory.create(id=1, title="Issue")
         phase._enrich_parent_epic(task)
         assert task.parent_epic is None
 

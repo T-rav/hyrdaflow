@@ -20,7 +20,6 @@ from models import (
     HitlEscalation,
     LoopResult,
     PRInfo,
-    ReviewResult,
     ReviewVerdict,
     Task,
     VisualFailureClass,
@@ -130,9 +129,7 @@ class TestHITLEscalationEvents:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -455,12 +452,9 @@ class TestAdversarialReview:
         pr = PRInfoFactory.create()
 
         # Summary with 3+ findings (bullets)
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="- Fix A\n- Fix B\n- Fix C",
-            fixes_made=False,
         )
         phase._reviewers.review = AsyncMock(return_value=result)
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
@@ -486,12 +480,9 @@ class TestAdversarialReview:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="All good",
-            fixes_made=False,
             transcript="...THOROUGH_REVIEW_COMPLETE\nCorrectness: No issues...",
         )
         phase._reviewers.review = AsyncMock(return_value=result)
@@ -519,21 +510,15 @@ class TestAdversarialReview:
         pr = PRInfoFactory.create()
 
         # First review: few findings, no THOROUGH_REVIEW_COMPLETE
-        first_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        first_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="Looks good",
-            fixes_made=False,
             transcript="VERDICT: APPROVE\nSUMMARY: Looks good",
         )
         # Second review: has enough findings
-        second_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        second_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="- Fix A\n- Fix B\n- Fix C",
-            fixes_made=False,
             transcript="VERDICT: APPROVE\nSUMMARY: - Fix A",
         )
         phase._reviewers.review = AsyncMock(side_effect=[first_result, second_result])
@@ -567,12 +552,9 @@ class TestAdversarialReview:
         pr = PRInfoFactory.create()
 
         # Approve with zero findings and no justification — should NOT trigger re-review
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="All good",
-            fixes_made=False,
             transcript="VERDICT: APPROVE",
         )
         phase._reviewers.review = AsyncMock(return_value=result)
@@ -600,20 +582,14 @@ class TestAdversarialReview:
         pr = PRInfoFactory.create()
 
         # Both reviews: under threshold, no justification
-        first_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        first_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="LGTM",
-            fixes_made=False,
             transcript="VERDICT: APPROVE",
         )
-        second_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        second_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="Still LGTM",
-            fixes_made=False,
             transcript="VERDICT: APPROVE",
         )
         phase._reviewers.review = AsyncMock(side_effect=[first_result, second_result])
@@ -641,18 +617,13 @@ class TestAdversarialReview:
         pr = PRInfoFactory.create()
 
         # First review: under threshold, no justification
-        first_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        first_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="Looks fine",
-            fixes_made=False,
             transcript="VERDICT: APPROVE",
         )
         # Re-review: makes fixes
-        second_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        second_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="- Fixed formatting\n- Fixed imports\n- Fixed types",
             fixes_made=True,

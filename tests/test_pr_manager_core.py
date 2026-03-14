@@ -1003,14 +1003,12 @@ async def test_create_pr_with_draft_flag(config, event_bus, issue):
 
 @pytest.mark.asyncio
 async def test_create_pr_title_not_truncated_when_short(config, event_bus):
-    from models import GitHubIssue
+    from tests.conftest import IssueFactory
 
-    short_issue = GitHubIssue(
+    short_issue = IssueFactory.create(
         number=1,
         title="Fix it",
         body="Short issue",
-        labels=["ready"],
-        url="https://github.com/test-org/test-repo/issues/1",
     )
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/10"
@@ -1030,15 +1028,13 @@ async def test_create_pr_title_not_truncated_when_short(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_create_pr_title_truncated_at_70_chars(config, event_bus):
-    from models import GitHubIssue
+    from tests.conftest import IssueFactory
 
     long_title = "A" * 80
-    long_issue = GitHubIssue(
+    long_issue = IssueFactory.create(
         number=99,
         title=long_title,
         body="Some body text",
-        labels=["ready"],
-        url="https://github.com/test-org/test-repo/issues/99",
     )
     manager = _make_manager(config, event_bus)
     pr_url = "https://github.com/test-org/test-repo/pull/200"

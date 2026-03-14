@@ -23,6 +23,7 @@ from models import (
     WorkerResult,
 )
 from subprocess_util import CreditExhaustedError
+from tests.conftest import PRInfoFactory
 
 
 class FakeRunner:
@@ -109,12 +110,11 @@ class ScriptedGitHub:
         self._prs: dict[int, PRInfo] = {}
 
     def open_pr(self, issue: Task) -> PRInfo:
-        pr = PRInfo(
+        pr = PRInfoFactory.create(
             number=self._next_pr,
             issue_number=issue.id,
             branch=f"agent/issue-{issue.id}",
             url=f"https://example.test/pr/{self._next_pr}",
-            draft=False,
         )
         self._next_pr += 1
         self._prs[issue.id] = pr

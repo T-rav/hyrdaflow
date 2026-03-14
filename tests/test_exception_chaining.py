@@ -275,10 +275,10 @@ class TestHITLRunnerExceptionChaining:
     @pytest.mark.asyncio
     async def test_likely_bug_re_raises(self, config, event_bus) -> None:
         from hitl_runner import HITLRunner
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
         runner = HITLRunner(config, event_bus)
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=99,
             title="HITL test",
             body="body",
@@ -305,10 +305,10 @@ class TestHITLRunnerExceptionChaining:
     @pytest.mark.asyncio
     async def test_transient_error_uses_repr(self, config, event_bus) -> None:
         from hitl_runner import HITLRunner
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
         runner = HITLRunner(config, event_bus)
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=99,
             title="HITL test",
             body="body",

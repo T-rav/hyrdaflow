@@ -14,20 +14,14 @@ import pytest
 from agent import AgentRunner
 from base_runner import BaseRunner
 from events import EventBus
-from models import ReviewVerdict, Task
+from models import ReviewVerdict
+from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory
 
 
 @pytest.fixture
-def agent_task() -> Task:
-    return Task(
-        id=42,
-        title="Fix the frobnicator",
-        body="The frobnicator is broken. Please fix it.",
-        tags=["ready"],
-        comments=[],
-        source_url="https://github.com/test-org/test-repo/issues/42",
-    )
+def agent_task():
+    return TaskFactory.create()
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +184,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """Prompt should include a Discussion section when the issue has comments."""
-        issue_with_comments = Task(
+        issue_with_comments = TaskFactory.create(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -217,7 +211,7 @@ class TestBuildPrompt:
     ) -> None:
         """When a comment contains '## Implementation Plan', it should be rendered
         as a dedicated plan section with follow-this-plan instruction."""
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -243,7 +237,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """The plan comment should NOT appear in the Discussion section."""
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -271,7 +265,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """When plan has Task Graph, prompt has concrete per-phase sub-agent instructions."""
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add widget feature",
             body="We need widgets",
@@ -318,7 +312,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """When the plan has no Task Graph, the standard follow-plan instruction is used."""
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Fix bug",
             body="Something is broken",
@@ -462,7 +456,7 @@ class TestBuildPrompt:
     def test_prompt_truncates_long_discussion_comments(
         self, config, event_bus: EventBus
     ) -> None:
-        issue = Task(
+        issue = TaskFactory.create(
             id=11,
             title="Fix long comment token blowup",
             body="Normal issue body",
@@ -511,7 +505,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """Review feedback should appear after the plan section."""
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add feature X",
             body="We need feature X",

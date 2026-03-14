@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 from models import (
     CodeScanningAlert,
-    ReviewResult,
     ReviewVerdict,
 )
 from tests.conftest import (
@@ -73,9 +72,7 @@ class TestWaitAndFixCI:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -168,9 +165,7 @@ class TestWaitAndFixCI:
             ci_call_count += 1
             return result
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             fixes_made=True,
         )
@@ -200,11 +195,8 @@ class TestWaitAndFixCI:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
-            fixes_made=False,  # No changes made
         )
 
         phase._reviewers.fix_ci = AsyncMock(return_value=fix_result)
@@ -234,9 +226,7 @@ class TestWaitAndFixCI:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -268,9 +258,7 @@ class TestWaitAndFixCI:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -299,9 +287,7 @@ class TestWaitAndFixCI:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )

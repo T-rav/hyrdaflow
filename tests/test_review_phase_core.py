@@ -659,12 +659,9 @@ class TestPostMergeConflictFix:
         self, config: HydraFlowConfig
     ) -> None:
         """Review summary comment should NOT be posted when summary is empty."""
-        review = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="",
-            fixes_made=False,
         )
         phase = make_review_phase(config, default_mocks=True, review_result=review)
         issue = TaskFactory.create()
@@ -1035,13 +1032,10 @@ class TestRunAndPostReview:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        review = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="Fixed.",
             fixes_made=True,
-            transcript="THOROUGH_REVIEW_COMPLETE",
         )
         phase._reviewers.review = AsyncMock(return_value=review)
         phase._prs.push_branch = AsyncMock(return_value=True)
@@ -1460,9 +1454,7 @@ class TestHandleRejectedReview:
         """When under cap, review summary should be saved as feedback for re-implementation."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             summary="Fix the error handling logic",
         )

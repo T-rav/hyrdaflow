@@ -94,7 +94,7 @@ class TestCheckAllCheckboxes:
 def _make_epic(number: int, sub_issues: list[int]) -> GitHubIssue:
     lines = [f"- [ ] #{n} — Sub-issue {n}" for n in sub_issues]
     body = "## Epic\n\n" + "\n".join(lines)
-    return GitHubIssue(
+    return IssueFactory.create(
         number=number, title="[Epic] Test", body=body, labels=["hydraflow-epic"]
     )
 
@@ -184,7 +184,7 @@ class TestEpicCompletionChecker:
 
     @pytest.mark.asyncio
     async def test_handles_epic_with_no_checkboxes(self) -> None:
-        epic = GitHubIssue(
+        epic = IssueFactory.create(
             number=100,
             title="[Epic] No checkboxes",
             body="This epic has no checkbox sub-issues.",
@@ -1041,7 +1041,7 @@ class TestCloseSpecificEpic:
 
     @pytest.mark.asyncio
     async def test_returns_none_when_epic_has_no_sub_issues(self) -> None:
-        epic = GitHubIssue(
+        epic = IssueFactory.create(
             number=100,
             title="[Epic] No checkboxes",
             body="This epic has no checkbox sub-issues.",
