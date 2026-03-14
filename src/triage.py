@@ -21,7 +21,7 @@ from models import (
     TriageUpdatePayload,
 )
 from phase_utils import reraise_on_credit_or_bug
-from prompt_stats import build_prompt_stats, truncate_with_notice
+from prompt_builder import PromptBuilder
 
 logger = logging.getLogger("hydraflow.triage")
 
@@ -192,9 +192,8 @@ class TriageRunner(BaseRunner):
         issue: Task, max_body: int = 5000
     ) -> tuple[str, dict[str, object]]:
         """Build the triage evaluation prompt and pruning stats."""
-        body, body_before, body_after = truncate_with_notice(
-            issue.body or "", max_body, label="Issue body"
-        )
+        builder = PromptBuilder()
+        body = builder.add_context_section("Issue body", issue.body or "", max_body)
         prompt = f"""You are a triage agent evaluating a GitHub issue and enriching it if needed so a planning agent can succeed.
 
 ## Issue #{issue.id}
@@ -239,14 +238,7 @@ or for truly insufficient issues:
 {{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "enrichment": ""}}
 ```
 """
-        stats = build_prompt_stats(
-            context_before=body_before,
-            context_after=body_after,
-            section_chars={
-                "issue_body_before": body_before,
-                "issue_body_after": body_after,
-            },
-        )
+        stats = builder.build_stats()
         return prompt, stats
 
     async def _evaluate_with_llm(self, issue: Task) -> TriageResult:

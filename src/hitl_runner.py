@@ -12,7 +12,7 @@ from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import GitHubIssue, HITLResult, HITLUpdatePayload
 from phase_utils import reraise_on_credit_or_bug
-from prompt_stats import build_prompt_stats, truncate_with_notice
+from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 logger = logging.getLogger("hydraflow.hitl_runner")
@@ -183,14 +183,15 @@ class HITLRunner(BaseRunner):
         instructions = _CAUSE_INSTRUCTIONS[cause_key].replace(
             "#{issue}", f"#{issue.number}"
         )
-        issue_body, body_before, body_after = truncate_with_notice(
-            issue.body or "", self._config.max_issue_body_chars, label="Issue body"
+        builder = PromptBuilder()
+        issue_body = builder.add_context_section(
+            "Issue body", issue.body or "", self._config.max_issue_body_chars
         )
-        cause_text, cause_before, cause_after = truncate_with_notice(
-            cause or "", _MAX_HITL_CAUSE_CHARS, label="Escalation reason"
+        cause_text = builder.add_history_section(
+            "Escalation reason", cause or "", _MAX_HITL_CAUSE_CHARS
         )
-        correction_text, correction_before, correction_after = truncate_with_notice(
-            correction or "", _MAX_HITL_CORRECTION_CHARS, label="Human guidance"
+        correction_text = builder.add_history_section(
+            "Human guidance", correction or "", _MAX_HITL_CORRECTION_CHARS
         )
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
@@ -222,18 +223,5 @@ class HITLRunner(BaseRunner):
 - Ensure `make quality` passes before committing.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="correction")}"""
-        stats = build_prompt_stats(
-            history_before=cause_before + correction_before,
-            history_after=cause_after + correction_after,
-            context_before=body_before,
-            context_after=body_after,
-            section_chars={
-                "issue_body_before": body_before,
-                "issue_body_after": body_after,
-                "cause_before": cause_before,
-                "cause_after": cause_after,
-                "guidance_before": correction_before,
-                "guidance_after": correction_after,
-            },
-        )
+        stats = builder.build_stats()
         return prompt, stats
