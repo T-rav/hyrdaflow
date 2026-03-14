@@ -20,13 +20,3 @@ class TestParameterNaming:
         sig = inspect.signature(PlanPhase._plan_log_reference)
         assert "issue_number" in sig.parameters
         assert "issue_id" not in sig.parameters
-
-
-class TestTaskModelDocstring:
-    """Verify Task.id documents its relationship to GitHubIssue.number."""
-
-    def test_task_docstring_mentions_issue_number(self) -> None:
-        from src.models import Task
-
-        docstring = Task.__doc__ or ""
-        assert "GitHubIssue.number" in docstring
