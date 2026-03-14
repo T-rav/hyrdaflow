@@ -14,14 +14,13 @@ from base_runner import BaseRunner
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
 from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
-from phase_utils import is_likely_bug
+from phase_utils import is_likely_bug, reraise_on_credit_or_bug
 from review_insights import (
     ReviewInsightStore,
     get_common_feedback_section,
     get_escalation_data,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 from task_graph import extract_phases, has_task_graph, topological_sort
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
@@ -210,11 +209,8 @@ Run through this checklist before your final commit:
             status = WorkerStatus.DONE if success else WorkerStatus.FAILED
             await self._emit_status(task.id, worker_id, status)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception(

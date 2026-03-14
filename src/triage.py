@@ -20,9 +20,8 @@ from models import (
     TriageStatus,
     TriageUpdatePayload,
 )
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from prompt_stats import build_prompt_stats, truncate_with_notice
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.triage")
 
@@ -137,16 +136,13 @@ class TriageRunner(BaseRunner):
 
         try:
             result = await self._evaluate_with_llm(issue)
-        except CreditExhaustedError:
-            raise
         except RuntimeError:
             # Infrastructure errors (empty response, subprocess crash) should
             # propagate so the issue stays in the triage queue for retry
             # instead of being incorrectly escalated to HITL.
             raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "LLM evaluation failed for issue #%d: %s",
                 issue.id,
@@ -399,11 +395,8 @@ or for truly insufficient issues:
                 self._config.repo_root,
                 {"issue": task.id, "source": "decomposition"},
             )
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "Decomposition LLM call failed for issue #%d: %s",
                 task.id,

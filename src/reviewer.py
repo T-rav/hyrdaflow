@@ -20,10 +20,9 @@ from models import (
     ReviewVerdict,
     Task,
 )
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from precheck import run_precheck_context
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.reviewer")
 
@@ -168,11 +167,8 @@ class ReviewRunner(BaseRunner):
             # Persist to disk
             self._save_transcript("review-pr", pr.number, transcript)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.COMMENT
             result.summary = f"Review failed: {exc}"
             logger.error("Review failed for PR #%d: %s", pr.number, exc)
@@ -262,11 +258,8 @@ class ReviewRunner(BaseRunner):
             result.summary = self._extract_summary(transcript)
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             self._save_transcript("review-pr", pr.number, transcript)
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"CI fix failed: {exc}"
             logger.error("CI fix failed for PR #%d: %s", pr.number, exc)
@@ -342,11 +335,8 @@ class ReviewRunner(BaseRunner):
             result.summary = self._extract_summary(transcript)
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             self._save_transcript("review-fix", pr.number, transcript)
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"Review fix failed: {exc}"
             logger.error("Review fix failed for PR #%d: %s", pr.number, exc)

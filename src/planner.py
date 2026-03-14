@@ -11,7 +11,7 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import NewIssueSpec, PlannerStatus, PlannerUpdatePayload, PlanResult, Task
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from plan_constants import (
     LITE_BODY_THRESHOLD,
     LITE_REQUIRED_SECTIONS,
@@ -23,7 +23,6 @@ from plan_constants import (
 from plan_scoring import score_actionability
 from plan_validation import run_phase_gates, validate_plan
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.planner")
 
@@ -201,11 +200,8 @@ class PlannerRunner(BaseRunner):
             status = PlannerStatus.DONE if result.success else PlannerStatus.FAILED
             await self._emit_status(task.id, worker_id, status)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception(

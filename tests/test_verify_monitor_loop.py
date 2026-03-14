@@ -44,11 +44,7 @@ def _make_loop(tmp_path: Path, *, pending: dict[int, int] | None = None):
         config=deps.config,
         fetcher=fetcher,
         state=state,
-        event_bus=deps.bus,
-        stop_event=deps.stop_event,
-        status_cb=deps.status_cb,
-        enabled_cb=deps.enabled_cb,
-        sleep_fn=deps.sleep_fn,
+        deps=deps.loop_deps,
     )
     return loop, fetcher, state
 

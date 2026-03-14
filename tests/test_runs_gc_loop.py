@@ -59,12 +59,7 @@ def _make_loop(
     loop = RunsGCLoop(
         config=deps.config,
         run_recorder=recorder,
-        event_bus=deps.bus,
-        stop_event=deps.stop_event,
-        status_cb=deps.status_cb,
-        enabled_cb=deps.enabled_cb,
-        sleep_fn=deps.sleep_fn,
-        interval_cb=None,
+        deps=deps.loop_deps,
     )
     return loop, recorder, deps.stop_event
 

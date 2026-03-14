@@ -11,10 +11,9 @@ from typing import Literal
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import GitHubIssue, HITLResult, HITLUpdatePayload
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from prompt_stats import build_prompt_stats, truncate_with_notice
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.hitl_runner")
 
@@ -152,11 +151,8 @@ class HITLRunner(BaseRunner):
 
             self._save_transcript("hitl-issue", issue.number, transcript)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception("HITL run failed for issue #%d: %s", issue.number, exc)

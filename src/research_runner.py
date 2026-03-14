@@ -10,9 +10,8 @@ from typing import TYPE_CHECKING
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from models import ResearchResult
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 if TYPE_CHECKING:
     from models import Task
@@ -74,11 +73,8 @@ class ResearchRunner(BaseRunner):
                 result.error = "No RESEARCH_START/RESEARCH_END markers found"
                 result.success = False
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception(

@@ -759,23 +759,11 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
             tool = "claude"
         model = self._config.background_model or "haiku"
 
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = [tool, "-p", prompt, "--model", model]
-            cmd_input = None
+        from agent_cli import build_lightweight_command
+
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
 
         env = make_clean_env(self._config.gh_token)
 
