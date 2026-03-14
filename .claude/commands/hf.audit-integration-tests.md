@@ -121,8 +121,17 @@ Flag these patterns:
 - **Missing error path tests**: Only happy path tested for external interactions
 - **Excessive mocking depth**: 4+ levels of nested `with patch(...)` blocks
 
-### Phase 3: Create GitHub Issues
-3. Check for duplicates, then create themed issues:
+### Phase 3: Audit Test Hygiene & Method Size
+3. For each integration test, check:
+   - **Test method too long**: Integration tests > 40 lines of logic — split into setup helper + focused test
+   - **Missing cleanup**: Tests that create external state (files, processes, containers) without teardown
+   - **Leaked connections**: Database connections, HTTP sessions, or sockets opened but not closed
+   - **Duplicate setup across tests**: Same integration setup (docker, service init, DB seed) repeated instead of shared fixture
+   - **Mixed unit and integration concerns**: Test marked integration but half the assertions test unit-level logic — split into unit test + integration test
+   - **No error scenario coverage**: Integration test only covers happy path without testing failure modes (timeout, connection refused, bad response)
+
+### Phase 4: Create GitHub Issues
+4. Check for duplicates, then create themed issues:
    gh issue list --repo {REPO} --label {LABEL} --state open --search "<key terms>"
    gh issue create --repo {REPO} --assignee {ASSIGNEE} --label {LABEL} --title "Integration Test: <anti-pattern theme>" --body "<details>"
 

@@ -565,6 +565,7 @@ describe('SessionSidebar contains RepoSelector', () => {
 
   it('opens RegisterRepoDialog when "Register repo" is clicked from RepoSelector', async () => {
     mockUseHydraFlow.mockReturnValue(defaultContext({
+      canRegisterRepos: true,
       addRepoBySlug: vi.fn().mockResolvedValue({ ok: true }),
       addRepoByPath: vi.fn().mockResolvedValue({ ok: true }),
     }))

@@ -163,7 +163,7 @@ class TestControlStatusAppVersion:
         monkeypatch.setattr(
             "dashboard_routes.load_cached_update_result",
             lambda **_kwargs: UpdateCheckResult(
-                current_version="0.9.0",
+                current_version="0.9.1",
                 latest_version="0.9.2",
                 update_available=True,
                 error=None,

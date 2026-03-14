@@ -202,7 +202,7 @@ export const seedConfig = {
   batch_size: 15,
   ready_label: 'hydraflow-ready',
   planner_label: 'hydraflow-plan',
-  app_version: '0.9.0',
+  app_version: '0.9.1',
 }
 
 export const seedSupervisedRepos = [
@@ -250,6 +250,7 @@ export const seedState = {
   selectedSessionId: null,
   selectedRepoSlug: null,
   selectedRepoSlugRaw: null,
+  canRegisterRepos: true,
   supervisedRepos: seedSupervisedRepos,
   runtimes: [],
   issueHistory: null,

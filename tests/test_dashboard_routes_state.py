@@ -1177,6 +1177,23 @@ class TestListSupervisedReposEndpoint:
         data = json.loads(response.body)
         assert response.status_code == 200
         assert data["repos"] == []
+        assert data["can_register"] is False
+
+    @pytest.mark.asyncio
+    async def test_can_register_false_when_supervisor_unavailable(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """can_register should be False when no supervisor or repo_store is available."""
+        import json
+
+        router = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/repos")
+        assert endpoint is not None
+
+        response = await endpoint()
+
+        data = json.loads(response.body)
+        assert data["can_register"] is False
 
     @pytest.mark.asyncio
     async def test_no_warning_logged_when_supervisor_unavailable(

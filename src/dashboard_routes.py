@@ -3253,16 +3253,19 @@ def create_router(
                         else None,
                     }
                 )
-            return JSONResponse({"repos": payload})
+            return JSONResponse({"repos": payload, "can_register": True})
         if supervisor_client is None:
-            return JSONResponse({"repos": []})
+            return JSONResponse({"repos": [], "can_register": False})
         try:
             repos = await _call_supervisor(supervisor_client.list_repos)
         except Exception as exc:  # noqa: BLE001
             if not _is_expected_supervisor_unavailable(exc):
                 logger.warning("Supervisor list_repos failed: %s", exc)
-            return JSONResponse({"error": "Supervisor unavailable"}, status_code=503)
-        return JSONResponse({"repos": repos})
+            return JSONResponse(
+                {"error": "Supervisor unavailable", "can_register": False},
+                status_code=503,
+            )
+        return JSONResponse({"repos": repos, "can_register": True})
 
     @router.get("/api/fs/roots")
     async def list_browsable_roots() -> JSONResponse:

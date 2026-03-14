@@ -5,7 +5,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 _PACKAGE_NAME = "hydraflow"
-_FALLBACK_VERSION = "0.9.0+dev"
+_FALLBACK_VERSION = "0.9.1+dev"
 
 
 def get_app_version() -> str:

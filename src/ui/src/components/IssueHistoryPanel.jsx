@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef, useCallback } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 
@@ -159,6 +159,7 @@ function renderLinkedIssue(linked, index) {
   if (typeof linked === 'number') {
     return <span key={linked} style={styles.linkedPill}>#{linked}</span>
   }
+  if (!linked?.target_id) return null
   const kind = linked.kind || 'relates_to'
   const meta = LINK_KIND_META[kind] || LINK_KIND_META.relates_to
   const pillStyle = {
@@ -201,8 +202,39 @@ function formatDuration(firstSeen, lastSeen) {
   return `${diffDays}d ${diffHours % 24}h`
 }
 
-// Grid column template — shared between header and data rows
-const GRID_COLUMNS = '26px 52px minmax(220px, 3fr) minmax(80px, 1fr) 84px 100px 40px 60px 90px'
+// Column definitions — each column has a key, label, width, alignment, and sort accessor
+const COLUMN_DEFS = [
+  { key: 'number', label: '#', width: '52px', align: 'left', sortAccessor: item => item.issue_number },
+  { key: 'title', label: 'Title', width: 'minmax(220px, 3fr)', align: 'left', sortAccessor: item => (item.title || '').toLowerCase() },
+  { key: 'repo', label: 'Repo', width: 'minmax(80px, 1fr)', align: 'left', sortAccessor: item => (extractRepoSlug(item.issue_url) || '').toLowerCase() },
+  { key: 'stage', label: 'Stage', width: '84px', align: 'left', sortAccessor: item => item.status || 'unknown' },
+  { key: 'outcome', label: 'Outcome', width: '100px', align: 'left', sortAccessor: item => item.outcome?.outcome || 'pending' },
+  { key: 'prs', label: 'PRs', width: '40px', align: 'left', sortAccessor: item => item.prs?.length || 0 },
+  { key: 'tokens', label: 'Tokens', width: '60px', align: 'right', sortAccessor: item => item.inference?.total_tokens || 0 },
+  { key: 'timing', label: 'Timing', width: '90px', align: 'right', sortAccessor: item => item.last_seen ? new Date(item.last_seen).getTime() : 0 },
+]
+
+const DEFAULT_COLUMN_ORDER = COLUMN_DEFS.map(c => c.key)
+const COLUMN_MAP = Object.fromEntries(COLUMN_DEFS.map(c => [c.key, c]))
+
+function buildGridColumns(columnOrder) {
+  return '26px ' + columnOrder.map(key => COLUMN_MAP[key].width).join(' ')
+}
+
+function sortItems(items, sortColumn, sortDirection) {
+  if (!sortColumn || !sortDirection) return items
+  const col = COLUMN_MAP[sortColumn]
+  if (!col) return items
+  const accessor = col.sortAccessor
+  const sorted = [...items].sort((a, b) => {
+    const va = accessor(a)
+    const vb = accessor(b)
+    if (va < vb) return -1
+    if (va > vb) return 1
+    return 0
+  })
+  return sortDirection === 'desc' ? sorted.reverse() : sorted
+}
 
 export function OutcomesPanel() {
   const { issueHistory, selectedRepoSlug } = useHydraFlow()
@@ -216,6 +248,62 @@ export function OutcomesPanel() {
   const [groupBy, setGroupBy] = useState('none')
   const [expanded, setExpanded] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [columnOrder, setColumnOrder] = useState(DEFAULT_COLUMN_ORDER)
+  const [sortColumn, setSortColumn] = useState(null)
+  const [sortDirection, setSortDirection] = useState(null)
+  const [dragOverColumn, setDragOverColumn] = useState(null)
+  const dragColumnRef = useRef(null)
+
+  const gridColumns = useMemo(() => buildGridColumns(columnOrder), [columnOrder])
+
+  const handleHeaderClick = useCallback((key) => {
+    if (sortColumn !== key) {
+      setSortColumn(key)
+      setSortDirection('asc')
+    } else if (sortDirection === 'asc') {
+      setSortDirection('desc')
+    } else {
+      setSortColumn(null)
+      setSortDirection(null)
+    }
+  }, [sortColumn, sortDirection])
+
+  const handleDragStart = useCallback((e, key) => {
+    dragColumnRef.current = key
+    e.dataTransfer.effectAllowed = 'move'
+  }, [])
+
+  const handleDragOver = useCallback((e, targetKey) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverColumn(targetKey)
+  }, [])
+
+  const handleDrop = useCallback((e, targetKey) => {
+    e.preventDefault()
+    setDragOverColumn(null)
+    const sourceKey = dragColumnRef.current
+    dragColumnRef.current = null
+    if (!sourceKey || sourceKey === targetKey) return
+    setColumnOrder(prev => {
+      const next = [...prev]
+      const srcIdx = next.indexOf(sourceKey)
+      const tgtIdx = next.indexOf(targetKey)
+      if (srcIdx === -1 || tgtIdx === -1) return prev
+      next.splice(srcIdx, 1)
+      next.splice(tgtIdx, 0, sourceKey)
+      return next
+    })
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverColumn(null)
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    dragColumnRef.current = null
+    setDragOverColumn(null)
+  }, [])
 
   const loading = !issueHistory
   const payload = useMemo(() => ({
@@ -269,10 +357,15 @@ export function OutcomesPanel() {
     timeRange.until,
   ])
 
+  const sorted = useMemo(
+    () => sortItems(filtered, sortColumn, sortDirection),
+    [filtered, sortColumn, sortDirection],
+  )
+
   const grouped = useMemo(() => {
     if (groupBy === 'none') return null
     const groups = {}
-    for (const item of filtered) {
+    for (const item of sorted) {
       let label
       if (groupBy === 'crate') {
         label = item.crate_number
@@ -297,7 +390,7 @@ export function OutcomesPanel() {
       }
     }
     return groups
-  }, [filtered, groupBy])
+  }, [sorted, groupBy])
 
   const visibleTotals = useMemo(() => {
     return filtered.reduce((acc, item) => {
@@ -332,21 +425,87 @@ export function OutcomesPanel() {
     })
   }
 
+  const cellRenderers = useMemo(() => ({
+    number: (item) => (
+      <a href={item.issue_url || '#'} target="_blank" rel="noreferrer" style={styles.issueLink}>
+        #{item.issue_number}
+      </a>
+    ),
+    title: (item) => {
+      const title = item.title || ''
+      const outcomeReason = item.outcome?.reason || ''
+      const hasCrate = item.crate_title != null || item.crate_number != null
+      return (
+        <div style={styles.titleCell} title={title || `Issue #${item.issue_number}`}>
+          <div style={styles.titleMain}>
+            <span style={styles.titleText}>{title || <span style={styles.dimText}>Untitled</span>}</span>
+            {hasCrate && (
+              <span style={styles.cratePill} title={item.crate_title || `Crate #${item.crate_number}`}>
+                {item.crate_title || `#${item.crate_number}`}
+              </span>
+            )}
+            {item.epic && (
+              <span style={styles.epicPill} title={item.epic}>
+                {item.epic}
+              </span>
+            )}
+          </div>
+          {outcomeReason && (
+            <div style={styles.titleSub} title={outcomeReason}>
+              {outcomeReason}
+            </div>
+          )}
+        </div>
+      )
+    },
+    repo: (item) => {
+      const repoSlug = extractRepoSlug(item.issue_url)
+      return (
+        <span style={styles.repoCell} title={repoSlug || ''}>
+          {repoSlug ? repoSlug.split('/')[1] || repoSlug : <span style={styles.dimText}>{'\u2014'}</span>}
+        </span>
+      )
+    },
+    stage: (item) => (
+      <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
+    ),
+    outcome: (item) => {
+      const outcomeType = item.outcome?.outcome || 'pending'
+      return (
+        <span style={styles.outcomeCell}>
+          <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.pending}>{(outcomeType || 'pending').replace(/_/g, ' ')}</span>
+        </span>
+      )
+    },
+    prs: (item) => (
+      <span style={styles.metaCell}>{item.prs?.length || 0}</span>
+    ),
+    tokens: (item) => {
+      const issueActualTokens = Number(item.inference?.total_tokens || 0)
+      const issueSavedTokens = estimateSavedTokens(item.inference?.pruned_chars_total || 0)
+      return (
+        <span style={styles.tokenCell} title={`${formatNumber(issueActualTokens)} actual · ${formatNumber(issueSavedTokens)} saved`}>
+          {formatCompact(issueActualTokens)}
+        </span>
+      )
+    },
+    timing: (item) => {
+      const duration = formatDuration(item.first_seen, item.last_seen)
+      return (
+        <span style={styles.timeCell} title={`First: ${formatTs(item.first_seen)}\nLast: ${formatTs(item.last_seen)}`}>
+          <span>{formatShortTs(item.last_seen)}</span>
+          {duration && <span style={styles.durationText}>{duration}</span>}
+        </span>
+      )
+    },
+  }), [])
+
   function renderIssueRow(item) {
     const issueNum = item.issue_number
     const isExpanded = !!expanded[issueNum]
-    const issueActualTokens = Number(item.inference?.total_tokens || 0)
-    const issueSavedTokens = estimateSavedTokens(item.inference?.pruned_chars_total || 0)
-    const issueUnprunedTokens = issueActualTokens + issueSavedTokens
-    const outcomeType = item.outcome?.outcome || 'pending'
-    const title = item.title || ''
-    const outcomeReason = item.outcome?.reason || ''
-    const repoSlug = extractRepoSlug(item.issue_url)
-    const duration = formatDuration(item.first_seen, item.last_seen)
-    const hasCrate = item.crate_title != null || item.crate_number != null
     return (
       <div key={issueNum} style={styles.rowWrap}>
-        <div style={styles.row}>
+        <div style={{ ...styles.row, gridTemplateColumns: gridColumns }}>
           <button
             type="button"
             onClick={() => toggleExpanded(issueNum)}
@@ -355,44 +514,9 @@ export function OutcomesPanel() {
           >
             {isExpanded ? '▾' : '▸'}
           </button>
-          <a href={item.issue_url || '#'} target="_blank" rel="noreferrer" style={styles.issueLink}>
-            #{issueNum}
-          </a>
-          <div style={styles.titleCell} title={title || `Issue #${issueNum}`}>
-            <div style={styles.titleMain}>
-              <span style={styles.titleText}>{title || <span style={styles.dimText}>Untitled</span>}</span>
-              {hasCrate && (
-                <span style={styles.cratePill} title={item.crate_title || `Crate #${item.crate_number}`}>
-                  {item.crate_title || `#${item.crate_number}`}
-                </span>
-              )}
-              {item.epic && (
-                <span style={styles.epicPill} title={item.epic}>
-                  {item.epic}
-                </span>
-              )}
-            </div>
-            {outcomeReason && (
-              <div style={styles.titleSub} title={outcomeReason}>
-                {outcomeReason}
-              </div>
-            )}
-          </div>
-          <span style={styles.repoCell} title={repoSlug || ''}>
-            {repoSlug ? repoSlug.split('/')[1] || repoSlug : <span style={styles.dimText}>{'\u2014'}</span>}
-          </span>
-          <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
-          <span style={styles.outcomeCell}>
-            <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.pending}>{(outcomeType || 'pending').replace(/_/g, ' ')}</span>
-          </span>
-          <span style={styles.metaCell}>{item.prs?.length || 0}</span>
-          <span style={styles.tokenCell} title={`${formatNumber(issueActualTokens)} actual · ${formatNumber(issueSavedTokens)} saved`}>
-            {formatCompact(issueActualTokens)}
-          </span>
-          <span style={styles.timeCell} title={`First: ${formatTs(item.first_seen)}\nLast: ${formatTs(item.last_seen)}`}>
-            <span>{formatShortTs(item.last_seen)}</span>
-            {duration && <span style={styles.durationText}>{duration}</span>}
-          </span>
+          {columnOrder.map(key => (
+            <React.Fragment key={key}>{cellRenderers[key](item)}</React.Fragment>
+          ))}
         </div>
 
         {isExpanded && (
@@ -443,11 +567,11 @@ export function OutcomesPanel() {
               <span>
                 {formatNumber(item.inference?.inference_calls || 0)} calls
                 {' · '}
-                {formatNumber(issueActualTokens)} tokens (actual)
+                {formatNumber(Number(item.inference?.total_tokens || 0))} tokens (actual)
                 {' · '}
-                {formatNumber(issueSavedTokens)} tokens saved (est)
+                {formatNumber(estimateSavedTokens(item.inference?.pruned_chars_total || 0))} tokens saved (est)
                 {' · '}
-                {formatNumber(issueUnprunedTokens)} tokens w/o pruning (est)
+                {formatNumber(Number(item.inference?.total_tokens || 0) + estimateSavedTokens(item.inference?.pruned_chars_total || 0))} tokens w/o pruning (est)
                 {' · '}in: {formatNumber(item.inference?.input_tokens || 0)} / out: {formatNumber(item.inference?.output_tokens || 0)}
                 {' · '}pruned chars: {formatNumber(item.inference?.pruned_chars_total || 0)}
               </span>
@@ -586,16 +710,38 @@ export function OutcomesPanel() {
       {loading && <div style={styles.info}>Loading...</div>}
 
       <div style={styles.table}>
-        <div style={styles.headerRow}>
+        <div style={{ ...styles.headerRow, gridTemplateColumns: gridColumns }}>
           <span />
-          <span style={styles.headerCell}>#</span>
-          <span style={styles.headerCell}>Title</span>
-          <span style={styles.headerCell}>Repo</span>
-          <span style={styles.headerCell}>Stage</span>
-          <span style={styles.headerCell}>Outcome</span>
-          <span style={styles.headerCell}>PRs</span>
-          <span style={styles.headerCellRight}>Tokens</span>
-          <span style={styles.headerCellRight}>Timing</span>
+          {columnOrder.map(key => {
+            const col = COLUMN_MAP[key]
+            const isActive = sortColumn === key
+            const isDragTarget = dragOverColumn === key
+            const headerStyle = HEADER_CELL_VARIANTS[`${col.align}:${isActive}:${isDragTarget}`]
+            return (
+              <span
+                key={key}
+                style={headerStyle}
+                draggable
+                tabIndex={0}
+                onClick={() => handleHeaderClick(key)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleHeaderClick(key) } }}
+                onDragStart={(e) => handleDragStart(e, key)}
+                onDragOver={(e) => handleDragOver(e, key)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, key)}
+                onDragEnd={handleDragEnd}
+                role="columnheader"
+                aria-sort={isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+              >
+                {col.label}
+                {isActive && (
+                  <span style={styles.sortArrow} data-testid={`sort-indicator-${key}`}>
+                    {sortDirection === 'asc' ? ' \u25B2' : ' \u25BC'}
+                  </span>
+                )}
+              </span>
+            )
+          })}
         </div>
 
         <div style={styles.tableBody}>
@@ -660,7 +806,7 @@ export function OutcomesPanel() {
                 )
               })
           ) : (
-            filtered.map(item => renderIssueRow(item))
+            sorted.map(item => renderIssueRow(item))
           )}
 
           {!loading && filtered.length === 0 && (
@@ -794,7 +940,6 @@ const styles = {
   },
   headerRow: {
     display: 'grid',
-    gridTemplateColumns: GRID_COLUMNS,
     gap: 8,
     alignItems: 'center',
     padding: '6px 10px',
@@ -816,6 +961,23 @@ const styles = {
     overflow: 'hidden',
     textAlign: 'right',
   },
+  headerDraggable: {
+    cursor: 'pointer',
+    userSelect: 'none',
+    transition: 'color 0.15s ease',
+  },
+  headerActive: {
+    color: theme.accent,
+  },
+  headerDropTarget: {
+    background: theme.accentSubtle,
+    borderBottom: `2px solid ${theme.accent}`,
+    color: theme.accent,
+  },
+  sortArrow: {
+    fontSize: 8,
+    verticalAlign: 'middle',
+  },
   tableBody: {
     overflowY: 'auto',
     flex: 1,
@@ -826,7 +988,6 @@ const styles = {
   },
   row: {
     display: 'grid',
-    gridTemplateColumns: GRID_COLUMNS,
     gap: 8,
     alignItems: 'center',
     padding: '7px 10px',
@@ -1082,3 +1243,23 @@ const buttonActiveStyle = {
   borderColor: theme.accent,
   background: theme.accentSubtle,
 }
+
+// Pre-computed header cell style variants — keyed by `${align}:${isActive}:${isDragTarget}`
+// to avoid object spread in render loops (CLAUDE.md style consistency rule)
+const HEADER_CELL_VARIANTS = (() => {
+  const variants = {}
+  for (const align of ['left', 'right']) {
+    const base = align === 'right' ? styles.headerCellRight : styles.headerCell
+    for (const active of [false, true]) {
+      for (const dropTarget of [false, true]) {
+        variants[`${align}:${active}:${dropTarget}`] = {
+          ...base,
+          ...styles.headerDraggable,
+          ...(active ? styles.headerActive : {}),
+          ...(dropTarget ? styles.headerDropTarget : {}),
+        }
+      }
+    }
+  }
+  return variants
+})()

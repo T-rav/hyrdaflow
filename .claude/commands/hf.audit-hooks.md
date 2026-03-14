@@ -70,6 +70,8 @@ For each .sh file:
 - Are there tools or workflows not covered by any hook?
 - Are there hooks that overlap or duplicate each other's checks?
 - Could any PreToolUse hooks be replaced by cheaper PostToolUse tracking + Stop review?
+- Is auto-lint wired to both Edit and Write PostToolUse? (prevents lint error accumulation)
+- Is test-counterpart check wired to both Edit and Write PreToolUse? (catches edits without tests, not just new files)
 
 ## Report Format
 

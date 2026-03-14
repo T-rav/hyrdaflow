@@ -1440,6 +1440,7 @@ class TestListSupervisedReposWithStore:
         assert len(data["repos"]) == 1
         assert data["repos"][0]["slug"] == "my-repo"
         assert data["repos"][0]["running"] is False
+        assert data["can_register"] is True
 
     @pytest.mark.asyncio
     async def test_marks_running_when_runtime_active(

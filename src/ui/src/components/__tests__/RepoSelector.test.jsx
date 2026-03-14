@@ -43,10 +43,19 @@ describe('RepoSelector', () => {
 
   it('opens register dialog when clicking register button', () => {
     const onOpenRegister = vi.fn()
+    mockUseHydraFlow.mockReturnValue(makeContext({ canRegisterRepos: true }))
     render(<RepoSelector onOpenRegister={onOpenRegister} />)
     fireEvent.click(screen.getByTestId('repo-selector-trigger'))
     fireEvent.click(screen.getByText('+ Register repo'))
     expect(onOpenRegister).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables register button when canRegisterRepos is false', () => {
+    mockUseHydraFlow.mockReturnValue(makeContext({ canRegisterRepos: false }))
+    render(<RepoSelector />)
+    fireEvent.click(screen.getByTestId('repo-selector-trigger'))
+    const btn = screen.getByText('+ Register repo')
+    expect(btn).toBeDisabled()
   })
 
   it('shows selected repo label in trigger', () => {
@@ -183,6 +192,7 @@ describe('RepoSelector', () => {
 
   it('closes dropdown and opens register dialog on register click', () => {
     const onOpenRegister = vi.fn()
+    mockUseHydraFlow.mockReturnValue(makeContext({ canRegisterRepos: true }))
     render(<RepoSelector onOpenRegister={onOpenRegister} />)
     fireEvent.click(screen.getByTestId('repo-selector-trigger'))
     expect(screen.getByTestId('repo-selector-dropdown')).toBeInTheDocument()

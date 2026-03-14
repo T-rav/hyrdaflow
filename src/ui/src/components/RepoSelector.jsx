@@ -26,6 +26,7 @@ const statusDotStopped = { ...statusDotBase, background: theme.textMuted }
 
 export function RepoSelector({ onOpenRegister }) {
   const {
+    canRegisterRepos = false,
     supervisedRepos = [],
     runtimes = [],
     selectedRepoSlug,
@@ -134,11 +135,13 @@ export function RepoSelector({ onOpenRegister }) {
           </div>
           <button
             type="button"
+            disabled={!canRegisterRepos}
             onClick={() => {
               setOpen(false)
               onOpenRegister?.()
             }}
-            style={styles.registerBtn}
+            style={canRegisterRepos ? styles.registerBtn : styles.registerBtnDisabled}
+            title={canRegisterRepos ? undefined : 'Start HydraFlow engine to register repos'}
           >
             + Register repo
           </button>
@@ -248,6 +251,17 @@ const styles = {
     fontWeight: 600,
     color: theme.accent,
     cursor: 'pointer',
+  },
+  registerBtnDisabled: {
+    border: 'none',
+    borderTop: `1px solid ${theme.border}`,
+    background: theme.surfaceInset,
+    padding: '8px 10px',
+    fontSize: 12,
+    fontWeight: 600,
+    color: theme.textMuted,
+    cursor: 'not-allowed',
+    opacity: 0.5,
   },
 }
 

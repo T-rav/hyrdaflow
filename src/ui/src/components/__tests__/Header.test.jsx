@@ -169,17 +169,17 @@ describe('Header component', () => {
   it('renders app version when available in config', () => {
     mockUseHydraFlow.mockReturnValue({
       stageStatus: mockStageStatus(),
-      config: { app_version: '0.9.0' },
+      config: { app_version: '0.9.1' },
     })
     render(<Header {...defaultProps} />)
-    expect(screen.getByText('v0.9.0')).toBeInTheDocument()
+    expect(screen.getByText('v0.9.1')).toBeInTheDocument()
   })
 
   it('renders update notice with command when update is available', () => {
     mockUseHydraFlow.mockReturnValue({
       stageStatus: mockStageStatus(),
       config: {
-        app_version: '0.9.0',
+        app_version: '0.9.1',
         latest_version: '0.9.2',
         update_available: true,
       },

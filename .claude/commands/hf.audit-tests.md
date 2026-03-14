@@ -1,6 +1,6 @@
 # Test Audit
 
-Run a comprehensive test quality audit across the entire repo. Analyzes test naming, structure, factory usage, fluent builder patterns, anti-patterns, coverage gaps, and flaky patterns. Creates GitHub issues for findings so HydraFlow can process them.
+Run a comprehensive test quality audit across the entire repo. Analyzes test naming, structure, hygiene, factory usage, fluent builder patterns, anti-patterns, coverage gaps, and flaky patterns. Creates GitHub issues for findings so HydraFlow can process them.
 
 ## Instructions
 
@@ -17,17 +17,17 @@ Run a comprehensive test quality audit across the entire repo. Analyzes test nam
    - Count total test files and identify the test helper infrastructure
 
 3. **Launch agents in parallel** using `Task` with `run_in_background: true` and `subagent_type: "general-purpose"`:
-   - **Agent 1: Test naming & structure** — Checks naming conventions, 3As structure, single responsibility, and organization.
-   - **Agent 2: Anti-patterns & flaky tests** — Detects over-mocking, weak assertions, flaky patterns, and test isolation issues.
+   - **Agent 1: Test naming, structure & method size** — Checks naming conventions, 3As structure, single responsibility, small test methods, and organization.
+   - **Agent 2: Anti-patterns, hygiene & flaky tests** — Detects over-mocking, weak assertions, duplicate helpers, flaky patterns, and test isolation issues.
    - **Agent 3: Factory/fixture gaps, builder enforcement & coverage** — Finds missing factories, enforces fluent builder pattern, checks coverage gaps, and missing edge case tests.
 
 4. Wait for all agents to complete.
 5. After all finish, run `gh issue list --repo $REPO --label $LABEL --state open --search "test quality" --limit 200` to show the user a final summary of all issues created.
 
-## Agent 1: Test Naming & Structure
+## Agent 1: Test Naming, Structure & Method Size
 
 ```
-You are a test quality auditor focused on naming and structure for the project at {repo_root}.
+You are a test quality auditor focused on naming, structure, and method size for the project at {repo_root}.
 
 ## Configuration
 - GitHub repo: {REPO}
@@ -57,23 +57,26 @@ You are a test quality auditor focused on naming and structure for the project a
    - Are phases mixed? (e.g., assertions interleaved with setup)
    - Does setup dominate the test? (> 60% of lines are setup — push into factories/fixtures)
 
-### Phase 4: Audit Single Responsibility
-5. For each test, count assertions:
-   - Flag tests with > 3 assertions testing **different** attributes (related assertions on the same result are OK)
-   - Suggest splitting into focused tests
-   - Note tests with zero assertions (test does nothing useful)
+### Phase 4: Enforce Small Test Methods
+5. For each test function, check:
+   - **Max 20 lines of logic** (excluding blank lines, comments, docstrings) — long tests are doing too much
+   - **Max 1 act step** — if there are multiple "act" calls, split into separate tests
+   - **Max 3 assertions on different attributes** — related assertions on the same result are OK, but testing unrelated things means split the test
+   - **Zero assertions** — test does nothing useful, delete or fix
+   - **Excessive setup in test body** — if arrange is > 10 lines, extract into a factory/fixture/helper
+6. For each violation, provide: the file:line, current line count, and a concrete suggestion (e.g., "extract lines 5-15 into a `make_configured_runner()` factory")
 
 ### Phase 5: Audit Test Organization
-6. Check file-level organization:
+7. Check file-level organization:
    - Are test classes used to group related tests?
    - Are tests organized to mirror source file structure?
    - Are there test files > 500 lines that should be split?
    - Are there test files with < 3 tests (too granular)?
 
 ### Phase 6: Create GitHub Issues
-7. Check for duplicate GH issues first:
+8. Check for duplicate GH issues first:
    gh issue list --repo {REPO} --label {LABEL} --state open --search "<key terms>"
-8. Create GH issues for NEW findings only, grouped by theme:
+9. Create GH issues for NEW findings only, grouped by theme:
    gh issue create --repo {REPO} --assignee {ASSIGNEE} --label {LABEL} --title "Test Quality: <theme>" --body "<details>"
 
 ## Issue Body Format
@@ -89,7 +92,8 @@ You are a test quality auditor focused on naming and structure for the project a
 ## Suggested Fixes
 - [ ] <file:line> — Rename `test_init` to `test_<method>_<scenario>`
 - [ ] <file:line> — Split test with 6 assertions into 3 focused tests
-- [ ] <file:line> — Move setup into factory method
+- [ ] <file:line> — Extract 12-line setup into `make_<object>()` factory
+- [ ] <file:line> — Test is 35 lines — extract arrange into fixture, split act steps
 
 ## Impact
 - Tests affected: <N>
@@ -100,17 +104,23 @@ You are a test quality auditor focused on naming and structure for the project a
 - "Test Quality: Improve test naming in <module>"
 - "Test Quality: Fix 3As structure violations"
 - "Test Quality: Split multi-assertion tests"
+- "Test Quality: Break down oversized test methods"
 - "Test Quality: Reorganize large test files"
+
+**Thresholds:**
+- Test method: max 20 lines of logic, max 1 act, max 3 unrelated assertions
+- Arrange block: max 10 lines in test body (rest goes to factories/fixtures)
+- Test file: max 500 lines
 
 Focus on tests that are genuinely hard to understand or maintain. Skip minor naming quibbles.
 
 Return a summary of all findings grouped by category, with GH issue URLs created.
 ```
 
-## Agent 2: Anti-Patterns & Flaky Tests
+## Agent 2: Anti-Patterns, Hygiene & Flaky Tests
 
 ```
-You are a test quality auditor focused on anti-patterns and flakiness for the project at {repo_root}.
+You are a test quality auditor focused on anti-patterns, hygiene, and flakiness for the project at {repo_root}.
 
 ## Configuration
 - GitHub repo: {REPO}
@@ -123,8 +133,17 @@ You are a test quality auditor focused on anti-patterns and flakiness for the pr
 1. Use Glob to find all test files: tests/test_*.py, tests/conftest.py, tests/helpers.py
 2. Read each file
 
-### Phase 2: Detect Mocking Anti-Patterns
-3. Find:
+### Phase 2: Detect Duplicate Helpers & DRY Violations
+3. This is a HIGH PRIORITY check. Find:
+   - **Duplicate helper functions**: Same or near-identical helper function defined in multiple test files (e.g., `make_config()` in test_a.py AND test_b.py)
+   - **Duplicate fixture definitions**: Same fixture defined in multiple conftest.py files or test files instead of a shared conftest
+   - **Copy-pasted setup blocks**: Identical arrange code (5+ lines) repeated across tests in different files
+   - **Inconsistent helper naming**: Same factory/helper with different names across files (e.g., `create_runner()` vs `make_runner()` vs `build_runner()`)
+   - **Helpers that should be in helpers.py**: Helper functions defined inline in test files that are used by 2+ files
+4. For each finding: list ALL locations of the duplicate, and suggest where the canonical version should live (helpers.py, conftest.py, or a new shared module)
+
+### Phase 3: Detect Mocking Anti-Patterns
+5. Find:
    - **Over-mocking**: Mocking private/internal methods (`patch.object(x, '_private_method')`) instead of testing behavior
    - **Excessive mock depth**: 4+ levels of nested `with patch(...)` blocks
    - **Incomplete mock setup**: MagicMock without return_value or side_effect where the return value matters
@@ -132,60 +151,76 @@ You are a test quality auditor focused on anti-patterns and flakiness for the pr
    - **Wrong patch target**: Patching the definition site instead of the import site
    For each finding, note: file, line, what's being mocked, and the better approach
 
-### Phase 3: Detect Weak Assertions
-4. Find:
+### Phase 4: Detect Weak Assertions
+6. Find:
    - **Always-true assertions**: `assert True`, `assert result` (only checks truthiness)
    - **Too generic**: `assert x is not None` when specific value should be checked
    - **Missing assertions**: Test functions with no assert statements at all
    - **Overly permissive**: `assert status in [200, 401, 403, 404, 500]`
    - **String containment only**: `assert "error" in str(result)` instead of checking specific error type/message
 
-### Phase 4: Detect Flaky Patterns
-5. Find:
+### Phase 5: Detect Flaky Patterns & Hygiene Issues
+7. Find:
    - **time.sleep()**: Sleeping in tests instead of async/mock timing
    - **Random without seed**: Non-deterministic test behavior
    - **Order dependency**: Tests that rely on other tests running first (shared state via class attributes)
    - **Real system calls**: Actual file I/O, network calls, subprocess without mocking
    - **Timestamp sensitivity**: Tests that compare exact timestamps (break across time zones or slow CI)
    - **Global state mutation**: Tests that modify module-level globals without cleanup
+   - **Missing cleanup/teardown**: Tests that create temp files, directories, or state without cleaning up (no `tmp_path`, no `teardown`, no context manager)
+   - **Leaked state between tests**: Mutable class-level attributes, module-level caches modified without reset
+   - **Import side effects**: Test imports that trigger real initialization (database connections, file creation)
 
-### Phase 5: Detect Isolation Issues
-6. Find:
+### Phase 6: Detect Isolation Issues
+8. Find:
    - **Shared mutable fixtures**: Fixtures returning mutable objects shared across tests
    - **Missing cleanup**: Tests that create files/dirs without teardown
    - **Import side effects**: Test imports that trigger real initialization
    - **Class-level state**: Test classes with mutable class attributes
 
-### Phase 6: Create GitHub Issues
-7. Check for duplicate GH issues first, then create themed issues
+### Phase 7: Create GitHub Issues
+9. Check for duplicate GH issues first, then create themed issues
 
 ## Issue Body Format
 ```markdown
 ## Context
 <1-2 sentences on the anti-pattern risk>
 
-## Findings
+## Duplicate Helpers (if found)
+| Helper | Location 1 | Location 2 | Suggested Home |
+|--------|-----------|-----------|----------------|
+| <name> | <file:line> | <file:line> | <helpers.py / conftest.py> |
+
+## Anti-Patterns
 | Severity | File:Line | Pattern | Risk |
 |----------|-----------|---------|------|
 | <critical/warning> | <path:line> | <description> | <what could go wrong> |
 
+## Hygiene Issues
+| File:Line | Issue | Fix |
+|-----------|-------|-----|
+| <path:line> | <missing cleanup / leaked state / etc.> | <specific fix> |
+
 ## Suggested Fixes
+- [ ] <file:line> — Move `make_config()` to helpers.py (duplicated in 3 files)
 - [ ] <file:line> — Replace `patch.object(x, '_method')` with behavior test
-- [ ] <file:line> — Add `assert result.status == 200` instead of `assert result`
+- [ ] <file:line> — Add cleanup for temp directory created at line N
 - [ ] <file:line> — Replace `time.sleep(1)` with async await
 
 ## Impact
 - Flaky test risk: <high/medium/low>
+- DRY violations: <N duplicate helpers across M files>
 - False positive risk: <description>
 ```
 
 ## Grouping Strategy
+- "Test Quality: Deduplicate test helpers across files"
 - "Test Quality: Fix over-mocking in <module> tests"
 - "Test Quality: Replace weak assertions with specific checks"
 - "Test Quality: Fix flaky test patterns (sleep/random/order)"
-- "Test Quality: Fix test isolation issues"
+- "Test Quality: Fix test isolation and cleanup issues"
 
-Prioritize by risk: flaky tests and false positives are more dangerous than style issues.
+Prioritize by risk: duplicate helpers and flaky tests are the most dangerous — they cause confusion during multi-file refactors and false CI signals.
 
 Return a summary of all findings grouped by category, with GH issue URLs created.
 ```
@@ -266,6 +301,7 @@ You are a test quality auditor focused on test infrastructure and coverage gaps 
    - Are there fixtures in test files that should be in conftest.py?
    - Are there conftest fixtures that are only used by one test file?
    - Are there fixture chains that are too deep? (fixture depends on fixture depends on fixture)
+   - Are fixtures doing too much? (> 15 lines — split into factory + fixture wrapper)
 
 ### Phase 7: Create GitHub Issues
 13. Check for duplicate GH issues first, then create themed issues

@@ -1,6 +1,6 @@
 # Code Quality Audit
 
-Run a comprehensive code quality audit across the entire repo. Dynamically analyzes source code for dead code, complexity, duplication, error handling gaps, type safety issues, and architectural problems. Creates GitHub issues for findings so HydraFlow can process them.
+Run a comprehensive code quality audit across the entire repo. Dynamically analyzes source code for dead code, complexity, duplication, error handling gaps, type safety issues, class cohesion, and method size. Creates GitHub issues for findings so HydraFlow can process them.
 
 ## Instructions
 
@@ -17,7 +17,7 @@ Run a comprehensive code quality audit across the entire repo. Dynamically analy
 
 3. **Launch agents in parallel** using `Task` with `run_in_background: true` and `subagent_type: "general-purpose"`:
    - **Agent 1: Dead code & unused exports** — Finds unreachable code, unused functions, unused imports, and stale modules.
-   - **Agent 2: Complexity & duplication** — Finds overly complex functions, duplicated logic, and DRY violations.
+   - **Agent 2: Method size, class cohesion & duplication** — Enforces small methods, single-concept classes, and DRY.
    - **Agent 3: Error handling & robustness** — Finds bare excepts, swallowed errors, missing error paths, and fragile patterns.
    - **Agent 4: Type safety & API consistency** — Finds missing type annotations, `Any` overuse, inconsistent return types, and public API gaps.
 
@@ -101,10 +101,10 @@ Verify a function is truly unused before flagging — check tests too, as test-o
 Return a summary of all findings grouped by category, with GH issue URLs created.
 ```
 
-## Agent 2: Complexity & Duplication
+## Agent 2: Method Size, Class Cohesion & Duplication
 
 ```
-You are a code quality auditor focused on complexity and duplication for the project at {repo_root}.
+You are a code quality auditor focused on method size, class cohesion, and duplication for the project at {repo_root}.
 
 ## Configuration
 - GitHub repo: {REPO}
@@ -113,65 +113,97 @@ You are a code quality auditor focused on complexity and duplication for the pro
 
 ## Steps
 
-### Phase 1: Identify Complex Functions
+### Phase 1: Enforce Small Methods
 1. Use Glob to find all *.py source files (exclude tests/, .venv/, __pycache__/)
-2. Read each source file and identify functions that are overly complex:
-   - **Long functions**: > 50 lines (excluding docstring and blank lines)
-   - **Deep nesting**: > 4 levels of indentation (nested if/for/try/with)
-   - **High branch count**: > 8 if/elif/else branches in a single function
-   - **Too many parameters**: > 6 parameters (excluding self/cls)
-   - **Mixed concerns**: Function does unrelated things (e.g., I/O + business logic + formatting)
-   For each finding, note: file path, line number, function name, metric value, why it's problematic
+2. Read each source file and flag methods/functions that violate these thresholds:
+   - **Long methods**: > 50 lines of logic (excluding docstring, blank lines, comments)
+   - **Deep nesting**: > 3 levels of indentation (nested if/for/try/with)
+   - **High branch count**: > 5 if/elif/else branches in a single function
+   - **Too many parameters**: > 5 parameters (excluding self/cls)
+   - **Mixed concerns**: Method does unrelated things (e.g., I/O + business logic + formatting in the same method)
+   - **Long method chains**: Methods that call 3+ other methods sequentially — should be composed at a higher level
+3. For each finding, note: file path, line number, function name, metric value, and a concrete suggestion to decompose it (e.g., "extract lines 45-62 into a `_parse_response()` helper")
 
-### Phase 2: Detect Code Duplication
-3. Find duplicated logic patterns:
+### Phase 2: Enforce Single Concept Per Class
+4. For each class, check:
+   - **Too many public methods**: > 7 public methods suggests the class does too much — split by responsibility
+   - **Too many total methods**: > 12 methods (public + private) indicates the class is a kitchen sink
+   - **Low cohesion**: Methods that don't share instance attributes — they access disjoint sets of `self.*` fields, meaning they belong in separate classes
+   - **God classes**: Classes > 200 lines — almost always doing too much
+   - **Mixed abstraction levels**: Class mixes high-level orchestration with low-level detail (e.g., a class that both manages workflow AND parses JSON)
+   - **Too many instance variables**: > 8 instance variables set in `__init__` suggests the class holds too many concerns
+   - **Feature envy**: Methods that primarily operate on data from another class rather than their own state
+5. For each class violation, suggest a concrete decomposition:
+   - Which methods group together by shared state?
+   - What would the extracted class be named?
+   - What interface would the original class use to delegate?
+
+### Phase 3: Detect Code Duplication
+6. Find duplicated logic patterns:
    - **Copy-paste blocks**: 5+ consecutive lines that appear nearly identical in 2+ locations
    - **Similar functions**: Functions with same structure but different variable names
    - **Repeated patterns**: Same sequence of API calls, error handling, or data transformation in 3+ places
    - **Inline constants**: Same magic number or string literal used in 3+ places without a named constant
-4. For each duplication, identify: both locations, what differs, and how to extract a shared abstraction
+7. For each duplication, identify: both locations, what differs, and how to extract a shared abstraction
 
-### Phase 3: DRY Violations & Abstraction Opportunities
-5. Look for:
+### Phase 4: DRY Violations & Abstraction Opportunities
+8. Look for:
    - **Missing helper functions**: Same 3+ line pattern repeated across files
    - **Missing base classes**: Multiple classes with identical method implementations
    - **Missing constants**: Repeated string literals or numbers that should be named
    - **Config duplication**: Same default values hardcoded in multiple places instead of referencing config
    - **Parallel implementations**: Two different ways of doing the same thing (e.g., two JSON serializers)
 
-### Phase 4: Create GitHub Issues
-6. Check for duplicate GH issues first:
+### Phase 5: Create GitHub Issues
+9. Check for duplicate GH issues first:
    gh issue list --repo {REPO} --label {LABEL} --state open --search "<key terms>"
-7. Create GH issues for NEW findings only:
+10. Create GH issues for NEW findings only:
    gh issue create --repo {REPO} --assignee {ASSIGNEE} --label {LABEL} --title "Code Quality: <theme>" --body "<details>"
 
 ## Issue Body Format
 ```markdown
 ## Context
-<1-2 sentences on why reducing complexity/duplication matters here>
+<1-2 sentences on why small methods and focused classes matter here>
 
-## Findings
-| Issue | File:Line | Function/Block | Metric |
-|-------|-----------|---------------|--------|
-| <long function/duplication/deep nesting> | <path:line> | <name> | <value> |
+## Long Methods
+| File:Line | Method | Lines | Issue |
+|-----------|--------|-------|-------|
+| <path:line> | <name> | <N> | <why it's too long — what to extract> |
+
+## Oversized / Unfocused Classes
+| File:Line | Class | Methods | Lines | Issue |
+|-----------|-------|---------|-------|-------|
+| <path:line> | <name> | <N> | <N> | <what responsibilities to split> |
+
+## Duplication
+| Pattern | Location 1 | Location 2 | Lines |
+|---------|-----------|-----------|-------|
+| <what's duplicated> | <path:line> | <path:line> | <N> |
 
 ## Suggested Refactoring
-- [ ] Extract <helper function> from <locations> — <what it does>
-- [ ] Split <long function> into <sub-functions>
+- [ ] Extract `<helper>()` from `<long_method>` (lines X-Y handle <concern>)
+- [ ] Split `<GodClass>` into `<ClassA>` (methods a,b,c) + `<ClassB>` (methods d,e,f)
 - [ ] Replace magic value `<value>` with named constant
+- [ ] Deduplicate <pattern> into shared `<helper>()`
 
 ## Code Example (Before/After)
 <Show a concrete before/after for the highest-impact item>
 ```
 
 ## Grouping Strategy
-- "Code Quality: Reduce function complexity in <module>"
+- "Code Quality: Break down long methods in <module>"
+- "Code Quality: Split <ClassName> — too many responsibilities"
 - "Code Quality: Extract shared patterns into helpers"
 - "Code Quality: Replace magic constants with named values"
 - "Code Quality: Deduplicate <pattern> across modules"
 
-Focus on high-impact items: functions > 80 lines, 3+ duplicated blocks, deeply nested logic.
-Skip trivial duplication (< 3 lines) and acceptable complexity (simple long switch-like patterns).
+**Thresholds summary:**
+- Method: max 50 lines of logic, max 3 nesting levels, max 5 params, max 5 branches
+- Class: max 7 public methods, max 12 total methods, max 200 lines, max 8 instance vars
+- Duplication: flag 5+ identical lines in 2+ places, or 3+ line patterns in 3+ places
+
+Focus on high-impact items: methods > 80 lines, classes > 300 lines, 3+ duplicated blocks.
+Skip trivial duplication (< 3 lines), simple data classes, and config/model classes that are legitimately wide.
 
 Return a summary of all findings grouped by category, with GH issue URLs created.
 ```
