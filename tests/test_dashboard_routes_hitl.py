@@ -1705,3 +1705,84 @@ class TestResolveHitlItemHelper:
         resp = await approve(3)
         assert json.loads(resp.body)["status"] == "ok"
         assert state.get_hitl_origin(3) is None
+
+
+class TestBuildHitlContextNoneBody:
+    """Test that _build_hitl_context handles None body (issue #2573)."""
+
+    @pytest.mark.asyncio
+    async def test_none_body_does_not_crash_hitl_summary(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When issue.body is None, _build_hitl_context should not raise."""
+        from dashboard_routes import create_router
+        from models import GitHubIssue
+        from pr_manager import PRManager
+
+        config.transcript_summarization_enabled = True
+        config.gh_token = "fake-token"
+
+        pr_mgr = PRManager(config, event_bus)
+
+        # Build a GitHubIssue and force body to None
+        issue = GitHubIssue(number=99, title="Test issue")
+        object.__setattr__(issue, "body", None)
+
+        # Access _compute_hitl_summary through the module's closure.
+        # We mock the fetcher to return our None-body issue and the
+        # summarizer to capture what context it receives.
+        captured_context: list[str] = []
+
+        async def _mock_summarize(ctx: str) -> str:
+            captured_context.append(ctx)
+            return "summary line"
+
+        with (
+            patch(
+                "dashboard_routes.IssueFetcher",
+                return_value=MagicMock(
+                    fetch_issue_by_number=AsyncMock(return_value=issue)
+                ),
+            ),
+            patch(
+                "dashboard_routes.TranscriptSummarizer",
+                return_value=MagicMock(
+                    summarize_hitl_context=AsyncMock(side_effect=_mock_summarize)
+                ),
+            ),
+        ):
+            # Re-create router to pick up the patched classes
+            router2 = create_router(
+                config=config,
+                event_bus=event_bus,
+                state=state,
+                pr_manager=pr_mgr,
+                get_orchestrator=lambda: None,
+                set_orchestrator=lambda o: None,
+                set_run_task=lambda t: None,
+                ui_dist_dir=tmp_path / "no-dist",
+                template_dir=tmp_path / "no-templates",
+            )
+
+            # Find the HITL summary endpoint
+            endpoint = next(
+                (
+                    r.endpoint
+                    for r in router2.routes
+                    if getattr(r, "path", "")
+                    == "/api/hitl/{issue_number}/generate-summary"
+                ),
+                None,
+            )
+            assert endpoint is not None, "generate-summary endpoint not found"
+
+            state.set_hitl_cause(99, "test-cause")
+            resp = await endpoint(99)
+
+        import json
+
+        payload = json.loads(resp.body)
+        assert payload.get("status") == "ok"
+        # The context should have been built without error
+        assert len(captured_context) == 1
+        assert "Issue #99" in captured_context[0]
