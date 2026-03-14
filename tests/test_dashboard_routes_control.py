@@ -398,11 +398,6 @@ class TestBgWorkerToggleEndpoint:
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# /api/control/bg-worker/interval endpoint
-# ---------------------------------------------------------------------------
-
-
 class TestBgWorkerIntervalEndpoint:
     """Tests for POST /api/control/bg-worker/interval endpoint."""
 
