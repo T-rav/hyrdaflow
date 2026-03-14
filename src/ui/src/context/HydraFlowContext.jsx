@@ -124,10 +124,14 @@ export function reducer(state, action) {
       const newStatus = action.data.status
       const isStopped = newStatus === 'idle' || newStatus === 'done' || newStatus === 'stopping'
       const isSessionStart = newStatus === 'running' && action.data.reset === true
+      const creditsPaused = action.data.credits_paused_until || null
+      // Clear the system alert banner when credits are no longer paused
+      const clearAlert = !creditsPaused && state.systemAlert?.message?.includes('Credit limit')
       return {
         ...addEvent(state, action),
         orchestratorStatus: newStatus,
-        creditsPausedUntil: action.data.credits_paused_until || null,
+        creditsPausedUntil: creditsPaused,
+        ...(clearAlert ? { systemAlert: null } : {}),
         ...(isStopped ? {
           workers: {},
           sessionPrsCount: 0,
@@ -480,6 +484,9 @@ export function reducer(state, action) {
 
     case 'system_alert':
       return { ...addEvent(state, action), systemAlert: action.data }
+
+    case 'CLEAR_SYSTEM_ALERT':
+      return { ...state, systemAlert: null }
 
     case 'error':
       return addEvent(state, action)
@@ -1569,6 +1576,7 @@ export function HydraFlowProvider({ children }) {
     toggleBgWorker,
     triggerBgWorker,
     updateBgWorkerInterval,
+    dismissSystemAlert: useCallback(() => dispatch({ type: 'CLEAR_SYSTEM_ALERT' }), [dispatch]),
     refreshHitl: fetchHitlItems,
     selectSession,
     selectRepo,
