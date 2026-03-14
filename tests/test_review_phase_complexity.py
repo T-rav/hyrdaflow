@@ -61,7 +61,7 @@ class TestHitlEscalation:
         assert esc.origin_label == "hydraflow-review"
         assert esc.comment == "Escalation comment"
 
-    def test_defaults(self) -> None:
+    def test_hitl_escalation_defaults_post_on_pr_true(self) -> None:
         """Optional fields should have sensible defaults."""
         esc = HitlEscalation(
             issue_number=1,
