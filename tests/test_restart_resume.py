@@ -200,8 +200,8 @@ class TestProcessedIssuesPersistence:
         st1.mark_issue(99, "failed")
 
         st2 = StateTracker(state_file)
-        data = st2.load()
-        processed = data.get("processed_issues", {})
+        st2.load()
+        processed = st2.to_dict().get("processed_issues", {})
 
         assert str(42) in processed or 42 in processed
         assert str(99) in processed or 99 in processed

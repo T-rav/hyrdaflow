@@ -97,7 +97,7 @@ class StateTracker:
 
     # --- persistence ---
 
-    def load(self) -> dict[str, Any]:
+    def load(self) -> None:
         """Load state from disk, or initialise defaults."""
         if self._path.exists():
             try:
@@ -116,7 +116,6 @@ class StateTracker:
                 logger.warning("Corrupt state file, resetting: %s", exc, exc_info=True)
                 self._data = StateData()
         self._maybe_migrate_worker_states()
-        return self._data.model_dump()
 
     def save(self) -> None:
         """Flush current state to disk atomically."""

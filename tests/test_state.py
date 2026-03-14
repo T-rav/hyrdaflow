@@ -184,10 +184,10 @@ class TestLoadSave:
         assert tracker2.get_branch(10) == "agent/issue-10"
         assert tracker2.to_dict()["reviewed_prs"].get(str(99)) == "merged"
 
-    def test_explicit_load_returns_dict(self, tmp_path: Path) -> None:
+    def test_explicit_load_returns_none(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         result = tracker.load()
-        assert isinstance(result, dict)
+        assert result is None
 
 
 class TestBackgroundWorkerStatePersistence:
@@ -846,10 +846,9 @@ class TestCorruptFileHandling:
         tracker.mark_issue(1, "success")
 
         state_file.write_text("{ bad json !!!")
-        result = tracker.load()
+        tracker.load()
 
-        assert isinstance(result, dict)
-        assert result.get("processed_issues") == {}
+        assert tracker.to_dict().get("processed_issues") == {}
 
     def test_corrupt_file_does_not_raise(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"

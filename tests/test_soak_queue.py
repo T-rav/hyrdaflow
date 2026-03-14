@@ -29,8 +29,8 @@ class TestSustainedQueueProcessing:
 
         # Reload
         st2 = StateTracker(tmp_path / "state.json")
-        data = st2.load()
-        processed = data.get("processed_issues", {})
+        st2.load()
+        processed = st2.to_dict().get("processed_issues", {})
 
         # All 200 issues should be present
         for i in range(200):
@@ -84,8 +84,8 @@ class TestDriftDetection:
             st.mark_issue(i, "merged" if i % 2 == 0 else "failed")
 
         st2 = StateTracker(tmp_path / "state.json")
-        data = st2.load()
-        processed = data.get("processed_issues", {})
+        st2.load()
+        processed = st2.to_dict().get("processed_issues", {})
 
         assert len(processed) == 500, (
             f"Expected 500, got {len(processed)} — data drift detected"
