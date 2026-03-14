@@ -59,6 +59,9 @@ class TestRunDispatch:
         mock_config = MagicMock()
         mock_config.dashboard_enabled = True
 
+        # Private-method patch: _run_with_dashboard is a heavyweight
+        # server-starting function that binds ports and blocks forever;
+        # extracting it as an injectable dependency would be over-engineering.
         with patch("server._run_with_dashboard") as mock_dashboard:
             from server import _run
 
@@ -70,6 +73,8 @@ class TestRunDispatch:
         mock_config = MagicMock()
         mock_config.dashboard_enabled = False
 
+        # Private-method patch: _run_headless is a heavyweight
+        # server-starting function that blocks forever; see comment above.
         with patch("server._run_headless") as mock_headless:
             from server import _run
 

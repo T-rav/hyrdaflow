@@ -12,7 +12,7 @@ import contextlib
 import logging
 import os
 import struct
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -632,7 +632,11 @@ def _check_docker_available() -> bool:
         return False
 
 
-def get_docker_runner(config: HydraFlowConfig) -> SubprocessRunner:
+def get_docker_runner(
+    config: HydraFlowConfig,
+    *,
+    docker_checker: Callable[[], bool] | None = None,
+) -> SubprocessRunner:
     """Factory: returns a :class:`SubprocessRunner` for agent execution.
 
     Returns a ``DockerRunner`` when Docker is available and configured,
@@ -641,6 +645,13 @@ def get_docker_runner(config: HydraFlowConfig) -> SubprocessRunner:
     - ``execution_mode`` is not ``"docker"``
     - ``docker_image`` is not configured
     - Docker daemon is not available
+
+    Parameters
+    ----------
+    docker_checker:
+        Optional callable that returns ``True`` when Docker is available.
+        Defaults to :func:`_check_docker_available`.  Useful for testing
+        without patching private module internals.
     """
     if config.execution_mode != "docker":
         return get_default_runner()
@@ -652,7 +663,8 @@ def get_docker_runner(config: HydraFlowConfig) -> SubprocessRunner:
         )
         return get_default_runner()
 
-    if not _check_docker_available():
+    checker = docker_checker if docker_checker is not None else _check_docker_available
+    if not checker():
         logger.warning("Docker daemon not available; falling back to host runner")
         return get_default_runner()
 

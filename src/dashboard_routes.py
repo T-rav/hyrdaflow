@@ -215,8 +215,18 @@ def _allowed_repo_roots() -> tuple[str, ...]:
     return tuple(deduped)
 
 
-def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | None]:
-    """Validate and normalize a directory path constrained to allowed roots."""
+def _normalize_allowed_dir(
+    raw_path: str | None,
+    allowed_roots: tuple[str, ...] | None = None,
+) -> tuple[Path | None, str | None]:
+    """Validate and normalize a directory path constrained to allowed roots.
+
+    Parameters
+    ----------
+    allowed_roots:
+        Override the default roots returned by :func:`_allowed_repo_roots`.
+        Useful for testing without patching private module internals.
+    """
     candidate = (raw_path or "").strip()
     if not candidate:
         return None, "path required"
@@ -224,7 +234,7 @@ def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | Non
     if "\x00" in expanded:
         return None, "invalid path"
     candidate_abs = os.path.abspath(expanded)
-    for root in _allowed_repo_roots():
+    for root in allowed_roots if allowed_roots is not None else _allowed_repo_roots():
         root_real = os.path.realpath(root)
         with contextlib.suppress(ValueError):
             relative = os.path.relpath(candidate_abs, root_real)
@@ -596,6 +606,7 @@ def create_router(
     remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
     list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
     default_repo_slug: str | None = None,
+    allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None,
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers.
 
@@ -607,6 +618,11 @@ def create_router(
     """
     router = APIRouter()
     hitl_summary_cooldown_seconds = 300
+    _repo_roots_fn = (
+        allowed_repo_roots_fn
+        if allowed_repo_roots_fn is not None
+        else _allowed_repo_roots
+    )
 
     def _resolve_runtime(
         slug: str | None,
@@ -3276,32 +3292,32 @@ def create_router(
             )
         return JSONResponse({"repos": repos, "can_register": True})
 
+    _root_names: dict[int, str] = {0: "Home", 1: "Temp"}
+
     @router.get("/api/fs/roots")
     async def list_browsable_roots() -> JSONResponse:
         """Return filesystem roots that are safe to browse from the UI."""
+        all_roots = _repo_roots_fn()
         roots = [
-            {"name": "Home", "path": _allowed_repo_roots()[0]},
-            {"name": "Temp", "path": _allowed_repo_roots()[-1]},
+            {"name": _root_names.get(i, f"Root {i + 1}"), "path": root}
+            for i, root in enumerate(all_roots)
         ]
-        # De-duplicate when home and temp resolve to same location.
-        seen: set[str] = set()
-        unique_roots: list[dict[str, str]] = []
-        for root in roots:
-            path = root["path"]
-            if path in seen:
-                continue
-            seen.add(path)
-            unique_roots.append(root)
-        return JSONResponse({"roots": unique_roots})
+        return JSONResponse({"roots": roots})
 
     @router.get("/api/fs/list")
     async def list_browsable_directories(
         path: str | None = Query(default=None),
     ) -> JSONResponse:
         """List child directories for the requested path under allowed roots."""
-        allowed_roots = _allowed_repo_roots()
+        allowed_roots = _repo_roots_fn()
+        if not allowed_roots:
+            return JSONResponse(
+                {"error": "no allowed roots configured"}, status_code=500
+            )
         target_raw = path or allowed_roots[0]
-        target_path, error = _normalize_allowed_dir(target_raw)
+        target_path, error = _normalize_allowed_dir(
+            target_raw, allowed_roots=allowed_roots
+        )
         if error or target_path is None:
             return JSONResponse({"error": error or "invalid path"}, status_code=400)
 
@@ -3479,7 +3495,9 @@ def create_router(
         raw_path = _extract_repo_path(req, req_query, path, repo_path_query)
         if not raw_path:
             return JSONResponse({"error": "path required"}, status_code=400)
-        repo_path, path_error = _normalize_allowed_dir(raw_path)
+        repo_path, path_error = _normalize_allowed_dir(
+            raw_path, allowed_roots=_repo_roots_fn()
+        )
         if path_error or repo_path is None:
             return JSONResponse(
                 {"error": path_error or "invalid path"}, status_code=400

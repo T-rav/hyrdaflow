@@ -918,7 +918,9 @@ class TestPickRepoFolder:
 class TestBrowsableFilesystemAPI:
     """Tests for /api/fs/roots and /api/fs/list endpoints."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
+    def _make_router(
+        self, config, event_bus, state, tmp_path, *, allowed_repo_roots_fn=None
+    ):
         from dashboard_routes import create_router
         from pr_manager import PRManager
 
@@ -933,6 +935,7 @@ class TestBrowsableFilesystemAPI:
             set_run_task=lambda t: None,
             ui_dist_dir=tmp_path / "no-dist",
             template_dir=tmp_path / "no-templates",
+            allowed_repo_roots_fn=allowed_repo_roots_fn,
         )
 
     def _get_endpoint(self, router, target_path: str):
@@ -966,6 +969,85 @@ class TestBrowsableFilesystemAPI:
         assert all("path" in root for root in data["roots"])
 
     @pytest.mark.asyncio
+    async def test_fs_roots_respects_allowed_repo_roots_fn(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        """allowed_repo_roots_fn is used by /api/fs/roots, not the real home/tmp."""
+        import json as json_mod
+
+        custom_root = str(tmp_path / "custom-root")
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            allowed_repo_roots_fn=lambda: (custom_root,),
+        )
+        endpoint = self._get_endpoint(router, "/api/fs/roots")
+        resp = await endpoint()
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        paths = [r["path"] for r in data["roots"]]
+        assert paths == [custom_root]
+
+    @pytest.mark.asyncio
+    async def test_fs_roots_includes_all_injected_roots(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        """All roots from allowed_repo_roots_fn are returned — no middle items dropped."""
+        import json as json_mod
+
+        root_a = str(tmp_path / "root-a")
+        root_b = str(tmp_path / "root-b")
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            allowed_repo_roots_fn=lambda: (root_a, root_b),
+        )
+        endpoint = self._get_endpoint(router, "/api/fs/roots")
+        resp = await endpoint()
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        paths = [r["path"] for r in data["roots"]]
+        assert paths == [root_a, root_b]
+        names = [r["name"] for r in data["roots"]]
+        assert names == ["Home", "Temp"]
+
+    @pytest.mark.asyncio
+    async def test_fs_list_empty_roots_returns_500(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        """Empty allowed_repo_roots_fn triggers the no-roots guard with 500."""
+        import json as json_mod
+
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            allowed_repo_roots_fn=lambda: (),
+        )
+        endpoint = self._get_endpoint(router, "/api/fs/list")
+        resp = await endpoint(path=None)
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 500
+        assert "no allowed roots configured" in data["error"]
+
+    @pytest.mark.asyncio
     async def test_fs_list_rejects_disallowed_path(
         self,
         config,
@@ -997,11 +1079,15 @@ class TestBrowsableFilesystemAPI:
         (root / "repo-a").mkdir()
         (root / "repo-b").mkdir()
         (root / ".hidden").mkdir()
-        router = self._make_router(config, event_bus, state, tmp_path)
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            allowed_repo_roots_fn=lambda: (str(root),),
+        )
         endpoint = self._get_endpoint(router, "/api/fs/list")
-
-        with patch("dashboard_routes._allowed_repo_roots", return_value=(str(root),)):
-            resp = await endpoint(path=str(root))
+        resp = await endpoint(path=str(root))
 
         data = json_mod.loads(resp.body)
         assert resp.status_code == 200
