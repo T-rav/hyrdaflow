@@ -1273,6 +1273,12 @@ def make_dashboard_router(
     registry=None,
     ui_dist_dir=None,
     template_dir=None,
+    register_repo_cb=None,
+    remove_repo_cb=None,
+    list_repos_cb=None,
+    repo_store=None,
+    default_repo_slug=None,
+    allowed_repo_roots_fn=None,
 ):
     """Create a dashboard router with test-friendly defaults.
 
@@ -1288,6 +1294,14 @@ def make_dashboard_router(
         Optional ``RepoRuntimeRegistry`` for multi-repo tests.
     ui_dist_dir / template_dir:
         Override the default ``tmp_path / "no-dist"`` / ``"no-templates"``.
+    register_repo_cb / remove_repo_cb / list_repos_cb:
+        Optional callbacks for repo management endpoints.
+    repo_store:
+        Optional ``RepoRegistryStore`` for config persistence tests.
+    default_repo_slug:
+        Optional default repo slug for multi-repo routing.
+    allowed_repo_roots_fn:
+        Optional callable returning allowed filesystem roots.
     """
     from dashboard_routes import create_router
     from pr_manager import PRManager
@@ -1304,6 +1318,12 @@ def make_dashboard_router(
         ui_dist_dir=ui_dist_dir or (tmp_path / "no-dist"),
         template_dir=template_dir or (tmp_path / "no-templates"),
         registry=registry,
+        register_repo_cb=register_repo_cb,
+        remove_repo_cb=remove_repo_cb,
+        list_repos_cb=list_repos_cb,
+        repo_store=repo_store,
+        default_repo_slug=default_repo_slug,
+        allowed_repo_roots_fn=allowed_repo_roots_fn,
     )
     return router, pr_mgr
 

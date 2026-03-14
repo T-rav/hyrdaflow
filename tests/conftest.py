@@ -111,6 +111,13 @@ def _reset_gh_semaphore():
     subprocess_util._rate_limit_until = None
 
 
+@pytest.fixture(autouse=True)
+def _disable_hitl_summary_autowarm(config) -> None:
+    """Keep route tests deterministic unless a test explicitly opts in."""
+    config.transcript_summarization_enabled = False
+    config.gh_token = ""
+
+
 # --- Config Fixtures ---
 
 
