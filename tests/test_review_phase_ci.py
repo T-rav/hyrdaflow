@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 from models import (
+    CodeScanningAlert,
     ReviewResult,
     ReviewVerdict,
 )
@@ -504,7 +505,7 @@ class TestCodeScanningAlertsFetch:
         phase = make_review_phase(cfg, default_mocks=True)
         pr = PRInfoFactory.create()
 
-        alerts = [{"number": 1, "path": "foo.py", "severity": "error"}]
+        alerts = [CodeScanningAlert(number=1, path="foo.py", severity="error")]
         phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
 
         result = await phase._fetch_code_scanning_alerts(pr)
@@ -563,7 +564,7 @@ class TestCodeScanningAlertThreading:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        alerts = [{"number": 1, "path": "foo.py", "severity": "error"}]
+        alerts = [CodeScanningAlert(number=1, path="foo.py", severity="error")]
         phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
 
         await phase.review_prs([pr], [issue])
@@ -586,7 +587,7 @@ class TestCodeScanningAlertThreading:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        alerts = [{"number": 1, "path": "foo.py", "severity": "error"}]
+        alerts = [CodeScanningAlert(number=1, path="foo.py", severity="error")]
         phase._prs.fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
 
         # CI fails first time, fix makes changes, then passes

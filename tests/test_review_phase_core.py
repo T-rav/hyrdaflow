@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 from events import EventType
 from models import (
     BaselineApprovalResult,
+    CodeScanningAlert,
     ConflictResolutionResult,
     CriterionResult,
     CriterionVerdict,
@@ -2424,7 +2425,7 @@ class TestPreReviewChecks:
             triggered_patterns=["apps/*"],
         )
         phase._compute_visual_validation = MagicMock(return_value=decision)
-        alerts = [{"id": 1}]
+        alerts = [CodeScanningAlert(number=1)]
         phase._fetch_code_scanning_alerts = AsyncMock(return_value=alerts)
         phase._run_delta_verification = AsyncMock()
         phase._prs.post_pr_comment = AsyncMock()
@@ -2475,7 +2476,7 @@ class TestRunPostReviewActions:
         context = PreReviewContext(
             diff="orig diff",
             visual_decision=None,
-            code_scanning_alerts=[{"id": 1}],
+            code_scanning_alerts=[CodeScanningAlert(number=1)],
         )
 
         result = await phase._run_post_review_actions(

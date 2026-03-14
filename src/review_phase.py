@@ -23,6 +23,7 @@ from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
     BaselineApprovalResult,
+    CodeScanningAlert,
     ConflictResolutionResult,
     HitlEscalation,
     JudgeResult,
@@ -83,7 +84,7 @@ class PreReviewContext:
 
     diff: str
     visual_decision: VisualValidationDecision | None
-    code_scanning_alerts: list[dict[str, Any]] | None
+    code_scanning_alerts: list[CodeScanningAlert] | None
 
 
 class ReviewPhase:
@@ -312,7 +313,9 @@ class ReviewPhase:
             return None
         return wt_path
 
-    async def _fetch_code_scanning_alerts(self, pr: PRInfo) -> list[dict] | None:
+    async def _fetch_code_scanning_alerts(
+        self, pr: PRInfo
+    ) -> list[CodeScanningAlert] | None:
         """Fetch code scanning alerts if the feature is enabled.
 
         Returns the alert list or ``None`` when disabled / on error.
@@ -751,7 +754,7 @@ class ReviewPhase:
         wt_path: Path,
         diff: str,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> ReviewResult:
         """Run the reviewer, push fixes, post summary, submit formal review."""
         result = await self._reviewers.review(
@@ -801,7 +804,7 @@ class ReviewPhase:
         result: ReviewResult,
         diff: str,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> tuple[ReviewResult, str]:
         """Re-review a PR after the reviewer self-fixed findings.
 
@@ -856,7 +859,7 @@ class ReviewPhase:
         result: ReviewResult,
         attempt: int,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> tuple[ReviewResult, str] | None:
         """Run one fix-then-re-review cycle.
 
@@ -909,7 +912,7 @@ class ReviewPhase:
         result: ReviewResult,
         diff: str,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> tuple[ReviewResult, str]:
         """Spin up a sub-agent to fix review findings, then re-review.
 
@@ -1011,7 +1014,7 @@ class ReviewPhase:
         result: ReviewResult,
         diff: str,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
         visual_decision: VisualValidationDecision | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate)."""
@@ -1264,7 +1267,7 @@ class ReviewPhase:
         attempt: int,
         *,
         ci_logs: str = "",
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> bool:
         """Run the CI fix agent. Return True if changes were made and pushed."""
         await self._publish_review_status(pr, worker_id, "ci_fix")
@@ -1329,7 +1332,7 @@ class ReviewPhase:
         wt_path: Path,
         result: ReviewResult,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> bool:
         """Wait for CI and attempt fixes if it fails.
 
@@ -1585,7 +1588,7 @@ class ReviewPhase:
         diff: str,
         result: ReviewResult,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> ReviewResult:
         """Re-review if APPROVE has too few findings and no justification.
 

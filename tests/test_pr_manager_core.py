@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from events import EventType
-from models import ReviewVerdict
+from models import CodeScanningAlert, ReviewVerdict
 from pr_manager import PRManager
 from tests.conftest import PRInfoFactory, SubprocessMockBuilder
 from tests.helpers import ConfigFactory
@@ -2638,8 +2638,9 @@ class TestFetchCodeScanningAlerts:
             result = await manager.fetch_code_scanning_alerts("feature-branch")
 
         assert len(result) == 1
-        assert result[0]["number"] == 1
-        assert result[0]["path"] == "src/db.js"
+        assert isinstance(result[0], CodeScanningAlert)
+        assert result[0].number == 1
+        assert result[0].path == "src/db.js"
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_404(self, config, event_bus):
