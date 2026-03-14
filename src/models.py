@@ -217,6 +217,7 @@ class Task(BaseModel):
     """Source-agnostic task representation.
 
     Maps to a GitHub issue or any other task backend.
+    ``id`` corresponds to :attr:`GitHubIssue.number` (the GitHub issue number).
     """
 
     id: int

@@ -189,15 +189,15 @@ async def test_credit_pause_publishes_alerts_and_restores_loops(tmp_path) -> Non
 @pytest.mark.asyncio
 async def test_hitl_round_trip_moves_issue_back_to_plan(tmp_path) -> None:
     """HITL correction should route an issue back to the requested stage."""
-    issue_id = 404
+    issue_number = 404
     script = PipelineScript(
-        triage_routes={issue_id: "hitl"},
-        hitl_resolutions={issue_id: "plan"},
+        triage_routes={issue_number: "hitl"},
+        hitl_resolutions={issue_number: "plan"},
     )
     config = _config(tmp_path)
     with scripted_orchestrator(config, script) as orch:
         issue = TaskFactory.create(
-            id=issue_id,
+            id=issue_number,
             title="Needs HITL",
             tags=[config.find_label[0]],
         )
@@ -210,7 +210,7 @@ async def test_hitl_round_trip_moves_issue_back_to_plan(tmp_path) -> None:
         )
         assert _queue_depth(orch, "hitl") == 1
 
-        orch._svc.hitl_phase.submit_correction(issue_id, "retry with guidance")
+        orch._svc.hitl_phase.submit_correction(issue_number, "retry with guidance")
 
         await _drive_loop(
             orch,
@@ -222,12 +222,12 @@ async def test_hitl_round_trip_moves_issue_back_to_plan(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_failed_implementation_discards_worktree(tmp_path) -> None:
     """Implementation failures should trigger worktree cleanup."""
-    issue_id = 303
-    script = PipelineScript(implement_behaviors={issue_id: "fail"})
+    issue_number = 303
+    script = PipelineScript(implement_behaviors={issue_number: "fail"})
     config = _config(tmp_path)
     with scripted_orchestrator(config, script) as orch:
         issue = TaskFactory.create(
-            id=issue_id,
+            id=issue_number,
             title="Implementation failure",
             tags=[config.ready_label[0]],
         )
@@ -240,18 +240,18 @@ async def test_failed_implementation_discards_worktree(tmp_path) -> None:
         )
 
         worktrees = cast(FakeWorkspaceManager, orch._svc.worktrees)
-        assert issue_id in worktrees.cleaned
+        assert issue_number in worktrees.cleaned
 
 
 @pytest.mark.asyncio
 async def test_concurrent_loops_do_not_double_process_same_issue(tmp_path) -> None:
     """Two concurrent implement workers must not process the same issue twice."""
-    issue_id = 505
+    issue_number = 505
     script = PipelineScript()
     config = _config(tmp_path)
     with scripted_orchestrator(config, script) as orch:
         issue = TaskFactory.create(
-            id=issue_id,
+            id=issue_number,
             title="Concurrent isolation check",
             tags=[config.ready_label[0]],
         )
