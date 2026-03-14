@@ -969,6 +969,32 @@ class TestBrowsableFilesystemAPI:
         assert all("path" in root for root in data["roots"])
 
     @pytest.mark.asyncio
+    async def test_fs_roots_respects_allowed_repo_roots_fn(
+        self,
+        config,
+        event_bus: EventBus,
+        state,
+        tmp_path: Path,
+    ) -> None:
+        """allowed_repo_roots_fn is used by /api/fs/roots, not the real home/tmp."""
+        import json as json_mod
+
+        custom_root = str(tmp_path / "custom-root")
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            allowed_repo_roots_fn=lambda: (custom_root,),
+        )
+        endpoint = self._get_endpoint(router, "/api/fs/roots")
+        resp = await endpoint()
+        data = json_mod.loads(resp.body)
+        assert resp.status_code == 200
+        paths = [r["path"] for r in data["roots"]]
+        assert paths == [custom_root]
+
+    @pytest.mark.asyncio
     async def test_fs_list_rejects_disallowed_path(
         self,
         config,

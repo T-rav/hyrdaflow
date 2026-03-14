@@ -3295,9 +3295,10 @@ def create_router(
     @router.get("/api/fs/roots")
     async def list_browsable_roots() -> JSONResponse:
         """Return filesystem roots that are safe to browse from the UI."""
+        all_roots = _repo_roots_fn()
         roots = [
-            {"name": "Home", "path": _repo_roots_fn()[0]},
-            {"name": "Temp", "path": _repo_roots_fn()[-1]},
+            {"name": "Home", "path": all_roots[0]},
+            {"name": "Temp", "path": all_roots[-1]},
         ]
         # De-duplicate when home and temp resolve to same location.
         seen: set[str] = set()
