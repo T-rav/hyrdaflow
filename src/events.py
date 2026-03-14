@@ -251,7 +251,14 @@ class EventLog:
             return
 
         content = "\n".join(kept_lines) + "\n" if kept_lines else ""
-        atomic_write(self._path, content)
+        try:
+            atomic_write(self._path, content)
+        except OSError:
+            logger.warning(
+                "Could not write rotated event log: %s",
+                self._path,
+                exc_info=True,
+            )
 
     async def rotate(self, max_size_bytes: int, max_age_days: int) -> None:
         """Rotate the log file if it exceeds *max_size_bytes*.

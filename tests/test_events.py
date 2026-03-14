@@ -1118,21 +1118,25 @@ class TestRotateSyncOSError:
         assert "Could not read event log for rotation" in caplog.text
 
     def test_rotate_sync_file_deleted_between_stat_and_open(
-        self, tmp_path: Path
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """_rotate_sync should not crash if file is deleted after stat()."""
+        """_rotate_sync should log a warning if file is deleted after stat()."""
         log_path = tmp_path / "events.jsonl"
         event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
         log_path.write_text((event.model_dump_json() + "\n") * 10)
 
         event_log = EventLog(log_path)
-        # Delete after stat succeeds but before open
+        # Simulate TOCTOU: delete file after stat() succeeds but before open()
         original_open = open
 
         def delayed_delete(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
             log_path.unlink(missing_ok=True)
             return original_open(*args, **kwargs)  # type: ignore[arg-type]
 
-        with patch("builtins.open", side_effect=delayed_delete):
-            # Should not raise — either reads empty or handles gracefully
+        with (
+            patch("builtins.open", side_effect=delayed_delete),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
             event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Could not read event log for rotation" in caplog.text
