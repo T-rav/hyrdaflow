@@ -221,8 +221,8 @@ class PRManager:
         """Update the title of an existing PR.  Returns True on success."""
         if self._config.dry_run or pr_number <= 0:
             return False
-        self._assert_repo()
         try:
+            self._assert_repo()
             await self._run_gh(
                 "gh",
                 "pr",

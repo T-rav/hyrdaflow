@@ -2580,3 +2580,25 @@ class TestRetryPrTitleConsistency:
         assert pr.number == 300
         mock_prs.create_pr.assert_awaited_once()
         mock_prs.update_pr_title.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_zero_pr_number_skips_title_update(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When find_open_pr_for_branch returns a PR with number=0, title update is skipped."""
+        issue = TaskFactory.create(id=99, title="Fix the widget")
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=True,
+            worktree_path=str(config.worktree_path_for_issue(99)),
+        )
+        zero_pr = PRInfoFactory.create(number=0, issue_number=99)
+
+        phase, _, mock_prs = make_implement_phase(config, [issue])
+        mock_prs.find_open_pr_for_branch.return_value = zero_pr
+
+        pr = await phase._resolve_pr(issue, result, is_retry=True)
+
+        assert pr is not None
+        assert pr.number == 0
+        mock_prs.update_pr_title.assert_not_awaited()

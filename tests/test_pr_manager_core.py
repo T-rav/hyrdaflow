@@ -1080,6 +1080,7 @@ async def test_create_pr_failure_recovers_existing_open_pr(config, event_bus, is
             url="https://github.com/test-org/test-repo/pull/222",
         )
     )
+    manager.update_pr_title = AsyncMock(return_value=True)
     mock_create = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
     )
