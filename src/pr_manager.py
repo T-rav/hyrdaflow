@@ -209,6 +209,38 @@ class PRManager:
             logger.error("%s failed for %s: %s", action, branch, exc)
             return False
 
+    @staticmethod
+    def expected_pr_title(issue_number: int, issue_title: str) -> str:
+        """Return the canonical PR title for an issue: ``Fixes #N: <title>``."""
+        title = f"Fixes #{issue_number}: {issue_title}"
+        if len(title) > 70:
+            title = title[:67] + "..."
+        return title
+
+    async def update_pr_title(self, pr_number: int, title: str) -> bool:
+        """Update the title of an existing PR.  Returns True on success."""
+        if self._config.dry_run or pr_number <= 0:
+            return False
+        self._assert_repo()
+        try:
+            await self._run_gh(
+                "gh",
+                "pr",
+                "edit",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--title",
+                title,
+            )
+            logger.info("Updated PR #%d title to: %s", pr_number, title)
+            return True
+        except RuntimeError:
+            logger.warning(
+                "Failed to update title for PR #%d", pr_number, exc_info=True
+            )
+            return False
+
     async def create_pr(
         self,
         issue: GitHubIssue,
@@ -221,9 +253,7 @@ class PRManager:
         Returns a :class:`PRInfo` with the PR number and URL.
         """
         self._assert_repo()
-        title = f"Fixes #{issue.number}: {issue.title}"
-        if len(title) > 70:
-            title = title[:67] + "..."
+        title = self.expected_pr_title(issue.number, issue.title)
 
         body = (
             f"## Summary\n\n"
@@ -318,6 +348,7 @@ class PRManager:
                     issue.number,
                     branch,
                 )
+                await self.update_pr_title(existing.number, title)
                 return existing
             return PRInfo(
                 number=0,

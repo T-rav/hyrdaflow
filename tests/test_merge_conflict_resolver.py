@@ -512,3 +512,73 @@ class TestFreshBranchRebuild:
         resolver._prs.push_branch.assert_awaited_once_with(
             cfg.worktree_path_for_issue(pr.issue_number), pr.branch, force=True
         )
+
+
+# ---------------------------------------------------------------------------
+# PR title update after fresh rebuild
+# ---------------------------------------------------------------------------
+
+
+class TestFreshRebuildTitleUpdate:
+    """Ensure fresh_branch_rebuild updates the PR title to canonical format."""
+
+    @pytest.mark.asyncio
+    async def test_updates_title_on_success(self, tmp_path: Path) -> None:
+        """After successful fresh rebuild, PR title should be updated."""
+        from pr_manager import PRManager
+
+        cfg = ConfigFactory.create(
+            enable_fresh_branch_rebuild=True,
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="rebuilt transcript")
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=True, summary="")
+        )
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
+        pr = PRInfoFactory.create(number=200, issue_number=77)
+        issue = TaskFactory.create(id=77, title="Fix the gizmo")
+
+        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
+        resolver._worktrees.destroy = AsyncMock()
+        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
+        resolver._prs.update_pr_title = AsyncMock(return_value=True)
+
+        result = await resolver.fresh_branch_rebuild(pr, issue, worker_id=0)
+
+        assert result is True
+        expected_title = PRManager.expected_pr_title(77, "Fix the gizmo")
+        resolver._prs.update_pr_title.assert_awaited_once_with(200, expected_title)
+
+    @pytest.mark.asyncio
+    async def test_no_title_update_on_failure(self, tmp_path: Path) -> None:
+        """When fresh rebuild verification fails, title should not be updated."""
+        cfg = ConfigFactory.create(
+            enable_fresh_branch_rebuild=True,
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        mock_agents = AsyncMock()
+        mock_agents._execute = AsyncMock(return_value="failed transcript")
+        mock_agents._verify_result = AsyncMock(
+            return_value=LoopResult(passed=False, summary="quality check failed")
+        )
+        resolver = make_conflict_resolver(cfg, agents=mock_agents)
+        pr = PRInfoFactory.create(number=200, issue_number=77)
+        issue = TaskFactory.create(id=77, title="Fix the gizmo")
+
+        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
+        resolver._worktrees.destroy = AsyncMock()
+        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
+        resolver._prs.update_pr_title = AsyncMock(return_value=True)
+
+        result = await resolver.fresh_branch_rebuild(pr, issue, worker_id=0)
+
+        assert result is False
+        resolver._prs.update_pr_title.assert_not_awaited()
