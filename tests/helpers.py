@@ -1110,11 +1110,13 @@ class ImplementPhaseMockBuilder:
         )
     """
 
+    _UNSET: Any = object()  # sentinel for "not explicitly set"
+
     def __init__(self, config: object) -> None:
         self._config = config
         self._issues: list[object] = []
         self._push_return: bool = True
-        self._create_pr_return: object | None = None
+        self._create_pr_return: object = self._UNSET
         self._agent_run: object | None = None
         self._success: bool = True
         self._prs_overrides: dict[str, object] = {}
@@ -1131,7 +1133,7 @@ class ImplementPhaseMockBuilder:
         return self
 
     def with_create_pr_return(self, val: object) -> ImplementPhaseMockBuilder:
-        """Set the return value for mock_prs.create_pr."""
+        """Set the return value for mock_prs.create_pr (including None)."""
         self._create_pr_return = val
         return self
 
@@ -1155,15 +1157,20 @@ class ImplementPhaseMockBuilder:
         self._wt_overrides[name] = mock
         return self
 
-    def build(self) -> tuple:
+    def build(self) -> tuple[Any, Any, Any]:
         """Build and return ``(phase, mock_wt, mock_prs)``."""
+        create_pr_kwarg: dict[str, Any] = (
+            {}
+            if self._create_pr_return is self._UNSET
+            else {"create_pr_return": self._create_pr_return}
+        )
         phase, mock_wt, mock_prs = make_implement_phase(
             self._config,
             self._issues,
             agent_run=self._agent_run,
             success=self._success,
             push_return=self._push_return,
-            create_pr_return=self._create_pr_return,
+            **create_pr_kwarg,
         )
         for name, mock in self._prs_overrides.items():
             setattr(mock_prs, name, mock)
