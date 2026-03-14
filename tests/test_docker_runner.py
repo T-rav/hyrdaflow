@@ -973,8 +973,7 @@ class TestGetDockerRunner:
             config = ConfigFactory.create(
                 execution_mode="docker", docker_image="hydra:latest"
             )
-        with patch("docker_runner._check_docker_available", return_value=False):
-            runner = get_docker_runner(config)
+        runner = get_docker_runner(config, docker_checker=lambda: False)
         assert isinstance(runner, HostRunner)
 
     def test_returns_docker_runner_when_available(self) -> None:
@@ -990,11 +989,8 @@ class TestGetDockerRunner:
                 docker_network="test-net",
             )
         mock_client = _make_mock_docker_client()
-        with (
-            patch("docker_runner._check_docker_available", return_value=True),
-            patch("docker.from_env", return_value=mock_client),
-        ):
-            runner = get_docker_runner(config)
+        with patch("docker.from_env", return_value=mock_client):
+            runner = get_docker_runner(config, docker_checker=lambda: True)
         assert isinstance(runner, DockerRunner)
         assert isinstance(runner, SubprocessRunner)
 
@@ -1021,11 +1017,8 @@ class TestGetDockerRunner:
             config = ConfigFactory.create(
                 execution_mode="docker", docker_image="hydra:latest"
             )
-        with (
-            caplog.at_level("WARNING"),
-            patch("docker_runner._check_docker_available", return_value=False),
-        ):
-            get_docker_runner(config)
+        with caplog.at_level("WARNING"):
+            get_docker_runner(config, docker_checker=lambda: False)
         assert "Docker daemon not available" in caplog.text
 
     @pytest.mark.asyncio
@@ -1065,11 +1058,8 @@ class TestGetDockerRunner:
         ).resolve_defaults()
 
         mock_client = _make_mock_docker_client()
-        with (
-            patch("docker_runner._check_docker_available", return_value=True),
-            patch("docker.from_env", return_value=mock_client),
-        ):
-            runner = get_docker_runner(cfg)
+        with patch("docker.from_env", return_value=mock_client):
+            runner = get_docker_runner(cfg, docker_checker=lambda: True)
             assert isinstance(runner, DockerRunner)
             await runner.create_streaming_process(["claude", "-p"], cwd=str(repo_root))
 

@@ -57,6 +57,9 @@ class HydraFlowDashboard:
         remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
         list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
         default_repo_slug: str | None = None,
+        ui_dist_dir: Path | None = None,
+        template_dir: Path | None = None,
+        static_dir: Path | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -68,6 +71,9 @@ class HydraFlowDashboard:
         self._remove_repo_cb = remove_repo_cb
         self._list_repos_cb = list_repos_cb
         self._default_repo_slug = default_repo_slug
+        self._ui_dist_dir = ui_dist_dir if ui_dist_dir is not None else _UI_DIST_DIR
+        self._template_dir = template_dir if template_dir is not None else _TEMPLATE_DIR
+        self._static_dir = static_dir if static_dir is not None else _STATIC_DIR
         self._server_task: asyncio.Task[None] | None = None
         self._run_task: asyncio.Task[None] | None = None
         self._app: FastAPI | None = None
@@ -89,8 +95,9 @@ class HydraFlowDashboard:
         app = FastAPI(title="HydraFlow Dashboard", version=get_app_version())
 
         # Serve React build if available
-        if _UI_DIST_DIR.exists() and (_UI_DIST_DIR / "index.html").exists():
-            assets_dir = _UI_DIST_DIR / "assets"
+        ui_dist_dir = self._ui_dist_dir
+        if ui_dist_dir.exists() and (ui_dist_dir / "index.html").exists():
+            assets_dir = ui_dist_dir / "assets"
             if assets_dir.exists():
                 app.mount(
                     "/assets",
@@ -99,10 +106,10 @@ class HydraFlowDashboard:
                 )
 
         # Serve static files (fallback dashboard JS, etc.)
-        if _STATIC_DIR.exists():
+        if self._static_dir.exists():
             app.mount(
                 "/static",
-                StaticFiles(directory=str(_STATIC_DIR)),
+                StaticFiles(directory=str(self._static_dir)),
                 name="static",
             )
 
@@ -115,8 +122,8 @@ class HydraFlowDashboard:
             get_orchestrator=lambda: self._orchestrator,
             set_orchestrator=self._set_orchestrator,
             set_run_task=self._set_run_task,
-            ui_dist_dir=_UI_DIST_DIR,
-            template_dir=_TEMPLATE_DIR,
+            ui_dist_dir=ui_dist_dir,
+            template_dir=self._template_dir,
             registry=self._registry,
             repo_store=self._repo_store,
             register_repo_cb=self._register_repo_cb,

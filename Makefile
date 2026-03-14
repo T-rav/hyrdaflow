@@ -160,7 +160,8 @@ test: deps
 smoke: deps
 	@echo "$(BLUE)Running HydraFlow smoke tests...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest \
-		tests/test_dashboard.py \
+		tests/test_dashboard_init.py \
+		tests/test_dashboard_lifecycle.py \
 		tests/test_dashboard_routes_control.py \
 		tests/test_dashboard_routes_core.py \
 		tests/test_dashboard_routes_hitl.py \

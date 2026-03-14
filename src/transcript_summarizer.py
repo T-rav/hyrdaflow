@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from agent_cli import build_lightweight_command
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
@@ -327,23 +328,9 @@ class TranscriptSummarizer:
         """
         tool = self._config.transcript_summary_tool
         model = self._config.transcript_summary_model
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = ["claude", "-p", prompt, "--model", model]
-            cmd_input = None
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
         env = make_clean_env(self._config.gh_token)
 
         try:

@@ -52,12 +52,7 @@ def _make_loop(
         worktrees=worktrees,
         prs=prs,
         state=state,
-        event_bus=deps.bus,
-        stop_event=deps.stop_event,
-        status_cb=deps.status_cb,
-        enabled_cb=deps.enabled_cb,
-        sleep_fn=deps.sleep_fn,
-        interval_cb=None,
+        deps=deps.loop_deps,
         is_in_pipeline_cb=lambda n: n in in_pipeline,
     )
     loop._issue_has_pipeline_label = AsyncMock(return_value=False)  # type: ignore[method-assign]

@@ -615,7 +615,7 @@ class TestStreamClaudeProcessLifecycle:
                 )
             )
 
-        assert proc_was_tracked
+        assert proc_was_tracked is True
         assert len(active_procs) == 0
 
 

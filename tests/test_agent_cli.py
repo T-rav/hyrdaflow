@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent_cli import build_agent_command
+from agent_cli import build_agent_command, build_lightweight_command
 
 
 class TestBuildAgentCommand:
@@ -154,3 +154,78 @@ class TestBuildAgentCommand:
 
         idx = cmd.index("--max-turns")
         assert cmd[idx + 1] == "42"
+
+
+class TestBuildLightweightCommand:
+    """Tests for build_lightweight_command — simplified CLI builder for background workers."""
+
+    def test_codex_includes_prompt_as_positional_arg(self) -> None:
+        """Codex command should append the prompt as a positional argument."""
+        cmd, cmd_input = build_lightweight_command(
+            tool="codex", model="o4-mini", prompt="summarize this"
+        )
+
+        assert cmd[0] == "codex"
+        assert "exec" in cmd
+        assert "--json" in cmd
+        assert cmd[cmd.index("--model") + 1] == "o4-mini"
+        assert cmd[-1] == "summarize this"
+        assert cmd_input is None
+
+    def test_codex_includes_standard_flags(self) -> None:
+        """Codex command should include sandbox and bypass flags."""
+        cmd, _ = build_lightweight_command(tool="codex", model="o4-mini", prompt="test")
+
+        assert "--sandbox" in cmd
+        assert cmd[cmd.index("--sandbox") + 1] == "danger-full-access"
+        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+        assert "--skip-git-repo-check" in cmd
+
+    def test_claude_uses_pipe_flag(self) -> None:
+        """Claude command should use -p flag with prompt inline."""
+        cmd, cmd_input = build_lightweight_command(
+            tool="claude", model="sonnet", prompt="explain this"
+        )
+
+        assert cmd[0] == "claude"
+        assert "-p" in cmd
+        assert "explain this" in cmd
+        assert cmd[cmd.index("--model") + 1] == "sonnet"
+        assert cmd_input is None
+
+    def test_other_tool_uses_pipe_flag(self) -> None:
+        """Non-codex tools should use -p flag with the tool name as executable."""
+        cmd, cmd_input = build_lightweight_command(
+            tool="pi", model="pi-max", prompt="hello"
+        )
+
+        assert cmd[0] == "pi"
+        assert "-p" in cmd
+        assert "hello" in cmd
+        assert cmd[cmd.index("--model") + 1] == "pi-max"
+        assert cmd_input is None
+
+    def test_input_always_none(self) -> None:
+        """cmd_input should always be None for both codex and non-codex tools."""
+        _, codex_input = build_lightweight_command(
+            tool="codex", model="o4-mini", prompt="test"
+        )
+        _, claude_input = build_lightweight_command(
+            tool="claude", model="sonnet", prompt="test"
+        )
+
+        assert codex_input is None
+        assert claude_input is None
+
+    def test_codex_does_not_mutate_shared_state(self) -> None:
+        """Calling build_lightweight_command twice should not share list references."""
+        cmd1, _ = build_lightweight_command(
+            tool="codex", model="o4-mini", prompt="first"
+        )
+        cmd2, _ = build_lightweight_command(
+            tool="codex", model="o4-mini", prompt="second"
+        )
+
+        assert cmd1[-1] == "first"
+        assert cmd2[-1] == "second"
+        assert cmd1 is not cmd2

@@ -57,6 +57,30 @@ def _build_codex_command(*, model: str) -> list[str]:
     ]
 
 
+def build_lightweight_command(
+    *,
+    tool: AgentTool,
+    model: str,
+    prompt: str,
+) -> tuple[list[str], bytes | None]:
+    """Build a simple CLI command for lightweight (non-streaming) callers.
+
+    Unlike :func:`build_agent_command` which builds streaming commands for
+    the full agent runners, this builds simple one-shot commands used by
+    background workers (ADR reviewer, memory compaction, PR unsticker,
+    transcript summarizer).
+
+    Returns ``(cmd, input_bytes)`` where *input_bytes* is always ``None``
+    (reserved for future stdin-based backends).
+    """
+    if tool == "codex":
+        cmd = _build_codex_command(model=model)
+        cmd.append(prompt)
+        return cmd, None
+    # claude / pi / any other tool: use -p flag
+    return [tool, "-p", prompt, "--model", model], None
+
+
 def _build_pi_command(
     *,
     model: str,

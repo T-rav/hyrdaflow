@@ -241,7 +241,7 @@ class TestWorkFnProtocol:
 
         fn: WorkFn = my_work
         await fn()
-        assert called
+        assert called is True
 
     @pytest.mark.asyncio
     async def test_async_function_returning_value_satisfies_protocol(self) -> None:

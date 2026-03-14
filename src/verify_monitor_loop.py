@@ -7,15 +7,12 @@ transitions the original issue outcome from ``VERIFY_PENDING`` to
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from events import EventBus
-from models import IssueOutcomeType, StatusCallback
+from models import IssueOutcomeType
 
 if TYPE_CHECKING:
     from issue_fetcher import IssueFetcher
@@ -32,23 +29,9 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
         config: HydraFlowConfig,
         fetcher: IssueFetcher,
         state: StateTracker,
-        event_bus: EventBus,
-        stop_event: asyncio.Event,
-        status_cb: StatusCallback,
-        enabled_cb: Callable[[str], bool],
-        sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
-        interval_cb: Callable[[str], int] | None = None,
+        deps: LoopDeps,
     ) -> None:
-        super().__init__(
-            worker_name="verify_monitor",
-            config=config,
-            bus=event_bus,
-            stop_event=stop_event,
-            status_cb=status_cb,
-            enabled_cb=enabled_cb,
-            sleep_fn=sleep_fn,
-            interval_cb=interval_cb,
-        )
+        super().__init__(worker_name="verify_monitor", config=config, deps=deps)
         self._fetcher = fetcher
         self._state = state
 
