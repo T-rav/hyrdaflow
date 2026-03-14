@@ -1080,6 +1080,7 @@ async def test_create_pr_failure_recovers_existing_open_pr(config, event_bus, is
             url="https://github.com/test-org/test-repo/pull/222",
         )
     )
+    manager.update_pr_title = AsyncMock(return_value=True)
     mock_create = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
     )
@@ -2677,3 +2678,114 @@ class TestFetchCodeScanningAlerts:
             result = await manager.fetch_code_scanning_alerts("feature-branch")
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# expected_pr_title (static method)
+# ---------------------------------------------------------------------------
+
+
+class TestExpectedPrTitle:
+    """Tests for PRManager.expected_pr_title."""
+
+    def test_short_title(self):
+        result = PRManager.expected_pr_title(42, "Fix bug")
+        assert result == "Fixes #42: Fix bug"
+
+    def test_truncates_at_70_chars(self):
+        long_title = "A" * 100
+        result = PRManager.expected_pr_title(1, long_title)
+        assert len(result) == 70
+        assert result.endswith("...")
+        assert result.startswith("Fixes #1: ")
+
+    def test_exactly_70_chars_not_truncated(self):
+        # "Fixes #1: " = 10 chars, need 60 more to hit exactly 70
+        title = "x" * 60
+        result = PRManager.expected_pr_title(1, title)
+        assert len(result) == 70
+        assert not result.endswith("...")
+
+
+# ---------------------------------------------------------------------------
+# update_pr_title
+# ---------------------------------------------------------------------------
+
+
+class TestUpdatePrTitle:
+    """Tests for PRManager.update_pr_title."""
+
+    @pytest.mark.asyncio
+    async def test_calls_gh_pr_edit(self, config, event_bus):
+        manager = _make_manager(config, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.update_pr_title(123, "Fixes #42: Fix bug")
+
+        assert result is True
+        mock_create.assert_awaited_once()
+        cmd = (
+            mock_create.call_args.args
+            if mock_create.call_args.args
+            else mock_create.call_args[0]
+        )
+        assert "gh" in cmd
+        assert "pr" in cmd
+        assert "edit" in cmd
+        assert "123" in cmd
+        assert "--title" in cmd
+        assert "Fixes #42: Fix bug" in cmd
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips(self, dry_config, event_bus):
+        manager = _make_manager(dry_config, event_bus)
+        result = await manager.update_pr_title(123, "title")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_zero_pr_number_skips(self, config, event_bus):
+        manager = _make_manager(config, event_bus)
+        result = await manager.update_pr_title(0, "title")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_failure_returns_false(self, config, event_bus):
+        manager = _make_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+        )
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await manager.update_pr_title(123, "title")
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# create_pr fallback updates title
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_pr_fallback_updates_existing_pr_title(config, event_bus, issue):
+    """When create_pr fails and falls back to an existing PR, it should update the title."""
+    manager = _make_manager(config, event_bus)
+    existing_pr = PRInfoFactory.create(
+        number=222,
+        issue_number=issue.number,
+        branch="agent/issue-42",
+        url="https://github.com/test-org/test-repo/pull/222",
+    )
+    manager.find_open_pr_for_branch = AsyncMock(return_value=existing_pr)
+    manager.update_pr_title = AsyncMock(return_value=True)
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+    )
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        pr_info = await manager.create_pr(issue, "agent/issue-42")
+
+    assert pr_info.number == 222
+    expected_title = PRManager.expected_pr_title(issue.number, issue.title)
+    manager.update_pr_title.assert_awaited_once_with(222, expected_title)

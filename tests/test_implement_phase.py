@@ -2505,3 +2505,100 @@ class TestHandleNoPrFallback:
         assert returned.success is False
         assert returned.error == "PR creation failed"
         assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
+
+
+# ---------------------------------------------------------------------------
+# PR title consistency on retry path
+# ---------------------------------------------------------------------------
+
+
+class TestRetryPrTitleConsistency:
+    """Ensure retry paths update the PR title to the canonical format."""
+
+    @pytest.mark.asyncio
+    async def test_retry_updates_pr_title(self, config: HydraFlowConfig) -> None:
+        """On retry, _resolve_pr should update the existing PR title."""
+        from pr_manager import PRManager
+
+        issue = TaskFactory.create(id=99, title="Fix the widget")
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=True,
+            worktree_path=str(config.worktree_path_for_issue(99)),
+        )
+        existing_pr = PRInfoFactory.create(number=200, issue_number=99)
+
+        phase, _, mock_prs = make_implement_phase(config, [issue])
+        mock_prs.find_open_pr_for_branch.return_value = existing_pr
+
+        pr = await phase._resolve_pr(issue, result, is_retry=True)
+
+        assert pr is not None
+        assert pr.number == 200
+        expected_title = PRManager.expected_pr_title(99, "Fix the widget")
+        mock_prs.update_pr_title.assert_awaited_once_with(200, expected_title)
+
+    @pytest.mark.asyncio
+    async def test_retry_no_existing_pr_skips_title_update(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When no existing PR is found on retry, title update should be skipped."""
+        issue = TaskFactory.create(id=99, title="Fix the widget")
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=True,
+            worktree_path=str(config.worktree_path_for_issue(99)),
+        )
+
+        phase, _, mock_prs = make_implement_phase(config, [issue])
+        mock_prs.find_open_pr_for_branch.return_value = None
+
+        pr = await phase._resolve_pr(issue, result, is_retry=True)
+
+        assert pr is None
+        mock_prs.update_pr_title.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_first_run_does_not_update_title(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """On first run (not retry), should create PR, not update title."""
+        issue = TaskFactory.create(id=99, title="Fix the widget")
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=True,
+            worktree_path=str(config.worktree_path_for_issue(99)),
+        )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], create_pr_return=PRInfoFactory.create(number=300)
+        )
+
+        pr = await phase._resolve_pr(issue, result, is_retry=False)
+
+        assert pr is not None
+        assert pr.number == 300
+        mock_prs.create_pr.assert_awaited_once()
+        mock_prs.update_pr_title.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_zero_pr_number_skips_title_update(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When find_open_pr_for_branch returns a PR with number=0, title update is skipped."""
+        issue = TaskFactory.create(id=99, title="Fix the widget")
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=True,
+            worktree_path=str(config.worktree_path_for_issue(99)),
+        )
+        zero_pr = PRInfoFactory.create(number=0, issue_number=99)
+
+        phase, _, mock_prs = make_implement_phase(config, [issue])
+        mock_prs.find_open_pr_for_branch.return_value = zero_pr
+
+        pr = await phase._resolve_pr(issue, result, is_retry=True)
+
+        assert pr is not None
+        assert pr.number == 0
+        mock_prs.update_pr_title.assert_not_awaited()
