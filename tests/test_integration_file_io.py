@@ -124,19 +124,29 @@ class TestFileLock:
         """Concurrent threads holding the lock never interleave critical sections.
 
         Each worker performs a non-atomic read-modify-write on a shared counter
-        file with a deliberate sleep inside the critical section. Without proper
-        mutual exclusion the threads would read the same stale value and the
-        final count would be less than the expected total.
-        """
-        import time
+        file with a deliberate yield point inside the critical section. Without
+        proper mutual exclusion the threads would read the same stale value and
+        the final count would be less than the expected total.
 
+        A ``threading.Event`` (never set) with ``timeout=0`` is used instead of
+        ``time.sleep(0.01)`` to remove the fixed wall-clock delay.  Note that
+        ``Event.wait(timeout=0)`` completes in ~2–3 µs (well below the 5 ms GIL
+        switch interval), so it does not guarantee a thread context switch; the
+        test relies on natural OS-level thread interleaving via file-I/O GIL
+        releases and the GIL preemption timer to expose any missing mutual
+        exclusion.
+        """
         from file_util import file_lock
 
         lock_path = tmp_path / "test.lock"
         counter_path = tmp_path / "counter.txt"
         counter_path.write_text("0")
 
-        iterations = 5
+        iterations = 10
+        # An Event that is never set; .wait(timeout=0) avoids a fixed wall-clock
+        # wait.  It completes in ~2-3 µs and does not guarantee a GIL switch,
+        # so thread interleaving relies on natural OS scheduling and file-I/O.
+        yield_point = threading.Event()
 
         def worker() -> None:
             for _ in range(iterations):
@@ -144,7 +154,9 @@ class TestFileLock:
                     # Non-atomic read-modify-write: without mutual exclusion
                     # another thread could read the same value before we write.
                     current = int(counter_path.read_text())
-                    time.sleep(0.01)  # widen the race window
+                    yield_point.wait(
+                        timeout=0
+                    )  # no wall-clock delay; no CPU yield guaranteed
                     counter_path.write_text(str(current + 1))
 
         threads = [threading.Thread(target=worker) for _ in range(3)]
@@ -153,7 +165,8 @@ class TestFileLock:
         for t in threads:
             t.join()
 
-        # 3 threads × 5 iterations = 15.  Any interleaving would lose increments.
+        # 3 threads × 10 iterations = 30.  Any interleaving that bypasses mutual
+        # exclusion would produce a smaller count due to lost read-modify-write updates.
         assert int(counter_path.read_text()) == 3 * iterations
 
     def test_lock_creates_parent_dirs(self, tmp_path: Path) -> None:
