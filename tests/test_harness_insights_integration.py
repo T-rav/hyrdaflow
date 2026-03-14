@@ -44,13 +44,14 @@ class TestPlanStageHarnessRecording:
 
     def test_noop_when_no_store(self) -> None:
         """No crash when harness_insights is None."""
-        record_harness_failure(
+        result = record_harness_failure(
             None,
             42,
             FailureCategory.PLAN_VALIDATION,
             "Some error",
             stage=PipelineStage.PLAN,
         )
+        assert result is None  # noop when store is None
 
     def test_extracts_subcategories(self, config: HydraFlowConfig) -> None:
         memory_dir = config.repo_root / ".hydraflow" / "memory"
@@ -99,13 +100,14 @@ class TestImplementStageHarnessRecording:
         assert "lint_error" in records[0].subcategories
 
     def test_noop_when_no_store(self) -> None:
-        record_harness_failure(
+        result = record_harness_failure(
             None,
             55,
             FailureCategory.QUALITY_GATE,
             "Some error",
             stage=PipelineStage.IMPLEMENT,
         )
+        assert result is None  # noop when store is None
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +141,7 @@ class TestReviewStageHarnessRecording:
         assert records[0].stage == "review"
 
     def test_noop_when_no_store(self) -> None:
-        record_harness_failure(
+        result = record_harness_failure(
             None,
             66,
             FailureCategory.CI_FAILURE,
@@ -147,6 +149,7 @@ class TestReviewStageHarnessRecording:
             stage=PipelineStage.REVIEW,
             pr_number=200,
         )
+        assert result is None  # noop when store is None
 
     def test_ci_failure_recording(self, config: HydraFlowConfig) -> None:
         memory_dir = config.repo_root / ".hydraflow" / "memory"

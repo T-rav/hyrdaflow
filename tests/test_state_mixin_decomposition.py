@@ -256,6 +256,7 @@ class TestWorktreeStateMixin:
     def test_remove_absent_worktree_is_noop(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
         t.remove_worktree(999)  # should not raise
+        assert t.get_active_worktrees() == {}  # state remains empty
 
     def test_branch_tracking(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
@@ -423,7 +424,9 @@ class TestSessionStateMixin:
 
     def test_unknown_stage_ignored(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
+        before = t.get_session_counters().triaged
         t.increment_session_counter("nonexistent")  # should not raise
+        assert t.get_session_counters().triaged == before  # known counters unchanged
 
     def test_session_persistence(self, tmp_path: Path) -> None:
         from models import SessionLog  # noqa: PLC0415

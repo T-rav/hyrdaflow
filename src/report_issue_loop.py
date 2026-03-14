@@ -15,16 +15,14 @@ import logging
 import os
 import re
 import tempfile
-from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
 from agent_cli import build_agent_command
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from events import EventBus
 from execution import SubprocessRunner
-from models import PendingReport, StatusCallback, TranscriptEventData
+from models import PendingReport, TranscriptEventData
 from pr_manager import PRManager
 from runner_utils import stream_claude_process
 from screenshot_scanner import scan_base64_for_secrets
@@ -45,23 +43,13 @@ class ReportIssueLoop(BaseBackgroundLoop):
         config: HydraFlowConfig,
         state: StateTracker,
         pr_manager: PRManager,
-        event_bus: EventBus,
-        stop_event: asyncio.Event,
-        status_cb: StatusCallback,
-        enabled_cb: Callable[[str], bool],
-        sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
-        interval_cb: Callable[[str], int] | None = None,
+        deps: LoopDeps,
         runner: SubprocessRunner | None = None,
     ) -> None:
         super().__init__(
             worker_name="report_issue",
             config=config,
-            bus=event_bus,
-            stop_event=stop_event,
-            status_cb=status_cb,
-            enabled_cb=enabled_cb,
-            sleep_fn=sleep_fn,
-            interval_cb=interval_cb,
+            deps=deps,
             run_on_startup=True,
         )
         self._state = state

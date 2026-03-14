@@ -147,8 +147,12 @@ class TestSetupEnvDocker:
         ui_nm_src = repo_root / "ui" / "node_modules"
         ui_nm_src.mkdir(parents=True)
 
-        with patch("workspace.shutil.copytree", side_effect=OSError("disk full")):
+        with patch(
+            "workspace.shutil.copytree", side_effect=OSError("disk full")
+        ) as mock_copytree:
             manager._setup_env(wt_path)  # should not raise
+
+        mock_copytree.assert_called_once()
 
     def test_setup_env_docker_adds_env_to_gitignore(self, tmp_path: Path) -> None:
         """In docker mode, .env should be appended to worktree .gitignore."""
@@ -208,8 +212,10 @@ class TestSetupEnvDocker:
         env_src.write_text("SECRET=val")
         (wt_path / ".env").write_text("SECRET=val")
 
-        with patch("pathlib.Path.open", side_effect=OSError("read-only")):
+        with patch("pathlib.Path.open", side_effect=OSError("read-only")) as mock_open:
             manager._setup_env(wt_path)  # should not raise
+
+        assert mock_open.call_count >= 1
 
     def test_setup_env_host_still_symlinks(self, config, tmp_path: Path) -> None:
         """Confirm host mode still creates symlinks (regression check)."""
@@ -287,6 +293,8 @@ class TestInstallHooksDocker:
         # Should not raise
         await manager._install_hooks(wt_path)
 
+        assert not (wt_path / ".git" / "hooks").exists()
+
     @pytest.mark.asyncio
     async def test_install_hooks_docker_handles_copy_error(
         self, tmp_path: Path
@@ -311,9 +319,13 @@ class TestInstallHooksDocker:
                 "workspace.run_subprocess",
                 side_effect=_make_hooks_subprocess_mock(hooks_dir),
             ),
-            patch("workspace.shutil.copy2", side_effect=OSError("perm denied")),
+            patch(
+                "workspace.shutil.copy2", side_effect=OSError("perm denied")
+            ) as mock_copy,
         ):
             await manager._install_hooks(wt_path)  # should not raise
+
+        assert mock_copy.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_install_hooks_docker_handles_mkdir_oserror(
@@ -750,9 +762,11 @@ class TestPostWorkCleanup:
 
         with patch.object(
             manager, "destroy", side_effect=RuntimeError("worktree gone")
-        ):
+        ) as mock_destroy:
             # Should not raise — destroy failure is suppressed
             await manager.post_work_cleanup(42)
+
+        mock_destroy.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

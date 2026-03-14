@@ -324,9 +324,10 @@ class TestStreamClaudeProcessCreditDetection:
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should NOT raise CreditExhaustedError
-            await stream_claude_process(
+            result = await stream_claude_process(
                 **_default_stream_kwargs(event_bus, on_output=kill_immediately)
             )
+        assert result is not None
 
     @pytest.mark.asyncio
     async def test_raises_credit_exhausted_on_hit_limit_message(

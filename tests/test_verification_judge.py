@@ -546,8 +546,11 @@ class TestSaveJudgeReport:
         judge = _make_judge(cfg)
         verdict = JudgeVerdict(issue_number=42, summary="All good")
 
-        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        with patch.object(
+            Path, "write_text", side_effect=OSError("disk full")
+        ) as mock_write:
             judge._save_judge_report(42, verdict)  # should not raise
+        mock_write.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -633,8 +636,10 @@ class TestUpdateCriteriaFile:
     def test_noop_when_file_missing(self, tmp_path):
         cfg = ConfigFactory.create(repo_root=tmp_path)
         judge = _make_judge(cfg)
-        # Should not raise
+        # Should not raise — file does not exist
         judge._update_criteria_file(999, "Refined text")
+        criteria_path = tmp_path / ".hydraflow" / "verification" / "issue-999.md"
+        assert not criteria_path.exists()
 
     def test_appends_instructions_section_when_none_exists(self, tmp_path):
         cfg = ConfigFactory.create(repo_root=tmp_path)
@@ -659,8 +664,11 @@ class TestUpdateCriteriaFile:
         criteria_file = criteria_dir / "issue-42.md"
         criteria_file.write_text(SAMPLE_CRITERIA_FILE)
 
-        with patch.object(Path, "read_text", side_effect=OSError("read error")):
+        with patch.object(
+            Path, "read_text", side_effect=OSError("read error")
+        ) as mock_read:
             judge._update_criteria_file(42, "Refined")  # should not raise
+        mock_read.assert_called_once()
 
     def test_handles_write_oserror(self, tmp_path):
         cfg = ConfigFactory.create(repo_root=tmp_path)
@@ -670,8 +678,11 @@ class TestUpdateCriteriaFile:
         criteria_file = criteria_dir / "issue-42.md"
         criteria_file.write_text(SAMPLE_CRITERIA_FILE)
 
-        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        with patch.object(
+            Path, "write_text", side_effect=OSError("disk full")
+        ) as mock_write:
             judge._update_criteria_file(42, "Refined")  # should not raise
+        mock_write.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -1072,6 +1083,7 @@ class TestTerminate:
 
     def test_no_active_processes(self, config):
         judge = _make_judge(config)
+        assert len(judge._active_procs) == 0  # no procs to terminate
         judge.terminate()  # Should not raise
 
 

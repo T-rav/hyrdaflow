@@ -146,6 +146,7 @@ class BgLoopDeps(NamedTuple):
     status_cb: MagicMock
     enabled_cb: Callable[[str], bool]
     sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+    loop_deps: Any  # LoopDeps
 
 
 def make_bg_loop_deps(
@@ -157,12 +158,13 @@ def make_bg_loop_deps(
     """Create common dependencies for background worker loop tests.
 
     Returns a BgLoopDeps NamedTuple with config, bus, stop_event,
-    status_cb, enabled_cb, and sleep_fn — the 6 constructor args
-    shared by all background loop classes.
+    status_cb, enabled_cb, sleep_fn, and loop_deps — the shared
+    constructor args for all background loop classes.
 
     Pass interval overrides via config_overrides, e.g.:
         make_bg_loop_deps(tmp_path, memory_sync_interval=30)
     """
+    from base_background_loop import LoopDeps
     from events import EventBus
 
     config = ConfigFactory.create(
@@ -172,14 +174,27 @@ def make_bg_loop_deps(
     bus = EventBus()
     stop_event = asyncio.Event()
     sleep_fn = instant_sleep_factory(stop_event)
+    status_cb = MagicMock()
+
+    def enabled_cb(_name: str) -> bool:
+        return enabled
+
+    loop_deps = LoopDeps(
+        event_bus=bus,
+        stop_event=stop_event,
+        status_cb=status_cb,
+        enabled_cb=enabled_cb,
+        sleep_fn=sleep_fn,
+    )
 
     return BgLoopDeps(
         config=config,
         bus=bus,
         stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
+        status_cb=status_cb,
+        enabled_cb=enabled_cb,
         sleep_fn=sleep_fn,
+        loop_deps=loop_deps,
     )
 
 

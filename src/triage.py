@@ -20,9 +20,8 @@ from models import (
     TriageStatus,
     TriageUpdatePayload,
 )
-from phase_utils import is_likely_bug
-from prompt_stats import build_prompt_stats, truncate_with_notice
-from subprocess_util import CreditExhaustedError
+from phase_utils import reraise_on_credit_or_bug
+from prompt_builder import PromptBuilder
 
 logger = logging.getLogger("hydraflow.triage")
 
@@ -137,16 +136,13 @@ class TriageRunner(BaseRunner):
 
         try:
             result = await self._evaluate_with_llm(issue)
-        except CreditExhaustedError:
-            raise
         except RuntimeError:
             # Infrastructure errors (empty response, subprocess crash) should
             # propagate so the issue stays in the triage queue for retry
             # instead of being incorrectly escalated to HITL.
             raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "LLM evaluation failed for issue #%d: %s",
                 issue.id,
@@ -196,9 +192,8 @@ class TriageRunner(BaseRunner):
         issue: Task, max_body: int = 5000
     ) -> tuple[str, dict[str, object]]:
         """Build the triage evaluation prompt and pruning stats."""
-        body, body_before, body_after = truncate_with_notice(
-            issue.body or "", max_body, label="Issue body"
-        )
+        builder = PromptBuilder()
+        body = builder.add_context_section("Issue body", issue.body or "", max_body)
         prompt = f"""You are a triage agent evaluating a GitHub issue and enriching it if needed so a planning agent can succeed.
 
 ## Issue #{issue.id}
@@ -243,14 +238,7 @@ or for truly insufficient issues:
 {{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "enrichment": ""}}
 ```
 """
-        stats = build_prompt_stats(
-            context_before=body_before,
-            context_after=body_after,
-            section_chars={
-                "issue_body_before": body_before,
-                "issue_body_after": body_after,
-            },
-        )
+        stats = builder.build_stats()
         return prompt, stats
 
     async def _evaluate_with_llm(self, issue: Task) -> TriageResult:
@@ -293,7 +281,7 @@ or for truly insufficient issues:
         """Build a TriageResult from a parsed JSON dict."""
         raw = data.get("reasons", [])
         complexity = data.get("complexity_score", 0)
-        score = int(complexity) if isinstance(complexity, (int, float)) else 0
+        score = int(complexity) if isinstance(complexity, int | float) else 0
         issue_type_raw = data.get("issue_type", IssueType.FEATURE)
         if isinstance(issue_type_raw, IssueType):
             issue_type = issue_type_raw
@@ -318,6 +306,30 @@ or for truly insufficient issues:
         )
 
     @staticmethod
+    def _strip_system_lines(transcript: str) -> str:
+        """Remove Claude Code system/init JSON lines from the transcript.
+
+        The subprocess transcript may include session initialization lines
+        like ``{"type":"system","subtype":"init",...}`` before the actual
+        LLM response.  These confuse the JSON parsing strategies, so we
+        strip them out first.
+        """
+        filtered: list[str] = []
+        for line in transcript.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                filtered.append(line)
+                continue
+            try:
+                obj = json.loads(stripped)
+                if isinstance(obj, dict) and obj.get("type") == "system":
+                    continue
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+            filtered.append(line)
+        return "\n".join(filtered)
+
+    @staticmethod
     def _parse_verdict(transcript: str, issue_number: int) -> TriageResult | None:
         """Extract a JSON verdict from the LLM transcript.
 
@@ -326,6 +338,9 @@ or for truly insufficient issues:
         2. Extract JSON from markdown code fences
         3. Regex to find a JSON object with ``"ready"`` key
         """
+        # Pre-process: strip Claude Code system/init lines
+        transcript = TriageRunner._strip_system_lines(transcript)
+
         # Strategy 1: direct parse
         try:
             data = json.loads(transcript.strip())
@@ -399,11 +414,8 @@ or for truly insufficient issues:
                 self._config.repo_root,
                 {"issue": task.id, "source": "decomposition"},
             )
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "Decomposition LLM call failed for issue #%d: %s",
                 task.id,

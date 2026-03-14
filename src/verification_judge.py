@@ -20,10 +20,9 @@ from models import (
     ParsedCriteria,
     VerificationJudgePayload,
 )
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from precheck import run_precheck_context
 from runner_utils import stream_claude_process, terminate_processes
-from subprocess_util import CreditExhaustedError
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
@@ -104,11 +103,8 @@ class VerificationJudge:
                     )
                     and len(verdict.criteria_results) > 0
                 )
-            except CreditExhaustedError:
-                raise
             except Exception as exc:
-                if is_likely_bug(exc):
-                    raise
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Code validation failed for issue #%d",
                     issue_number,
@@ -157,11 +153,8 @@ class VerificationJudge:
                     verdict.instructions_quality = quality2
                     verdict.instructions_feedback = feedback2
                     verdict.refined = bool(refined)
-            except CreditExhaustedError:
-                raise
             except Exception as exc:
-                if is_likely_bug(exc):
-                    raise
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Instructions validation failed for issue #%d",
                     issue_number,

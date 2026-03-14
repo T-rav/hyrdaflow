@@ -165,7 +165,8 @@ class TestDockerStdinWriter:
     async def test_drain_is_noop(self) -> None:
         sock = _make_mock_socket()
         writer = DockerStdinWriter(sock)
-        await writer.drain()  # Should not raise
+        await writer.drain()  # Should not raise — drain is a no-op
+        assert not writer._closed  # drain does not close the writer
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +412,7 @@ class TestDockerProcess:
         proc = DockerProcess(container, sock, loop)
 
         proc.kill()  # Should not raise
+        container.kill.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_wait_returns_exit_code(self) -> None:
@@ -1127,6 +1129,7 @@ class TestDockerProcessKillSuppression:
         proc = DockerProcess(container, sock, loop)
 
         proc.kill()  # Should not raise
+        container.kill.assert_called_once()
 
     def test_kill_suppresses_runtime_error(self) -> None:
         """kill() should suppress RuntimeError (e.g. Docker SDK wrapper errors)."""
@@ -1137,6 +1140,7 @@ class TestDockerProcessKillSuppression:
         proc = DockerProcess(container, sock, loop)
 
         proc.kill()  # Should not raise
+        container.kill.assert_called_once()
 
     def test_kill_propagates_unexpected_exceptions(self) -> None:
         """kill() should NOT suppress unexpected exception types."""

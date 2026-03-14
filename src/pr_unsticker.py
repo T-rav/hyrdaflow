@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_cli import build_lightweight_command
 from models import ConflictResolutionResult, HITLUpdatePayload
 from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
@@ -760,23 +761,9 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
             tool = "claude"
         model = self._config.background_model or "haiku"
 
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = [tool, "-p", prompt, "--model", model]
-            cmd_input = None
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
 
         env = make_clean_env(self._config.gh_token)
 

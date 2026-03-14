@@ -983,6 +983,8 @@ class TestStartStop:
         ):
             await dashboard.start()
 
+        assert dashboard._server_task is None
+
     @pytest.mark.asyncio
     async def test_stop_cancels_server_task(
         self, config: HydraFlowConfig, event_bus: EventBus, state
@@ -1028,3 +1030,6 @@ class TestStartStop:
         dashboard._server_task = task
 
         await dashboard.stop()
+        assert (
+            dashboard._server_task.done()
+        )  # already-done task stays done after stop()
