@@ -1227,6 +1227,7 @@ class StateData(BaseModel):
     releases: dict[str, Release] = Field(default_factory=dict)
     baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     active_crate_number: int | None = None
+    bead_mappings: dict[str, dict[str, str]] = Field(default_factory=dict)
     last_updated: str | None = None
 
 

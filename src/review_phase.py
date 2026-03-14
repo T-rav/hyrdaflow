@@ -747,6 +747,39 @@ class ReviewPhase:
             publish_fn=self._publish_review_status,
         )
 
+    def _build_bead_review_context(self, issue: Task) -> list[dict[str, object]] | None:
+        """Build bead task context for the reviewer."""
+        mapping = self._state.get_bead_mapping(issue.id)
+        if not mapping:
+            return None
+
+        from task_graph import extract_phases  # noqa: PLC0415
+
+        # Try to extract phases from plan comment for file/test info
+        phase_info: dict[str, dict[str, object]] = {}
+        for comment in issue.comments:
+            phases = extract_phases(comment)
+            for phase in phases:
+                phase_info[phase.id] = {
+                    "files": ", ".join(phase.files) or "N/A",
+                    "tests": ", ".join(phase.tests) or "N/A",
+                }
+
+        bead_tasks: list[dict[str, object]] = []
+        for phase_id, bead_id in sorted(mapping.items()):
+            info = phase_info.get(phase_id, {})
+            bead_tasks.append(
+                {
+                    "id": bead_id,
+                    "phase": phase_id,
+                    "status": "closed",  # assume closed after implementation
+                    "files": info.get("files", "N/A"),
+                    "tests": info.get("tests", "N/A"),
+                }
+            )
+
+        return bead_tasks if bead_tasks else None
+
     async def _run_and_post_review(
         self,
         pr: PRInfo,
@@ -757,6 +790,9 @@ class ReviewPhase:
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> ReviewResult:
         """Run the reviewer, push fixes, post summary, submit formal review."""
+        # Build bead context for per-bead review when beads are enabled
+        bead_tasks = self._build_bead_review_context(issue)
+
         result = await self._reviewers.review(
             pr,
             issue,
@@ -764,6 +800,7 @@ class ReviewPhase:
             diff,
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
+            bead_tasks=bead_tasks,
         )
 
         if result.fixes_made:

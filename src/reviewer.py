@@ -105,6 +105,7 @@ class ReviewRunner(BaseRunner):
         diff: str,
         worker_id: int = 0,
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        bead_tasks: list[dict[str, object]] | None = None,
     ) -> ReviewResult:
         """Run the review agent for *pr*.
 
@@ -147,6 +148,7 @@ class ReviewRunner(BaseRunner):
                 diff,
                 precheck_context=precheck_context,
                 code_scanning_alerts=code_scanning_alerts,
+                bead_tasks=bead_tasks,
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
@@ -585,6 +587,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         diff: str,
         precheck_context: str = "",
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        bead_tasks: list[dict[str, object]] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
@@ -639,13 +642,34 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             if formatted:
                 scanning_section = f"\n\n## Code Scanning Alerts\n\n{formatted}"
 
+        # Per-bead review section
+        bead_section = ""
+        if bead_tasks:
+            bead_lines: list[str] = []
+            for bt in bead_tasks:
+                bead_lines.append(
+                    f"- **Bead #{bt.get('id', '?')}** ({bt.get('phase', '?')}): "
+                    f"status={bt.get('status', 'unknown')}, "
+                    f"files={bt.get('files', 'N/A')}, "
+                    f"tests={bt.get('tests', 'N/A')}"
+                )
+            bead_section = (
+                "\n\n## Per-Bead Review\n\n"
+                "Verify each bead's acceptance criteria are met:\n"
+                + "\n".join(bead_lines)
+                + "\n\nFor each bead, confirm:\n"
+                "- Files listed are present in the diff\n"
+                "- Tests match the behavioral specs\n"
+                "- No extra scope beyond the bead's goal\n"
+            )
+
         issue_body = self._summarize_issue_body(issue.body)
 
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}
+{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}{bead_section}
 
 ## Precheck Context
 

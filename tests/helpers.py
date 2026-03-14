@@ -1052,6 +1052,7 @@ def make_implement_phase(
             worker_id: int = 0,
             review_feedback: str = "",
             prior_failure: str = "",
+            bead_mapping: dict[str, str] | None = None,
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
