@@ -303,8 +303,7 @@ class TestEventBusPublishSubscribe:
         assert "repo" not in event.data
         assert "repo" not in original_data
 
-    @pytest.mark.asyncio
-    async def test_repo_field_defaults_to_none(self) -> None:
+    def test_repo_field_defaults_to_none(self) -> None:
         event = HydraFlowEvent(type=EventType.PHASE_CHANGE)
         assert event.repo is None
 
@@ -322,6 +321,15 @@ class TestEventBusPublishSubscribe:
         bus = EventBus()
         bus.set_repo("owner/repo")
         bus.set_repo("")
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={"issue": 1})
+        await bus.publish(event)
+        assert event.repo is None
+
+    @pytest.mark.asyncio
+    async def test_set_repo_none_disables_injection(self) -> None:
+        bus = EventBus()
+        bus.set_repo("owner/repo")
+        bus.set_repo(None)
         event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={"issue": 1})
         await bus.publish(event)
         assert event.repo is None
@@ -557,7 +565,7 @@ class TestEventBusClear:
         assert bus.current_session_id is None
         assert next_event.session_id is None
         assert next_event.repo is None
-        assert bus._active_repo == ""
+        assert bus._active_repo is None
         assert not bus._pending_persists
 
 

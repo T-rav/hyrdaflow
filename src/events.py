@@ -271,14 +271,14 @@ class EventBus:
         self._max_history = max_history
         self._event_log = event_log
         self._active_session_id: str | None = None
-        self._active_repo: str = ""
+        self._active_repo: str | None = None
         self._pending_persists: set[asyncio.Task[None]] = set()
 
     def set_session_id(self, session_id: str | None) -> None:
         """Set the active session ID to auto-inject into published events."""
         self._active_session_id = session_id
 
-    def set_repo(self, repo: str) -> None:
+    def set_repo(self, repo: str | None) -> None:
         """Set the active repo slug to auto-inject into published events."""
         self._active_repo = repo
 
@@ -390,5 +390,5 @@ class EventBus:
         self._history.clear()
         self._subscribers.clear()
         self._active_session_id = None
-        self._active_repo = ""
+        self._active_repo = None
         self._pending_persists.clear()
