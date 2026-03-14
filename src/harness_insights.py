@@ -186,7 +186,14 @@ class HarnessInsightStore:
         proposed = self.get_proposed_patterns()
         proposed.add(key)
         self._memory_dir.mkdir(parents=True, exist_ok=True)
-        self._proposed_path.write_text(json.dumps(sorted(proposed)))
+        try:
+            self._proposed_path.write_text(json.dumps(sorted(proposed)))
+        except OSError:
+            logger.warning(
+                "Could not write proposed patterns to %s",
+                self._proposed_path,
+                exc_info=True,
+            )
 
 
 # ---------------------------------------------------------------------------

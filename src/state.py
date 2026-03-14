@@ -134,7 +134,13 @@ class StateTracker:
 
     def get_active_worktrees(self) -> dict[int, str]:
         """Return ``{issue_number: worktree_path}`` mapping."""
-        return {int(k): v for k, v in self._data.active_worktrees.items()}
+        result: dict[int, str] = {}
+        for k, v in self._data.active_worktrees.items():
+            try:
+                result[int(k)] = v
+            except (ValueError, TypeError):
+                logger.warning("Skipping non-integer worktree key: %r", k)
+        return result
 
     def set_worktree(self, issue_number: int, path: str) -> None:
         """Record the worktree filesystem *path* for *issue_number*."""

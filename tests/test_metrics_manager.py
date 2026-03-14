@@ -656,3 +656,53 @@ class TestLocalCache:
             mgr._save_to_local_cache(snapshot)  # should not raise
 
         assert "Failed to write metrics cache" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# load_local_history OSError handling (issue #2576)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadLocalHistoryOSError:
+    """Verify load_local_history handles OSError when opening snapshots file."""
+
+    def test_returns_empty_list_on_oserror(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """load_local_history should return [] and log warning on OSError."""
+        import logging
+
+        state = MagicMock()
+        event_bus = MagicMock()
+        pr_manager = MagicMock()
+        config = HydraFlowConfig(repo_slug="o/r")
+
+        mgr = MetricsManager(
+            config=config,
+            state=state,
+            pr_manager=pr_manager,
+            event_bus=event_bus,
+        )
+
+        # Patch _cache_dir so the snapshots file appears to exist,
+        # but then open() raises OSError (simulates TOCTOU / permission issue).
+        fake_cache_dir = MagicMock()
+        fake_snapshots = MagicMock()
+        fake_snapshots.exists.return_value = True
+        fake_cache_dir.__truediv__ = MagicMock(return_value=fake_snapshots)
+
+        with (
+            patch.object(
+                type(mgr),
+                "_cache_dir",
+                new_callable=lambda: property(lambda self: fake_cache_dir),
+            ),
+            patch("builtins.open", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.metrics_manager"),
+        ):
+            result = mgr.load_local_history()
+
+        assert result == []
+        assert "Could not read snapshots file" in caplog.text
