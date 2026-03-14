@@ -266,9 +266,13 @@ class TestDeleteLocalBranch:
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"error: branch not found")
 
-        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=fail_proc
+        ) as mock_exec:
             # Should not raise
             await manager._delete_local_branch("agent/issue-999")
+
+        mock_exec.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -417,9 +421,13 @@ class TestAbortMerge:
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: no merge in progress")
 
-        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=fail_proc
+        ) as mock_exec:
             # Should not raise
             await manager.abort_merge(tmp_path)
+
+        mock_exec.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

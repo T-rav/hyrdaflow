@@ -808,6 +808,7 @@ class TestPlanPhaseTranscriptSummary:
 
         # Should not raise
         await phase.plan_issues()
+        planners.plan.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

@@ -125,6 +125,7 @@ class TestTriggerEvent:
         loop, _ = _make_stub(tmp_path)
         loop._sleep_fn = _real_sleep
         await asyncio.wait_for(loop._sleep_or_trigger(0.01), timeout=2.0)
+        assert not loop._trigger_event.is_set()
 
     @pytest.mark.asyncio
     async def test_trigger_interrupts_run_loop_sleep(self, tmp_path: Path) -> None:

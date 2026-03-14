@@ -415,6 +415,7 @@ class TestEmitVisualGateTelemetry:
 
         # Should not raise
         await phase._emit_visual_gate_telemetry(pr, issue, 0, "pass", "ok", 0.5, {})
+        assert phase._bus is None  # bus remains None after no-op emit
 
 
 class TestHandleVisualGatePass:

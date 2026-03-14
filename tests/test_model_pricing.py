@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from model_pricing import ModelPricingTable, ModelRate, load_pricing
 
 
@@ -53,11 +55,8 @@ class TestModelRate:
             cache_write_cost_per_million=0.0,
             cache_read_cost_per_million=0.0,
         )
-        try:
+        with pytest.raises(AttributeError):
             rate.input_cost_per_million = 999  # type: ignore[misc]
-            raise AssertionError("Should be frozen")
-        except AttributeError:
-            pass
 
 
 class TestModelPricingTable:

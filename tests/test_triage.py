@@ -686,9 +686,8 @@ class TestTriageTerminate:
 
         # terminate() should not raise
         runner.terminate()
-        # After terminate, the proc should have been killed
-        # (terminate_processes uses os.killpg which we don't mock here,
-        # so we just verify it doesn't crash with our mock)
+        # proc.kill() is not called when pid is set (killpg path is used instead)
+        mock_proc.kill.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

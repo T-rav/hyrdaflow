@@ -376,11 +376,12 @@ class TestSafeFileMemorySuggestion:
             "phase_utils.file_memory_suggestion",
             new_callable=AsyncMock,
             side_effect=RuntimeError("API error"),
-        ):
+        ) as mock_suggest:
             # Should not raise
             await safe_file_memory_suggestion(
                 "transcript", "planner", "issue #42", config, prs, state
             )
+        mock_suggest.assert_awaited_once()  # confirms RuntimeError was caught and swallowed
 
     @pytest.mark.asyncio
     async def test_logs_error_on_exception(self) -> None:
@@ -468,13 +469,14 @@ class TestRecordHarnessFailure:
 
     def test_noop_when_store_is_none(self) -> None:
         """Should not raise when harness_insights is None."""
-        record_harness_failure(
+        result = record_harness_failure(
             None,
             42,
             FailureCategory.PLAN_VALIDATION,
             "Some error",
             stage=PipelineStage.PLAN,
         )
+        assert result is None  # noop when store is None
 
     def test_catches_exception_from_store(self) -> None:
         """Should catch and log exceptions from the store without propagating."""
@@ -810,13 +812,15 @@ class TestPipelineEscalator:
         escalator = self._make_escalator(harness_insights=None)
         issue = MagicMock(id=1)
 
-        # Should not raise
+        # Should not raise — harness_insights=None is a safe noop
         await escalator(
             issue,
             cause="test",
             details="test details",
             category=FailureCategory.PLAN_VALIDATION,
         )
+        # harness_insights is None so no recording attempt should be made
+        assert escalator._harness_insights is None
 
     @pytest.mark.asyncio
     async def test_uses_configured_labels_and_stage(self) -> None:
