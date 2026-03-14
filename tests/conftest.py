@@ -319,6 +319,9 @@ class PlanResultFactory:
         validation_errors: list[str] | None = None,
         retry_attempted: bool | None = None,
         already_satisfied: bool | None = None,
+        actionability_score: int | None = None,
+        actionability_rank: str | None = None,
+        epic_number: int | None = None,
         use_defaults: bool = False,
     ):
         """Create a PlanResult instance.
@@ -357,6 +360,12 @@ class PlanResultFactory:
                 kwargs["retry_attempted"] = retry_attempted
             if already_satisfied is not None:
                 kwargs["already_satisfied"] = already_satisfied
+            if actionability_score is not None:
+                kwargs["actionability_score"] = actionability_score
+            if actionability_rank is not None:
+                kwargs["actionability_rank"] = actionability_rank
+            if epic_number is not None:
+                kwargs["epic_number"] = epic_number
             return PlanResult(**kwargs)
 
         success_value = True if success is None else success
@@ -378,6 +387,13 @@ class PlanResultFactory:
         already_satisfied_value = (
             False if already_satisfied is None else already_satisfied
         )
+        actionability_score_value = (
+            actionability_score if actionability_score is not None else 0
+        )
+        actionability_rank_value = (
+            actionability_rank if actionability_rank is not None else "unknown"
+        )
+        epic_number_value = epic_number if epic_number is not None else 0
 
         return PlanResult(
             issue_number=issue_number,
@@ -393,6 +409,9 @@ class PlanResultFactory:
             else [],
             retry_attempted=retry_value,
             already_satisfied=already_satisfied_value,
+            actionability_score=actionability_score_value,
+            actionability_rank=actionability_rank_value,
+            epic_number=epic_number_value,
         )
 
 

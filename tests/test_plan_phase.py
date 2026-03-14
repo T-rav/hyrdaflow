@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import TYPE_CHECKING
 
 from models import PlanResult, ResearchResult, Task
-from tests.conftest import TaskFactory
+from tests.conftest import PlanResultFactory, TaskFactory
 from tests.helpers import make_plan_phase, supply_once
 
 if TYPE_CHECKING:
@@ -37,13 +37,14 @@ class TestPlanPhase:
         """On successful plan, post_comment should be called."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="Step 1: Do the thing",
             summary="Plan done",
             actionability_score=87,
             actionability_rank="high",
+            use_defaults=True,
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
@@ -66,11 +67,12 @@ class TestPlanPhase:
         """On success, planner_label should be removed and config.ready_label added."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
             summary="Done",
+            use_defaults=True,
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
@@ -87,10 +89,11 @@ class TestPlanPhase:
         """On failure, no label changes should be made."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             error="Agent crashed",
+            use_defaults=True,
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
@@ -123,7 +126,7 @@ class TestPlanPhase:
 
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -142,6 +145,7 @@ class TestPlanPhase:
                     labels=["bug"],
                 ),
             ],
+            use_defaults=True,
         )
 
         planners.plan = AsyncMock(return_value=plan_result)
@@ -159,7 +163,7 @@ class TestPlanPhase:
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -200,7 +204,7 @@ class TestPlanPhase:
             )
             await asyncio.sleep(0)  # yield to allow other tasks to start
             concurrency_counter["current"] -= 1
-            return PlanResult(
+            return PlanResultFactory.create(
                 issue_number=issue.id,
                 success=True,
                 plan="The plan",
@@ -232,7 +236,7 @@ class TestPlanPhase:
         ) -> PlanResult:
             nonlocal was_active_during_plan
             was_active_during_plan = store.is_active(42)
-            return PlanResult(
+            return PlanResultFactory.create(
                 issue_number=42, success=True, plan="Plan", summary="Done"
             )
 
@@ -251,7 +255,7 @@ class TestPlanPhase:
         """Plan failure (success=False) should still return the result."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             error="Agent crashed",
@@ -275,7 +279,7 @@ class TestPlanPhase:
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -310,7 +314,7 @@ class TestPlanPhase:
 
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -345,7 +349,7 @@ class TestPlanPhase:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 stop_event.set()
-            return PlanResult(
+            return PlanResultFactory.create(
                 issue_number=issue.id,
                 success=False,
                 error="stopped",
@@ -366,7 +370,7 @@ class TestPlanPhase:
         """Failed retry triggers HITL label swap and comment."""
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             plan="Bad plan",
@@ -403,7 +407,7 @@ class TestPlanPhase:
         """Normal failure (no retry) should NOT escalate to HITL."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             error="Agent crashed",
@@ -426,7 +430,7 @@ class TestPlanPhase:
         """Analysis comment should be posted after the plan comment."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="## Files to Modify\n\n- `models.py`: change\n\n## Testing Strategy\n\nUse pytest.",
@@ -460,7 +464,7 @@ class TestPlanPhase:
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -497,7 +501,7 @@ class TestPlanPhase:
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -540,7 +544,7 @@ class TestPlanPhaseAlreadySatisfied:
         """When planner returns already_satisfied, issue should be closed with dup label."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -576,7 +580,7 @@ class TestPlanPhaseAlreadySatisfied:
         """When already_satisfied, issue should NOT get hydraflow-ready label."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -605,7 +609,7 @@ class TestPlanPhaseAlreadySatisfied:
         """Epic children should never be auto-closed as already satisfied."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -644,7 +648,7 @@ class TestPlanPhaseTranscriptSummary:
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42, title="Fix bug")
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="Step 1: Do the thing",
@@ -677,7 +681,7 @@ class TestPlanPhaseTranscriptSummary:
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             retry_attempted=True,
@@ -707,7 +711,7 @@ class TestPlanPhaseTranscriptSummary:
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             transcript="x" * 1000,
@@ -735,7 +739,7 @@ class TestPlanPhaseTranscriptSummary:
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -761,7 +765,7 @@ class TestPlanPhaseTranscriptSummary:
             config, summarizer=mock_summarizer
         )
         issue = TaskFactory.create(id=42, title="Add feature")
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -791,7 +795,7 @@ class TestPlanPhaseTranscriptSummary:
         """When transcript_summarizer is None, no crash occurs."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             plan="The plan",
@@ -819,7 +823,7 @@ class TestPlanPhaseEvidenceValidation:
         """Valid evidence should close the issue normally."""
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -846,7 +850,7 @@ class TestPlanPhaseEvidenceValidation:
         """Invalid evidence should reject the claim and NOT close the issue."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -878,7 +882,7 @@ class TestPlanPhaseEvidenceValidation:
 
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -907,7 +911,7 @@ class TestPlanPhaseEvidenceValidation:
         """Rejected evidence should escalate to HITL without a second comment."""
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -940,7 +944,7 @@ class TestPlanPhaseEvidenceValidation:
         """Epic child issues should be escalated to HITL, not dead-ended."""
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -966,7 +970,7 @@ class TestPlanPhaseEvidenceValidation:
         """Epic children should escalate even if evidence looks valid."""
         phase, state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=True,
             already_satisfied=True,
@@ -998,7 +1002,7 @@ class TestPlanPhaseEvidenceValidation:
         """Plan failure comment should say 'after planning attempts' not 'after two attempts'."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=42,
             success=False,
             retry_attempted=True,
@@ -1087,7 +1091,7 @@ class TestPlanPhaseResearch:
         phase._research_runner = research_mock
 
         issue = TaskFactory.create(id=1)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=1,
             success=True,
             plan="## Files to Modify\n- src/main.py\n## Testing Strategy\n- tests/test.py",
@@ -1111,7 +1115,7 @@ class TestPlanPhaseResearch:
 
         # No research_runner set (default None)
         issue = TaskFactory.create(id=1)
-        plan_result = PlanResult(
+        plan_result = PlanResultFactory.create(
             issue_number=1,
             success=True,
             plan="## Files to Modify\n- src/main.py\n## Testing Strategy\n- tests/test.py",

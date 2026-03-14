@@ -8,7 +8,7 @@ from collections.abc import Callable, Coroutine
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 if TYPE_CHECKING:
@@ -1090,6 +1090,105 @@ def make_implement_phase(
     )
 
     return phase, mock_wt, mock_prs
+
+
+class ImplementPhaseMockBuilder:
+    """Fluent builder for ImplementPhase test mocks.
+
+    Consolidates inline ``mock_prs.*`` and ``mock_wt.*`` overrides into
+    chainable ``.with_*()`` calls, following the same pattern as
+    ``ReviewMockBuilder`` in conftest.py.
+
+    Usage::
+
+        phase, mock_wt, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_push_return(False)
+            .with_prs_method("find_open_pr_for_branch", AsyncMock(return_value=pr))
+            .build()
+        )
+    """
+
+    _UNSET: ClassVar[object] = object()  # sentinel for "not explicitly set"
+
+    def __init__(self, config: object) -> None:
+        self._config = config
+        self._issues: list[object] = []
+        self._push_return: bool = True
+        self._create_pr_return: object = self._UNSET
+        self._agent_run: object | None = None
+        self._success: bool = True
+        self._prs_overrides: dict[str, object] = {}
+        self._wt_overrides: dict[str, object] = {}
+
+    def with_issues(self, issues: list[object]) -> ImplementPhaseMockBuilder:
+        """Set the issues to be returned by get_implementable."""
+        self._issues = issues
+        return self
+
+    def with_push_return(self, val: bool) -> ImplementPhaseMockBuilder:
+        """Set the return value for mock_prs.push_branch."""
+        self._push_return = val
+        return self
+
+    def with_create_pr_return(self, val: object) -> ImplementPhaseMockBuilder:
+        """Set the return value for mock_prs.create_pr.
+
+        ``val`` must be a non-None object (e.g. ``PRInfoFactory.create()``).
+        To make ``create_pr`` return ``None``, use
+        ``with_prs_method("create_pr", AsyncMock(return_value=None))`` instead,
+        because ``make_implement_phase`` treats ``None`` as "use the factory
+        default" rather than as an explicit return value.
+        """
+        self._create_pr_return = val
+        return self
+
+    def with_agent_run(self, fn: object) -> ImplementPhaseMockBuilder:
+        """Set a custom agent_run callable."""
+        self._agent_run = fn
+        return self
+
+    def with_success(self, val: bool) -> ImplementPhaseMockBuilder:
+        """Set the default agent success value.
+
+        Only takes effect when no custom ``agent_run`` is provided via
+        ``with_agent_run()``.  If a custom callable is set, ``success`` is
+        silently ignored because the callable controls the result directly.
+        """
+        self._success = val
+        return self
+
+    def with_prs_method(self, name: str, mock: object) -> ImplementPhaseMockBuilder:
+        """Override a specific mock_prs method/attribute after construction."""
+        self._prs_overrides[name] = mock
+        return self
+
+    def with_wt_method(self, name: str, mock: object) -> ImplementPhaseMockBuilder:
+        """Override a specific mock_wt method/attribute after construction."""
+        self._wt_overrides[name] = mock
+        return self
+
+    def build(self) -> tuple[Any, Any, Any]:
+        """Build and return ``(phase, mock_wt, mock_prs)``."""
+        create_pr_kwarg: dict[str, Any] = (
+            {}
+            if self._create_pr_return is self._UNSET
+            else {"create_pr_return": self._create_pr_return}
+        )
+        phase, mock_wt, mock_prs = make_implement_phase(
+            self._config,
+            self._issues,
+            agent_run=self._agent_run,
+            success=self._success,
+            push_return=self._push_return,
+            **create_pr_kwarg,
+        )
+        for name, mock in self._prs_overrides.items():
+            setattr(mock_prs, name, mock)
+        for name, mock in self._wt_overrides.items():
+            setattr(mock_wt, name, mock)
+        return phase, mock_wt, mock_prs
 
 
 def make_hitl_phase(config):
