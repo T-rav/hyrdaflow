@@ -8,7 +8,7 @@ from collections.abc import Callable, Coroutine
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 if TYPE_CHECKING:
@@ -1110,7 +1110,7 @@ class ImplementPhaseMockBuilder:
         )
     """
 
-    _UNSET: Any = object()  # sentinel for "not explicitly set"
+    _UNSET: ClassVar[object] = object()  # sentinel for "not explicitly set"
 
     def __init__(self, config: object) -> None:
         self._config = config
@@ -1133,7 +1133,14 @@ class ImplementPhaseMockBuilder:
         return self
 
     def with_create_pr_return(self, val: object) -> ImplementPhaseMockBuilder:
-        """Set the return value for mock_prs.create_pr (including None)."""
+        """Set the return value for mock_prs.create_pr.
+
+        ``val`` must be a non-None object (e.g. ``PRInfoFactory.create()``).
+        To make ``create_pr`` return ``None``, use
+        ``with_prs_method("create_pr", AsyncMock(return_value=None))`` instead,
+        because ``make_implement_phase`` treats ``None`` as "use the factory
+        default" rather than as an explicit return value.
+        """
         self._create_pr_return = val
         return self
 
@@ -1143,7 +1150,12 @@ class ImplementPhaseMockBuilder:
         return self
 
     def with_success(self, val: bool) -> ImplementPhaseMockBuilder:
-        """Set the default agent success value (used when no custom agent_run)."""
+        """Set the default agent success value.
+
+        Only takes effect when no custom ``agent_run`` is provided via
+        ``with_agent_run()``.  If a custom callable is set, ``success`` is
+        silently ignored because the callable controls the result directly.
+        """
         self._success = val
         return self
 
