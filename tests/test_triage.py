@@ -431,6 +431,78 @@ class TestParseVerdict:
         assert result is not None
         assert result.ready is True
 
+    def test_system_init_lines_stripped_before_parsing(self) -> None:
+        """Claude Code system/init JSON lines should be filtered out."""
+        system_line = json.dumps(
+            {
+                "type": "system",
+                "subtype": "init",
+                "cwd": "/workspace",
+                "session_id": "abc-123",
+                "tools": ["Read", "Write"],
+            }
+        )
+        verdict = '{"ready": true, "reasons": []}'
+        transcript = f"{system_line}\n{verdict}"
+        result = TriageRunner._parse_verdict(transcript, 1)
+        assert result is not None
+        assert result.ready is True
+
+    def test_multiple_system_lines_stripped(self) -> None:
+        """Multiple system lines before the verdict should all be stripped."""
+        sys1 = json.dumps({"type": "system", "subtype": "init", "cwd": "/workspace"})
+        sys2 = json.dumps({"type": "system", "subtype": "config", "key": "val"})
+        verdict = '{"ready": false, "reasons": ["Vague description"]}'
+        transcript = f"{sys1}\n{sys2}\n{verdict}"
+        result = TriageRunner._parse_verdict(transcript, 1)
+        assert result is not None
+        assert result.ready is False
+        assert result.reasons == ["Vague description"]
+
+    def test_system_lines_with_code_fence_verdict(self) -> None:
+        """System lines + markdown code-fenced verdict should parse correctly."""
+        system_line = json.dumps({"type": "system", "subtype": "init"})
+        fenced = '```json\n{"ready": true, "reasons": []}\n```'
+        transcript = f"{system_line}\n{fenced}"
+        result = TriageRunner._parse_verdict(transcript, 1)
+        assert result is not None
+        assert result.ready is True
+
+    def test_non_system_json_lines_preserved(self) -> None:
+        """JSON lines with type != 'system' should not be stripped."""
+        assistant_line = json.dumps({"type": "assistant", "text": "hello"})
+        # This transcript has no "ready" key, so parsing should return None
+        transcript = assistant_line
+        result = TriageRunner._parse_verdict(transcript, 1)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _strip_system_lines unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestStripSystemLines:
+    """Direct tests for TriageRunner._strip_system_lines."""
+
+    def test_removes_system_lines(self) -> None:
+        system_line = json.dumps({"type": "system", "subtype": "init"})
+        normal = "some normal text"
+        result = TriageRunner._strip_system_lines(f"{system_line}\n{normal}")
+        assert result.strip() == normal
+
+    def test_preserves_empty_lines(self) -> None:
+        result = TriageRunner._strip_system_lines("line1\n\nline2")
+        assert result == "line1\n\nline2"
+
+    def test_preserves_non_json_lines(self) -> None:
+        text = "This is plain text\nAnother line"
+        assert TriageRunner._strip_system_lines(text) == text
+
+    def test_preserves_non_system_json(self) -> None:
+        line = json.dumps({"type": "result", "data": "value"})
+        assert TriageRunner._strip_system_lines(line) == line
+
 
 # ---------------------------------------------------------------------------
 # Command and prompt building
@@ -686,9 +758,8 @@ class TestTriageTerminate:
 
         # terminate() should not raise
         runner.terminate()
-        # After terminate, the proc should have been killed
-        # (terminate_processes uses os.killpg which we don't mock here,
-        # so we just verify it doesn't crash with our mock)
+        # proc.kill() is not called when pid is set (killpg path is used instead)
+        mock_proc.kill.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

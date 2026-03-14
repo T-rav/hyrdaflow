@@ -7,17 +7,7 @@ from pathlib import Path
 import pytest
 
 from models import GitHubIssue, GitHubIssueState
-from state import StateTracker
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def make_tracker(tmp_path: Path) -> StateTracker:
-    """Return a StateTracker backed by a temp file."""
-    return StateTracker(tmp_path / "state.json")
-
+from tests.helpers import make_tracker
 
 # ---------------------------------------------------------------------------
 # models.py — _normalise_state

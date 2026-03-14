@@ -14,14 +14,14 @@ from base_runner import BaseRunner
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
 from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
-from phase_utils import is_likely_bug
+from phase_utils import is_likely_bug, reraise_on_credit_or_bug
+from prompt_builder import PromptBuilder
 from review_insights import (
     ReviewInsightStore,
     get_common_feedback_section,
     get_escalation_data,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 from task_graph import extract_phases, has_task_graph, topological_sort
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
@@ -210,11 +210,8 @@ Run through this checklist before your final commit:
             status = WorkerStatus.DONE if success else WorkerStatus.FAILED
             await self._emit_status(task.id, worker_id, status)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception(
@@ -472,14 +469,14 @@ Run through this checklist before your final commit:
         self, issue: Task, review_feedback: str = "", prior_failure: str = ""
     ) -> tuple[str, dict[str, object]]:
         """Build the implementation prompt and pruning stats."""
+        builder = PromptBuilder()
         plan_comment, other_comments = self._extract_plan_comment(issue.comments)
-        history_before = len(plan_comment) + sum(len(c) for c in other_comments)
-        history_after = 0
+        raw_plan = plan_comment
 
         # Fallback to saved plan file
         if not plan_comment:
             plan_comment = self._load_plan_fallback(issue.id)
-            history_before += len(plan_comment)
+            raw_plan = plan_comment
             if not plan_comment:
                 logger.error(
                     "No plan found for issue #%d — implementer will proceed without a plan",
@@ -494,7 +491,7 @@ Run through this checklist before your final commit:
                 max_chars=self._MAX_IMPL_PLAN_CHARS,
                 label="Implementation plan",
             )
-            history_after += len(plan_comment)
+            builder.record_history("Implementation plan", raw_plan, plan_comment)
             # Detect whether the plan uses Task Graph format
             if has_task_graph(plan_comment):
                 plan_section = self._build_tdd_subagent_plan(plan_comment)
@@ -508,13 +505,15 @@ Run through this checklist before your final commit:
 
         review_feedback_section = ""
         if review_feedback:
-            history_before += len(review_feedback)
+            raw_review_feedback = review_feedback
             review_feedback = self._summarize_for_prompt(
                 review_feedback,
                 max_chars=self._MAX_REVIEW_FEEDBACK_CHARS,
                 label="Review feedback",
             )
-            history_after += len(review_feedback)
+            builder.record_history(
+                "Review feedback", raw_review_feedback, review_feedback
+            )
             review_feedback_section = (
                 f"\n\n## Review Feedback\n\n"
                 f"A reviewer rejected the previous implementation. "
@@ -524,13 +523,13 @@ Run through this checklist before your final commit:
 
         prior_failure_section = ""
         if prior_failure:
-            history_before += len(prior_failure)
+            raw_prior_failure = prior_failure
             prior_failure = self._summarize_for_prompt(
                 prior_failure,
                 max_chars=self._config.error_output_max_chars,
                 label="Prior failure",
             )
-            history_after += len(prior_failure)
+            builder.record_history("Prior failure", raw_prior_failure, prior_failure)
             prior_failure_section = (
                 f"\n\n## Prior Attempt Failure\n\n"
                 f"Your previous implementation attempt failed with the following error. "
@@ -546,7 +545,7 @@ Run through this checklist before your final commit:
                 self._truncate_comment_for_prompt(c) for c in selected_comments
             ]
             formatted = "\n".join(f"- {c}" for c in compact_comments)
-            history_after += len(formatted)
+            builder.record_history("Discussion", "".join(other_comments), formatted)
             comments_section = f"\n\n## Discussion\n{formatted}"
             if len(other_comments) > max_comments:
                 comments_section += f"\n- ... ({len(other_comments) - max_comments} more comments omitted)"
@@ -554,13 +553,14 @@ Run through this checklist before your final commit:
         raw_feedback_section = self._get_review_feedback_section()
         feedback_section = ""
         if raw_feedback_section:
-            history_before += len(raw_feedback_section)
             compact_feedback = self._summarize_for_prompt(
                 raw_feedback_section,
                 max_chars=self._MAX_COMMON_FEEDBACK_CHARS,
                 label="Common review feedback",
             )
-            history_after += len(compact_feedback)
+            builder.record_history(
+                "Common review feedback", raw_feedback_section, compact_feedback
+            )
             feedback_section = compact_feedback
 
         escalations = self._get_escalation_data()
@@ -568,8 +568,9 @@ Run through this checklist before your final commit:
         if escalations:
             blocks = [str(e["mandatory_block"]) for e in escalations]
             escalation_section = "\n\n" + "\n\n".join(blocks)
-            history_before += len(escalation_section)
-            history_after += len(escalation_section)
+            builder.record_history(
+                "Escalations", escalation_section, escalation_section
+            )
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
@@ -585,13 +586,12 @@ Run through this checklist before your final commit:
         # Truncate issue body if too long
         body = issue.body
         max_body = self._config.max_issue_body_chars
-        body_before = len(body)
         if len(body) > max_body:
             body = (
                 body[:max_body]
                 + f"\n\n[Body truncated at {max_body:,} chars — see full issue on GitHub]"
             )
-        body_after = len(body)
+        builder.record_context("Issue body", issue.body, body)
 
         test_cmd = self._config.test_command
 
@@ -636,21 +636,7 @@ Run through this checklist before your final commit:
   write the code, not to second-guess the plan. Always produce commits.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
-        stats = {
-            "history_chars_before": history_before,
-            "history_chars_after": history_after,
-            "context_chars_before": body_before,
-            "context_chars_after": body_after,
-            "pruned_chars_total": max(0, history_before - history_after)
-            + max(0, body_before - body_after),
-            "section_chars": {
-                "issue_body_before": body_before,
-                "issue_body_after": body_after,
-                "history_before": history_before,
-                "history_after": history_after,
-            },
-        }
-        return prompt, stats
+        return prompt, builder.build_stats()
 
     async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Check that the agent produced commits and ``make quality`` passes.

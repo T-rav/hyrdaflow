@@ -61,7 +61,7 @@ class TestHitlEscalation:
         assert esc.origin_label == "hydraflow-review"
         assert esc.comment == "Escalation comment"
 
-    def test_defaults(self) -> None:
+    def test_hitl_escalation_defaults_post_on_pr_true(self) -> None:
         """Optional fields should have sensible defaults."""
         esc = HitlEscalation(
             issue_number=1,
@@ -415,6 +415,7 @@ class TestEmitVisualGateTelemetry:
 
         # Should not raise
         await phase._emit_visual_gate_telemetry(pr, issue, 0, "pass", "ok", 0.5, {})
+        assert phase._bus is None  # bus remains None after no-op emit
 
 
 class TestHandleVisualGatePass:

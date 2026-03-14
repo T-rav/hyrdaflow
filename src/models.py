@@ -382,20 +382,6 @@ class PlannerStatus(StrEnum):
     FAILED = "failed"
 
 
-class RunnerResult(Protocol):
-    """Common interface shared by all runner result types.
-
-    Every runner (agent, planner, reviewer, HITL) returns a result model
-    that satisfies this protocol, enabling generic handling in telemetry,
-    logging, and state tracking.
-    """
-
-    success: bool
-    error: str | None
-    duration_seconds: float
-    transcript: str
-
-
 @dataclass(frozen=True, slots=True)
 class LoopResult:
     """Named result from internal agent verification/fix loops.
@@ -932,21 +918,6 @@ class JudgeResult(BaseModel):
     def failed_criteria(self) -> list[VerificationCriterion]:
         """Return only the criteria that failed."""
         return [c for c in self.criteria if not c.passed]
-
-
-# --- Batch ---
-
-
-class BatchResult(BaseModel):
-    """Summary of a full batch cycle."""
-
-    batch_number: int
-    issues: list[Task] = Field(default_factory=list)
-    plan_results: list[PlanResult] = Field(default_factory=list)
-    worker_results: list[WorkerResult] = Field(default_factory=list)
-    pr_infos: list[PRInfo] = Field(default_factory=list)
-    review_results: list[ReviewResult] = Field(default_factory=list)
-    merged_prs: list[int] = Field(default_factory=list)
 
 
 # --- Baseline Policy ---
@@ -1740,13 +1711,6 @@ class SessionEndPayload(TypedDict):
     issues_processed: list[int]
     issues_succeeded: int
     issues_failed: int
-
-
-class PhaseChangePayload(TypedDict, total=False):
-    """Payload for ``EventType.PHASE_CHANGE``."""
-
-    phase: str
-    repo: str
 
 
 class TranscriptLinePayload(TypedDict, total=False):

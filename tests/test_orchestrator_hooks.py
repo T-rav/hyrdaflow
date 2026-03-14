@@ -937,6 +937,7 @@ class TestPostRunHooks:
                 duration_seconds=2.0,
                 log_file="log.txt",
             )
+        orch._svc.summarizer.summarize_and_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_skips_summarize_when_issue_number_zero(

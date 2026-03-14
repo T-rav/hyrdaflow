@@ -166,6 +166,7 @@ async def test_post_comment_handles_error(event_bus, tmp_path):
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
         await mgr.post_comment(42, "comment body")
+    mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +232,7 @@ async def test_post_pr_comment_handles_error(event_bus, tmp_path):
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
         await mgr.post_pr_comment(101, "comment body")
+    mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -2288,6 +2290,7 @@ class TestCloseIssue:
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise
             await manager.close_issue(999)
+        mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

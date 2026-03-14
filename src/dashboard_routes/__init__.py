@@ -62,6 +62,7 @@ def create_router(
     remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
     list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
     default_repo_slug: str | None = None,
+    allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None,
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers.
 
@@ -101,6 +102,7 @@ def create_router(
         remove_repo_cb=remove_repo_cb,
         list_repos_cb=list_repos_cb,
         default_repo_slug=default_repo_slug,
+        allowed_repo_roots_fn=allowed_repo_roots_fn,
     )
 
     # Register route groups (order matters for some path patterns).

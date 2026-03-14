@@ -8,12 +8,13 @@ from collections.abc import Callable, Coroutine
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 if TYPE_CHECKING:
     from events import HydraFlowEvent
     from models import QueueStats, Task
+    from state import StateTracker
     from workspace import WorkspaceManager
 
 
@@ -145,6 +146,7 @@ class BgLoopDeps(NamedTuple):
     status_cb: MagicMock
     enabled_cb: Callable[[str], bool]
     sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+    loop_deps: Any  # LoopDeps
 
 
 def make_bg_loop_deps(
@@ -156,12 +158,13 @@ def make_bg_loop_deps(
     """Create common dependencies for background worker loop tests.
 
     Returns a BgLoopDeps NamedTuple with config, bus, stop_event,
-    status_cb, enabled_cb, and sleep_fn — the 6 constructor args
-    shared by all background loop classes.
+    status_cb, enabled_cb, sleep_fn, and loop_deps — the shared
+    constructor args for all background loop classes.
 
     Pass interval overrides via config_overrides, e.g.:
         make_bg_loop_deps(tmp_path, memory_sync_interval=30)
     """
+    from base_background_loop import LoopDeps
     from events import EventBus
 
     config = ConfigFactory.create(
@@ -171,14 +174,27 @@ def make_bg_loop_deps(
     bus = EventBus()
     stop_event = asyncio.Event()
     sleep_fn = instant_sleep_factory(stop_event)
+    status_cb = MagicMock()
+
+    def enabled_cb(_name: str) -> bool:
+        return enabled
+
+    loop_deps = LoopDeps(
+        event_bus=bus,
+        stop_event=stop_event,
+        status_cb=status_cb,
+        enabled_cb=enabled_cb,
+        sleep_fn=sleep_fn,
+    )
 
     return BgLoopDeps(
         config=config,
         bus=bus,
         stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
+        status_cb=status_cb,
+        enabled_cb=enabled_cb,
         sleep_fn=sleep_fn,
+        loop_deps=loop_deps,
     )
 
 
@@ -1091,6 +1107,105 @@ def make_implement_phase(
     return phase, mock_wt, mock_prs
 
 
+class ImplementPhaseMockBuilder:
+    """Fluent builder for ImplementPhase test mocks.
+
+    Consolidates inline ``mock_prs.*`` and ``mock_wt.*`` overrides into
+    chainable ``.with_*()`` calls, following the same pattern as
+    ``ReviewMockBuilder`` in conftest.py.
+
+    Usage::
+
+        phase, mock_wt, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_push_return(False)
+            .with_prs_method("find_open_pr_for_branch", AsyncMock(return_value=pr))
+            .build()
+        )
+    """
+
+    _UNSET: ClassVar[object] = object()  # sentinel for "not explicitly set"
+
+    def __init__(self, config: object) -> None:
+        self._config = config
+        self._issues: list[object] = []
+        self._push_return: bool = True
+        self._create_pr_return: object = self._UNSET
+        self._agent_run: object | None = None
+        self._success: bool = True
+        self._prs_overrides: dict[str, object] = {}
+        self._wt_overrides: dict[str, object] = {}
+
+    def with_issues(self, issues: list[object]) -> ImplementPhaseMockBuilder:
+        """Set the issues to be returned by get_implementable."""
+        self._issues = issues
+        return self
+
+    def with_push_return(self, val: bool) -> ImplementPhaseMockBuilder:
+        """Set the return value for mock_prs.push_branch."""
+        self._push_return = val
+        return self
+
+    def with_create_pr_return(self, val: object) -> ImplementPhaseMockBuilder:
+        """Set the return value for mock_prs.create_pr.
+
+        ``val`` must be a non-None object (e.g. ``PRInfoFactory.create()``).
+        To make ``create_pr`` return ``None``, use
+        ``with_prs_method("create_pr", AsyncMock(return_value=None))`` instead,
+        because ``make_implement_phase`` treats ``None`` as "use the factory
+        default" rather than as an explicit return value.
+        """
+        self._create_pr_return = val
+        return self
+
+    def with_agent_run(self, fn: object) -> ImplementPhaseMockBuilder:
+        """Set a custom agent_run callable."""
+        self._agent_run = fn
+        return self
+
+    def with_success(self, val: bool) -> ImplementPhaseMockBuilder:
+        """Set the default agent success value.
+
+        Only takes effect when no custom ``agent_run`` is provided via
+        ``with_agent_run()``.  If a custom callable is set, ``success`` is
+        silently ignored because the callable controls the result directly.
+        """
+        self._success = val
+        return self
+
+    def with_prs_method(self, name: str, mock: object) -> ImplementPhaseMockBuilder:
+        """Override a specific mock_prs method/attribute after construction."""
+        self._prs_overrides[name] = mock
+        return self
+
+    def with_wt_method(self, name: str, mock: object) -> ImplementPhaseMockBuilder:
+        """Override a specific mock_wt method/attribute after construction."""
+        self._wt_overrides[name] = mock
+        return self
+
+    def build(self) -> tuple[Any, Any, Any]:
+        """Build and return ``(phase, mock_wt, mock_prs)``."""
+        create_pr_kwarg: dict[str, Any] = (
+            {}
+            if self._create_pr_return is self._UNSET
+            else {"create_pr_return": self._create_pr_return}
+        )
+        phase, mock_wt, mock_prs = make_implement_phase(
+            self._config,
+            self._issues,
+            agent_run=self._agent_run,
+            success=self._success,
+            push_return=self._push_return,
+            **create_pr_kwarg,
+        )
+        for name, mock in self._prs_overrides.items():
+            setattr(mock_prs, name, mock)
+        for name, mock in self._wt_overrides.items():
+            setattr(mock_wt, name, mock)
+        return phase, mock_wt, mock_prs
+
+
 def make_hitl_phase(config):
     """Build a HITLPhase with mock dependencies.
 
@@ -1192,6 +1307,12 @@ def make_dashboard_router(
     registry=None,
     ui_dist_dir=None,
     template_dir=None,
+    register_repo_cb=None,
+    remove_repo_cb=None,
+    list_repos_cb=None,
+    repo_store=None,
+    default_repo_slug=None,
+    allowed_repo_roots_fn=None,
 ):
     """Create a dashboard router with test-friendly defaults.
 
@@ -1207,6 +1328,14 @@ def make_dashboard_router(
         Optional ``RepoRuntimeRegistry`` for multi-repo tests.
     ui_dist_dir / template_dir:
         Override the default ``tmp_path / "no-dist"`` / ``"no-templates"``.
+    register_repo_cb / remove_repo_cb / list_repos_cb:
+        Optional callbacks for repo management endpoints.
+    repo_store:
+        Optional ``RepoRegistryStore`` for config persistence tests.
+    default_repo_slug:
+        Optional default repo slug for multi-repo routing.
+    allowed_repo_roots_fn:
+        Optional callable returning allowed filesystem roots.
     """
     from dashboard_routes import create_router
     from pr_manager import PRManager
@@ -1223,6 +1352,12 @@ def make_dashboard_router(
         ui_dist_dir=ui_dist_dir or (tmp_path / "no-dist"),
         template_dir=template_dir or (tmp_path / "no-templates"),
         registry=registry,
+        register_repo_cb=register_repo_cb,
+        remove_repo_cb=remove_repo_cb,
+        list_repos_cb=list_repos_cb,
+        repo_store=repo_store,
+        default_repo_slug=default_repo_slug,
+        allowed_repo_roots_fn=allowed_repo_roots_fn,
     )
     return router, pr_mgr
 
@@ -1389,3 +1524,10 @@ def make_review_phase(
         wt.mkdir(parents=True, exist_ok=True)
 
     return phase
+
+
+def make_tracker(tmp_path: Path, *, filename: str = "state.json") -> StateTracker:
+    """Return a StateTracker backed by a temp file."""
+    from state import StateTracker
+
+    return StateTracker(tmp_path / filename)

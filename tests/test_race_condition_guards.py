@@ -281,7 +281,7 @@ class TestOrchestratorBuildInterruptedIssuesLock:
         orch._active_issues_lock.acquire = tracking_acquire  # type: ignore[assignment]
 
         await orch._build_interrupted_issues()
-        assert lock_acquired
+        assert lock_acquired is True
 
     @pytest.mark.asyncio
     async def test_do_implement_work_recovered_issues_under_lock(
@@ -306,7 +306,7 @@ class TestOrchestratorBuildInterruptedIssuesLock:
         orch._active_issues_lock.acquire = tracking_acquire  # type: ignore[assignment]
 
         await orch._do_implement_work()
-        assert lock_acquired
+        assert lock_acquired is True
         assert orch._recovered_issues == set()
 
 

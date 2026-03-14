@@ -65,6 +65,7 @@ class RouterContext:
         remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None,
         list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
         default_repo_slug: str | None = None,
+        allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None,
     ) -> None:
         # Core dependencies
         self.config = config
@@ -84,6 +85,15 @@ class RouterContext:
         self.remove_repo_cb = remove_repo_cb
         self.list_repos_cb = list_repos_cb
         self.default_repo_slug = default_repo_slug
+
+        # Filesystem roots override
+        from dashboard_routes._helpers import _allowed_repo_roots
+
+        self.repo_roots_fn = (
+            allowed_repo_roots_fn
+            if allowed_repo_roots_fn is not None
+            else _allowed_repo_roots
+        )
 
         # Derived objects
         self.supervisor_client = None

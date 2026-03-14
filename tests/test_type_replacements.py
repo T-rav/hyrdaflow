@@ -164,7 +164,7 @@ class TestHitlPhaseCallableType:
             active_issues_cb=my_cb,
         )
         phase._notify_active_issues()
-        assert called
+        assert called is True
 
 
 # ---------------------------------------------------------------------------

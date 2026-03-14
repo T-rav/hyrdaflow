@@ -16,7 +16,6 @@ from fastapi.responses import JSONResponse
 from dashboard_routes._helpers import (
     _SAFE_SLUG_COMPONENT,
     _SUPERVISOR_UNAVAILABLE_MESSAGE,
-    _allowed_repo_roots,
     _extract_repo_path,
     _extract_repo_slug,
     _find_repo_match,
@@ -233,29 +232,31 @@ def register_repo_routes(router: APIRouter, ctx: RouterContext) -> None:
 
     # ---- Filesystem browsing -----------------------------------------------
 
+    _root_names: dict[int, str] = {0: "Home", 1: "Temp"}
+
     @router.get("/api/fs/roots")
     async def list_browsable_roots() -> JSONResponse:
+        """Return filesystem roots that are safe to browse from the UI."""
+        all_roots = ctx.repo_roots_fn()
         roots = [
-            {"name": "Home", "path": _allowed_repo_roots()[0]},
-            {"name": "Temp", "path": _allowed_repo_roots()[-1]},
+            {"name": _root_names.get(i, f"Root {i + 1}"), "path": root}
+            for i, root in enumerate(all_roots)
         ]
-        seen: set[str] = set()
-        unique_roots = []
-        for root in roots:
-            path = root["path"]
-            if path in seen:
-                continue
-            seen.add(path)
-            unique_roots.append(root)
-        return JSONResponse({"roots": unique_roots})
+        return JSONResponse({"roots": roots})
 
     @router.get("/api/fs/list")
     async def list_browsable_directories(
         path: str | None = Query(default=None),
     ) -> JSONResponse:
-        allowed_roots = _allowed_repo_roots()
+        allowed_roots = ctx.repo_roots_fn()
+        if not allowed_roots:
+            return JSONResponse(
+                {"error": "no allowed roots configured"}, status_code=500
+            )
         target_raw = path or allowed_roots[0]
-        target_path, error = _normalize_allowed_dir(target_raw)
+        target_path, error = _normalize_allowed_dir(
+            target_raw, allowed_roots=allowed_roots
+        )
         if error or target_path is None:
             return JSONResponse({"error": error or "invalid path"}, status_code=400)
         current = str(target_path)
@@ -398,7 +399,9 @@ def register_repo_routes(router: APIRouter, ctx: RouterContext) -> None:
         raw_path = _extract_repo_path(req, req_query, path, repo_path_query)
         if not raw_path:
             return JSONResponse({"error": "path required"}, status_code=400)
-        repo_path, path_error = _normalize_allowed_dir(raw_path)
+        repo_path, path_error = _normalize_allowed_dir(
+            raw_path, allowed_roots=ctx.repo_roots_fn()
+        )
         if path_error or repo_path is None:
             return JSONResponse(
                 {"error": path_error or "invalid path"}, status_code=400

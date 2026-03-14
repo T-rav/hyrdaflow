@@ -147,8 +147,18 @@ def _allowed_repo_roots() -> tuple[str, ...]:
     return tuple(deduped)
 
 
-def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | None]:
-    """Validate and normalize a directory path constrained to allowed roots."""
+def _normalize_allowed_dir(
+    raw_path: str | None,
+    allowed_roots: tuple[str, ...] | None = None,
+) -> tuple[Path | None, str | None]:
+    """Validate and normalize a directory path constrained to allowed roots.
+
+    Parameters
+    ----------
+    allowed_roots:
+        Override the default roots returned by :func:`_allowed_repo_roots`.
+        Useful for testing without patching private module internals.
+    """
     candidate = (raw_path or "").strip()
     if not candidate:
         return None, "path required"
@@ -156,7 +166,7 @@ def _normalize_allowed_dir(raw_path: str | None) -> tuple[Path | None, str | Non
     if "\x00" in expanded:
         return None, "invalid path"
     candidate_abs = os.path.abspath(expanded)
-    for root in _allowed_repo_roots():
+    for root in allowed_roots if allowed_roots is not None else _allowed_repo_roots():
         root_real = os.path.realpath(root)
         with contextlib.suppress(ValueError):
             relative = os.path.relpath(candidate_abs, root_real)

@@ -1270,6 +1270,7 @@ class TestNarrowedExceptionHandling:
         prs.post_comment = AsyncMock(side_effect=RuntimeError("post failed"))
         # Should not raise
         await checker._post_hitl_warnings(100, [1, 2])
+        prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_post_hitl_warnings_propagates_type_error(self) -> None:
@@ -1305,9 +1306,12 @@ class TestNarrowedExceptionHandling:
         fetcher = AsyncMock()
         checker = EpicCompletionChecker(config, prs, fetcher)
         # Make repo_root resolve raise OSError
-        with patch.object(Path, "resolve", side_effect=OSError("disk error")):
+        with patch.object(
+            Path, "resolve", side_effect=OSError("disk error")
+        ) as mock_resolve:
             # Should not raise
             checker._write_changelog_file("## v1.0")
+        assert mock_resolve.call_count >= 1
 
     def test_write_changelog_file_propagates_type_error(self, tmp_path: Path) -> None:
         """TypeError from file I/O propagates (not caught by OSError handler)."""
@@ -1339,6 +1343,7 @@ class TestNarrowedExceptionHandling:
         prs.post_comment = AsyncMock(side_effect=RuntimeError("post failed"))
         # Should not raise
         await manager._try_auto_close(100)
+        prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_try_auto_close_direct_close_propagates_type_error(
@@ -1430,7 +1435,7 @@ class TestNarrowedExceptionHandling:
         prs.get_pr_checks = AsyncMock(side_effect=RuntimeError("checks failed"))
         child_info = EpicChildInfo(issue_number=1)
         await manager._enrich_pr_status(child_info, 42)
-        # No exception; other fields may still be populated from remaining calls
+        prs.get_pr_checks.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_enrich_pr_status_propagates_type_error_on_checks(
@@ -1453,6 +1458,7 @@ class TestNarrowedExceptionHandling:
         prs.get_pr_reviews = AsyncMock(side_effect=RuntimeError("reviews failed"))
         child_info = EpicChildInfo(issue_number=1)
         await manager._enrich_pr_status(child_info, 42)
+        prs.get_pr_reviews.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_enrich_pr_status_catches_runtime_error_on_mergeable(
@@ -1465,6 +1471,7 @@ class TestNarrowedExceptionHandling:
         prs.get_pr_mergeable = AsyncMock(side_effect=RuntimeError("mergeable failed"))
         child_info = EpicChildInfo(issue_number=1)
         await manager._enrich_pr_status(child_info, 42)
+        prs.get_pr_mergeable.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_refresh_cache_catches_runtime_error(self, tmp_path: Path) -> None:
@@ -1474,6 +1481,7 @@ class TestNarrowedExceptionHandling:
         manager._build_detail = AsyncMock(side_effect=RuntimeError("build failed"))
         # Should not raise
         await manager.refresh_cache()
+        manager._build_detail.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_refresh_cache_propagates_type_error(self, tmp_path: Path) -> None:

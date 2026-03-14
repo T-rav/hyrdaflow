@@ -123,7 +123,7 @@ class TestManifestRefreshIntegration:
 
         await orch.run()
 
-        assert manifest_ran
+        assert manifest_ran is True
 
     def test_get_bg_worker_interval_returns_manifest_interval(
         self, config: HydraFlowConfig
@@ -719,7 +719,7 @@ class TestHITLLoop:
 
         await orch.run()
 
-        assert hitl_ran
+        assert hitl_ran is True
 
     @pytest.mark.asyncio
     async def test_hitl_loop_continues_after_exception(

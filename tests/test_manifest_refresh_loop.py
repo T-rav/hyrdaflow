@@ -41,11 +41,7 @@ def _make_loop(
         config=deps.config,
         manifest_manager=manager,
         state=state,
-        event_bus=deps.bus,
-        stop_event=deps.stop_event,
-        status_cb=deps.status_cb,
-        enabled_cb=deps.enabled_cb,
-        sleep_fn=deps.sleep_fn,
+        deps=deps.loop_deps,
     )
     return loop, deps.stop_event, manager, state
 

@@ -241,6 +241,7 @@ class TestEventBusPublishSubscribe:
         bus = EventBus()
         event = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(event)  # should not raise
+        assert len(bus._subscribers) == 0
 
     @pytest.mark.asyncio
     async def test_set_session_id_auto_injects(self) -> None:
@@ -376,6 +377,7 @@ class TestEventBusUnsubscribe:
         orphan: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         # Should not raise
         bus.unsubscribe(orphan)
+        assert orphan not in bus._subscribers
 
     @pytest.mark.asyncio
     async def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
@@ -383,6 +385,7 @@ class TestEventBusUnsubscribe:
         queue = bus.subscribe()
         bus.unsubscribe(queue)
         bus.unsubscribe(queue)  # second call should not raise
+        assert queue not in bus._subscribers
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +524,7 @@ class TestEventBusClear:
     async def test_clear_on_empty_bus_does_not_raise(self) -> None:
         bus = EventBus()
         bus.clear()  # should not raise
+        assert bus._subscribers == []
 
     @pytest.mark.asyncio
     async def test_bus_usable_after_clear(self) -> None:

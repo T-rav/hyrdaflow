@@ -248,8 +248,8 @@ class TestScaffoldRuff:
     def test_result_is_valid_toml(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         _scaffold_ruff(tmp_path)
-        # Should not raise
-        tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        assert "tool" in data  # ruff config was added
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +283,8 @@ class TestScaffoldPyright:
     def test_result_is_valid_toml(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         _scaffold_pyright(tmp_path)
-        tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        assert "tool" in data  # pyright config was added
 
 
 # ---------------------------------------------------------------------------
@@ -361,8 +362,8 @@ class TestEnsurePythonDevDeps:
             '[project]\nname = "test"\n\n[project.optional-dependencies]\ndev = [\n]\n',
         )
         _ensure_python_dev_deps(tmp_path)
-        # Should not raise
-        tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        assert "project" in data  # file remains valid TOML
 
 
 # ---------------------------------------------------------------------------
@@ -412,8 +413,8 @@ class TestScaffoldTsconfig:
 
     def test_tsconfig_is_valid_json(self, tmp_path: Path) -> None:
         _scaffold_tsconfig(tmp_path)
-        # Should not raise
-        json.loads((tmp_path / "tsconfig.json").read_text())
+        data = json.loads((tmp_path / "tsconfig.json").read_text())
+        assert "compilerOptions" in data  # valid tsconfig structure
 
     def test_tsconfig_has_expected_defaults(self, tmp_path: Path) -> None:
         _scaffold_tsconfig(tmp_path)
