@@ -453,7 +453,7 @@ Run through this checklist before your final commit:
                 bead_claim = f"\n> First run: `bd update {bead_id} --claim`\n"
                 bead_close = (
                     f"\n> After all tests pass, run: "
-                    f'`bd close {bead_id} "Phase complete"`\n'
+                    f'`bd close {bead_id} --reason "Phase complete"`\n'
                 )
 
             phase_sections.append(

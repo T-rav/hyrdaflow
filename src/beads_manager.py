@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
-import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -25,10 +25,10 @@ _PRIORITY_HAS_DEPS = "1"
 class BeadTask(BaseModel):
     """A single bead task tracked by the ``bd`` CLI."""
 
-    id: str  # hash-based ID, e.g. "bd-a1b2"
+    id: str  # e.g. "beads-test-4yu"
     title: str
     status: str = "open"
-    priority: str = "1"
+    priority: int = 2
     depends_on: list[str] = Field(default_factory=list)
 
 
@@ -39,12 +39,12 @@ class BeadsManager:
 
     CLI reference (https://github.com/steveyegge/beads):
     - ``bd init`` — initialize project
-    - ``bd create "title" -p <priority>`` — create task
-    - ``bd dep add <child> <parent>`` — add dependency
+    - ``bd create "title" -p <priority> --silent`` — create task, output ID only
+    - ``bd dep add <child> <parent>`` — add dependency (blocks relationship)
     - ``bd update <id> --claim`` — claim task (assignee + in_progress)
-    - ``bd close <id> "message"`` — complete task with summary
-    - ``bd ready [--json]`` — list unblocked tasks
-    - ``bd show <id>`` — view task details
+    - ``bd close <id> --reason "message"`` — close task with reason
+    - ``bd ready --json`` — list unblocked tasks as JSON
+    - ``bd show <id> --json`` — show task details as JSON
     """
 
     def __init__(self, config: HydraFlowConfig) -> None:
@@ -60,7 +60,7 @@ class BeadsManager:
         if not self._enabled:
             return False
         try:
-            await run_subprocess("bd", "ready", timeout=10.0)
+            await run_subprocess("bd", "status", timeout=10.0)
             return True
         except (RuntimeError, FileNotFoundError, OSError):
             logger.warning("bd CLI not found — beads features disabled")
@@ -83,30 +83,33 @@ class BeadsManager:
     async def create_task(self, title: str, priority: str, cwd: Path) -> str | None:
         """Create a bead task, returning the bead ID or ``None``.
 
-        Uses ``bd create "title" -p <priority>``.
+        Uses ``bd create "title" -p <priority> --silent`` which outputs
+        only the bead ID for reliable parsing.
         """
         if not self._enabled:
             return None
         try:
             output = await run_subprocess(
-                "bd", "create", title, "-p", priority, cwd=cwd, timeout=30.0
+                "bd",
+                "create",
+                title,
+                "-p",
+                priority,
+                "--silent",
+                cwd=cwd,
+                timeout=30.0,
             )
-            # Parse bead ID from output — bd uses hash-based IDs like "bd-a1b2"
-            match = re.search(r"(bd-[a-f0-9]+(?:\.\d+)*)", output)
-            if match:
-                return match.group(1)
-            # Fallback: try numeric ID
-            num_match = re.search(r"#?(\d+)", output)
-            if num_match:
-                return num_match.group(1)
-            logger.warning("Could not parse bead ID from output: %s", output)
+            bead_id = output.strip()
+            if bead_id:
+                return bead_id
+            logger.warning("bd create returned empty output")
             return None
         except (RuntimeError, FileNotFoundError, OSError):
             logger.warning("bd create failed for %r", title, exc_info=True)
             return None
 
     async def add_dependency(self, child: str, parent: str, cwd: Path) -> bool:
-        """Add a dependency: *child* depends on *parent*.
+        """Add a dependency: *child* depends on *parent* (blocks relationship).
 
         Returns ``True`` on success.
         """
@@ -122,7 +125,7 @@ class BeadsManager:
             return False
 
     async def claim(self, bead_id: str, cwd: Path) -> bool:
-        """Claim a bead task (mark as in-progress).
+        """Claim a bead task (sets assignee + in_progress).
 
         Returns ``True`` on success.
         """
@@ -138,15 +141,17 @@ class BeadsManager:
             return False
 
     async def close(self, bead_id: str, reason: str, cwd: Path) -> bool:
-        """Close a bead task with a summary message.
+        """Close a bead task with a reason.
 
-        Uses ``bd close <id> "message"`` (positional, not a flag).
+        Uses ``bd close <id> --reason "message"``.
         Returns ``True`` on success.
         """
         if not self._enabled:
             return False
         try:
-            await run_subprocess("bd", "close", bead_id, reason, cwd=cwd, timeout=30.0)
+            await run_subprocess(
+                "bd", "close", bead_id, "--reason", reason, cwd=cwd, timeout=30.0
+            )
             return True
         except (RuntimeError, FileNotFoundError, OSError):
             logger.warning("bd close %s failed", bead_id, exc_info=True)
@@ -155,7 +160,7 @@ class BeadsManager:
     async def list_ready(self, cwd: Path) -> list[BeadTask]:
         """List unblocked (ready) bead tasks.
 
-        Uses ``bd ready --json`` for reliable parsing.
+        Uses ``bd ready --json`` for reliable JSON parsing.
         Returns an empty list when disabled or on failure.
         """
         if not self._enabled:
@@ -164,7 +169,7 @@ class BeadsManager:
             output = await run_subprocess(
                 "bd", "ready", "--json", cwd=cwd, timeout=30.0
             )
-            return self._parse_task_list(output)
+            return self._parse_ready_json(output)
         except (RuntimeError, FileNotFoundError, OSError):
             logger.warning("bd ready failed", exc_info=True)
             return []
@@ -172,13 +177,16 @@ class BeadsManager:
     async def show(self, bead_id: str, cwd: Path) -> BeadTask | None:
         """Show full details for a bead task.
 
+        Uses ``bd show <id> --json`` for reliable parsing.
         Returns ``None`` when disabled or on failure.
         """
         if not self._enabled:
             return None
         try:
-            output = await run_subprocess("bd", "show", bead_id, cwd=cwd, timeout=30.0)
-            return self._parse_show_output(bead_id, output)
+            output = await run_subprocess(
+                "bd", "show", bead_id, "--json", cwd=cwd, timeout=30.0
+            )
+            return self._parse_show_json(output)
         except (RuntimeError, FileNotFoundError, OSError):
             logger.warning("bd show %s failed", bead_id, exc_info=True)
             return None
@@ -231,63 +239,63 @@ class BeadsManager:
         return mapping
 
     @staticmethod
-    def _parse_task_list(output: str) -> list[BeadTask]:
-        """Parse ``bd ready`` output into :class:`BeadTask` instances."""
+    def _parse_ready_json(output: str) -> list[BeadTask]:
+        """Parse ``bd ready --json`` output into :class:`BeadTask` instances."""
+        try:
+            data = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Failed to parse bd ready JSON output")
+            return []
+
+        if not isinstance(data, list):
+            return []
+
         tasks: list[BeadTask] = []
-        for raw_line in output.strip().splitlines():
-            stripped = raw_line.strip()
-            if not stripped:
+        for item in data:
+            if not isinstance(item, dict):
                 continue
-            # Match hash-based IDs: "bd-a1b2 Title [status]"
-            match = re.match(
-                r"(bd-[a-f0-9]+(?:\.\d+)*)\s+(.+?)(?:\s+\[(\w+)\])?\s*$",
-                stripped,
+            deps: list[str] = []
+            for dep in item.get("dependencies", []):
+                if isinstance(dep, dict) and "depends_on_id" in dep:
+                    deps.append(dep["depends_on_id"])
+            tasks.append(
+                BeadTask(
+                    id=item.get("id", ""),
+                    title=item.get("title", ""),
+                    status=item.get("status", "open"),
+                    priority=item.get("priority", 2),
+                    depends_on=deps,
+                )
             )
-            if match:
-                tasks.append(
-                    BeadTask(
-                        id=match.group(1),
-                        title=match.group(2).strip(),
-                        status=match.group(3) or "open",
-                    )
-                )
-                continue
-            # Fallback: numeric IDs "#<id> <title> [<status>]"
-            num_match = re.match(r"#?(\d+)\s+(.+?)(?:\s+\[(\w+)\])?\s*$", stripped)
-            if num_match:
-                tasks.append(
-                    BeadTask(
-                        id=num_match.group(1),
-                        title=num_match.group(2).strip(),
-                        status=num_match.group(3) or "open",
-                    )
-                )
         return tasks
 
     @staticmethod
-    def _parse_show_output(bead_id: str, output: str) -> BeadTask:
-        """Parse ``bd show`` output into a :class:`BeadTask`."""
-        title = ""
-        status = "open"
-        priority = "1"
-        depends_on: list[str] = []
+    def _parse_show_json(output: str) -> BeadTask | None:
+        """Parse ``bd show --json`` output into a :class:`BeadTask`."""
+        try:
+            data: Any = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Failed to parse bd show JSON output")
+            return None
 
-        for raw_line in output.strip().splitlines():
-            stripped = raw_line.strip()
-            if stripped.lower().startswith("title:"):
-                title = stripped.split(":", 1)[1].strip()
-            elif stripped.lower().startswith("status:"):
-                status = stripped.split(":", 1)[1].strip()
-            elif stripped.lower().startswith("priority:"):
-                priority = stripped.split(":", 1)[1].strip()
-            elif stripped.lower().startswith("depends"):
-                deps_text = stripped.split(":", 1)[1].strip()
-                depends_on = re.findall(r"(bd-[a-f0-9]+(?:\.\d+)*|\d+)", deps_text)
+        # bd show --json may return a single object or a list with one item
+        if isinstance(data, list):
+            if not data:
+                return None
+            data = data[0]
+
+        if not isinstance(data, dict):
+            return None
+
+        deps: list[str] = []
+        for dep in data.get("dependencies", []):
+            if isinstance(dep, dict) and "depends_on_id" in dep:
+                deps.append(dep["depends_on_id"])
 
         return BeadTask(
-            id=bead_id,
-            title=title or f"Bead {bead_id}",
-            status=status,
-            priority=priority,
-            depends_on=depends_on,
+            id=data.get("id", ""),
+            title=data.get("title", ""),
+            status=data.get("status", "open"),
+            priority=data.get("priority", 2),
+            depends_on=deps,
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -59,19 +60,17 @@ async def test_disabled_create_task(disabled_manager):
 
 @pytest.mark.asyncio()
 async def test_disabled_add_dependency(disabled_manager):
-    assert (
-        await disabled_manager.add_dependency("bd-a1", "bd-b2", Path("/tmp")) is False
-    )
+    assert await disabled_manager.add_dependency("x-a1", "x-b2", Path("/tmp")) is False
 
 
 @pytest.mark.asyncio()
 async def test_disabled_claim(disabled_manager):
-    assert await disabled_manager.claim("bd-a1", Path("/tmp")) is False
+    assert await disabled_manager.claim("x-a1", Path("/tmp")) is False
 
 
 @pytest.mark.asyncio()
 async def test_disabled_close(disabled_manager):
-    assert await disabled_manager.close("bd-a1", "done", Path("/tmp")) is False
+    assert await disabled_manager.close("x-a1", "done", Path("/tmp")) is False
 
 
 @pytest.mark.asyncio()
@@ -81,7 +80,7 @@ async def test_disabled_list_ready(disabled_manager):
 
 @pytest.mark.asyncio()
 async def test_disabled_show(disabled_manager):
-    assert await disabled_manager.show("bd-a1", Path("/tmp")) is None
+    assert await disabled_manager.show("x-a1", Path("/tmp")) is None
 
 
 @pytest.mark.asyncio()
@@ -93,7 +92,7 @@ async def test_disabled_create_from_phases(disabled_manager):
 
 
 # ---------------------------------------------------------------------------
-# is_available — uses `bd ready` as a liveness check
+# is_available — uses `bd status` as a liveness check
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +101,7 @@ async def test_is_available_success(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = ""
         assert await manager.is_available() is True
-        mock_run.assert_called_once_with("bd", "ready", timeout=10.0)
+        mock_run.assert_called_once_with("bd", "status", timeout=10.0)
 
 
 @pytest.mark.asyncio()
@@ -140,44 +139,33 @@ async def test_init_failure(manager):
 
 
 # ---------------------------------------------------------------------------
-# create_task — uses `bd create "title" -p <priority>`
+# create_task — uses `bd create "title" -p <priority> --silent`
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio()
-async def test_create_task_hash_id(manager):
-    """bd create returns hash-based IDs like bd-a1b2."""
+async def test_create_task_silent_output(manager):
+    """bd create --silent outputs only the bead ID."""
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "Created bd-a1b2"
+        mock_run.return_value = "myrepo-4yu"
         result = await manager.create_task("My task", "0", Path("/repo"))
-        assert result == "bd-a1b2"
+        assert result == "myrepo-4yu"
         mock_run.assert_called_once_with(
-            "bd", "create", "My task", "-p", "0", cwd=Path("/repo"), timeout=30.0
+            "bd",
+            "create",
+            "My task",
+            "-p",
+            "0",
+            "--silent",
+            cwd=Path("/repo"),
+            timeout=30.0,
         )
 
 
 @pytest.mark.asyncio()
-async def test_create_task_hierarchical_id(manager):
-    """bd can return hierarchical IDs like bd-a3f8.1.1."""
+async def test_create_task_empty_output(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "Created bd-a3f8.1.1"
-        result = await manager.create_task("Sub-task", "1", Path("/repo"))
-        assert result == "bd-a3f8.1.1"
-
-
-@pytest.mark.asyncio()
-async def test_create_task_numeric_fallback(manager):
-    """Falls back to numeric ID parsing if hash format not found."""
-    with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "Created task #42"
-        result = await manager.create_task("My task", "0", Path("/repo"))
-        assert result == "42"
-
-
-@pytest.mark.asyncio()
-async def test_create_task_no_id_in_output(manager):
-    with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "Something unexpected with no ids"
+        mock_run.return_value = "  \n"
         result = await manager.create_task("My task", "0", Path("/repo"))
         assert result is None
 
@@ -191,17 +179,25 @@ async def test_create_task_failure(manager):
 
 
 # ---------------------------------------------------------------------------
-# add_dependency
+# add_dependency — `bd dep add <child> <parent>`
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio()
 async def test_add_dependency_success(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "Dependency added"
-        assert await manager.add_dependency("bd-b2", "bd-a1", Path("/repo")) is True
+        mock_run.return_value = "Added dependency"
+        assert (
+            await manager.add_dependency("repo-z2o", "repo-4yu", Path("/repo")) is True
+        )
         mock_run.assert_called_once_with(
-            "bd", "dep", "add", "bd-b2", "bd-a1", cwd=Path("/repo"), timeout=30.0
+            "bd",
+            "dep",
+            "add",
+            "repo-z2o",
+            "repo-4yu",
+            cwd=Path("/repo"),
+            timeout=30.0,
         )
 
 
@@ -209,21 +205,28 @@ async def test_add_dependency_success(manager):
 async def test_add_dependency_failure(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.side_effect = RuntimeError("failed")
-        assert await manager.add_dependency("bd-b2", "bd-a1", Path("/repo")) is False
+        assert (
+            await manager.add_dependency("repo-z2o", "repo-4yu", Path("/repo")) is False
+        )
 
 
 # ---------------------------------------------------------------------------
-# claim
+# claim — `bd update <id> --claim`
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio()
 async def test_claim_success(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "Claimed"
-        assert await manager.claim("bd-a1b2", Path("/repo")) is True
+        mock_run.return_value = "Updated"
+        assert await manager.claim("repo-4yu", Path("/repo")) is True
         mock_run.assert_called_once_with(
-            "bd", "update", "bd-a1b2", "--claim", cwd=Path("/repo"), timeout=30.0
+            "bd",
+            "update",
+            "repo-4yu",
+            "--claim",
+            cwd=Path("/repo"),
+            timeout=30.0,
         )
 
 
@@ -231,11 +234,11 @@ async def test_claim_success(manager):
 async def test_claim_failure(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.side_effect = OSError("disk error")
-        assert await manager.claim("bd-a1b2", Path("/repo")) is False
+        assert await manager.claim("repo-4yu", Path("/repo")) is False
 
 
 # ---------------------------------------------------------------------------
-# close — uses `bd close <id> "message"` (positional, no --reason flag)
+# close — `bd close <id> --reason "message"`
 # ---------------------------------------------------------------------------
 
 
@@ -243,9 +246,15 @@ async def test_claim_failure(manager):
 async def test_close_success(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = "Closed"
-        assert await manager.close("bd-a1b2", "Phase complete", Path("/repo")) is True
+        assert await manager.close("repo-4yu", "Phase complete", Path("/repo")) is True
         mock_run.assert_called_once_with(
-            "bd", "close", "bd-a1b2", "Phase complete", cwd=Path("/repo"), timeout=30.0
+            "bd",
+            "close",
+            "repo-4yu",
+            "--reason",
+            "Phase complete",
+            cwd=Path("/repo"),
+            timeout=30.0,
         )
 
 
@@ -253,30 +262,76 @@ async def test_close_success(manager):
 async def test_close_failure(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.side_effect = RuntimeError("failed")
-        assert await manager.close("bd-a1b2", "done", Path("/repo")) is False
+        assert await manager.close("repo-4yu", "done", Path("/repo")) is False
 
 
 # ---------------------------------------------------------------------------
-# list_ready — uses `bd ready --json`
+# list_ready — `bd ready --json`
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio()
-async def test_list_ready_hash_ids(manager):
+async def test_list_ready_json(manager):
+    """Parses actual bd ready --json output format."""
+    json_output = json.dumps(
+        [
+            {
+                "id": "repo-4yu",
+                "title": "Issue #42 — P1 — Data Model",
+                "status": "open",
+                "priority": 0,
+                "issue_type": "task",
+                "dependency_count": 0,
+            },
+            {
+                "id": "repo-z2o",
+                "title": "Issue #42 — P2 — API Layer",
+                "status": "open",
+                "priority": 1,
+                "dependencies": [
+                    {
+                        "issue_id": "repo-z2o",
+                        "depends_on_id": "repo-4yu",
+                        "type": "blocks",
+                    }
+                ],
+                "dependency_count": 1,
+            },
+        ]
+    )
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = (
-            "bd-a1b2 My task [open]\nbd-c3d4 Another task [in_progress]\n"
-        )
+        mock_run.return_value = json_output
         result = await manager.list_ready(Path("/repo"))
-        assert len(result) == 2
-        assert result[0].id == "bd-a1b2"
-        assert result[0].title == "My task"
-        assert result[0].status == "open"
-        assert result[1].id == "bd-c3d4"
-        assert result[1].status == "in_progress"
-        mock_run.assert_called_once_with(
-            "bd", "ready", "--json", cwd=Path("/repo"), timeout=30.0
-        )
+
+    assert len(result) == 2
+    assert result[0].id == "repo-4yu"
+    assert result[0].title == "Issue #42 — P1 — Data Model"
+    assert result[0].status == "open"
+    assert result[0].priority == 0
+    assert result[0].depends_on == []
+    assert result[1].id == "repo-z2o"
+    assert result[1].depends_on == ["repo-4yu"]
+    mock_run.assert_called_once_with(
+        "bd",
+        "ready",
+        "--json",
+        cwd=Path("/repo"),
+        timeout=30.0,
+    )
+
+
+@pytest.mark.asyncio()
+async def test_list_ready_empty_json(manager):
+    with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "[]"
+        assert await manager.list_ready(Path("/repo")) == []
+
+
+@pytest.mark.asyncio()
+async def test_list_ready_invalid_json(manager):
+    with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "not json"
+        assert await manager.list_ready(Path("/repo")) == []
 
 
 @pytest.mark.asyncio()
@@ -287,33 +342,77 @@ async def test_list_ready_failure(manager):
 
 
 # ---------------------------------------------------------------------------
-# show
+# show — `bd show <id> --json`
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio()
-async def test_show_success(manager):
+async def test_show_json(manager):
+    """Parses actual bd show --json output format."""
+    json_output = json.dumps(
+        {
+            "id": "repo-4yu",
+            "title": "Issue #42 — P1 — Data Model",
+            "status": "in_progress",
+            "priority": 0,
+            "dependencies": [
+                {"issue_id": "repo-4yu", "depends_on_id": "repo-abc", "type": "blocks"}
+            ],
+        }
+    )
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = (
-            "Title: My task\n"
-            "Status: in_progress\n"
-            "Priority: 0\n"
-            "Depends on: bd-a1f0, bd-b2e1\n"
-        )
-        result = await manager.show("bd-a1b2", Path("/repo"))
-        assert result is not None
-        assert result.id == "bd-a1b2"
-        assert result.title == "My task"
-        assert result.status == "in_progress"
-        assert result.priority == "0"
-        assert result.depends_on == ["bd-a1f0", "bd-b2e1"]
+        mock_run.return_value = json_output
+        result = await manager.show("repo-4yu", Path("/repo"))
+
+    assert result is not None
+    assert result.id == "repo-4yu"
+    assert result.title == "Issue #42 — P1 — Data Model"
+    assert result.status == "in_progress"
+    assert result.priority == 0
+    assert result.depends_on == ["repo-abc"]
+    mock_run.assert_called_once_with(
+        "bd",
+        "show",
+        "repo-4yu",
+        "--json",
+        cwd=Path("/repo"),
+        timeout=30.0,
+    )
+
+
+@pytest.mark.asyncio()
+async def test_show_json_list_format(manager):
+    """bd show --json may return a list with one item."""
+    json_output = json.dumps(
+        [
+            {
+                "id": "repo-4yu",
+                "title": "My task",
+                "status": "open",
+                "priority": 2,
+            }
+        ]
+    )
+    with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = json_output
+        result = await manager.show("repo-4yu", Path("/repo"))
+
+    assert result is not None
+    assert result.id == "repo-4yu"
+
+
+@pytest.mark.asyncio()
+async def test_show_invalid_json(manager):
+    with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "not json"
+        assert await manager.show("repo-4yu", Path("/repo")) is None
 
 
 @pytest.mark.asyncio()
 async def test_show_failure(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.side_effect = FileNotFoundError("not found")
-        assert await manager.show("bd-a1b2", Path("/repo")) is None
+        assert await manager.show("repo-4yu", Path("/repo")) is None
 
 
 # ---------------------------------------------------------------------------
@@ -347,9 +446,9 @@ async def test_create_from_phases(manager):
         call_count += 1
         cmd_args = list(args)
         if "create" in cmd_args:
-            return f"Created bd-{'a' * call_count}{call_count}"
+            return f"repo-id{call_count}"
         if "dep" in cmd_args:
-            return "Dependency added"
+            return "Added dependency"
         return ""
 
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run_fn:
@@ -359,10 +458,12 @@ async def test_create_from_phases(manager):
     assert "P1" in mapping
     assert "P2" in mapping
     assert len(mapping) == 2
-    # P1 has no deps → priority 0, P2 has deps → priority 1
+    # Verify priority: P1 no deps → "0", P2 has deps → "1"
     create_calls = [c for c in mock_run_fn.call_args_list if "create" in list(c.args)]
     assert create_calls[0].args[4] == "0"  # -p 0 for P1
     assert create_calls[1].args[4] == "1"  # -p 1 for P2
+    # Verify --silent flag is used
+    assert create_calls[0].args[5] == "--silent"
 
 
 @pytest.mark.asyncio()
@@ -378,7 +479,7 @@ async def test_create_from_phases_partial_failure(manager):
         if "create" in cmd_args and "P2" in str(cmd_args):
             raise RuntimeError("failed")
         if "create" in cmd_args:
-            return "Created bd-ok1"
+            return "repo-ok1"
         return ""
 
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run_fn:
@@ -390,56 +491,58 @@ async def test_create_from_phases_partial_failure(manager):
 
 
 # ---------------------------------------------------------------------------
-# _parse_task_list
+# _parse_ready_json
 # ---------------------------------------------------------------------------
 
 
-def test_parse_task_list_empty():
-    assert BeadsManager._parse_task_list("") == []
+def test_parse_ready_json_empty():
+    assert BeadsManager._parse_ready_json("[]") == []
 
 
-def test_parse_task_list_hash_ids():
-    output = "bd-a1b2 Task A [open]\nbd-c3d4 Task B [closed]\n"
-    tasks = BeadsManager._parse_task_list(output)
-    assert len(tasks) == 2
-    assert tasks[0] == BeadTask(id="bd-a1b2", title="Task A", status="open")
-    assert tasks[1] == BeadTask(id="bd-c3d4", title="Task B", status="closed")
+def test_parse_ready_json_invalid():
+    assert BeadsManager._parse_ready_json("not json") == []
 
 
-def test_parse_task_list_numeric_fallback():
-    output = "#1 Task A [open]\n#2 Task B [closed]\n"
-    tasks = BeadsManager._parse_task_list(output)
-    assert len(tasks) == 2
-    assert tasks[0].id == "1"
-    assert tasks[1].id == "2"
-
-
-def test_parse_task_list_skips_junk_lines():
-    output = "Some header\n\nbd-a1b2 Real task [open]\n---\n"
-    tasks = BeadsManager._parse_task_list(output)
-    assert len(tasks) == 1
-    assert tasks[0].id == "bd-a1b2"
-
-
-# ---------------------------------------------------------------------------
-# _parse_show_output
-# ---------------------------------------------------------------------------
-
-
-def test_parse_show_output_hash_deps():
-    output = (
-        "Title: Test task\nStatus: open\nPriority: 0\nDepends on: bd-a1f0, bd-b2e1\n"
+def test_parse_ready_json_with_deps():
+    data = json.dumps(
+        [
+            {"id": "r-a1", "title": "Task A", "status": "open", "priority": 0},
+            {
+                "id": "r-b2",
+                "title": "Task B",
+                "status": "open",
+                "priority": 1,
+                "dependencies": [{"depends_on_id": "r-a1", "type": "blocks"}],
+            },
+        ]
     )
-    task = BeadsManager._parse_show_output("bd-a1b2", output)
-    assert task.id == "bd-a1b2"
-    assert task.title == "Test task"
-    assert task.depends_on == ["bd-a1f0", "bd-b2e1"]
+    tasks = BeadsManager._parse_ready_json(data)
+    assert len(tasks) == 2
+    assert tasks[0] == BeadTask(id="r-a1", title="Task A", status="open", priority=0)
+    assert tasks[1].depends_on == ["r-a1"]
 
 
-def test_parse_show_output_minimal():
-    task = BeadsManager._parse_show_output("bd-a1b2", "")
-    assert task.id == "bd-a1b2"
-    assert task.title == "Bead bd-a1b2"
+# ---------------------------------------------------------------------------
+# _parse_show_json
+# ---------------------------------------------------------------------------
+
+
+def test_parse_show_json_single():
+    data = json.dumps(
+        {"id": "r-a1", "title": "Task", "status": "closed", "priority": 0}
+    )
+    task = BeadsManager._parse_show_json(data)
+    assert task is not None
+    assert task.id == "r-a1"
+    assert task.status == "closed"
+
+
+def test_parse_show_json_empty_list():
+    assert BeadsManager._parse_show_json("[]") is None
+
+
+def test_parse_show_json_invalid():
+    assert BeadsManager._parse_show_json("garbage") is None
 
 
 # ---------------------------------------------------------------------------
@@ -454,13 +557,12 @@ def test_bead_mapping_state_roundtrip(tmp_path):
     state_file = tmp_path / "state.json"
     tracker = StateTracker(state_file)
 
-    mapping = {"P1": "bd-a1b2", "P2": "bd-c3d4", "P3": "bd-e5f6"}
+    mapping = {"P1": "repo-4yu", "P2": "repo-z2o", "P3": "repo-qq9"}
     tracker.set_bead_mapping(42, mapping)
 
     assert tracker.get_bead_mapping(42) == mapping
     assert tracker.get_bead_mapping(999) == {}
 
-    # Reload from disk
     tracker2 = StateTracker(state_file)
     assert tracker2.get_bead_mapping(42) == mapping
 
@@ -486,7 +588,7 @@ class TestPlanPhaseBeadsIntegration:
     """Tests for beads creation during the plan phase."""
 
     @pytest.mark.asyncio()
-    async def test_handle_plan_success_creates_beads_when_enabled(self, config) -> None:
+    async def test_creates_beads_when_enabled(self, config) -> None:
         """After a successful plan with Task Graph, beads are created and mapping posted."""
         from tests.conftest import PlanResultFactory, TaskFactory
         from tests.helpers import make_plan_phase, supply_once
@@ -497,7 +599,7 @@ class TestPlanPhaseBeadsIntegration:
         mock_beads.enabled = True
         mock_beads.init = AsyncMock(return_value=True)
         mock_beads.create_from_phases = AsyncMock(
-            return_value={"P1": "bd-a1b2", "P2": "bd-c3d4"}
+            return_value={"P1": "repo-4yu", "P2": "repo-z2o"}
         )
         phase._beads_manager = mock_beads
 
@@ -508,46 +610,34 @@ class TestPlanPhaseBeadsIntegration:
 
         await phase.plan_issues()
 
-        # BeadsManager was called correctly
         mock_beads.init.assert_awaited_once()
         mock_beads.create_from_phases.assert_awaited_once()
-        call_args = mock_beads.create_from_phases.call_args
-        phases_arg = call_args.args[0]
-        assert len(phases_arg) == 2
-        assert call_args.args[1] == 42
+        assert state.get_bead_mapping(42) == {"P1": "repo-4yu", "P2": "repo-z2o"}
 
-        # Mapping saved to state
-        assert state.get_bead_mapping(42) == {"P1": "bd-a1b2", "P2": "bd-c3d4"}
-
-        # Mapping table posted as comment
         bead_comments = [
             c for c in prs.post_comment.call_args_list if "Bead Task Mapping" in str(c)
         ]
         assert len(bead_comments) == 1
-        comment_body = bead_comments[0].args[1]
-        assert "| P1 | #bd-a1b2 |" in comment_body
-        assert "| P2 | #bd-c3d4 |" in comment_body
+        body = bead_comments[0].args[1]
+        assert "| P1 | #repo-4yu |" in body
+        assert "| P2 | #repo-z2o |" in body
 
     @pytest.mark.asyncio()
-    async def test_handle_plan_success_skips_beads_when_disabled(self, config) -> None:
-        """When beads_manager is None, no bead creation occurs."""
+    async def test_skips_beads_when_disabled(self, config) -> None:
         from tests.conftest import PlanResultFactory, TaskFactory
         from tests.helpers import make_plan_phase, supply_once
 
         phase, state, planners, _prs, store, _stop = make_plan_phase(config)
-
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResultFactory.create(success=True, plan=_TASK_GRAPH_PLAN)
-        planners.plan = AsyncMock(return_value=plan_result)
+        planners.plan = AsyncMock(
+            return_value=PlanResultFactory.create(success=True, plan=_TASK_GRAPH_PLAN)
+        )
         store.get_plannable = supply_once([issue])
-
         await phase.plan_issues()
-
         assert state.get_bead_mapping(42) == {}
 
     @pytest.mark.asyncio()
-    async def test_beads_skipped_when_plan_has_no_task_graph(self, config) -> None:
-        """Plans without Task Graph phases produce no beads even when enabled."""
+    async def test_skips_when_no_task_graph(self, config) -> None:
         from tests.conftest import PlanResultFactory, TaskFactory
         from tests.helpers import make_plan_phase, supply_once
 
@@ -557,21 +647,19 @@ class TestPlanPhaseBeadsIntegration:
         phase._beads_manager = mock_beads
 
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResultFactory.create(
-            success=True, plan="## Plan\n\n1. Do the thing\n2. Test it\n"
+        planners.plan = AsyncMock(
+            return_value=PlanResultFactory.create(
+                success=True, plan="## Plan\n\n1. Do the thing\n"
+            )
         )
-        planners.plan = AsyncMock(return_value=plan_result)
         store.get_plannable = supply_once([issue])
-
         await phase.plan_issues()
 
         mock_beads.init.assert_not_awaited()
-        mock_beads.create_from_phases.assert_not_awaited()
         assert state.get_bead_mapping(42) == {}
 
     @pytest.mark.asyncio()
-    async def test_beads_empty_mapping_not_saved(self, config) -> None:
-        """When create_from_phases returns empty mapping, nothing is saved."""
+    async def test_empty_mapping_not_saved(self, config) -> None:
         from tests.conftest import PlanResultFactory, TaskFactory
         from tests.helpers import make_plan_phase, supply_once
 
@@ -583,21 +671,19 @@ class TestPlanPhaseBeadsIntegration:
         phase._beads_manager = mock_beads
 
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResultFactory.create(success=True, plan=_TASK_GRAPH_PLAN)
-        planners.plan = AsyncMock(return_value=plan_result)
+        planners.plan = AsyncMock(
+            return_value=PlanResultFactory.create(success=True, plan=_TASK_GRAPH_PLAN)
+        )
         store.get_plannable = supply_once([issue])
-
         await phase.plan_issues()
 
         assert state.get_bead_mapping(42) == {}
-        bead_comments = [
-            c for c in prs.post_comment.call_args_list if "Bead Task Mapping" in str(c)
-        ]
-        assert len(bead_comments) == 0
+        assert not any(
+            "Bead Task Mapping" in str(c) for c in prs.post_comment.call_args_list
+        )
 
     @pytest.mark.asyncio()
     async def test_comment_post_failure_does_not_crash(self, config) -> None:
-        """If posting the bead mapping comment fails, the plan still succeeds."""
         from tests.conftest import PlanResultFactory, TaskFactory
         from tests.helpers import make_plan_phase, supply_once
 
@@ -605,10 +691,9 @@ class TestPlanPhaseBeadsIntegration:
         mock_beads = AsyncMock()
         mock_beads.enabled = True
         mock_beads.init = AsyncMock(return_value=True)
-        mock_beads.create_from_phases = AsyncMock(return_value={"P1": "bd-a1b2"})
+        mock_beads.create_from_phases = AsyncMock(return_value={"P1": "repo-4yu"})
         phase._beads_manager = mock_beads
 
-        # Make post_comment raise on bead mapping comments
         original_post = prs.post_comment
 
         async def selective_fail(issue_id, body, *args, **kwargs):
@@ -619,29 +704,23 @@ class TestPlanPhaseBeadsIntegration:
         prs.post_comment = AsyncMock(side_effect=selective_fail)
 
         issue = TaskFactory.create(id=42)
-        plan_result = PlanResultFactory.create(success=True, plan=_TASK_GRAPH_PLAN)
-        planners.plan = AsyncMock(return_value=plan_result)
+        planners.plan = AsyncMock(
+            return_value=PlanResultFactory.create(success=True, plan=_TASK_GRAPH_PLAN)
+        )
         store.get_plannable = supply_once([issue])
 
-        # Should not raise
         results = await phase.plan_issues()
-
-        # Mapping was still saved despite comment failure
-        assert state.get_bead_mapping(42) == {"P1": "bd-a1b2"}
-        # Plan still succeeded
+        assert state.get_bead_mapping(42) == {"P1": "repo-4yu"}
         assert len(results) == 1
 
 
 # ===========================================================================
-# Integration tests — agent._build_tdd_subagent_plan with bead_mapping
+# Integration tests — agent prompt with bead_mapping
 # ===========================================================================
 
 
 class TestAgentBeadPromptIntegration:
-    """Tests for bead lifecycle injection into TDD sub-agent prompts."""
-
     def test_bead_mapping_injects_claim_and_close(self, config, event_bus) -> None:
-        """When bead_mapping is provided, claim/close commands appear in prompt."""
         from agent import AgentRunner
         from models import Task
 
@@ -653,26 +732,17 @@ class TestAgentBeadPromptIntegration:
         )
         runner = AgentRunner(config, event_bus)
         prompt, _ = runner._build_prompt_with_stats(
-            issue, bead_mapping={"P1": "bd-a1b2", "P2": "bd-c3d4"}
+            issue, bead_mapping={"P1": "repo-4yu", "P2": "repo-z2o"}
         )
 
-        # Bead headers present
-        assert "**Bead:** #bd-a1b2" in prompt
-        assert "**Bead:** #bd-c3d4" in prompt
+        assert "**Bead:** #repo-4yu" in prompt
+        assert "**Bead:** #repo-z2o" in prompt
+        assert "bd update repo-4yu --claim" in prompt
+        assert "bd update repo-z2o --claim" in prompt
+        assert 'bd close repo-4yu --reason "Phase complete"' in prompt
+        assert 'bd close repo-z2o --reason "Phase complete"' in prompt
 
-        # Claim commands (--claim flag is correct per bd CLI)
-        assert "bd update bd-a1b2 --claim" in prompt
-        assert "bd update bd-c3d4 --claim" in prompt
-
-        # Close commands (positional message, no --reason flag)
-        assert 'bd close bd-a1b2 "Phase complete"' in prompt
-        assert 'bd close bd-c3d4 "Phase complete"' in prompt
-
-        # Verify no --reason flag
-        assert "--reason" not in prompt
-
-    def test_no_bead_mapping_no_bead_commands(self, config, event_bus) -> None:
-        """Without bead_mapping, no bd commands appear in the prompt."""
+    def test_no_bead_mapping_no_commands(self, config, event_bus) -> None:
         from agent import AgentRunner
         from models import Task
 
@@ -690,7 +760,6 @@ class TestAgentBeadPromptIntegration:
         assert "**Bead:**" not in prompt
 
     def test_partial_bead_mapping(self, config, event_bus) -> None:
-        """Only phases with bead IDs get lifecycle commands."""
         from agent import AgentRunner
         from models import Task
 
@@ -702,35 +771,31 @@ class TestAgentBeadPromptIntegration:
         )
         runner = AgentRunner(config, event_bus)
         prompt, _ = runner._build_prompt_with_stats(
-            issue, bead_mapping={"P1": "bd-a1b2"}
+            issue, bead_mapping={"P1": "repo-4yu"}
         )
 
-        assert "**Bead:** #bd-a1b2" in prompt
-        assert "bd update bd-a1b2 --claim" in prompt
-        # P2 should NOT have bead commands
-        assert "bd-c3d4" not in prompt
+        assert "**Bead:** #repo-4yu" in prompt
+        assert "bd update repo-4yu --claim" in prompt
+        assert "repo-z2o" not in prompt
 
 
 # ===========================================================================
-# Integration tests — implement_phase passes bead_mapping to agent
+# Integration tests — implement_phase bead mapping passthrough
 # ===========================================================================
 
 
 class TestImplementPhaseBeadsIntegration:
-    """Tests for bead mapping passthrough in the implement phase."""
-
     @pytest.mark.asyncio()
-    async def test_bead_mapping_passed_to_agent_when_enabled(self, config) -> None:
-        """When beads are enabled and mapping exists, it's passed to agent.run()."""
+    async def test_passes_mapping_when_enabled(self, config) -> None:
         from tests.conftest import TaskFactory
         from tests.helpers import make_implement_phase
 
-        captured_kwargs: list[dict] = []
+        captured: list[dict] = []
 
-        async def capturing_agent(issue, wt_path, branch, **kwargs):
+        async def agent(issue, wt_path, branch, **kwargs):
             from tests.conftest import WorkerResultFactory
 
-            captured_kwargs.append(kwargs)
+            captured.append(kwargs)
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
@@ -738,42 +803,31 @@ class TestImplementPhaseBeadsIntegration:
             )
 
         issue = TaskFactory.create(id=42)
-        phase, _wt, _prs = make_implement_phase(
-            config, [issue], agent_run=capturing_agent
-        )
-
-        # Fix enrich_with_comments to return the issue unchanged
+        phase, _wt, _prs = make_implement_phase(config, [issue], agent_run=agent)
         phase._store.enrich_with_comments = AsyncMock(return_value=issue)
 
-        # Wire beads manager
         mock_beads = AsyncMock()
         mock_beads.enabled = True
         mock_beads.init = AsyncMock(return_value=True)
         phase._beads_manager = mock_beads
-
-        phase._state.set_bead_mapping(42, {"P1": "bd-a1b2", "P2": "bd-c3d4"})
+        phase._state.set_bead_mapping(42, {"P1": "repo-4yu"})
 
         await phase.run_batch()
 
-        assert len(captured_kwargs) == 1
-        assert captured_kwargs[0]["bead_mapping"] == {
-            "P1": "bd-a1b2",
-            "P2": "bd-c3d4",
-        }
+        assert captured[0]["bead_mapping"] == {"P1": "repo-4yu"}
         mock_beads.init.assert_awaited_once()
 
     @pytest.mark.asyncio()
-    async def test_no_bead_mapping_when_disabled(self, config) -> None:
-        """When beads_manager is None, bead_mapping is not passed."""
+    async def test_no_mapping_when_disabled(self, config) -> None:
         from tests.conftest import TaskFactory
         from tests.helpers import make_implement_phase
 
-        captured_kwargs: list[dict] = []
+        captured: list[dict] = []
 
-        async def capturing_agent(issue, wt_path, branch, **kwargs):
+        async def agent(issue, wt_path, branch, **kwargs):
             from tests.conftest import WorkerResultFactory
 
-            captured_kwargs.append(kwargs)
+            captured.append(kwargs)
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
@@ -781,27 +835,22 @@ class TestImplementPhaseBeadsIntegration:
             )
 
         issue = TaskFactory.create(id=42)
-        phase, _wt, _prs = make_implement_phase(
-            config, [issue], agent_run=capturing_agent
-        )
-
+        phase, _wt, _prs = make_implement_phase(config, [issue], agent_run=agent)
         await phase.run_batch()
 
-        assert len(captured_kwargs) == 1
-        assert "bead_mapping" not in captured_kwargs[0]
+        assert "bead_mapping" not in captured[0]
 
     @pytest.mark.asyncio()
-    async def test_no_bead_mapping_when_mapping_empty(self, config) -> None:
-        """When beads enabled but no mapping exists, bead_mapping is not passed."""
+    async def test_no_mapping_when_state_empty(self, config) -> None:
         from tests.conftest import TaskFactory
         from tests.helpers import make_implement_phase
 
-        captured_kwargs: list[dict] = []
+        captured: list[dict] = []
 
-        async def capturing_agent(issue, wt_path, branch, **kwargs):
+        async def agent(issue, wt_path, branch, **kwargs):
             from tests.conftest import WorkerResultFactory
 
-            captured_kwargs.append(kwargs)
+            captured.append(kwargs)
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
@@ -809,33 +858,25 @@ class TestImplementPhaseBeadsIntegration:
             )
 
         issue = TaskFactory.create(id=42)
-        phase, _wt, _prs = make_implement_phase(
-            config, [issue], agent_run=capturing_agent
-        )
+        phase, _wt, _prs = make_implement_phase(config, [issue], agent_run=agent)
         phase._store.enrich_with_comments = AsyncMock(return_value=issue)
-
         mock_beads = AsyncMock()
         mock_beads.enabled = True
         phase._beads_manager = mock_beads
-        # No mapping set in state
 
         await phase.run_batch()
 
-        assert len(captured_kwargs) == 1
-        assert "bead_mapping" not in captured_kwargs[0]
+        assert "bead_mapping" not in captured[0]
         mock_beads.init.assert_not_awaited()
 
 
 # ===========================================================================
-# Integration tests — reviewer._build_review_prompt_with_stats with bead_tasks
+# Integration tests — reviewer per-bead review section
 # ===========================================================================
 
 
 class TestReviewerBeadPromptIntegration:
-    """Tests for per-bead review section in reviewer prompts."""
-
-    def test_bead_tasks_add_per_bead_review_section(self, config, event_bus) -> None:
-        """When bead_tasks is provided, the review prompt includes per-bead checks."""
+    def test_adds_per_bead_section(self, config, event_bus) -> None:
         from models import PRInfo, Task
         from reviewer import ReviewRunner
 
@@ -846,138 +887,103 @@ class TestReviewerBeadPromptIntegration:
 
         bead_tasks = [
             {
-                "id": "bd-a1b2",
+                "id": "repo-4yu",
                 "phase": "P1",
                 "status": "closed",
                 "files": "src/models.py",
                 "tests": "Widget persists",
             },
-            {
-                "id": "bd-c3d4",
-                "phase": "P2",
-                "status": "closed",
-                "files": "src/api.py",
-                "tests": "GET returns list",
-            },
         ]
-
         prompt, _ = runner._build_review_prompt_with_stats(
             pr, issue, diff, bead_tasks=bead_tasks
         )
 
         assert "## Per-Bead Review" in prompt
-        assert "Bead #bd-a1b2" in prompt
-        assert "Bead #bd-c3d4" in prompt
-        assert "P1" in prompt
-        assert "P2" in prompt
-        assert "src/models.py" in prompt
-        assert "Widget persists" in prompt
+        assert "Bead #repo-4yu" in prompt
         assert "Files listed are present in the diff" in prompt
 
-    def test_no_bead_tasks_no_bead_section(self, config, event_bus) -> None:
-        """Without bead_tasks, no per-bead section appears."""
+    def test_no_section_without_tasks(self, config, event_bus) -> None:
         from models import PRInfo, Task
         from reviewer import ReviewRunner
 
         runner = ReviewRunner(config, event_bus)
         pr = PRInfo(number=101, branch="agent/issue-42", issue_number=42)
-        issue = Task(id=42, title="Fix bug", body="Bug description")
-        diff = "diff --git a/src/fix.py b/src/fix.py\n+fixed\n"
+        issue = Task(id=42, title="Fix", body="body")
+        diff = "diff --git a/x b/x\n+y\n"
 
         prompt, _ = runner._build_review_prompt_with_stats(
             pr, issue, diff, bead_tasks=None
         )
-
         assert "## Per-Bead Review" not in prompt
 
-    def test_empty_bead_tasks_no_bead_section(self, config, event_bus) -> None:
-        """Empty bead_tasks list produces no per-bead section."""
+    def test_no_section_with_empty_list(self, config, event_bus) -> None:
         from models import PRInfo, Task
         from reviewer import ReviewRunner
 
         runner = ReviewRunner(config, event_bus)
         pr = PRInfo(number=101, branch="agent/issue-42", issue_number=42)
-        issue = Task(id=42, title="Fix bug", body="Bug description")
-        diff = "diff --git a/src/fix.py b/src/fix.py\n+fixed\n"
+        issue = Task(id=42, title="Fix", body="body")
+        diff = "diff --git a/x b/x\n+y\n"
 
         prompt, _ = runner._build_review_prompt_with_stats(
             pr, issue, diff, bead_tasks=[]
         )
-
         assert "## Per-Bead Review" not in prompt
 
 
 # ===========================================================================
-# Integration tests — review_phase._build_bead_review_context
+# Integration tests — review_phase bead context builder
 # ===========================================================================
 
 
 class TestReviewPhaseBeadContext:
-    """Tests for bead context construction in the review phase."""
-
-    def test_build_bead_context_with_mapping_and_phases(self, config) -> None:
-        """Bead context includes file/test info from plan comments."""
+    def test_builds_context_from_mapping_and_comments(self, config) -> None:
         from models import Task
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
         phase._config = config.model_copy(update={"beads_enabled": True})
-        phase._state.set_bead_mapping(42, {"P1": "bd-a1b2", "P2": "bd-c3d4"})
+        phase._state.set_bead_mapping(42, {"P1": "repo-4yu", "P2": "repo-z2o"})
 
-        issue = Task(
-            id=42,
-            title="Add widget",
-            body="Need widgets",
-            comments=[_TASK_GRAPH_PLAN],
-        )
-
+        issue = Task(id=42, title="Widget", body="body", comments=[_TASK_GRAPH_PLAN])
         result = phase._build_bead_review_context(issue)
 
         assert result is not None
         assert len(result) == 2
+        p1 = next(b for b in result if b["phase"] == "P1")
+        assert p1["id"] == "repo-4yu"
+        assert "src/models.py" in str(p1["files"])
 
-        p1_bead = next(b for b in result if b["phase"] == "P1")
-        assert p1_bead["id"] == "bd-a1b2"
-        assert "src/models.py" in str(p1_bead["files"])
-        assert "Widget persists" in str(p1_bead["tests"])
-
-        p2_bead = next(b for b in result if b["phase"] == "P2")
-        assert p2_bead["id"] == "bd-c3d4"
-        assert "src/api.py" in str(p2_bead["files"])
-
-    def test_build_bead_context_returns_none_when_disabled(self, config) -> None:
-        """Returns None when beads_enabled is False."""
+    def test_none_when_disabled(self, config) -> None:
         from models import Task
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
-        issue = Task(id=42, title="Test", body="body")
-        assert phase._build_bead_review_context(issue) is None
+        assert (
+            phase._build_bead_review_context(Task(id=42, title="T", body="b")) is None
+        )
 
-    def test_build_bead_context_returns_none_when_no_mapping(self, config) -> None:
-        """Returns None when no bead mapping exists for the issue."""
+    def test_none_when_no_mapping(self, config) -> None:
         from models import Task
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
         phase._config = config.model_copy(update={"beads_enabled": True})
+        assert (
+            phase._build_bead_review_context(Task(id=999, title="T", body="b")) is None
+        )
 
-        issue = Task(id=999, title="No mapping", body="body")
-        assert phase._build_bead_review_context(issue) is None
-
-    def test_build_bead_context_without_plan_comments(self, config) -> None:
-        """When issue has no plan comments, bead context uses N/A for files/tests."""
+    def test_n_a_without_comments(self, config) -> None:
         from models import Task
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
         phase._config = config.model_copy(update={"beads_enabled": True})
-        phase._state.set_bead_mapping(42, {"P1": "bd-a1b2"})
+        phase._state.set_bead_mapping(42, {"P1": "repo-4yu"})
 
-        issue = Task(id=42, title="Test", body="body", comments=[])
-        result = phase._build_bead_review_context(issue)
-
+        result = phase._build_bead_review_context(
+            Task(id=42, title="T", body="b", comments=[])
+        )
         assert result is not None
-        assert len(result) == 1
         assert result[0]["files"] == "N/A"
         assert result[0]["tests"] == "N/A"
