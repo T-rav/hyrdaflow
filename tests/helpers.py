@@ -1389,3 +1389,10 @@ def make_review_phase(
         wt.mkdir(parents=True, exist_ok=True)
 
     return phase
+
+
+def make_tracker(tmp_path: Path, *, filename: str = "state.json"):
+    """Return a StateTracker backed by a temp file."""
+    from state import StateTracker
+
+    return StateTracker(tmp_path / filename)
