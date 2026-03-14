@@ -1601,6 +1601,21 @@ class TestFormatCodeScanningAlerts:
         )
         assert "gh api repos/org/repo/code-scanning/alerts" in result
 
+    def test_truncation_without_repo_uses_empty_interpolation(self):
+        alerts = [
+            CodeScanningAlert(
+                severity="error",
+                path=f"src/file{i}.py",
+                start_line=i,
+                rule=f"rule-{i}",
+                message="x" * 50,
+            )
+            for i in range(100)
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(alerts, 200)
+        assert "truncated" in result
+        assert "gh api repos/" in result
+
     def test_no_truncation_within_limit(self):
         alerts = [
             CodeScanningAlert(

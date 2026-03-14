@@ -90,9 +90,7 @@ class ReviewRunner(BaseRunner):
         truncated = formatted[:max_chars]
         shown = truncated.count("\n") + 1
         total = len(alerts)
-        gh_cmd = "gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
-        if repo:
-            gh_cmd = f"gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
+        gh_cmd = f"gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
         note = (
             f"\n\n[Showing {shown} of {total} alerts — truncated at {max_chars:,} chars. "
             f"Run `{gh_cmd}` for the full set.]"

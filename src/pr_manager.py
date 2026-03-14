@@ -1151,7 +1151,7 @@ class PRManager:
             )
             raw = json.loads(stdout) if stdout.strip() else []
             return [CodeScanningAlert.model_validate(a) for a in raw]
-        except (RuntimeError, json.JSONDecodeError):
+        except (RuntimeError, json.JSONDecodeError, ValueError):
             logger.debug(
                 "Could not fetch code scanning alerts for branch %s",
                 branch,
