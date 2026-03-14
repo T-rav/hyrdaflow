@@ -419,6 +419,65 @@ class TestWorkerStateMixin:
         t.remove_bg_worker_state("loop_a")
         assert "loop_a" not in t.get_bg_worker_states()
 
+    def test_maybe_migrate_worker_states_populates_heartbeats(
+        self, tmp_path: Path
+    ) -> None:
+        """Legacy bg_worker_states (no worker_heartbeats) must be migrated on load."""
+        import json  # noqa: PLC0415
+
+        state_file = tmp_path / "state" / "state.json"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        legacy_state = {
+            "bg_worker_states": {
+                "triage_loop": {
+                    "name": "triage_loop",
+                    "status": "running",
+                    "last_run": "2025-01-01T00:00:00Z",
+                    "details": {},
+                }
+            },
+            "worker_heartbeats": {},
+        }
+        state_file.write_text(json.dumps(legacy_state))
+
+        t = StateTracker(state_file)
+
+        heartbeats = t.get_worker_heartbeats()
+        assert "triage_loop" in heartbeats
+        assert heartbeats["triage_loop"]["status"] == "running"
+        assert heartbeats["triage_loop"]["last_run"] == "2025-01-01T00:00:00Z"
+
+    def test_no_migration_when_heartbeats_already_present(self, tmp_path: Path) -> None:
+        """If worker_heartbeats already has entries, migration must not run."""
+        import json  # noqa: PLC0415
+
+        state_file = tmp_path / "state" / "state.json"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_with_both = {
+            "bg_worker_states": {
+                "old_loop": {
+                    "name": "old_loop",
+                    "status": "disabled",
+                    "last_run": None,
+                    "details": {},
+                }
+            },
+            "worker_heartbeats": {
+                "new_loop": {
+                    "status": "running",
+                    "last_run": "2025-06-01T00:00:00Z",
+                    "details": {},
+                }
+            },
+        }
+        state_file.write_text(json.dumps(state_with_both))
+
+        t = StateTracker(state_file)
+
+        heartbeats = t.get_worker_heartbeats()
+        assert "new_loop" in heartbeats
+        assert "old_loop" not in heartbeats
+
 
 class TestReportStateMixin:
     def test_pending_report_lifecycle(self, tmp_path: Path) -> None:
