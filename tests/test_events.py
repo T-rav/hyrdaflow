@@ -1140,3 +1140,20 @@ class TestRotateSyncOSError:
             event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
 
         assert "Could not read event log for rotation" in caplog.text
+
+    def test_rotate_sync_logs_warning_on_atomic_write_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_rotate_sync should log a warning and not raise if atomic_write raises OSError."""
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
+        log_path.write_text((event.model_dump_json() + "\n") * 10)
+
+        event_log = EventLog(log_path)
+        with (
+            patch("events.atomic_write", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Could not write rotated event log" in caplog.text
