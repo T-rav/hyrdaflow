@@ -13,10 +13,7 @@ from events import EventBus
 from models import JudgeResult, PRInfo, Task
 from planner import PlannerRunner
 from tests.helpers import ConfigFactory
-from verification import (
-    _DEFAULT_MAX_INSTRUCTIONS_CHARS,
-    format_verification_issue_body,
-)
+from verification import format_verification_issue_body
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -59,6 +56,7 @@ class TestPromptBudgetConfigDefaults:
         ("max_hitl_correction_chars", 4_000),
         ("max_hitl_cause_chars", 2_000),
         ("max_ci_log_prompt_chars", 6_000),
+        ("max_failed_plan_chars", 4_000),
         ("max_unsticker_cause_chars", 3_000),
         ("max_verification_instructions_chars", 50_000),
     ]
@@ -114,6 +112,34 @@ class TestAgentRunnerPromptBudgets:
         assert runner._truncate_comment_for_prompt("") == ""
         assert runner._truncate_comment_for_prompt(None) == ""
 
+    def test_build_prompt_respects_max_impl_plan_chars(
+        self, event_bus: EventBus
+    ) -> None:
+        """_build_prompt_with_stats should truncate the plan using max_impl_plan_chars."""
+        cfg = ConfigFactory.create(max_impl_plan_chars=1_000)
+        runner = AgentRunner(cfg, event_bus)
+        long_plan = "- step one\n" * 500  # Well over 1000 chars
+        task = _make_task(comments=[f"## Implementation Plan\n{long_plan}"])
+        prompt, stats = runner._build_prompt_with_stats(task)
+        # The plan should be summarized, not the full text
+        assert long_plan not in prompt
+        assert "Implementation Plan" in prompt
+
+    def test_build_prompt_respects_max_review_feedback_chars(
+        self, event_bus: EventBus
+    ) -> None:
+        """_build_prompt_with_stats should truncate review feedback using config."""
+        cfg = ConfigFactory.create(max_review_feedback_chars=500)
+        runner = AgentRunner(cfg, event_bus)
+        long_feedback = "- fix this issue\n" * 200  # Well over 500 chars
+        task = _make_task()
+        prompt, stats = runner._build_prompt_with_stats(
+            task, review_feedback=long_feedback
+        )
+        assert "Review Feedback" in prompt
+        assert long_feedback not in prompt
+        assert "summarized" in prompt.lower()
+
     def test_no_class_level_constants(self) -> None:
         """Class should no longer have the old hardcoded constants."""
         for attr in (
@@ -157,6 +183,23 @@ class TestPlannerRunnerPromptBudgets:
         runner = PlannerRunner(cfg, event_bus)
         assert runner._max_comment_chars == 321
 
+    def test_retry_prompt_respects_max_failed_plan_chars(
+        self, event_bus: EventBus
+    ) -> None:
+        """_build_retry_prompt should truncate the failed plan using config."""
+        cfg = ConfigFactory.create(
+            max_failed_plan_chars=500, max_planner_line_chars=500
+        )
+        runner = PlannerRunner(cfg, event_bus)
+        long_plan = "a" * 2000
+        task = _make_task()
+        prompt, metadata = runner._build_retry_prompt(
+            task, long_plan, ["Error: missing section"]
+        )
+        # The full 2000-char plan should be truncated
+        assert "a" * 2000 not in prompt
+        assert "failed validation" in prompt.lower()
+
     def test_no_class_level_constants(self) -> None:
         for attr in ("_MAX_COMMENT_CHARS", "_MAX_LINE_CHARS"):
             assert not hasattr(PlannerRunner, attr), f"{attr} should be removed"
@@ -169,9 +212,6 @@ class TestPlannerRunnerPromptBudgets:
 
 class TestVerificationPromptBudget:
     """format_verification_issue_body should respect max_instructions_chars."""
-
-    def test_default_constant_unchanged(self) -> None:
-        assert _DEFAULT_MAX_INSTRUCTIONS_CHARS == 50_000
 
     def test_truncation_with_custom_limit(self) -> None:
         judge = JudgeResult(

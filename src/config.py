@@ -95,6 +95,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_hitl_correction_chars", "HYDRAFLOW_MAX_HITL_CORRECTION_CHARS", 4_000),
     ("max_hitl_cause_chars", "HYDRAFLOW_MAX_HITL_CAUSE_CHARS", 2_000),
     ("max_ci_log_prompt_chars", "HYDRAFLOW_MAX_CI_LOG_PROMPT_CHARS", 6_000),
+    ("max_failed_plan_chars", "HYDRAFLOW_MAX_FAILED_PLAN_CHARS", 4_000),
     ("max_unsticker_cause_chars", "HYDRAFLOW_MAX_UNSTICKER_CAUSE_CHARS", 3_000),
     (
         "max_verification_instructions_chars",
@@ -830,6 +831,12 @@ class HydraFlowConfig(BaseModel):
         ge=1_000,
         le=50_000,
         description="Max characters for CI log output in reviewer fix prompts",
+    )
+    max_failed_plan_chars: int = Field(
+        default=4_000,
+        ge=500,
+        le=20_000,
+        description="Max characters for failed plan text in planner retry prompts",
     )
     max_unsticker_cause_chars: int = Field(
         default=3_000,

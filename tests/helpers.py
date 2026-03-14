@@ -373,6 +373,7 @@ class ConfigFactory:
         max_hitl_correction_chars: int = 4_000,
         max_hitl_cause_chars: int = 2_000,
         max_ci_log_prompt_chars: int = 6_000,
+        max_failed_plan_chars: int = 4_000,
         max_unsticker_cause_chars: int = 3_000,
         max_verification_instructions_chars: int = 50_000,
     ):
@@ -612,6 +613,7 @@ class ConfigFactory:
                 max_hitl_correction_chars=max_hitl_correction_chars,
                 max_hitl_cause_chars=max_hitl_cause_chars,
                 max_ci_log_prompt_chars=max_ci_log_prompt_chars,
+                max_failed_plan_chars=max_failed_plan_chars,
                 max_unsticker_cause_chars=max_unsticker_cause_chars,
                 max_verification_instructions_chars=max_verification_instructions_chars,
             )

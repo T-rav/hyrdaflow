@@ -4,16 +4,13 @@ from __future__ import annotations
 
 from models import JudgeResult, PRInfo, Task
 
-# GitHub issue body limit is 65,536 chars; reserve space for structured sections.
-_DEFAULT_MAX_INSTRUCTIONS_CHARS = 50_000
-
 
 def format_verification_issue_body(
     judge_result: JudgeResult,
     issue: Task,
     pr: PRInfo,
     *,
-    max_instructions_chars: int = _DEFAULT_MAX_INSTRUCTIONS_CHARS,
+    max_instructions_chars: int = 50_000,
 ) -> str:
     """Build a markdown body for the verification issue.
 
