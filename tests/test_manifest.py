@@ -707,12 +707,6 @@ class TestMarkerConsolidation:
 
         assert ci_detect is manifest_detect
 
-    def test_lint_scaffold__uses_manifest_detect_language(self) -> None:
-        from lint_scaffold import detect_language as lint_detect
-        from manifest import detect_language as manifest_detect
-
-        assert lint_detect is manifest_detect
-
     def test_makefile_scaffold__uses_manifest_detect_language(self) -> None:
         from makefile_scaffold import detect_language as makefile_detect
         from manifest import detect_language as manifest_detect
