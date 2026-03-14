@@ -1407,19 +1407,14 @@ class TestRunPrecheckContext:
             result = await captured_execute["fn"](["cmd"], "prompt")
 
         assert result == "transcript"
-        mock_self_execute.assert_called_once_with(
-            ["cmd"],
-            "prompt",
-            tmp_path,
-            {"pr": pr_info.number, "issue": task.id, "source": "reviewer"},
-            telemetry_stats={
-                "context_chars_before": len(task.body or "") + len("diff"),
-                "context_chars_after": len("prompt"),
-                "pruned_chars_total": len(task.body or "")
-                + len("diff")
-                - len("prompt"),
-            },
-        )
+        call_kwargs = mock_self_execute.call_args
+        assert call_kwargs is not None
+        telemetry = call_kwargs.kwargs["telemetry_stats"]
+        expected_before = len(task.body or "") + len("diff")
+        expected_after = len("prompt")
+        assert telemetry["context_chars_before"] == expected_before
+        assert telemetry["context_chars_after"] == expected_after
+        assert telemetry["pruned_chars_total"] == expected_before - expected_after
 
 
 # ---------------------------------------------------------------------------

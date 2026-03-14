@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from events import EventBus, EventType
 from subprocess_util import AuthenticationError, CreditExhaustedError
 from tests.helpers import ConfigFactory
@@ -65,17 +65,21 @@ def _make_stub(
             stop_event.set()
         await asyncio.sleep(0)
 
-    loop = _StubLoop(
-        work_fn=work_fn,
-        default_interval=default_interval,
-        worker_name="test_worker",
-        config=config,
-        bus=bus,
+    deps = LoopDeps(
+        event_bus=bus,
         stop_event=stop_event,
         status_cb=MagicMock(),
         enabled_cb=lambda _name: enabled,
         sleep_fn=instant_sleep,
         interval_cb=interval_cb,
+    )
+
+    loop = _StubLoop(
+        work_fn=work_fn,
+        default_interval=default_interval,
+        worker_name="test_worker",
+        config=config,
+        deps=deps,
         run_on_startup=run_on_startup,
     )
     return loop, stop_event
@@ -288,15 +292,18 @@ class TestBaseBackgroundLoopTrigger:
             stop_event.set()
             await asyncio.sleep(0)
 
-        loop = _StubLoop(
-            work_fn=counting_work,
-            worker_name="test_worker",
-            config=config,
-            bus=bus,
+        deps = LoopDeps(
+            event_bus=bus,
             stop_event=stop_event,
             status_cb=MagicMock(),
             enabled_cb=lambda _: False,  # always disabled
             sleep_fn=single_sleep,
+        )
+        loop = _StubLoop(
+            work_fn=counting_work,
+            worker_name="test_worker",
+            config=config,
+            deps=deps,
             run_on_startup=False,
         )
         # Trigger before run so _sleep_or_trigger returns True during disabled check
@@ -326,15 +333,18 @@ class TestBaseBackgroundLoopTrigger:
             stop_event.set()
             await asyncio.sleep(0)
 
-        loop = _StubLoop(
-            work_fn=counting_work,
-            worker_name="test_worker",
-            config=config,
-            bus=bus,
+        deps = LoopDeps(
+            event_bus=bus,
             stop_event=stop_event,
             status_cb=MagicMock(),
             enabled_cb=lambda _: False,  # always disabled
             sleep_fn=single_sleep,
+        )
+        loop = _StubLoop(
+            work_fn=counting_work,
+            worker_name="test_worker",
+            config=config,
+            deps=deps,
             run_on_startup=True,
         )
         # Trigger before run so it fires immediately in _sleep_or_trigger
@@ -384,3 +394,69 @@ class TestBaseBackgroundLoopRunOnStartup:
 
         # Initial startup execution always runs; loop body skipped when disabled
         assert call_count == 1
+
+
+class TestLoopDeps:
+    """Tests for the LoopDeps dataclass."""
+
+    def test_creates_with_required_fields(self) -> None:
+        """LoopDeps should accept the 5 required fields."""
+        bus = EventBus()
+        stop = asyncio.Event()
+
+        async def sleep_fn(_s: int | float) -> None:
+            pass
+
+        deps = LoopDeps(
+            event_bus=bus,
+            stop_event=stop,
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            sleep_fn=sleep_fn,
+        )
+
+        assert deps.event_bus is bus
+        assert deps.stop_event is stop
+        assert deps.interval_cb is None
+
+    def test_interval_cb_defaults_to_none(self) -> None:
+        """interval_cb should default to None when not provided."""
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=asyncio.Event(),
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            sleep_fn=MagicMock(),
+        )
+
+        assert deps.interval_cb is None
+
+    def test_interval_cb_can_be_set(self) -> None:
+        """interval_cb should be stored when provided."""
+
+        def cb(_name: str) -> int:
+            return 42
+
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=asyncio.Event(),
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            sleep_fn=MagicMock(),
+            interval_cb=cb,
+        )
+
+        assert deps.interval_cb is cb
+
+    def test_is_frozen(self) -> None:
+        """LoopDeps should be immutable (frozen dataclass)."""
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=asyncio.Event(),
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            sleep_fn=MagicMock(),
+        )
+
+        with pytest.raises(AttributeError):
+            deps.event_bus = EventBus()  # type: ignore[misc]

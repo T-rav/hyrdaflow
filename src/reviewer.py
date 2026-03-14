@@ -20,10 +20,10 @@ from models import (
     ReviewVerdict,
     Task,
 )
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from precheck import run_precheck_context
+from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.reviewer")
 
@@ -168,11 +168,8 @@ class ReviewRunner(BaseRunner):
             # Persist to disk
             self._save_transcript("review-pr", pr.number, transcript)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.COMMENT
             result.summary = f"Review failed: {exc}"
             logger.error("Review failed for PR #%d: %s", pr.number, exc)
@@ -262,11 +259,8 @@ class ReviewRunner(BaseRunner):
             result.summary = self._extract_summary(transcript)
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             self._save_transcript("review-pr", pr.number, transcript)
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"CI fix failed: {exc}"
             logger.error("CI fix failed for PR #%d: %s", pr.number, exc)
@@ -342,11 +336,8 @@ class ReviewRunner(BaseRunner):
             result.summary = self._extract_summary(transcript)
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             self._save_transcript("review-fix", pr.number, transcript)
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
             result.summary = f"Review fix failed: {exc}"
             logger.error("Review fix failed for PR #%d: %s", pr.number, exc)
@@ -442,19 +433,12 @@ End your response with EXACTLY one of these verdict lines:
 
 Then a brief summary on the next line starting with "SUMMARY: ".
 """
-        before = len(failure_summary) + len(raw_ci_logs)
-        after = len(failure_summary) + len(compact_ci_logs)
-        stats: dict[str, object] = {
-            "context_chars_before": before,
-            "context_chars_after": after,
-            "pruned_chars_total": max(0, before - after),
-            "section_chars": {
-                "ci_failure_summary": len(failure_summary),
-                "ci_logs_before": len(raw_ci_logs),
-                "ci_logs_after": len(compact_ci_logs),
-            },
-        }
-        return prompt, stats
+        ci_builder = PromptBuilder()
+        ci_builder.record_context(
+            "CI failure summary", failure_summary, failure_summary
+        )
+        ci_builder.record_context("CI logs", raw_ci_logs, compact_ci_logs)
+        return prompt, ci_builder.build_stats()
 
     def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the review CLI invocation.
@@ -724,22 +708,10 @@ VERDICT: APPROVE
 SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="review")}"""
-        stats = {
-            "context_chars_before": len(issue.body or "") + len(diff),
-            "context_chars_after": len(issue_body) + len(diff_context),
-            "pruned_chars_total": max(
-                0,
-                (len(issue.body or "") + len(diff))
-                - (len(issue_body) + len(diff_context)),
-            ),
-            "section_chars": {
-                "issue_body_before": len(issue.body or ""),
-                "issue_body_after": len(issue_body),
-                "diff_before": len(diff),
-                "diff_after": len(diff_context),
-            },
-        }
-        return prompt, stats
+        review_builder = PromptBuilder()
+        review_builder.record_context("Issue body", issue.body or "", issue_body)
+        review_builder.record_context("Diff", diff, diff_context)
+        return prompt, review_builder.build_stats()
 
     def _build_precheck_prompt(self, pr: PRInfo, issue: Task, diff: str) -> str:
         max_diff = min(len(diff), 3000, self._config.max_review_diff_chars)
@@ -770,19 +742,14 @@ Diff snippet:
         prompt = self._build_precheck_prompt(pr, issue, diff)
 
         async def execute(cmd: list[str], p: str) -> str:
-            telemetry_stats = {
-                "context_chars_before": len(issue.body or "") + len(diff),
-                "context_chars_after": len(p),
-                "pruned_chars_total": max(
-                    0, (len(issue.body or "") + len(diff)) - len(p)
-                ),
-            }
+            precheck_builder = PromptBuilder()
+            precheck_builder.record_context("Precheck", (issue.body or "") + diff, p)
             return await self._execute(
                 cmd,
                 p,
                 worktree_path,
                 {"pr": pr.number, "issue": issue.id, "source": "reviewer"},
-                telemetry_stats=telemetry_stats,
+                telemetry_stats=precheck_builder.build_stats(),
             )
 
         return await run_precheck_context(

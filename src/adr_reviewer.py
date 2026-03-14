@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from adr_pre_validator import ADRPreValidator, ADRValidationResult
+from agent_cli import build_lightweight_command
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
 from phase_utils import is_likely_bug
 from subprocess_util import make_clean_env, run_subprocess
@@ -409,23 +410,9 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             tool = "claude"
         model = self._config.adr_review_model
 
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = [tool, "-p", prompt, "--model", model]
-            cmd_input = None
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
 
         env = make_clean_env(self._config.gh_token)
         try:
