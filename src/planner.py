@@ -437,37 +437,10 @@ class PlannerRunner(BaseRunner):
             f"{research_context}"
         )
 
-    def _assemble_planning_prompt(
-        self,
-        issue: Task,
-        *,
-        body: str,
-        image_note: str,
-        comments_section: str,
-        research_section: str,
-        manifest_section: str,
-        memory_section: str,
-        mode_note: str,
-        schema_section: str,
-        task_graph_guidance: str,
-        pre_mortem_section: str,
-    ) -> str:
-        """Assemble the full planning prompt from pre-built sections."""
-        find_label = self._config.find_label[0]
-        return f"""You are a planning agent for GitHub issue #{issue.id}.
-
-## Issue: {issue.title}
-
-{body}{image_note}{comments_section}{research_section}{manifest_section}{memory_section}
-
-## Instructions
-
-{mode_note}You are in READ-ONLY mode. Do NOT create, modify, or delete any files.
-Do NOT run any commands that change state (no git commit, no file writes, no installs).
-
-Your job: explore code and produce a concrete implementation plan.
-
-## Exploration Strategy — USE SEMANTIC TOOLS
+    @staticmethod
+    def _build_exploration_and_steps_section() -> str:
+        """Build the exploration strategy and planning steps sections."""
+        return """## Exploration Strategy — USE SEMANTIC TOOLS
 
 Use semantic tools first (before grep):
 - `claude-context search_code` to find relevant code by intent.
@@ -489,28 +462,12 @@ Use semantic tools first (before grep):
 3. Identify concrete file-level deltas.
 4. Build a Task Graph with dependency-ordered phases (full plans only).
 5. Write behavioral test specs for each phase — describe observable outcomes, not test code.
-6. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
+6. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`)."""
 
-## Required Output
-
-Output your plan between these exact markers:
-
-PLAN_START
-<your detailed implementation plan here>
-PLAN_END
-
-Then provide a one-line summary:
-SUMMARY: <brief one-line description of the plan>
-
-{schema_section}{task_graph_guidance}{pre_mortem_section}
-
-## Handling Uncertainty
-
-If a requirement is ambiguous, add
-`[NEEDS CLARIFICATION: <brief description>]` instead of guessing.
-Plans with 0-3 markers are acceptable; 4+ will escalate to human review.
-
-## Optional: Discovered Issues
+    @staticmethod
+    def _build_discovered_issues_section(find_label: str) -> str:
+        """Build the optional discovered-issues output section."""
+        return f"""## Optional: Discovered Issues
 
 If you discover bugs/tech debt/out-of-scope work, optionally propose issues:
 
@@ -527,9 +484,12 @@ NEW_ISSUES_END
 
 Only include this section for real findings.
 Each issue body must be detailed (>=50 chars) with file/context.
-Use only label `{find_label}`.
+Use only label `{find_label}`."""
 
-## Already Satisfied
+    @staticmethod
+    def _build_already_satisfied_section() -> str:
+        """Build the already-satisfied output section."""
+        return """## Already Satisfied
 
 IMPORTANT: This should be used VERY RARELY. Only if the EXACT feature described in the
 issue is ALREADY fully implemented, tested, and working. You must be able to prove it.
@@ -554,9 +514,69 @@ Evidence:
 - Criteria: <how each acceptance criterion is already met>
 ALREADY_SATISFIED_END
 
-This closes the issue automatically. False positives waste significant human time.
+This closes the issue automatically. False positives waste significant human time."""
 
-{MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
+    def _assemble_planning_prompt(
+        self,
+        issue: Task,
+        *,
+        body: str,
+        image_note: str,
+        comments_section: str,
+        research_section: str,
+        manifest_section: str,
+        memory_section: str,
+        mode_note: str,
+        schema_section: str,
+        task_graph_guidance: str,
+        pre_mortem_section: str,
+    ) -> str:
+        """Assemble the full planning prompt from pre-built sections."""
+        find_label = self._config.find_label[0]
+        exploration = self._build_exploration_and_steps_section()
+        discovered = self._build_discovered_issues_section(find_label)
+        satisfied = self._build_already_satisfied_section()
+        memory_prompt = MEMORY_SUGGESTION_PROMPT.format(context="planning")
+
+        return f"""You are a planning agent for GitHub issue #{issue.id}.
+
+## Issue: {issue.title}
+
+{body}{image_note}{comments_section}{research_section}{manifest_section}{memory_section}
+
+## Instructions
+
+{mode_note}You are in READ-ONLY mode. Do NOT create, modify, or delete any files.
+Do NOT run any commands that change state (no git commit, no file writes, no installs).
+
+Your job: explore code and produce a concrete implementation plan.
+
+{exploration}
+
+## Required Output
+
+Output your plan between these exact markers:
+
+PLAN_START
+<your detailed implementation plan here>
+PLAN_END
+
+Then provide a one-line summary:
+SUMMARY: <brief one-line description of the plan>
+
+{schema_section}{task_graph_guidance}{pre_mortem_section}
+
+## Handling Uncertainty
+
+If a requirement is ambiguous, add
+`[NEEDS CLARIFICATION: <brief description>]` instead of guessing.
+Plans with 0-3 markers are acceptable; 4+ will escalate to human review.
+
+{discovered}
+
+{satisfied}
+
+{memory_prompt}"""
 
     @staticmethod
     def _compute_prompt_stats(

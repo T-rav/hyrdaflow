@@ -331,3 +331,91 @@ class TestPlannerComputePromptStats:
         assert "context_chars_before" in stats
         assert "pruned_chars_total" in stats
         assert "section_chars" in stats
+
+
+# ---------------------------------------------------------------------------
+# _build_exploration_and_steps_section
+# ---------------------------------------------------------------------------
+
+
+class TestBuildExplorationAndStepsSection:
+    """Tests for PlannerRunner._build_exploration_and_steps_section."""
+
+    def test_contains_exploration_header(self) -> None:
+        section = PlannerRunner._build_exploration_and_steps_section()
+        assert "## Exploration Strategy" in section
+
+    def test_contains_planning_steps(self) -> None:
+        section = PlannerRunner._build_exploration_and_steps_section()
+        assert "## Planning Steps" in section
+
+    def test_contains_semantic_tools(self) -> None:
+        section = PlannerRunner._build_exploration_and_steps_section()
+        assert "claude-context search_code" in section
+        assert "cclsp" in section
+
+    def test_contains_ui_exploration(self) -> None:
+        section = PlannerRunner._build_exploration_and_steps_section()
+        assert "UI Exploration" in section
+
+    def test_returns_string(self) -> None:
+        result = PlannerRunner._build_exploration_and_steps_section()
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# _build_discovered_issues_section
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDiscoveredIssuesSection:
+    """Tests for PlannerRunner._build_discovered_issues_section."""
+
+    def test_contains_markers(self) -> None:
+        section = PlannerRunner._build_discovered_issues_section("hydraflow-plan")
+        assert "NEW_ISSUES_START" in section
+        assert "NEW_ISSUES_END" in section
+
+    def test_includes_find_label(self) -> None:
+        section = PlannerRunner._build_discovered_issues_section("my-label")
+        assert "my-label" in section
+
+    def test_contains_instructions(self) -> None:
+        section = PlannerRunner._build_discovered_issues_section("hydraflow-plan")
+        assert "Optional: Discovered Issues" in section
+        assert ">=50 chars" in section
+
+    def test_empty_label(self) -> None:
+        section = PlannerRunner._build_discovered_issues_section("")
+        assert "NEW_ISSUES_START" in section
+
+
+# ---------------------------------------------------------------------------
+# _build_already_satisfied_section
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAlreadySatisfiedSection:
+    """Tests for PlannerRunner._build_already_satisfied_section."""
+
+    def test_contains_markers(self) -> None:
+        section = PlannerRunner._build_already_satisfied_section()
+        assert "ALREADY_SATISFIED_START" in section
+        assert "ALREADY_SATISFIED_END" in section
+
+    def test_contains_evidence_fields(self) -> None:
+        section = PlannerRunner._build_already_satisfied_section()
+        assert "Feature:" in section
+        assert "Tests:" in section
+        assert "Criteria:" in section
+
+    def test_contains_warnings(self) -> None:
+        section = PlannerRunner._build_already_satisfied_section()
+        assert "VERY RARELY" in section
+        assert "False positives" in section
+
+    def test_returns_string(self) -> None:
+        result = PlannerRunner._build_already_satisfied_section()
+        assert isinstance(result, str)
+        assert len(result) > 0
