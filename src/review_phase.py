@@ -745,9 +745,7 @@ class ReviewPhase:
         )
 
     def _build_bead_review_context(self, issue: Task) -> list[dict[str, object]] | None:
-        """Build bead task context for the reviewer when beads are enabled."""
-        if not self._config.beads_enabled:
-            return None
+        """Build bead task context for the reviewer."""
         mapping = self._state.get_bead_mapping(issue.id)
         if not mapping:
             return None

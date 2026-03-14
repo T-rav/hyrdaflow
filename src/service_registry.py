@@ -169,8 +169,8 @@ def build_services(
     epic_checker = EpicCompletionChecker(config, prs, fetcher, state=state)
     epic_manager = EpicManager(config, state, prs, fetcher, event_bus)
 
-    # Beads manager (optional)
-    beads_mgr = BeadsManager(config) if config.beads_enabled else None
+    # Beads manager (always active — fails hard if bd not installed)
+    beads_mgr = BeadsManager()
 
     # Phase coordinators
     triager = TriagePhase(

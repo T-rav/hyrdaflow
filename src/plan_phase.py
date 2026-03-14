@@ -197,8 +197,8 @@ class PlanPhase:
             )
             self._state.record_issue_created()
 
-        # Create beads from task graph phases when enabled
-        if self._beads_manager and self._beads_manager.enabled and result.plan:
+        # Create beads from task graph phases
+        if self._beads_manager and result.plan:
             await self._create_beads_from_plan(issue, result.plan)
 
         self._state.increment_session_counter("planned")

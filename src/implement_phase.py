@@ -387,9 +387,9 @@ class ImplementPhase:
         # does not include comment bodies.
         issue = await self._store.enrich_with_comments(issue)
 
-        # Load bead mapping when beads are enabled
+        # Load bead mapping for the issue
         bead_mapping: dict[str, str] | None = None
-        if self._beads_manager and self._beads_manager.enabled:
+        if self._beads_manager:
             bead_mapping = self._state.get_bead_mapping(issue.id) or None
             if bead_mapping:
                 await self._beads_manager.init(wt_path)
