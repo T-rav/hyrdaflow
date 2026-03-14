@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -28,7 +29,6 @@ class TestControlStatusImproveLabel:
 
         assert get_control_status is not None
         response = await get_control_status()
-        import json
 
         data = json.loads(response.body)
         assert "config" in data
@@ -44,7 +44,6 @@ class TestControlStatusMaxTriagers:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """GET /api/control/status should include max_triagers from config."""
-        import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
 
@@ -64,7 +63,6 @@ class TestControlStatusAppVersion:
     async def test_control_status_includes_app_version(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
 
         from app_version import get_app_version
 
@@ -81,7 +79,6 @@ class TestControlStatusAppVersion:
     async def test_control_status_includes_cached_update_details(
         self, config, event_bus: EventBus, state, tmp_path: Path, monkeypatch
     ) -> None:
-        import json
 
         from update_check import UpdateCheckResult
 
@@ -114,7 +111,6 @@ class TestControlStatusMemoryAutoApprove:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """GET /api/control/status should include memory_auto_approve (default False)."""
-        import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         get_control_status = find_endpoint(router, "/api/control/status")
@@ -130,7 +126,6 @@ class TestControlStatusMemoryAutoApprove:
         self, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """GET /api/control/status should reflect True when config has it enabled."""
-        import json
 
         from tests.helpers import ConfigFactory
 
@@ -157,7 +152,6 @@ class TestPatchConfigMemoryAutoApprove:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """PATCH /api/control/config with memory_auto_approve=True should update config."""
-        import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         patch_config = find_endpoint(router, "/api/control/config")
@@ -175,7 +169,6 @@ class TestPatchConfigMemoryAutoApprove:
         self, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """PATCH /api/control/config with memory_auto_approve=False should update config."""
-        import json
 
         from tests.helpers import ConfigFactory
 
@@ -201,7 +194,6 @@ class TestPatchConfigMemoryAutoApprove:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Unknown fields in PATCH should be ignored without error."""
-        import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         patch_config = find_endpoint(router, "/api/control/config")
@@ -221,7 +213,6 @@ class TestPatchConfigMaxTriagers:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """PATCH /api/control/config with max_triagers should update config."""
-        import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         patch_config = find_endpoint(router, "/api/control/config")
@@ -269,7 +260,6 @@ class TestPatchConfigWithRegistry:
         self, event_bus: EventBus, tmp_path: Path
     ) -> None:
         """PATCH /api/control/config with repo slug should persist overrides."""
-        import json
 
         from repo_store import RepoRecord, RepoRegistryStore
         from state import StateTracker
@@ -338,7 +328,6 @@ class TestBgWorkerToggleEndpoint:
     async def test_bg_worker_toggle_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         toggle = find_endpoint(router, "/api/control/bg-worker")
@@ -370,7 +359,6 @@ class TestBgWorkerToggleEndpoint:
     async def test_bg_worker_toggle_calls_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        import json
 
         mock_orch = MagicMock()
         mock_orch.set_bg_worker_enabled = MagicMock()
@@ -401,6 +389,18 @@ class TestBgWorkerToggleEndpoint:
 class TestBgWorkerIntervalEndpoint:
     """Tests for POST /api/control/bg-worker/interval endpoint."""
 
+    @pytest.fixture
+    def _endpoint(self, config, event_bus, state, tmp_path):
+        """Return ``(endpoint, mock_orch)`` for interval endpoint tests."""
+        mock_orch = MagicMock()
+        mock_orch.set_bg_worker_interval = MagicMock()
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        ep = find_endpoint(router, "/api/control/bg-worker/interval")
+        assert ep is not None
+        return ep, mock_orch
+
     def test_interval_route_is_registered(
         self, config, event_bus, state, tmp_path
     ) -> None:
@@ -409,19 +409,8 @@ class TestBgWorkerIntervalEndpoint:
         assert "/api/control/bg-worker/interval" in paths
 
     @pytest.mark.asyncio
-    async def test_interval_update_succeeds_for_pr_unsticker(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        mock_orch.set_bg_worker_interval = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_update_succeeds_for_pr_unsticker(self, _endpoint) -> None:
+        endpoint, mock_orch = _endpoint
         response = await endpoint({"name": "pr_unsticker", "interval_seconds": 7200})
         data = json.loads(response.body)
         assert response.status_code == 200
@@ -431,19 +420,8 @@ class TestBgWorkerIntervalEndpoint:
         mock_orch.set_bg_worker_interval.assert_called_once_with("pr_unsticker", 7200)
 
     @pytest.mark.asyncio
-    async def test_interval_update_succeeds_for_memory_sync(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        mock_orch.set_bg_worker_interval = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_update_succeeds_for_memory_sync(self, _endpoint) -> None:
+        endpoint, mock_orch = _endpoint
         response = await endpoint({"name": "memory_sync", "interval_seconds": 3600})
         data = json.loads(response.body)
         assert response.status_code == 200
@@ -451,19 +429,8 @@ class TestBgWorkerIntervalEndpoint:
         mock_orch.set_bg_worker_interval.assert_called_once_with("memory_sync", 3600)
 
     @pytest.mark.asyncio
-    async def test_interval_update_succeeds_for_metrics(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        mock_orch.set_bg_worker_interval = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_update_succeeds_for_metrics(self, _endpoint) -> None:
+        endpoint, mock_orch = _endpoint
         response = await endpoint({"name": "metrics", "interval_seconds": 1800})
         data = json.loads(response.body)
         assert response.status_code == 200
@@ -472,17 +439,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_below_minimum_for_pr_unsticker(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "pr_unsticker", "interval_seconds": 30})
         data = json.loads(response.body)
         assert response.status_code == 422
@@ -490,17 +449,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_above_maximum_for_pr_unsticker(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "pr_unsticker", "interval_seconds": 100000})
         data = json.loads(response.body)
         assert response.status_code == 422
@@ -508,18 +459,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_update_succeeds_for_pipeline_poller(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        mock_orch.set_bg_worker_interval = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, mock_orch = _endpoint
         response = await endpoint({"name": "pipeline_poller", "interval_seconds": 3600})
         data = json.loads(response.body)
         assert response.status_code == 200
@@ -532,17 +474,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_below_minimum_for_pipeline_poller(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "pipeline_poller", "interval_seconds": 2})
         data = json.loads(response.body)
         assert response.status_code == 422
@@ -550,17 +484,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_above_maximum_for_pipeline_poller(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint(
             {"name": "pipeline_poller", "interval_seconds": 20000}
         )
@@ -569,72 +495,32 @@ class TestBgWorkerIntervalEndpoint:
         assert "between 5 and 14400" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_rejects_non_editable_worker(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_rejects_non_editable_worker(self, _endpoint) -> None:
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "retrospective", "interval_seconds": 3600})
         data = json.loads(response.body)
         assert response.status_code == 400
         assert "not editable" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_rejects_missing_name(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_rejects_missing_name(self, _endpoint) -> None:
+        endpoint, _ = _endpoint
         response = await endpoint({"interval_seconds": 3600})
         data = json.loads(response.body)
         assert response.status_code == 400
         assert "required" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_rejects_missing_interval(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_rejects_missing_interval(self, _endpoint) -> None:
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "pr_unsticker"})
         data = json.loads(response.body)
         assert response.status_code == 400
         assert "required" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_rejects_non_integer_interval(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_rejects_non_integer_interval(self, _endpoint) -> None:
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "pr_unsticker", "interval_seconds": "abc"})
         data = json.loads(response.body)
         assert response.status_code == 400
@@ -644,8 +530,6 @@ class TestBgWorkerIntervalEndpoint:
     async def test_interval_rejects_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        import json
-
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
         assert endpoint is not None
@@ -657,17 +541,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_below_minimum_for_memory_sync(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "memory_sync", "interval_seconds": 5})
         data = json.loads(response.body)
         assert response.status_code == 422
@@ -675,72 +551,33 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_above_maximum_for_memory_sync(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "memory_sync", "interval_seconds": 20000})
         data = json.loads(response.body)
         assert response.status_code == 422
         assert "between 10 and 14400" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_rejects_below_minimum_for_metrics(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_rejects_below_minimum_for_metrics(self, _endpoint) -> None:
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "metrics", "interval_seconds": 10})
         data = json.loads(response.body)
         assert response.status_code == 422
         assert "between 30 and 14400" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_rejects_above_maximum_for_metrics(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_rejects_above_maximum_for_metrics(self, _endpoint) -> None:
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "metrics", "interval_seconds": 20000})
         data = json.loads(response.body)
         assert response.status_code == 422
         assert "between 30 and 14400" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_interval_update_succeeds_for_adr_reviewer(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        mock_orch.set_bg_worker_interval = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+    async def test_interval_update_succeeds_for_adr_reviewer(self, _endpoint) -> None:
+        endpoint, mock_orch = _endpoint
         response = await endpoint({"name": "adr_reviewer", "interval_seconds": 86400})
         data = json.loads(response.body)
         assert response.status_code == 200
@@ -751,17 +588,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_below_minimum_for_adr_reviewer(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "adr_reviewer", "interval_seconds": 3600})
         data = json.loads(response.body)
         assert response.status_code == 422
@@ -769,17 +598,9 @@ class TestBgWorkerIntervalEndpoint:
 
     @pytest.mark.asyncio
     async def test_interval_rejects_above_maximum_for_adr_reviewer(
-        self, config, event_bus, state, tmp_path
+        self, _endpoint
     ) -> None:
-        import json
-
-        mock_orch = MagicMock()
-        router, _ = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        endpoint = find_endpoint(router, "/api/control/bg-worker/interval")
-        assert endpoint is not None
-
+        endpoint, _ = _endpoint
         response = await endpoint({"name": "adr_reviewer", "interval_seconds": 500000})
         data = json.loads(response.body)
         assert response.status_code == 422
