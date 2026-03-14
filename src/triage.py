@@ -281,7 +281,7 @@ or for truly insufficient issues:
         """Build a TriageResult from a parsed JSON dict."""
         raw = data.get("reasons", [])
         complexity = data.get("complexity_score", 0)
-        score = int(complexity) if isinstance(complexity, (int, float)) else 0
+        score = int(complexity) if isinstance(complexity, int | float) else 0
         issue_type_raw = data.get("issue_type", IssueType.FEATURE)
         if isinstance(issue_type_raw, IssueType):
             issue_type = issue_type_raw
@@ -306,6 +306,30 @@ or for truly insufficient issues:
         )
 
     @staticmethod
+    def _strip_system_lines(transcript: str) -> str:
+        """Remove Claude Code system/init JSON lines from the transcript.
+
+        The subprocess transcript may include session initialization lines
+        like ``{"type":"system","subtype":"init",...}`` before the actual
+        LLM response.  These confuse the JSON parsing strategies, so we
+        strip them out first.
+        """
+        filtered: list[str] = []
+        for line in transcript.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                filtered.append(line)
+                continue
+            try:
+                obj = json.loads(stripped)
+                if isinstance(obj, dict) and obj.get("type") == "system":
+                    continue
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+            filtered.append(line)
+        return "\n".join(filtered)
+
+    @staticmethod
     def _parse_verdict(transcript: str, issue_number: int) -> TriageResult | None:
         """Extract a JSON verdict from the LLM transcript.
 
@@ -314,6 +338,9 @@ or for truly insufficient issues:
         2. Extract JSON from markdown code fences
         3. Regex to find a JSON object with ``"ready"`` key
         """
+        # Pre-process: strip Claude Code system/init lines
+        transcript = TriageRunner._strip_system_lines(transcript)
+
         # Strategy 1: direct parse
         try:
             data = json.loads(transcript.strip())
