@@ -12,6 +12,7 @@ from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import (
     CICheckPayload,
+    CodeScanningAlert,
     PRInfo,
     ReviewerStatus,
     ReviewResult,
@@ -52,7 +53,7 @@ class ReviewRunner(BaseRunner):
 
     @staticmethod
     def _format_code_scanning_alerts(
-        alerts: list[dict],
+        alerts: list[CodeScanningAlert],
         max_chars: int,
         *,
         repo: str = "",
@@ -71,13 +72,11 @@ class ReviewRunner(BaseRunner):
 
         lines: list[str] = []
         for alert in alerts:
-            severity = (
-                alert.get("security_severity") or alert.get("severity") or "unknown"
-            ).upper()
-            path = alert.get("path", "?")
-            line = alert.get("start_line", "?")
-            rule = alert.get("rule", "unknown rule")
-            message = alert.get("message", "")
+            severity = (alert.security_severity or alert.severity or "unknown").upper()
+            path = alert.path or "?"
+            line = alert.start_line if alert.start_line is not None else "?"
+            rule = alert.rule or "unknown rule"
+            message = alert.message or ""
             entry = f"- [{severity}] {path}:{line} — {rule}"
             if message:
                 entry += f" ({message})"
@@ -91,9 +90,7 @@ class ReviewRunner(BaseRunner):
         truncated = formatted[:max_chars]
         shown = truncated.count("\n") + 1
         total = len(alerts)
-        gh_cmd = "gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
-        if repo:
-            gh_cmd = f"gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
+        gh_cmd = f"gh api repos/{repo}/code-scanning/alerts --field ref={branch} --field state=open"
         note = (
             f"\n\n[Showing {shown} of {total} alerts — truncated at {max_chars:,} chars. "
             f"Run `{gh_cmd}` for the full set.]"
@@ -107,7 +104,7 @@ class ReviewRunner(BaseRunner):
         worktree_path: Path,
         diff: str,
         worker_id: int = 0,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> ReviewResult:
         """Run the review agent for *pr*.
 
@@ -208,7 +205,7 @@ class ReviewRunner(BaseRunner):
         attempt: int = 1,
         worker_id: int = 0,
         ci_logs: str = "",
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> ReviewResult:
         """Run an agent to fix CI failures.
 
@@ -395,7 +392,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         failure_summary: str,
         attempt: int,
         ci_logs: str = "",
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build a focused prompt for fixing CI failures."""
         raw_ci_logs = ci_logs or ""
@@ -603,7 +600,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         issue: Task,
         diff: str,
         precheck_context: str = "",
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0

@@ -717,6 +717,20 @@ class ReviewVerdict(StrEnum):
     COMMENT = "comment"
 
 
+class CodeScanningAlert(BaseModel):
+    """A single code scanning alert from GitHub's code-scanning API."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int | None = None
+    severity: str | None = None
+    security_severity: str | None = None
+    path: str | None = None
+    start_line: int | None = None
+    rule: str | None = None
+    message: str | None = None
+
+
 class ReviewResult(BaseModel):
     """Outcome of a reviewer agent run."""
 
@@ -2378,7 +2392,7 @@ class CiGateFn(Protocol):
         wt_path: Path,
         result: ReviewResult,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> bool: ...
 
 

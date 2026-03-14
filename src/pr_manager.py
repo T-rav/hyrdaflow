@@ -20,6 +20,7 @@ from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
     CICheckPayload,
+    CodeScanningAlert,
     Crate,
     GitHubIssue,
     HITLItem,
@@ -1114,12 +1115,13 @@ class PRManager:
         ]
         return "\n\n".join(sections)
 
-    async def fetch_code_scanning_alerts(self, branch: str) -> list[dict]:
+    async def fetch_code_scanning_alerts(self, branch: str) -> list[CodeScanningAlert]:
         """Fetch open code scanning alerts for *branch*.
 
         Uses the GitHub code-scanning API via ``gh api``.  Returns a list
-        of alert dicts (projected to key fields) or ``[]`` on error, 404,
-        or when the repository has no code scanning configured.
+        of :class:`CodeScanningAlert` instances (projected to key fields)
+        or ``[]`` on error, 404, or when the repository has no code
+        scanning configured.
         """
         if self._config.dry_run:
             return []
@@ -1147,8 +1149,9 @@ class PRManager:
                 jq_expr,
                 timeout=30,
             )
-            return json.loads(stdout) if stdout.strip() else []
-        except (RuntimeError, json.JSONDecodeError):
+            raw = json.loads(stdout) if stdout.strip() else []
+            return [CodeScanningAlert.model_validate(a) for a in raw]
+        except (RuntimeError, json.JSONDecodeError, ValueError):
             logger.debug(
                 "Could not fetch code scanning alerts for branch %s",
                 branch,
