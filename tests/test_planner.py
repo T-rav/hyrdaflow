@@ -245,9 +245,9 @@ def test_build_prompt_truncates_long_lines(config, event_bus):
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
 
-    # No line in the prompt should exceed _MAX_LINE_CHARS + ellipsis
+    # No line in the prompt should exceed _max_line_chars + ellipsis
     for line in prompt.splitlines():
-        assert len(line) <= runner._MAX_LINE_CHARS + 10  # small margin for marker text
+        assert len(line) <= runner._max_line_chars + 10  # small margin for marker text
 
 
 def test_truncate_text_respects_line_boundaries():
