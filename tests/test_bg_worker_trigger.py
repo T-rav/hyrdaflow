@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from events import EventBus
 from tests.helpers import ConfigFactory
 
@@ -55,16 +55,19 @@ def _make_stub(
     bus = EventBus()
     stop_event = asyncio.Event()
 
+    deps = LoopDeps(
+        event_bus=bus,
+        stop_event=stop_event,
+        status_cb=MagicMock(),
+        enabled_cb=lambda _name: enabled,
+        sleep_fn=AsyncMock(),
+    )
     loop = _StubLoop(
         work_fn=work_fn,
         default_interval=default_interval,
         worker_name="test_worker",
         config=config,
-        bus=bus,
-        stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
-        sleep_fn=AsyncMock(),
+        deps=deps,
         run_on_startup=run_on_startup,
     )
     return loop, stop_event
