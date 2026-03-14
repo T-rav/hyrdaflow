@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from collections import deque
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -398,8 +399,9 @@ class IssueStore:
             fetch_fn = getattr(inner, "fetch_issue_comments", None) if inner else None
         if fetch_fn is None or not callable(fetch_fn):
             return task
+        _fn: Callable[[int], Awaitable[list[str]]] = fetch_fn  # type: ignore[assignment]
         try:
-            comments = await fetch_fn(task.id)
+            comments: list[str] = await _fn(task.id)
         except Exception:
             logger.warning(
                 "Could not fetch comments for issue #%d — proceeding without",

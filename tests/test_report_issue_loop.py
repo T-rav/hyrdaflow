@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from models import PendingReport, TrackedReport
-from report_issue_loop import ReportIssueLoop, _MAX_REPORT_ATTEMPTS
+from report_issue_loop import _MAX_REPORT_ATTEMPTS, ReportIssueLoop
 from state import StateTracker
 from tests.helpers import make_bg_loop_deps
 
