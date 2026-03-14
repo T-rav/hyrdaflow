@@ -608,6 +608,9 @@ class RepoAuditor:
                 ):
                     thresholds.append((f"{filename}:--cov-fail-under", float(val)))
             except OSError:
+                logger.debug(
+                    "Could not read %s for coverage policy", filename, exc_info=True
+                )
                 continue
 
         package_json = self._root / "package.json"

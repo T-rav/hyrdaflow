@@ -775,7 +775,9 @@ class TestCheckLinting:
         check = auditor._check_linting()
         assert check.status == AuditCheckStatus.MISSING
 
-    def test_makefile_oserror_logs_debug(self, tmp_path: Path, caplog) -> None:
+    def test_makefile_oserror_logs_debug(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Should log debug on OSError reading Makefile instead of silently passing."""
         makefile = tmp_path / "Makefile"
         makefile.write_text("lint:\n\t@echo ok\n")
@@ -964,7 +966,9 @@ class TestCheckCoveragePolicy:
         assert check.status == AuditCheckStatus.PRESENT
         assert "70%" in check.detail
 
-    def test_coveragerc_oserror_logs_debug(self, tmp_path: Path, caplog) -> None:
+    def test_coveragerc_oserror_logs_debug(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Should log debug on OSError reading .coveragerc instead of silently passing."""
         coveragerc = tmp_path / ".coveragerc"
         coveragerc.write_text("[report]\nfail_under = 80\n")

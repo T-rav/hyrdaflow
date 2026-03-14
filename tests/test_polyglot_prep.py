@@ -211,7 +211,9 @@ class TestGoPackageName:
         """Should fall back to 'main' when the file does not exist."""
         assert _go_package_name(tmp_path / "nonexistent.go") == "main"
 
-    def test_oserror_logs_debug(self, tmp_path: Path, caplog) -> None:
+    def test_oserror_logs_debug(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Should log debug on OSError reading Go file instead of silently passing."""
         go_file = tmp_path / "calc.go"
         go_file.write_text("package calc\n")
