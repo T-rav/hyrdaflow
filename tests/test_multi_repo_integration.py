@@ -68,11 +68,11 @@ class TestStateIsolation:
         alpha_state.mark_issue(20, "merged")
         beta_state.mark_issue(30, "merged")
 
-        alpha_data = alpha_state.load()
-        beta_data = beta_state.load()
+        alpha_state.load()
+        beta_state.load()
 
-        alpha_processed = alpha_data.get("processed_issues", {})
-        beta_processed = beta_data.get("processed_issues", {})
+        alpha_processed = alpha_state.to_dict().get("processed_issues", {})
+        beta_processed = beta_state.to_dict().get("processed_issues", {})
 
         assert "10" in alpha_processed or 10 in alpha_processed
         assert "20" in alpha_processed or 20 in alpha_processed

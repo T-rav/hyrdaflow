@@ -330,10 +330,10 @@ async def run_subprocess(
                 env=env,
                 timeout=timeout,
             )
-        except TimeoutError:
+        except TimeoutError as exc:
             raise SubprocessTimeoutError(
                 f"Command {cmd!r} timed out after {timeout}s"
-            ) from None
+            ) from exc
         if result.returncode != 0:
             msg = f"Command {cmd!r} failed (rc={result.returncode}): {result.stderr}"
             cause = subprocess.CalledProcessError(

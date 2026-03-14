@@ -165,7 +165,8 @@ class TestDockerStdinWriter:
     async def test_drain_is_noop(self) -> None:
         sock = _make_mock_socket()
         writer = DockerStdinWriter(sock)
-        await writer.drain()  # Should not raise
+        await writer.drain()  # Should not raise — drain is a no-op
+        assert not writer._closed  # drain does not close the writer
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +412,7 @@ class TestDockerProcess:
         proc = DockerProcess(container, sock, loop)
 
         proc.kill()  # Should not raise
+        container.kill.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_wait_returns_exit_code(self) -> None:
@@ -971,8 +973,7 @@ class TestGetDockerRunner:
             config = ConfigFactory.create(
                 execution_mode="docker", docker_image="hydra:latest"
             )
-        with patch("docker_runner._check_docker_available", return_value=False):
-            runner = get_docker_runner(config)
+        runner = get_docker_runner(config, docker_checker=lambda: False)
         assert isinstance(runner, HostRunner)
 
     def test_returns_docker_runner_when_available(self) -> None:
@@ -988,11 +989,8 @@ class TestGetDockerRunner:
                 docker_network="test-net",
             )
         mock_client = _make_mock_docker_client()
-        with (
-            patch("docker_runner._check_docker_available", return_value=True),
-            patch("docker.from_env", return_value=mock_client),
-        ):
-            runner = get_docker_runner(config)
+        with patch("docker.from_env", return_value=mock_client):
+            runner = get_docker_runner(config, docker_checker=lambda: True)
         assert isinstance(runner, DockerRunner)
         assert isinstance(runner, SubprocessRunner)
 
@@ -1019,11 +1017,8 @@ class TestGetDockerRunner:
             config = ConfigFactory.create(
                 execution_mode="docker", docker_image="hydra:latest"
             )
-        with (
-            caplog.at_level("WARNING"),
-            patch("docker_runner._check_docker_available", return_value=False),
-        ):
-            get_docker_runner(config)
+        with caplog.at_level("WARNING"):
+            get_docker_runner(config, docker_checker=lambda: False)
         assert "Docker daemon not available" in caplog.text
 
     @pytest.mark.asyncio
@@ -1063,11 +1058,8 @@ class TestGetDockerRunner:
         ).resolve_defaults()
 
         mock_client = _make_mock_docker_client()
-        with (
-            patch("docker_runner._check_docker_available", return_value=True),
-            patch("docker.from_env", return_value=mock_client),
-        ):
-            runner = get_docker_runner(cfg)
+        with patch("docker.from_env", return_value=mock_client):
+            runner = get_docker_runner(cfg, docker_checker=lambda: True)
             assert isinstance(runner, DockerRunner)
             await runner.create_streaming_process(["claude", "-p"], cwd=str(repo_root))
 
@@ -1137,6 +1129,7 @@ class TestDockerProcessKillSuppression:
         proc = DockerProcess(container, sock, loop)
 
         proc.kill()  # Should not raise
+        container.kill.assert_called_once()
 
     def test_kill_suppresses_runtime_error(self) -> None:
         """kill() should suppress RuntimeError (e.g. Docker SDK wrapper errors)."""
@@ -1147,6 +1140,7 @@ class TestDockerProcessKillSuppression:
         proc = DockerProcess(container, sock, loop)
 
         proc.kill()  # Should not raise
+        container.kill.assert_called_once()
 
     def test_kill_propagates_unexpected_exceptions(self) -> None:
         """kill() should NOT suppress unexpected exception types."""

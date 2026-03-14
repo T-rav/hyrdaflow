@@ -51,11 +51,7 @@ def _make_loop(
         config=deps.config,
         state=state,
         pr_manager=pr_manager,
-        event_bus=deps.bus,
-        stop_event=deps.stop_event,
-        status_cb=deps.status_cb,
-        enabled_cb=deps.enabled_cb,
-        sleep_fn=deps.sleep_fn,
+        deps=deps.loop_deps,
         runner=runner,
     )
     return loop, deps.stop_event, state, pr_manager
@@ -598,7 +594,7 @@ class TestHfIssueSkillPrompt:
         ):
             await loop._do_work()
 
-        assert saved_path
+        assert saved_path.endswith(".png"), f"Expected .png path, got: {saved_path!r}"
         assert not Path(saved_path).exists(), "Temp screenshot should be deleted"
 
     @pytest.mark.asyncio

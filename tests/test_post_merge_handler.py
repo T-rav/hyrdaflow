@@ -1342,6 +1342,7 @@ class TestNarrowedExceptionHandling:
 
         # Should not raise — RuntimeError is caught
         await handler._notify_epic_approval(42)
+        mock_epic_manager.on_child_approved.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_notify_epic_approval_catches_os_error(
@@ -1358,6 +1359,7 @@ class TestNarrowedExceptionHandling:
 
         # Should not raise — OSError is caught
         await handler._notify_epic_approval(42)
+        mock_epic_manager.on_child_approved.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_post_inference_comment_propagates_type_error(
@@ -1398,6 +1400,7 @@ class TestNarrowedExceptionHandling:
 
         # Should not raise — RuntimeError is caught
         await handler._post_inference_totals_comment(pr, issue)
+        handler._prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_post_inference_comment_catches_value_error(
@@ -1417,6 +1420,7 @@ class TestNarrowedExceptionHandling:
 
         # Should not raise — ValueError is caught
         await handler._post_inference_totals_comment(pr, issue)
+        handler._prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_retrospective_propagates_type_error(
@@ -1507,6 +1511,7 @@ class TestNarrowedExceptionHandling:
 
         # Should not raise — OSError is now caught
         await handler._post_inference_totals_comment(pr, issue)
+        handler._prs.post_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_safe_hook_chain_isolation(self, config: HydraFlowConfig) -> None:
@@ -1588,6 +1593,7 @@ class TestNarrowedExceptionHandling:
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
         )
+        mock_retro.record.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_notify_epic_approval_catches_value_error(
@@ -1604,3 +1610,4 @@ class TestNarrowedExceptionHandling:
 
         # Should not raise — ValueError is now caught
         await handler._notify_epic_approval(42)
+        mock_epic_manager.on_child_approved.assert_awaited_once()

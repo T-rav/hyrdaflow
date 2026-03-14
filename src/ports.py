@@ -41,7 +41,7 @@ from typing import runtime_checkable
 
 from typing_extensions import Protocol
 
-from models import GitHubIssue, HITLItem, PRInfo, ReviewVerdict
+from models import CodeScanningAlert, GitHubIssue, HITLItem, PRInfo, ReviewVerdict
 
 __all__ = ["PRPort", "WorkspacePort"]
 
@@ -146,7 +146,7 @@ class PRPort(Protocol):
         """Return aggregated CI failure logs for *pr_number*."""
         ...
 
-    async def fetch_code_scanning_alerts(self, branch: str) -> list[dict]:
+    async def fetch_code_scanning_alerts(self, branch: str) -> list[CodeScanningAlert]:
         """Return open code scanning alerts for *branch*."""
         ...
 

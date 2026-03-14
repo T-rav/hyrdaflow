@@ -260,12 +260,12 @@ class TestReviewerStatusFixingReviewFindings:
 
         assert hasattr(ReviewerStatus, "FIXING_REVIEW_FINDINGS")
 
-    def test_value(self) -> None:
+    def test_fixing_review_findings_has_expected_string_value(self) -> None:
         from models import ReviewerStatus
 
         assert ReviewerStatus.FIXING_REVIEW_FINDINGS == "fixing_review_findings"
 
-    def test_roundtrip(self) -> None:
+    def test_fixing_review_findings_roundtrips_from_string(self) -> None:
         from models import ReviewerStatus
 
         assert (
@@ -340,14 +340,6 @@ class TestTypedData:
 # ---------------------------------------------------------------------------
 
 
-class TestPhaseChangePayload:
-    def test_construct(self) -> None:
-        from models import PhaseChangePayload
-
-        p: PhaseChangePayload = {"phase": "idle"}
-        assert p["phase"] == "idle"
-
-
 class TestTranscriptLinePayload:
     def test_construct_minimal(self) -> None:
         from models import TranscriptLinePayload
@@ -369,7 +361,7 @@ class TestTranscriptLinePayload:
 
 
 class TestSystemAlertPayload:
-    def test_construct(self) -> None:
+    def test_system_alert_payload_accepts_required_keys(self) -> None:
         from models import SystemAlertPayload
 
         p: SystemAlertPayload = {"message": "alert", "source": "loop"}
@@ -409,7 +401,7 @@ class TestTranscriptSummaryPayload:
 
 
 class TestVerificationJudgePayload:
-    def test_construct(self) -> None:
+    def test_verification_judge_payload_accepts_required_keys(self) -> None:
         from models import VerificationJudgePayload
 
         p: VerificationJudgePayload = {
@@ -423,7 +415,7 @@ class TestVerificationJudgePayload:
 
 
 class TestVisualGatePayload:
-    def test_construct(self) -> None:
+    def test_visual_gate_payload_accepts_required_keys(self) -> None:
         from models import VisualGatePayload
 
         p: VisualGatePayload = {
@@ -451,7 +443,7 @@ class TestVisualGatePayload:
 
 
 class TestBaselineUpdatePayload:
-    def test_approved(self) -> None:
+    def test_baseline_update_payload_sets_approved_flag(self) -> None:
         from models import BaselineUpdatePayload
 
         p: BaselineUpdatePayload = {
@@ -463,7 +455,7 @@ class TestBaselineUpdatePayload:
         }
         assert p["approved"] is True
 
-    def test_rollback(self) -> None:
+    def test_baseline_update_payload_includes_rollback_reason(self) -> None:
         from models import BaselineUpdatePayload
 
         p: BaselineUpdatePayload = {
@@ -479,7 +471,7 @@ class TestBaselineUpdatePayload:
 
 
 class TestEpicPayloads:
-    def test_progress(self) -> None:
+    def test_epic_progress_payload_carries_epic_number(self) -> None:
         from models import EpicProgressPayload
 
         p: EpicProgressPayload = {
@@ -488,7 +480,7 @@ class TestEpicPayloads:
         }
         assert p["epic_number"] == 1
 
-    def test_ready(self) -> None:
+    def test_epic_ready_payload_carries_readiness(self) -> None:
         from models import EpicReadyPayload
 
         p: EpicReadyPayload = {
@@ -497,7 +489,7 @@ class TestEpicPayloads:
         }
         assert p["readiness"]["ready"] is True
 
-    def test_releasing(self) -> None:
+    def test_epic_releasing_payload_carries_job_id(self) -> None:
         from models import EpicReleasingPayload
 
         p: EpicReleasingPayload = {"epic_number": 1, "job_id": "j-1"}
@@ -524,7 +516,7 @@ class TestEpicPayloads:
         }
         assert p["error"] == "merge conflict"
 
-    def test_update(self) -> None:
+    def test_epic_update_payload_carries_action(self) -> None:
         from models import EpicUpdatePayload
 
         p: EpicUpdatePayload = {"epic_number": 1, "action": "released"}
@@ -532,13 +524,13 @@ class TestEpicPayloads:
 
 
 class TestCratePayloads:
-    def test_activated(self) -> None:
+    def test_crate_activated_payload_carries_crate_number(self) -> None:
         from models import CrateActivatedPayload
 
         p: CrateActivatedPayload = {"crate_number": 1}
         assert p["crate_number"] == 1
 
-    def test_completed(self) -> None:
+    def test_crate_completed_payload_carries_crate_number(self) -> None:
         from models import CrateCompletedPayload
 
         p: CrateCompletedPayload = {"crate_number": 1}

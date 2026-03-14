@@ -158,6 +158,7 @@ async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
         await manager.add_pr_labels(101, ["bug"])
+    mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +201,7 @@ async def test_remove_pr_label_subprocess_error_does_not_raise(config, event_bus
     with patch("asyncio.create_subprocess_exec", mock_create):
         # Should not raise
         await manager.remove_pr_label(101, "hydraflow-review")
+    mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +278,7 @@ class TestCommentHelper:
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
             await mgr._comment("pr", 99, "body")
+        mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +351,7 @@ class TestAddLabelsHelper:
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
             await mgr._add_labels("issue", 42, ["missing-label"])
+        mock_create.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +412,7 @@ class TestRemoveLabelHelper:
         with patch("asyncio.create_subprocess_exec", mock_create):
             # Should not raise even on subprocess failure
             await mgr._remove_label("issue", 42, "missing-label")
+        mock_create.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_remove_label_missing_label_404_is_noop(

@@ -79,6 +79,7 @@ class TestTerminate:
     ) -> None:
         runner = _TestRunner(config, event_bus)
         runner.terminate()  # Should not raise
+        assert len(runner._active_procs) == 0  # empty procs remain unchanged
 
 
 # ---------------------------------------------------------------------------

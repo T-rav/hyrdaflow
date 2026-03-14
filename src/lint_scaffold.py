@@ -6,13 +6,11 @@ Never overwrites existing config. Uses permissive defaults to avoid blocking exi
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import tomllib
 from pathlib import Path
 
-from manifest import detect_language
 from prep_ignore import PREP_IGNORED_DIRS
 
 logger = logging.getLogger("hydraflow.lint_scaffold")
@@ -73,22 +71,6 @@ _TSCONFIG = {
     },
     "include": ["src/**/*"],
 }
-
-
-# ---------------------------------------------------------------------------
-# Result dataclass
-# ---------------------------------------------------------------------------
-
-
-@dataclasses.dataclass
-class LintScaffoldResult:
-    """Result of lint/type-check config scaffolding."""
-
-    scaffolded: list[str] = dataclasses.field(default_factory=list)
-    skipped: list[str] = dataclasses.field(default_factory=list)
-    modified_files: list[str] = dataclasses.field(default_factory=list)
-    created_files: list[str] = dataclasses.field(default_factory=list)
-    language: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -310,84 +292,3 @@ def _ensure_js_dev_deps(repo_root: Path) -> list[str]:
     pkg["devDependencies"] = dev_deps
     pkg_path.write_text(json.dumps(pkg, indent=2) + "\n")
     return ["package.json"]
-
-
-# ---------------------------------------------------------------------------
-# Top-level orchestrator
-# ---------------------------------------------------------------------------
-
-
-def scaffold_lint_config(
-    repo_root: Path, *, dry_run: bool = False
-) -> LintScaffoldResult:
-    """Scaffold linting and type-checking config for a repository.
-
-    Detects language, scaffolds appropriate configs with permissive defaults,
-    and ensures relevant tools are in dependencies. Never overwrites existing config.
-    """
-    language = detect_language(repo_root)
-    result = LintScaffoldResult(language=language)
-
-    if language == "unknown":
-        logger.info("No recognized language markers found in %s", repo_root)
-        return result
-
-    # --- Python scaffolding ---
-    if language in ("python", "mixed"):
-        if _has_ruff_config(repo_root):
-            result.skipped.append("ruff")
-        else:
-            result.scaffolded.append("ruff")
-            if not dry_run:
-                modified, created = _scaffold_ruff(repo_root)
-                result.modified_files.extend(modified)
-                result.created_files.extend(created)
-
-        if _has_pyright_config(repo_root):
-            result.skipped.append("pyright")
-        else:
-            result.scaffolded.append("pyright")
-            if not dry_run:
-                modified, created = _scaffold_pyright(repo_root)
-                result.modified_files.extend(modified)
-                result.created_files.extend(created)
-
-        if not dry_run:
-            dep_files = _ensure_python_dev_deps(repo_root)
-            result.modified_files.extend(dep_files)
-
-    # --- JS/TS scaffolding ---
-    if language in ("javascript", "mixed"):
-        if _has_eslint_config(repo_root):
-            result.skipped.append("eslint")
-        else:
-            result.scaffolded.append("eslint")
-            if not dry_run:
-                created = _scaffold_eslint(repo_root)
-                result.created_files.extend(created)
-
-        if _has_tsconfig(repo_root):
-            result.skipped.append("tsconfig")
-        elif has_typescript_files(repo_root):
-            result.scaffolded.append("tsconfig")
-            if not dry_run:
-                created = _scaffold_tsconfig(repo_root)
-                result.created_files.extend(created)
-
-        if not dry_run:
-            dep_files = _ensure_js_dev_deps(repo_root)
-            result.modified_files.extend(dep_files)
-
-    # Deduplicate file lists; a file can only be in one category
-    result.created_files = list(dict.fromkeys(result.created_files))
-    created_set = set(result.created_files)
-    result.modified_files = list(
-        dict.fromkeys(f for f in result.modified_files if f not in created_set)
-    )
-
-    logger.info(
-        "Lint scaffold complete: scaffolded=%s, skipped=%s",
-        result.scaffolded,
-        result.skipped,
-    )
-    return result

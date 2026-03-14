@@ -12,13 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType
 from models import HITLItem
-
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config) -> None:
-    """Keep route tests deterministic unless a test explicitly opts in."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
+from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestHITLEndpointCause:
@@ -29,22 +23,7 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When a HITL cause is set in state, it should appear in the response."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         # Set a cause in state for issue 42
         state.set_hitl_cause(42, "CI failed after 2 fix attempt(s)")
@@ -54,16 +33,7 @@ class TestHITLEndpointCause:
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
         # Find and call the get_hitl handler
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         data = response.body  # JSONResponse stores body as bytes
@@ -83,35 +53,15 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Cached HITL summary should be included in /api/hitl payload."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
         state.set_hitl_summary(42, "Line one\nLine two\nLine three")
 
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        get_hitl_summary = None
-        for route in router.routes:
-            if hasattr(route, "path") and hasattr(route, "endpoint"):
-                if route.path == "/api/hitl":
-                    get_hitl = route.endpoint  # type: ignore[union-attr]
-                if route.path == "/api/hitl/{issue_number}/summary":
-                    get_hitl_summary = route.endpoint  # type: ignore[union-attr]
+        get_hitl = find_endpoint(router, "/api/hitl")
+        get_hitl_summary = find_endpoint(router, "/api/hitl/{issue_number}/summary")
 
         assert get_hitl is not None
         assert get_hitl_summary is not None
@@ -133,41 +83,18 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Recent summary failures should suppress warm task creation until cooldown."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
         config.transcript_summarization_enabled = True
         config.dry_run = False
         config.gh_token = "test-token"
 
-        pr_mgr = PRManager(config, event_bus)
         state.set_hitl_summary_failure(42, "model timeout")
 
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Needs context", pr=0)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         with patch("dashboard_routes.asyncio.create_task") as mock_create_task:
             response = await get_hitl()
@@ -182,10 +109,7 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """`/api/hitl` should return items tagged with either HITL label."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         async def fake_run_gh(*args: str, **_kwargs: object) -> str:
             # list_hitl_items -> _fetch_hitl_raw_issues
@@ -216,28 +140,7 @@ class TestHITLEndpointCause:
 
         pr_mgr._run_gh = fake_run_gh  # type: ignore[method-assign]
 
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -251,37 +154,13 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When no cause is set, the default empty string from model should be present."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         # No cause set in state
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -296,37 +175,13 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When HITL origin matches improve_label, isMemorySuggestion should be True."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
         state.set_hitl_origin(42, "hydraflow-improve")
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -340,37 +195,13 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When HITL origin is not improve_label, isMemorySuggestion should be False."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
         state.set_hitl_origin(42, "hydraflow-review")
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -384,36 +215,12 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When no HITL origin is set at all, isMemorySuggestion should be False."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -427,22 +234,7 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When no cause is set but origin is, should fall back to origin description."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         # Set origin but not cause
         state.set_hitl_origin(42, "hydraflow-review")
@@ -450,16 +242,7 @@ class TestHITLEndpointCause:
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -473,38 +256,14 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Unknown origin label should produce generic fallback message."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         state.set_hitl_origin(42, "some-unknown-label")
 
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -518,22 +277,7 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When both cause and origin are set, cause should take precedence."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         state.set_hitl_cause(42, "CI failed after 2 fix attempt(s)")
         state.set_hitl_origin(42, "hydraflow-review")
@@ -541,16 +285,7 @@ class TestHITLEndpointCause:
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -564,8 +299,6 @@ class TestHITLEndpointCause:
         self, event_bus: EventBus, tmp_path: Path
     ) -> None:
         """With memory_auto_approve=True, memory items excluded from response."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
         from state import StateTracker
         from tests.helpers import ConfigFactory
 
@@ -577,19 +310,8 @@ class TestHITLEndpointCause:
             gh_token="",
         )
         st = StateTracker(cfg.state_file)
-        pr_mgr = PRManager(cfg, event_bus)
 
-        router = create_router(
-            config=cfg,
-            event_bus=event_bus,
-            state=st,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(cfg, event_bus, st, tmp_path)
 
         # Mark issue 42 as a memory suggestion (origin = improve label)
         st.set_hitl_origin(42, "hydraflow-improve")
@@ -605,16 +327,7 @@ class TestHITLEndpointCause:
         ]
         pr_mgr.list_hitl_items = AsyncMock(return_value=hitl_items)  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -629,22 +342,7 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """With memory_auto_approve=False (default), memory items included."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         state.set_hitl_origin(42, "hydraflow-improve")
         state.set_hitl_cause(42, "Actionable memory suggestion (config)")
@@ -652,16 +350,7 @@ class TestHITLEndpointCause:
         hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -675,11 +364,7 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When visual evidence is stored in state, it should appear in the response."""
-        from dashboard_routes import create_router
         from models import VisualEvidence, VisualEvidenceItem
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
 
         ev = VisualEvidence(
             items=[
@@ -692,31 +377,12 @@ class TestHITLEndpointCause:
         )
         state.set_hitl_visual_evidence(42, ev)
 
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Fix visual regression", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -736,36 +402,12 @@ class TestHITLEndpointCause:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When no visual evidence is stored, visualEvidence key should be absent."""
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
         hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
 
-        get_hitl = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/hitl"
-                and hasattr(route, "endpoint")
-            ):
-                get_hitl = route.endpoint  # type: ignore[union-attr]
-                break
-
+        get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
         response = await get_hitl()
         import json
@@ -788,39 +430,6 @@ class TestHITLEndpointCause:
 class TestHITLSkipImproveTransition:
     """Tests that /api/hitl/{issue}/skip transitions improve issues to triage."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        pr_mgr.remove_label = AsyncMock()
-        pr_mgr.add_labels = AsyncMock()
-        pr_mgr.swap_pipeline_labels = AsyncMock()
-        return (
-            create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=get_orch or (lambda: None),
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            ),
-            pr_mgr,
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_hitl_skip_improve_origin_transitions_to_triage(
         self, config, event_bus, state, tmp_path
@@ -833,12 +442,15 @@ class TestHITLSkipImproveTransition:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         assert skip is not None
 
         response = await skip(42, HITLSkipRequest(reason="Not actionable"))
@@ -862,12 +474,15 @@ class TestHITLSkipImproveTransition:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         assert skip is not None
         await skip(42, HITLSkipRequest(reason="Not needed"))
 
@@ -885,12 +500,15 @@ class TestHITLSkipImproveTransition:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         assert skip is not None
         await skip(42, HITLSkipRequest(reason="Skipping"))
 
@@ -912,12 +530,15 @@ class TestHITLSkipImproveTransition:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, _ = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        _.post_comment = AsyncMock()
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
+        pr_mgr.post_comment = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         assert skip is not None
         await skip(42, HITLSkipRequest(reason="No longer needed"))
 
@@ -934,12 +555,15 @@ class TestHITLSkipImproveTransition:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         assert skip is not None
         await skip(42, HITLSkipRequest(reason="Not actionable"))
 
@@ -969,12 +593,15 @@ class TestHITLSkipImproveTransition:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         await skip(42, HITLSkipRequest(reason="Not actionable"))
 
         pr_mgr.post_comment.assert_awaited()
@@ -995,41 +622,14 @@ class TestHITLSkipImproveTransition:
 class TestHITLCloseEndpoint:
     """Tests for POST /api/hitl/{issue_number}/close."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
         from models import HITLCloseRequest
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(42, HITLCloseRequest(reason="test"))
         assert response.status_code == 400
 
@@ -1043,7 +643,7 @@ class TestHITLCloseEndpoint:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.close_issue = AsyncMock()  # type: ignore[method-assign]
@@ -1051,7 +651,7 @@ class TestHITLCloseEndpoint:
         state.set_hitl_origin(42, "hydraflow-review")
         state.set_hitl_cause(42, "CI failure")
         state.set_hitl_summary(42, "cached summary")
-        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(42, HITLCloseRequest(reason="Duplicate of #123"))
         data = json.loads(response.body)
         assert data["status"] == "ok"
@@ -1093,7 +693,7 @@ class TestHITLCloseEndpoint:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.close_issue = AsyncMock()
@@ -1105,7 +705,7 @@ class TestHITLCloseEndpoint:
         state.set_hitl_cause(42, "CI failure")
         state.set_hitl_summary(42, "cached summary")
 
-        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(42, HITLCloseRequest(reason="Duplicate"))
 
         assert response.status_code == 200
@@ -1134,36 +734,6 @@ class TestHITLCloseEndpoint:
 class TestHITLSkipCommentResilience:
     """Test that hitl_skip succeeds even when post_comment fails."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        pr_mgr.remove_label = AsyncMock()
-        pr_mgr.add_labels = AsyncMock()
-        pr_mgr.swap_pipeline_labels = AsyncMock()
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_hitl_skip_succeeds_even_if_comment_fails(
         self, config, event_bus, state, tmp_path
@@ -1175,9 +745,12 @@ class TestHITLSkipCommentResilience:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock(side_effect=RuntimeError("GitHub down"))
 
         # Pre-populate HITL state
@@ -1185,7 +758,7 @@ class TestHITLSkipCommentResilience:
         state.set_hitl_cause(42, "Evidence rejected")
         state.set_hitl_summary(42, "some summary")
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         assert skip is not None
         response = await skip(42, HITLSkipRequest(reason="Not needed"))
 
@@ -1215,33 +788,6 @@ class TestHITLSkipCommentResilience:
 class TestHITLApproveMemoryEndpoint:
     """Tests for POST /api/hitl/{issue_number}/approve-memory."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_approve_memory_removes_pipeline_labels(
         self, config, event_bus, state, tmp_path
@@ -1250,14 +796,12 @@ class TestHITLApproveMemoryEndpoint:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.remove_label = AsyncMock()  # type: ignore[method-assign]
         pr_mgr.add_labels = AsyncMock()  # type: ignore[method-assign]
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-memory"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-memory")
         state.set_hitl_origin(42, "hydraflow-review")
         state.set_hitl_cause(42, "some cause")
         state.set_hitl_summary(42, "cached summary")
@@ -1280,12 +824,10 @@ class TestHITLApproveMemoryEndpoint:
     ) -> None:
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.remove_label = AsyncMock()  # type: ignore[method-assign]
         pr_mgr.add_labels = AsyncMock()  # type: ignore[method-assign]
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-memory"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-memory")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert data["status"] == "ok"
@@ -1293,36 +835,6 @@ class TestHITLApproveMemoryEndpoint:
 
 class TestClearHitlStateHelper:
     """Tests for the _clear_hitl_state internal helper."""
-
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        pr_mgr.remove_label = AsyncMock()
-        pr_mgr.add_labels = AsyncMock()
-        pr_mgr.swap_pipeline_labels = AsyncMock()
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
 
     @pytest.mark.asyncio
     async def test_clear_hitl_state_clears_all_fields_via_skip(
@@ -1333,16 +845,19 @@ class TestClearHitlStateHelper:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
         state.set_hitl_origin(99, "hydraflow-review")
         state.set_hitl_cause(99, "CI failure")
         state.set_hitl_summary(99, "some summary")
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         await skip(99, HITLSkipRequest(reason="test cleanup"))
 
         mock_orch.skip_hitl_issue.assert_called_once_with(99)
@@ -1355,7 +870,7 @@ class TestClearHitlStateHelper:
         self, config, event_bus, state, tmp_path
     ) -> None:
         """approve-memory uses _clear_hitl_state with orch=None and should not crash."""
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.remove_label = AsyncMock()
         pr_mgr.add_labels = AsyncMock()
 
@@ -1363,9 +878,7 @@ class TestClearHitlStateHelper:
         state.set_hitl_cause(50, "reason")
         state.set_hitl_summary(50, "summary")
 
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-memory"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-memory")
         response = await endpoint(50)
         assert response.status_code == 200
 
@@ -1377,43 +890,14 @@ class TestClearHitlStateHelper:
 class TestHITLApproveProcessEndpoint:
     """Tests for POST /api/hitl/{issue_number}/approve-process."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_approve_process_returns_400_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         assert endpoint is not None
         response = await endpoint(42)
         data = json.loads(response.body)
@@ -1428,7 +912,7 @@ class TestHITLApproveProcessEndpoint:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
@@ -1438,9 +922,7 @@ class TestHITLApproveProcessEndpoint:
         state.set_hitl_cause(42, "issue type hold")
         state.set_hitl_summary(42, "cached summary")
 
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert data["status"] == "ok"
@@ -1460,15 +942,13 @@ class TestHITLApproveProcessEndpoint:
     ) -> None:
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
         pr_mgr.post_comment = AsyncMock()
 
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         await endpoint(42)
 
         outcome = state.get_outcome(42)
@@ -1481,15 +961,13 @@ class TestHITLApproveProcessEndpoint:
     ) -> None:
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
         pr_mgr.post_comment = AsyncMock()
 
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         await endpoint(42)
 
         pr_mgr.post_comment.assert_called_once()
@@ -1505,15 +983,13 @@ class TestHITLApproveProcessEndpoint:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
         pr_mgr.post_comment = AsyncMock(side_effect=RuntimeError("API error"))
 
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert data["status"] == "ok"
@@ -1527,15 +1003,13 @@ class TestHITLApproveProcessEndpoint:
         """approve-process should publish a HITL_UPDATE event with resolved status."""
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
         pr_mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[method-assign]
         pr_mgr.post_comment = AsyncMock()
 
-        endpoint = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         await endpoint(42)
 
         hitl_events = [e for e in event_bus._history if e.type == EventType.HITL_UPDATE]
@@ -1553,36 +1027,6 @@ class TestHITLApproveProcessEndpoint:
 class TestResolveHitlItemHelper:
     """Tests for the _resolve_hitl_item internal helper."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        pr_mgr.remove_label = AsyncMock()
-        pr_mgr.add_labels = AsyncMock()
-        pr_mgr.swap_pipeline_labels = AsyncMock()
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_resolve_records_outcome_and_publishes_event(
         self, config, event_bus, state, tmp_path
@@ -1594,13 +1038,16 @@ class TestResolveHitlItemHelper:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.close_issue = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
-        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await endpoint(77, HITLCloseRequest(reason="Resolved elsewhere"))
 
         data = json.loads(response.body)
@@ -1624,21 +1071,22 @@ class TestResolveHitlItemHelper:
         """Endpoints using _resolve_hitl_item return 400 when no orchestrator."""
         from models import HITLCloseRequest, HITLSkipRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.close_issue = AsyncMock()
 
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         response = await skip(42, HITLSkipRequest(reason="test"))
         assert response.status_code == 400
 
-        close = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        close = find_endpoint(router, "/api/hitl/{issue_number}/close")
         response = await close(42, HITLCloseRequest(reason="test"))
         assert response.status_code == 400
         pr_mgr.close_issue.assert_not_called()
 
-        approve = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        approve = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         response = await approve(42)
         assert response.status_code == 400
         pr_mgr.swap_pipeline_labels.assert_not_called()
@@ -1654,12 +1102,15 @@ class TestResolveHitlItemHelper:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.post_comment = AsyncMock(side_effect=RuntimeError("API error"))
 
-        endpoint = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         response = await endpoint(42, HITLSkipRequest(reason="test"))
 
         assert response.status_code == 200
@@ -1677,31 +1128,91 @@ class TestResolveHitlItemHelper:
 
         mock_orch = MagicMock()
         mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = self._make_router(
+        router, pr_mgr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
+        pr_mgr.remove_label = AsyncMock()
+        pr_mgr.add_labels = AsyncMock()
+        pr_mgr.swap_pipeline_labels = AsyncMock()
         pr_mgr.close_issue = AsyncMock()
         pr_mgr.post_comment = AsyncMock()
 
         # Test skip
         state.set_hitl_origin(1, "hydraflow-plan")
-        skip = self._find_endpoint(router, "/api/hitl/{issue_number}/skip")
+        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
         resp = await skip(1, HITLSkipRequest(reason="r1"))
         assert json.loads(resp.body)["status"] == "ok"
         assert state.get_hitl_origin(1) is None
 
         # Test close
         state.set_hitl_origin(2, "hydraflow-plan")
-        close = self._find_endpoint(router, "/api/hitl/{issue_number}/close")
+        close = find_endpoint(router, "/api/hitl/{issue_number}/close")
         resp = await close(2, HITLCloseRequest(reason="r2"))
         assert json.loads(resp.body)["status"] == "ok"
         assert state.get_hitl_origin(2) is None
 
         # Test approve-process
         state.set_hitl_origin(3, "hydraflow-plan")
-        approve = self._find_endpoint(
-            router, "/api/hitl/{issue_number}/approve-process"
-        )
+        approve = find_endpoint(router, "/api/hitl/{issue_number}/approve-process")
         resp = await approve(3)
         assert json.loads(resp.body)["status"] == "ok"
         assert state.get_hitl_origin(3) is None
+
+
+class TestBuildHitlContextNoneBody:
+    """Test that _build_hitl_context handles None body (issue #2573)."""
+
+    @pytest.mark.asyncio
+    async def test_none_body_does_not_crash_hitl_summary(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When issue.body is None, _build_hitl_context should not raise."""
+        from models import GitHubIssue
+
+        config.transcript_summarization_enabled = True
+        config.gh_token = "fake-token"
+
+        # Build a GitHubIssue and force body to None
+        issue = GitHubIssue(number=99, title="Test issue")
+        object.__setattr__(issue, "body", None)
+
+        # Access _compute_hitl_summary through the module's closure.
+        # We mock the fetcher to return our None-body issue and the
+        # summarizer to capture what context it receives.
+        captured_context: list[str] = []
+
+        async def _mock_summarize(ctx: str) -> str:
+            captured_context.append(ctx)
+            return "summary line"
+
+        with (
+            patch(
+                "dashboard_routes.IssueFetcher",
+                return_value=MagicMock(
+                    fetch_issue_by_number=AsyncMock(return_value=issue)
+                ),
+            ),
+            patch(
+                "dashboard_routes.TranscriptSummarizer",
+                return_value=MagicMock(
+                    summarize_hitl_context=AsyncMock(side_effect=_mock_summarize)
+                ),
+            ),
+        ):
+            # Re-create router to pick up the patched classes
+            router2, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+
+            # Find the HITL summary endpoint
+            endpoint = find_endpoint(router2, "/api/hitl/{issue_number}/summary")
+            assert endpoint is not None, "summary endpoint not found"
+
+            state.set_hitl_cause(99, "test-cause")
+            resp = await endpoint(99)
+
+        import json
+
+        payload = json.loads(resp.body)
+        assert payload.get("summary") == "summary line"
+        # The context should have been built without error
+        assert len(captured_context) == 1
+        assert "Issue #99" in captured_context[0]

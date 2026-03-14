@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
 
 from manifest import detect_language, detect_languages
 from test_scaffold import TestScaffoldResult, scaffold_tests
+
+logger = logging.getLogger("hydraflow.polyglot_prep")
 
 _IGNORED_DIR_NAMES = {
     ".git",
@@ -113,7 +116,7 @@ def _go_package_name(source_file: Path) -> str:
             if match:
                 return match.group(1)
     except OSError:
-        pass
+        logger.debug("Could not read Go file for package detection", exc_info=True)
     return "main"
 
 

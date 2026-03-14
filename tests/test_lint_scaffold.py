@@ -21,9 +21,7 @@ from lint_scaffold import (
     _scaffold_ruff,
     _scaffold_tsconfig,
     has_typescript_files,
-    scaffold_lint_config,
 )
-from tests.conftest import LintScaffoldResultFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -42,33 +40,6 @@ def _make_package_json(repo: Path, content: dict | None = None) -> Path:
     pkg = repo / "package.json"
     pkg.write_text(json.dumps(content or {"name": "test"}, indent=2) + "\n")
     return pkg
-
-
-# ---------------------------------------------------------------------------
-# Factory tests
-# ---------------------------------------------------------------------------
-
-
-class TestLintScaffoldResultFactory:
-    """Tests for the LintScaffoldResultFactory."""
-
-    def test_creates_default_result(self) -> None:
-        result = LintScaffoldResultFactory.create()
-        assert result.scaffolded == []
-        assert result.skipped == []
-        assert result.modified_files == []
-        assert result.created_files == []
-        assert result.language == "python"
-
-    def test_creates_custom_result(self) -> None:
-        result = LintScaffoldResultFactory.create(
-            scaffolded=["ruff"],
-            skipped=["pyright"],
-            language="mixed",
-        )
-        assert result.scaffolded == ["ruff"]
-        assert result.skipped == ["pyright"]
-        assert result.language == "mixed"
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +248,8 @@ class TestScaffoldRuff:
     def test_result_is_valid_toml(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         _scaffold_ruff(tmp_path)
-        # Should not raise
-        tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        assert "tool" in data  # ruff config was added
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +283,8 @@ class TestScaffoldPyright:
     def test_result_is_valid_toml(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         _scaffold_pyright(tmp_path)
-        tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        assert "tool" in data  # pyright config was added
 
 
 # ---------------------------------------------------------------------------
@@ -390,8 +362,8 @@ class TestEnsurePythonDevDeps:
             '[project]\nname = "test"\n\n[project.optional-dependencies]\ndev = [\n]\n',
         )
         _ensure_python_dev_deps(tmp_path)
-        # Should not raise
-        tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        data = tomllib.loads((tmp_path / "pyproject.toml").read_text())
+        assert "project" in data  # file remains valid TOML
 
 
 # ---------------------------------------------------------------------------
@@ -441,8 +413,8 @@ class TestScaffoldTsconfig:
 
     def test_tsconfig_is_valid_json(self, tmp_path: Path) -> None:
         _scaffold_tsconfig(tmp_path)
-        # Should not raise
-        json.loads((tmp_path / "tsconfig.json").read_text())
+        data = json.loads((tmp_path / "tsconfig.json").read_text())
+        assert "compilerOptions" in data  # valid tsconfig structure
 
     def test_tsconfig_has_expected_defaults(self, tmp_path: Path) -> None:
         _scaffold_tsconfig(tmp_path)
@@ -499,131 +471,3 @@ class TestEnsureJsDevDeps:
         _ensure_js_dev_deps(tmp_path)
         pkg = json.loads((tmp_path / "package.json").read_text())
         assert "typescript" in pkg["devDependencies"]
-
-
-# ---------------------------------------------------------------------------
-# scaffold_lint_config (top-level orchestrator) tests
-# ---------------------------------------------------------------------------
-
-
-class TestScaffoldLintConfig:
-    """Tests for the top-level scaffold_lint_config orchestrator."""
-
-    def test_scaffolds_python_repo(self, tmp_path: Path) -> None:
-        _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
-        result = scaffold_lint_config(tmp_path)
-        assert "ruff" in result.scaffolded
-        assert "pyright" in result.scaffolded
-        assert result.language == "python"
-        assert len(result.modified_files) > 0 or len(result.created_files) > 0
-
-    def test_scaffolds_js_repo(self, tmp_path: Path) -> None:
-        _make_package_json(tmp_path)
-        result = scaffold_lint_config(tmp_path)
-        assert "eslint" in result.scaffolded
-        assert result.language == "javascript"
-        assert "eslint.config.js" in result.created_files
-
-    def test_scaffolds_ts_repo_with_tsconfig(self, tmp_path: Path) -> None:
-        _make_package_json(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "app.ts").write_text("const x = 1;")
-        result = scaffold_lint_config(tmp_path)
-        assert "eslint" in result.scaffolded
-        assert "tsconfig" in result.scaffolded
-        assert "tsconfig.json" in result.created_files
-
-    def test_scaffolds_mixed_repo(self, tmp_path: Path) -> None:
-        _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
-        _make_package_json(tmp_path)
-        result = scaffold_lint_config(tmp_path)
-        assert "ruff" in result.scaffolded
-        assert "pyright" in result.scaffolded
-        assert "eslint" in result.scaffolded
-        assert result.language == "mixed"
-
-    def test_skips_existing_ruff_config(self, tmp_path: Path) -> None:
-        _make_pyproject(
-            tmp_path, "[project]\nname = 'test'\n\n[tool.ruff]\nline-length = 80\n"
-        )
-        result = scaffold_lint_config(tmp_path)
-        assert "ruff" in result.skipped
-        assert "ruff" not in result.scaffolded
-
-    def test_skips_existing_eslint_config(self, tmp_path: Path) -> None:
-        _make_package_json(tmp_path)
-        (tmp_path / ".eslintrc.json").write_text("{}")
-        result = scaffold_lint_config(tmp_path)
-        assert "eslint" in result.skipped
-        assert "eslint" not in result.scaffolded
-
-    def test_skips_tsconfig_when_no_ts_files(self, tmp_path: Path) -> None:
-        _make_package_json(tmp_path)
-        result = scaffold_lint_config(tmp_path)
-        assert "tsconfig" not in result.scaffolded
-        assert "tsconfig" not in result.skipped
-
-    def test_skips_unknown_language(self, tmp_path: Path) -> None:
-        result = scaffold_lint_config(tmp_path)
-        assert result.scaffolded == []
-        assert result.skipped == []
-        assert result.language == "unknown"
-
-    def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
-        _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
-        original_content = (tmp_path / "pyproject.toml").read_text()
-        result = scaffold_lint_config(tmp_path, dry_run=True)
-        assert "ruff" in result.scaffolded
-        assert "pyright" in result.scaffolded
-        # File unchanged
-        assert (tmp_path / "pyproject.toml").read_text() == original_content
-        assert result.modified_files == []
-        assert result.created_files == []
-
-    def test_scaffold_lint_is_idempotent_when_run_twice(self, tmp_path: Path) -> None:
-        _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
-        first = scaffold_lint_config(tmp_path)
-        assert len(first.scaffolded) > 0
-
-        second = scaffold_lint_config(tmp_path)
-        assert second.scaffolded == []
-        assert "ruff" in second.skipped
-        assert "pyright" in second.skipped
-
-    def test_never_overwrites_existing_config(self, tmp_path: Path) -> None:
-        original_ruff = "[project]\nname = 'test'\n\n[tool.ruff]\nline-length = 80\n"
-        _make_pyproject(tmp_path, original_ruff)
-        scaffold_lint_config(tmp_path)
-        content = (tmp_path / "pyproject.toml").read_text()
-        # Original ruff config preserved (line-length = 80, not 120)
-        assert "line-length = 80" in content
-
-    def test_skips_existing_pyright_config(self, tmp_path: Path) -> None:
-        _make_pyproject(
-            tmp_path,
-            '[project]\nname = "test"\n\n[tool.pyright]\npythonVersion = "3.10"\n',
-        )
-        result = scaffold_lint_config(tmp_path)
-        assert "pyright" in result.skipped
-
-    def test_skips_existing_tsconfig(self, tmp_path: Path) -> None:
-        _make_package_json(tmp_path)
-        (tmp_path / "tsconfig.json").write_text("{}")
-        src = tmp_path / "src"
-        src.mkdir()
-        (src / "app.ts").write_text("const x = 1;")
-        result = scaffold_lint_config(tmp_path)
-        assert "tsconfig" in result.skipped
-        assert "tsconfig" not in result.scaffolded
-
-    def test_created_file_not_duplicated_in_modified(self, tmp_path: Path) -> None:
-        """pyproject.toml created by ruff scaffold must not also appear in modified_files."""
-        # No pyproject.toml exists; both ruff and pyright will scaffold it
-        (tmp_path / "requirements.txt").touch()
-        result = scaffold_lint_config(tmp_path)
-        assert "ruff" in result.scaffolded
-        assert "pyright" in result.scaffolded
-        # File should appear in exactly one list
-        overlap = set(result.created_files) & set(result.modified_files)
-        assert overlap == set(), f"Files in both lists: {overlap}"

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from epic import EpicManager
 from models import (
     CiGateFn,
+    CodeScanningAlert,
     CriterionVerdict,
     EscalateFn,
     GitHubIssue,
@@ -146,7 +147,7 @@ class PostMergeHandler:
         ci_gate_fn: CiGateFn,
         escalate_fn: EscalateFn,
         publish_fn: PublishFn,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
         visual_gate_fn: VisualGateFn | None = None,
         visual_decision: VisualValidationDecision | None = None,
         merge_conflict_fix_fn: MergeConflictFixFn | None = None,

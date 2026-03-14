@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ci_scaffold import CIScaffoldResult
     from config import HydraFlowConfig
     from events import HydraFlowEvent
-    from lint_scaffold import LintScaffoldResult
     from models import (
         AnalysisResult,
         GitHubIssue,
@@ -39,11 +38,34 @@ if TYPE_CHECKING:
 
 
 # --- Session-scoped environment setup ---
+#
+# NOTE ON GLOBAL STATE MUTATION:
+# The fixtures below intentionally mutate global state (os.environ and
+# module-level private variables) to create a hermetic test environment.
+#
+# - ``setup_test_environment`` removes HYDRAFLOW_*/HYDRA_*/GIT_* env vars so
+#   that tests don't accidentally read the host's configuration.  A
+#   ``finally`` block restores original values after all tests in the session
+#   complete.  An abnormal process termination (SIGKILL, segfault) will kill
+#   the pytest process before the ``finally`` runs, but since the environment
+#   is process-local, it cannot affect any other process — this is an
+#   acceptable trade-off.
+#
+# - ``_reset_gh_semaphore`` clears module-level private state in
+#   subprocess_util to prevent cross-test leakage of semaphore/rate-limit
+#   state.  This couples tests to internal implementation details; if those
+#   internals are renamed, this fixture must be updated accordingly.
 
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
-    """Set minimal env vars and prevent real subprocess calls."""
+    """Set minimal env vars and isolate tests from host configuration.
+
+    Removes all ``HYDRAFLOW_*``, ``HYDRA_*``, and select ``GIT_*`` variables
+    from ``os.environ`` for the duration of the test session, then restores
+    them in a ``finally`` block.  This is intentional global state mutation
+    required for test isolation — see module-level note above.
+    """
     test_env = {
         "HOME": "/tmp/hydraflow-test",
         "GH_TOKEN": "test-token",
@@ -76,12 +98,24 @@ def setup_test_environment():
 
 @pytest.fixture(autouse=True)
 def _reset_gh_semaphore():
-    """Reset the global gh semaphore and rate-limit state between tests."""
+    """Reset the global gh semaphore and rate-limit state between tests.
+
+    This directly mutates module-level private state in ``subprocess_util``
+    (``_gh_semaphore`` and ``_rate_limit_until``) to prevent cross-test
+    leakage.  See module-level note above regarding the coupling trade-off.
+    """
     subprocess_util._gh_semaphore = None
     subprocess_util._rate_limit_until = None
     yield
     subprocess_util._gh_semaphore = None
     subprocess_util._rate_limit_until = None
+
+
+@pytest.fixture(autouse=True)
+def _disable_hitl_summary_autowarm(config) -> None:
+    """Keep route tests deterministic unless a test explicitly opts in."""
+    config.transcript_summarization_enabled = False
+    config.gh_token = ""
 
 
 # --- Config Fixtures ---
@@ -285,6 +319,9 @@ class PlanResultFactory:
         validation_errors: list[str] | None = None,
         retry_attempted: bool | None = None,
         already_satisfied: bool | None = None,
+        actionability_score: int | None = None,
+        actionability_rank: str | None = None,
+        epic_number: int | None = None,
         use_defaults: bool = False,
     ):
         """Create a PlanResult instance.
@@ -323,6 +360,12 @@ class PlanResultFactory:
                 kwargs["retry_attempted"] = retry_attempted
             if already_satisfied is not None:
                 kwargs["already_satisfied"] = already_satisfied
+            if actionability_score is not None:
+                kwargs["actionability_score"] = actionability_score
+            if actionability_rank is not None:
+                kwargs["actionability_rank"] = actionability_rank
+            if epic_number is not None:
+                kwargs["epic_number"] = epic_number
             return PlanResult(**kwargs)
 
         success_value = True if success is None else success
@@ -344,6 +387,13 @@ class PlanResultFactory:
         already_satisfied_value = (
             False if already_satisfied is None else already_satisfied
         )
+        actionability_score_value = (
+            actionability_score if actionability_score is not None else 0
+        )
+        actionability_rank_value = (
+            actionability_rank if actionability_rank is not None else "unknown"
+        )
+        epic_number_value = epic_number if epic_number is not None else 0
 
         return PlanResult(
             issue_number=issue_number,
@@ -359,6 +409,9 @@ class PlanResultFactory:
             else [],
             retry_attempted=retry_value,
             already_satisfied=already_satisfied_value,
+            actionability_score=actionability_score_value,
+            actionability_rank=actionability_rank_value,
+            epic_number=epic_number_value,
         )
 
 
@@ -624,32 +677,6 @@ def event_bus():
     from events import EventBus
 
     return EventBus()
-
-
-# --- Lint Scaffold Result Factory ---
-
-
-class LintScaffoldResultFactory:
-    """Factory for LintScaffoldResult instances."""
-
-    @staticmethod
-    def create(
-        *,
-        scaffolded: list[str] | None = None,
-        skipped: list[str] | None = None,
-        modified_files: list[str] | None = None,
-        created_files: list[str] | None = None,
-        language: str = "python",
-    ) -> LintScaffoldResult:
-        from lint_scaffold import LintScaffoldResult
-
-        return LintScaffoldResult(
-            scaffolded=scaffolded or [],
-            skipped=skipped or [],
-            modified_files=modified_files or [],
-            created_files=created_files or [],
-            language=language,
-        )
 
 
 # --- Orchestrator Mock ---

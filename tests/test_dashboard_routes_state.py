@@ -10,14 +10,7 @@ import pytest
 
 from events import EventBus
 from models import SessionStatus
-
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config) -> None:
-    """Keep route tests deterministic unless a test explicitly opts in."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
-
+from tests.helpers import find_endpoint, make_dashboard_router
 
 # ---------------------------------------------------------------------------
 # /api/pipeline endpoint
@@ -27,37 +20,10 @@ def _disable_hitl_summary_autowarm(config) -> None:
 class TestPipelineEndpoint:
     """Tests for the GET /api/pipeline endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     def test_pipeline_route_is_registered(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         paths = {route.path for route in router.routes if hasattr(route, "path")}
         assert "/api/pipeline" in paths
 
@@ -67,8 +33,8 @@ class TestPipelineEndpoint:
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        get_pipeline = self._find_endpoint(router, "/api/pipeline")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        get_pipeline = find_endpoint(router, "/api/pipeline")
         assert get_pipeline is not None
 
         response = await get_pipeline()
@@ -105,10 +71,10 @@ class TestPipelineEndpoint:
                 "hitl": [],
             }
         )
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        get_pipeline = self._find_endpoint(router, "/api/pipeline")
+        get_pipeline = find_endpoint(router, "/api/pipeline")
         assert get_pipeline is not None
 
         response = await get_pipeline()
@@ -136,39 +102,12 @@ class TestPipelineEndpoint:
 class TestOutcomesEndpoint:
     """Tests for GET /api/issues/outcomes."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_outcomes_returns_empty_dict_by_default(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/issues/outcomes")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/outcomes")
         assert endpoint is not None
         response = await endpoint()
         assert response.status_code == 200
@@ -194,8 +133,8 @@ class TestOutcomesEndpoint:
             43, IssueOutcomeType.HITL_CLOSED, reason="Duplicate", phase="hitl"
         )
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/issues/outcomes")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/outcomes")
         response = await endpoint()
         import json
 
@@ -220,38 +159,12 @@ class TestOutcomesEndpoint:
 class TestRequestChangesEndpoint:
     """Tests for POST /api/request-changes endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
+    def _setup_router(self, config, event_bus, state, tmp_path):
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.remove_label = AsyncMock()
         pr_mgr.add_labels = AsyncMock()
         pr_mgr.swap_pipeline_labels = AsyncMock()
-        return (
-            create_router(
-                config=config,
-                event_bus=event_bus,
-                state=state,
-                pr_manager=pr_mgr,
-                get_orchestrator=lambda: None,
-                set_orchestrator=lambda o: None,
-                set_run_task=lambda t: None,
-                ui_dist_dir=tmp_path / "no-dist",
-                template_dir=tmp_path / "no-templates",
-            ),
-            pr_mgr,
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
+        return router, pr_mgr
 
     @pytest.mark.asyncio
     async def test_request_changes_stores_cause_and_origin(
@@ -260,8 +173,8 @@ class TestRequestChangesEndpoint:
         """Submit with valid data stores HITL cause and origin."""
         import json
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint(
@@ -278,8 +191,8 @@ class TestRequestChangesEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Request changes transitions issue into HITL via pipeline label swap."""
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, pr_mgr = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         await endpoint(
@@ -295,8 +208,8 @@ class TestRequestChangesEndpoint:
         """HITL_ESCALATION event is emitted with correct data."""
         queue = event_bus.subscribe()
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         await endpoint(
@@ -316,8 +229,8 @@ class TestRequestChangesEndpoint:
         """Returns 400 when feedback is empty."""
         import json
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint(
@@ -334,8 +247,8 @@ class TestRequestChangesEndpoint:
         """Returns 400 when stage is not recognized."""
         import json
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint(
@@ -352,8 +265,8 @@ class TestRequestChangesEndpoint:
         """Returns 400 when issue_number is missing."""
         import json
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint({"feedback": "Fix it", "stage": "review"})
@@ -368,8 +281,8 @@ class TestRequestChangesEndpoint:
         """Returns 400 when issue_number is 0 or negative."""
         import json
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         for bad_num in [0, -1, -99]:
@@ -389,8 +302,8 @@ class TestRequestChangesEndpoint:
         """Returns 400 when issue_number is a string instead of an int."""
         import json
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint(
@@ -401,7 +314,7 @@ class TestRequestChangesEndpoint:
         assert "required" in data["detail"]
 
     def test_route_is_registered(self, config, event_bus, state, tmp_path) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
+        router, _ = self._setup_router(config, event_bus, state, tmp_path)
         paths = {route.path for route in router.routes if hasattr(route, "path")}
         assert "/api/request-changes" in paths
 
@@ -412,8 +325,8 @@ class TestRequestChangesEndpoint:
         """Triage stage records origin from find_label and routes to HITL."""
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, pr_mgr = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint(
@@ -434,8 +347,8 @@ class TestRequestChangesEndpoint:
         """Plan stage records origin from planner_label and routes to HITL."""
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/request-changes")
+        router, pr_mgr = self._setup_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/request-changes")
         assert endpoint is not None
 
         response = await endpoint(
@@ -453,37 +366,6 @@ class TestRequestChangesEndpoint:
 class TestDeleteSessionEndpoint:
     """Tests for DELETE /api/sessions/{session_id}."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path, method=None):
-        for route in router.routes:
-            if not (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                continue
-            if method is None or (
-                hasattr(route, "methods") and method in route.methods
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_delete_session_success(
         self, config, event_bus, state, tmp_path
@@ -500,8 +382,8 @@ class TestDeleteSessionEndpoint:
                 status=SessionStatus.COMPLETED,
             )
         )
-        router = self._make_router(config, event_bus, state, tmp_path)
-        delete_endpoint = self._find_endpoint(
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        delete_endpoint = find_endpoint(
             router, "/api/sessions/{session_id}", method="DELETE"
         )
         assert delete_endpoint is not None
@@ -513,8 +395,8 @@ class TestDeleteSessionEndpoint:
     async def test_delete_session_not_found(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path)
-        delete_endpoint = self._find_endpoint(
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        delete_endpoint = find_endpoint(
             router, "/api/sessions/{session_id}", method="DELETE"
         )
         assert delete_endpoint is not None
@@ -537,8 +419,8 @@ class TestDeleteSessionEndpoint:
                 status=SessionStatus.ACTIVE,
             )
         )
-        router = self._make_router(config, event_bus, state, tmp_path)
-        delete_endpoint = self._find_endpoint(
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        delete_endpoint = find_endpoint(
             router, "/api/sessions/{session_id}", method="DELETE"
         )
         assert delete_endpoint is not None
@@ -561,33 +443,6 @@ class TestDeleteSessionEndpoint:
 class TestRunsEndpoints:
     """Tests for the /api/runs route family."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     # --- GET /api/runs (list_run_issues) ---
 
     @pytest.mark.asyncio
@@ -597,8 +452,8 @@ class TestRunsEndpoints:
         """Without orchestrator, returns empty list."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/runs")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/runs")
         assert endpoint is not None
 
         response = await endpoint()
@@ -616,10 +471,10 @@ class TestRunsEndpoints:
         mock_orch.run_recorder = MagicMock()
         mock_orch.run_recorder.list_issues = MagicMock(return_value=[42, 99])
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/runs")
+        endpoint = find_endpoint(router, "/api/runs")
         assert endpoint is not None
 
         response = await endpoint()
@@ -635,8 +490,8 @@ class TestRunsEndpoints:
         """Without orchestrator, returns empty list."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/runs/{issue_number}")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/runs/{issue_number}")
         assert endpoint is not None
 
         response = await endpoint(42)
@@ -664,10 +519,10 @@ class TestRunsEndpoints:
         mock_orch.run_recorder = MagicMock()
         mock_orch.run_recorder.list_runs = MagicMock(return_value=[manifest])
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/runs/{issue_number}")
+        endpoint = find_endpoint(router, "/api/runs/{issue_number}")
         assert endpoint is not None
 
         response = await endpoint(42)
@@ -686,8 +541,8 @@ class TestRunsEndpoints:
         """Without orchestrator, returns 400."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(
             router, "/api/runs/{issue_number}/{timestamp}/{filename}"
         )
         assert endpoint is not None
@@ -708,10 +563,10 @@ class TestRunsEndpoints:
             return_value="# Plan\nDo the thing."
         )
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(
+        endpoint = find_endpoint(
             router, "/api/runs/{issue_number}/{timestamp}/{filename}"
         )
         assert endpoint is not None
@@ -732,10 +587,10 @@ class TestRunsEndpoints:
         mock_orch.run_recorder = MagicMock()
         mock_orch.run_recorder.get_run_artifact = MagicMock(return_value=None)
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(
+        endpoint = find_endpoint(
             router, "/api/runs/{issue_number}/{timestamp}/{filename}"
         )
         assert endpoint is not None
@@ -759,39 +614,12 @@ class TestRunsEndpoints:
 class TestGetStateEndpoint:
     """Tests for GET /api/state."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_state_dict(self, config, event_bus, state, tmp_path) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/state")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/state")
         assert endpoint is not None
 
         response = await endpoint()
@@ -806,8 +634,8 @@ class TestGetStateEndpoint:
         import json
 
         state.mark_issue(42, "in_progress")
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/state")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/state")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["processed_issues"]["42"] == "in_progress"
@@ -826,41 +654,14 @@ class TestGetStateEndpoint:
 class TestGetStatsEndpoint:
     """Tests for GET /api/stats."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_lifetime_stats(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/stats")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/stats")
         response = await endpoint()
         data = json.loads(response.body)
         assert "issues_completed" in data
@@ -876,10 +677,10 @@ class TestGetStatsEndpoint:
         mock_orch.issue_store.get_queue_stats = MagicMock(
             return_value=MagicMock(model_dump=lambda: {"triage": 0, "plan": 0})
         )
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/stats")
+        endpoint = find_endpoint(router, "/api/stats")
         response = await endpoint()
         data = json.loads(response.body)
         assert "queue" in data
@@ -890,8 +691,8 @@ class TestGetStatsEndpoint:
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/stats")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/stats")
         response = await endpoint()
         data = json.loads(response.body)
         assert "queue" not in data
@@ -910,41 +711,14 @@ class TestGetStatsEndpoint:
 class TestGetQueueEndpoint:
     """Tests for GET /api/queue."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_default_when_no_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/queue")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/queue")
         response = await endpoint()
         data = json.loads(response.body)
         assert isinstance(data, dict)
@@ -960,10 +734,10 @@ class TestGetQueueEndpoint:
         mock_orch.issue_store.get_queue_stats = MagicMock(
             return_value=MagicMock(model_dump=lambda: {"triage": 3, "plan": 1})
         )
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/queue")
+        endpoint = find_endpoint(router, "/api/queue")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["triage"] == 3
@@ -982,41 +756,14 @@ class TestGetQueueEndpoint:
 class TestGetEventsEndpoint:
     """Tests for GET /api/events."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_empty_history_initially(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/events")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/events")
         response = await endpoint(since=None)
         data = json.loads(response.body)
         assert data == []
@@ -1030,8 +777,8 @@ class TestGetEventsEndpoint:
         from tests.conftest import EventFactory
 
         await event_bus.publish(EventFactory.create(data={"msg": "hello"}))
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/events")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/events")
         response = await endpoint(since=None)
         data = json.loads(response.body)
         assert len(data) >= 1
@@ -1042,8 +789,8 @@ class TestGetEventsEndpoint:
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/events")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/events")
         response = await endpoint(since="not-a-date")
         data = json.loads(response.body)
         assert isinstance(data, list)
@@ -1062,46 +809,19 @@ class TestGetEventsEndpoint:
 class TestGetPRsEndpoint:
     """Tests for GET /api/prs."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_pr_list(self, config, event_bus, state, tmp_path) -> None:
         import json
 
         from models import PRListItem
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_open_prs = AsyncMock(  # type: ignore[method-assign]
             return_value=[
                 PRListItem(pr=101, title="Fix bug", url="https://example.com/pr/101")
             ]
         )
-        endpoint = self._find_endpoint(router, "/api/prs")
+        endpoint = find_endpoint(router, "/api/prs")
         response = await endpoint()
         data = json.loads(response.body)
         assert len(data) == 1
@@ -1113,9 +833,9 @@ class TestGetPRsEndpoint:
     ) -> None:
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_open_prs = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        endpoint = self._find_endpoint(router, "/api/prs")
+        endpoint = find_endpoint(router, "/api/prs")
         response = await endpoint()
         data = json.loads(response.body)
         assert data == []
@@ -1134,33 +854,6 @@ class TestGetPRsEndpoint:
 class TestListSupervisedReposEndpoint:
     """Tests for GET /api/repos when supervisor is unavailable (issue #2205)."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_empty_repos_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
@@ -1168,8 +861,8 @@ class TestListSupervisedReposEndpoint:
         """With supervisor_client=None and no repo_store, GET /api/repos returns []."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/repos")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos")
         assert endpoint is not None
 
         response = await endpoint()
@@ -1186,8 +879,8 @@ class TestListSupervisedReposEndpoint:
         """can_register should be False when no supervisor or repo_store is available."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/repos")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos")
         assert endpoint is not None
 
         response = await endpoint()
@@ -1200,8 +893,8 @@ class TestListSupervisedReposEndpoint:
         self, config, event_bus, state, tmp_path
     ) -> None:
         """No warning should be logged for the normal no-supervisor path."""
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/repos")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos")
         assert endpoint is not None
 
         with patch("dashboard_routes.logger") as mock_logger:
@@ -1213,35 +906,6 @@ class TestListSupervisedReposEndpoint:
 class TestEnsureRepoCompatibilityEndpoint:
     """Compatibility tests for POST /api/repos when supervisor is unavailable (issue #2205)."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_post_endpoint(self, router, path):
-        for route in router.routes:
-            methods = getattr(route, "methods", set())
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and "POST" in methods
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_503_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
@@ -1249,8 +913,8 @@ class TestEnsureRepoCompatibilityEndpoint:
         """With supervisor_client=None, POST /api/repos returns 503."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_post_endpoint(router, "/api/repos")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos", method="POST")
         assert endpoint is not None
 
         resp = await endpoint(
@@ -1270,8 +934,8 @@ class TestEnsureRepoCompatibilityEndpoint:
         """JSON-formatted slug also gets 503 when supervisor is unavailable."""
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_post_endpoint(router, "/api/repos")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos", method="POST")
         assert endpoint is not None
 
         resp = await endpoint(
@@ -1298,41 +962,14 @@ class TestEnsureRepoCompatibilityEndpoint:
 class TestGetSessionsEndpoint:
     """Tests for GET /api/sessions."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_empty_sessions(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/sessions")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
         response = await endpoint(repo=None)
         data = json.loads(response.body)
         assert data == []
@@ -1350,8 +987,8 @@ class TestGetSessionsEndpoint:
                 id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
             )
         )
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/sessions")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions")
         response = await endpoint(repo=None)
         data = json.loads(response.body)
         assert len(data) == 1
@@ -1361,41 +998,14 @@ class TestGetSessionsEndpoint:
 class TestGetSessionDetailEndpoint:
     """Tests for GET /api/sessions/{session_id}."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_404_for_missing_session(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/sessions/{session_id}")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions/{session_id}")
         response = await endpoint("nonexistent")
         assert response.status_code == 404
         data = json.loads(response.body)
@@ -1414,8 +1024,8 @@ class TestGetSessionDetailEndpoint:
                 id="s1", repo="test-org/test-repo", started_at="2024-01-01T00:00:00Z"
             )
         )
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/sessions/{session_id}")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/sessions/{session_id}")
         response = await endpoint("s1")
         data = json.loads(response.body)
         assert data["id"] == "s1"
@@ -1435,41 +1045,14 @@ class TestGetSessionDetailEndpoint:
 class TestGetSystemWorkersEndpoint:
     """Tests for GET /api/system/workers."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=get_orch or (lambda: None),
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_workers_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/system/workers")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/system/workers")
         response = await endpoint()
         data = json.loads(response.body)
         assert "workers" in data
@@ -1485,10 +1068,10 @@ class TestGetSystemWorkersEndpoint:
         mock_orch.get_bg_worker_states = MagicMock(return_value={})
         mock_orch.is_bg_worker_enabled = MagicMock(return_value=True)
         mock_orch.get_bg_worker_interval = MagicMock(return_value=120)
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
         )
-        endpoint = self._find_endpoint(router, "/api/system/workers")
+        endpoint = find_endpoint(router, "/api/system/workers")
         response = await endpoint()
         data = json.loads(response.body)
         assert "workers" in data
@@ -1542,8 +1125,8 @@ class TestGetSystemWorkersEndpoint:
             stats={"total_tokens": 70, "pruned_chars_total": 400},
         )
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/system/workers")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/system/workers")
         response = await endpoint()
         data = json.loads(response.body)
         plan_worker = next(w for w in data["workers"] if w["name"] == "plan")
@@ -1576,41 +1159,14 @@ class TestGetSystemWorkersEndpoint:
 class TestGetTimelineEndpoint:
     """Tests for GET /api/timeline."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_empty_timeline(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/timeline")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/timeline")
         response = await endpoint()
         data = json.loads(response.body)
         assert isinstance(data, list)
@@ -1619,39 +1175,12 @@ class TestGetTimelineEndpoint:
 class TestGetTimelineIssueEndpoint:
     """Tests for GET /api/timeline/issue/{issue_number}."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_returns_404_for_unknown_issue(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_number}")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/timeline/issue/{issue_number}")
         response = await endpoint(9999)
         assert response.status_code == 404
 
@@ -1668,8 +1197,8 @@ class TestGetTimelineIssueEndpoint:
                 type=EventType.PHASE_CHANGE, data={"issue": 42, "phase": "plan"}
             )
         )
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/timeline/issue/{issue_number}")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/timeline/issue/{issue_number}")
         response = await endpoint(42)
         data = json.loads(response.body)
         assert isinstance(data, dict)
@@ -1688,41 +1217,14 @@ class TestGetTimelineIssueEndpoint:
 class TestMemoriesEndpoint:
     """Tests for the /api/memories endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_memories_returns_empty(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/memories")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 0
@@ -1743,8 +1245,8 @@ class TestMemoriesEndpoint:
         digest_path = config.data_path("memory", "digest.md")
         digest_path.write_text("# Digest\nSome content here")
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/memories")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 2
@@ -1768,8 +1270,8 @@ class TestMemoriesEndpoint:
         (items_dir / "README.md").write_text("Not a learning item")
         (items_dir / "notes.md").write_text("Also not valid")
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/memories")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 1
@@ -1787,8 +1289,8 @@ class TestMemoriesEndpoint:
         for i in range(60):
             (items_dir / f"{i + 1}.md").write_text(f"Learning #{i + 1}")
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/memories")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 60
@@ -1808,41 +1310,14 @@ class TestMemoriesEndpoint:
 class TestTroubleshootingEndpoint:
     """Tests for the /api/troubleshooting endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _find_endpoint(self, router, path):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_troubleshooting_returns_empty(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/troubleshooting")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/troubleshooting")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_patterns"] == 0
@@ -1882,8 +1357,8 @@ class TestTroubleshootingEndpoint:
             )
         )
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/troubleshooting")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/troubleshooting")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_patterns"] == 2
@@ -1919,8 +1394,8 @@ class TestTroubleshootingEndpoint:
                 )
             )
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/troubleshooting")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/troubleshooting")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_patterns"] == 110
@@ -1935,36 +1410,6 @@ class TestTroubleshootingEndpoint:
 class TestRepoScopedEndpoints:
     """Tests for repo-scoped endpoints resolving runtime-specific state."""
 
-    def _make_router(
-        self,
-        config,
-        tmp_path: Path,
-        registry,
-        *,
-        remove_repo_cb=None,
-    ):
-        from dashboard_routes import create_router
-
-        event_bus = MagicMock()
-        state = MagicMock()
-        state.get_hitl_summary.return_value = ""
-        state.get_hitl_summary_updated_at.return_value = None
-        state.get_hitl_visual_evidence.return_value = None
-        pr_mgr = MagicMock()
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            registry=registry,
-            remove_repo_cb=remove_repo_cb,
-        )
-
     @pytest.mark.asyncio
     async def test_get_prs_uses_runtime_pr_manager(self, config, tmp_path) -> None:
         runtime_config = config.model_copy()
@@ -1976,7 +1421,12 @@ class TestRepoScopedEndpoints:
         )
         registry = MagicMock()
         registry.get.return_value = runtime
-        router = self._make_router(config, tmp_path, registry)
+        _eb = MagicMock()
+        _st = MagicMock()
+        _st.get_hitl_summary.return_value = ""
+        _st.get_hitl_summary_updated_at.return_value = None
+        _st.get_hitl_visual_evidence.return_value = None
+        router, _ = make_dashboard_router(config, _eb, _st, tmp_path, registry=registry)
         endpoint = next(
             r for r in router.routes if getattr(r, "path", "") == "/api/prs"
         )
@@ -2013,7 +1463,12 @@ class TestRepoScopedEndpoints:
         )
         registry = MagicMock()
         registry.get.return_value = runtime
-        router = self._make_router(config, tmp_path, registry)
+        _eb = MagicMock()
+        _st = MagicMock()
+        _st.get_hitl_summary.return_value = ""
+        _st.get_hitl_summary_updated_at.return_value = None
+        _st.get_hitl_visual_evidence.return_value = None
+        router, _ = make_dashboard_router(config, _eb, _st, tmp_path, registry=registry)
         endpoint = next(
             r for r in router.routes if getattr(r, "path", "") == "/api/hitl"
         )
@@ -2055,7 +1510,12 @@ class TestRepoScopedEndpoints:
         }
         registry = MagicMock()
         registry.get.return_value = runtime
-        router = self._make_router(config, tmp_path, registry)
+        _eb = MagicMock()
+        _st = MagicMock()
+        _st.get_hitl_summary.return_value = ""
+        _st.get_hitl_summary_updated_at.return_value = None
+        _st.get_hitl_visual_evidence.return_value = None
+        router, _ = make_dashboard_router(config, _eb, _st, tmp_path, registry=registry)
         endpoint = next(
             r for r in router.routes if getattr(r, "path", "") == "/api/system/workers"
         )
@@ -2076,7 +1536,12 @@ class TestRepoScopedEndpoints:
         runtime.state.load_sessions.return_value = []
         registry = MagicMock()
         registry.get.return_value = runtime
-        router = self._make_router(config, tmp_path, registry)
+        _eb = MagicMock()
+        _st = MagicMock()
+        _st.get_hitl_summary.return_value = ""
+        _st.get_hitl_summary_updated_at.return_value = None
+        _st.get_hitl_visual_evidence.return_value = None
+        router, _ = make_dashboard_router(config, _eb, _st, tmp_path, registry=registry)
         endpoint = next(
             r for r in router.routes if getattr(r, "path", "") == "/api/sessions"
         )
@@ -2098,10 +1563,17 @@ class TestRepoScopedEndpoints:
         registry = MagicMock()
         registry.get.return_value = runtime
         remove_cb = AsyncMock(return_value=True)
-        router = self._make_router(
+        _eb = MagicMock()
+        _st = MagicMock()
+        _st.get_hitl_summary.return_value = ""
+        _st.get_hitl_summary_updated_at.return_value = None
+        _st.get_hitl_visual_evidence.return_value = None
+        router, _ = make_dashboard_router(
             config,
+            _eb,
+            _st,
             tmp_path,
-            registry,
+            registry=registry,
             remove_repo_cb=remove_cb,
         )
         endpoint = next(
@@ -2125,48 +1597,16 @@ class TestRepoScopedEndpoints:
 class TestRuntimeEndpointsWithRegistry:
     """Tests for /api/runtimes/* endpoints when a registry is provided."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, *, registry=None):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            registry=registry,
-        )
-
-    def _find_endpoint(self, router, path, method=None):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-                and (
-                    method is None
-                    or (hasattr(route, "methods") and method in route.methods)
-                )
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_list_runtimes_empty_registry(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         mock_registry = MagicMock()
         mock_registry.all = []
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes")
+        endpoint = find_endpoint(router, "/api/runtimes")
         assert endpoint is not None
 
         resp = await endpoint()
@@ -2187,10 +1627,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.all = [mock_rt]
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes")
+        endpoint = find_endpoint(router, "/api/runtimes")
 
         resp = await endpoint()
         import json as json_mod
@@ -2212,10 +1652,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = mock_rt
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "GET")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}", "GET")
 
         resp = await endpoint("owner-repo")
         import json as json_mod
@@ -2231,10 +1671,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = None
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "GET")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}", "GET")
 
         resp = await endpoint("nonexistent")
         assert resp.status_code == 404
@@ -2243,8 +1683,10 @@ class TestRuntimeEndpointsWithRegistry:
     async def test_get_runtime_status_no_registry(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "GET")
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=None
+        )
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}", "GET")
         assert endpoint is not None
 
         resp = await endpoint("any-slug")
@@ -2261,10 +1703,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = mock_rt
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/start")
 
         resp = await endpoint("my-repo")
         import json as json_mod
@@ -2284,10 +1726,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = mock_rt
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/start")
 
         resp = await endpoint("my-repo")
         assert resp.status_code == 409
@@ -2303,10 +1745,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = mock_rt
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/stop")
 
         resp = await endpoint("my-repo")
         import json as json_mod
@@ -2326,10 +1768,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = mock_rt
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
         assert endpoint is not None
 
         resp = await endpoint("my-repo")
@@ -2343,8 +1785,10 @@ class TestRuntimeEndpointsWithRegistry:
     async def test_start_runtime_no_registry(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=None
+        )
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/start")
         assert endpoint is not None
 
         resp = await endpoint("my-repo")
@@ -2354,8 +1798,10 @@ class TestRuntimeEndpointsWithRegistry:
     async def test_stop_runtime_no_registry(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=None
+        )
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/stop")
         assert endpoint is not None
 
         resp = await endpoint("my-repo")
@@ -2371,10 +1817,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = mock_rt
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/stop")
 
         resp = await endpoint("my-repo")
         assert resp.status_code == 400
@@ -2383,8 +1829,10 @@ class TestRuntimeEndpointsWithRegistry:
     async def test_delete_runtime_no_registry(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        router = self._make_router(config, event_bus, state, tmp_path, registry=None)
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, registry=None
+        )
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
         assert endpoint is not None
 
         resp = await endpoint("my-repo")
@@ -2397,10 +1845,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = None
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/start")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/start")
         assert endpoint is not None
 
         resp = await endpoint("nonexistent")
@@ -2413,10 +1861,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = None
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}/stop")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}/stop")
         assert endpoint is not None
 
         resp = await endpoint("nonexistent")
@@ -2429,10 +1877,10 @@ class TestRuntimeEndpointsWithRegistry:
         mock_registry = MagicMock()
         mock_registry.get.return_value = None
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
-        endpoint = self._find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
+        endpoint = find_endpoint(router, "/api/runtimes/{slug}", "DELETE")
         assert endpoint is not None
 
         resp = await endpoint("nonexistent")

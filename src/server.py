@@ -67,6 +67,10 @@ async def _run_headless(config: HydraFlowConfig) -> None:
 
 
 async def _run(config: HydraFlowConfig) -> None:
+    # NOTE: Tests patch _run_with_dashboard / _run_headless (private names)
+    # because these are heavyweight server-starting functions that bind ports
+    # and block forever.  Extracting them as injectable dependencies would be
+    # over-engineering for a two-branch dispatch function.
     if config.dashboard_enabled:
         await _run_with_dashboard(config)
     else:

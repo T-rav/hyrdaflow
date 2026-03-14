@@ -84,6 +84,12 @@ You are a test quality auditor focused on naming, structure, and method size for
 ## Context
 <1-2 sentences on why this test quality issue matters>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Findings
 | Severity | File:Line | Test Name | Issue |
 |----------|-----------|-----------|-------|
@@ -94,6 +100,13 @@ You are a test quality auditor focused on naming, structure, and method size for
 - [ ] <file:line> — Split test with 6 assertions into 3 focused tests
 - [ ] <file:line> — Extract 12-line setup into `make_<object>()` factory
 - [ ] <file:line> — Test is 35 lines — extract arrange into fixture, split act steps
+
+## Acceptance Criteria
+- [ ] All test methods follow `test_<method>_<scenario>` naming convention
+- [ ] No test method exceeds 20 lines of logic
+- [ ] Each test has exactly one act step
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Impact
 - Tests affected: <N>
@@ -186,6 +199,12 @@ You are a test quality auditor focused on anti-patterns, hygiene, and flakiness 
 ## Context
 <1-2 sentences on the anti-pattern risk>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Duplicate Helpers (if found)
 | Helper | Location 1 | Location 2 | Suggested Home |
 |--------|-----------|-----------|----------------|
@@ -206,6 +225,14 @@ You are a test quality auditor focused on anti-patterns, hygiene, and flakiness 
 - [ ] <file:line> — Replace `patch.object(x, '_method')` with behavior test
 - [ ] <file:line> — Add cleanup for temp directory created at line N
 - [ ] <file:line> — Replace `time.sleep(1)` with async await
+
+## Acceptance Criteria
+- [ ] Duplicate helpers are consolidated into a single shared location
+- [ ] No over-mocking of private methods remains
+- [ ] All tests have proper cleanup/teardown for resources
+- [ ] No flaky patterns (sleep, random without seed, order dependency)
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Impact
 - Flaky test risk: <high/medium/low>
@@ -311,6 +338,12 @@ You are a test quality auditor focused on test infrastructure and coverage gaps 
 ## Context
 <1-2 sentences on the test infrastructure gap>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Missing Factories
 | Object | Used In | Times Repeated | Suggested Factory |
 |--------|---------|---------------|-------------------|
@@ -332,6 +365,13 @@ You are a test quality auditor focused on test infrastructure and coverage gaps 
 - [ ] Convert `make_<object>(**overrides)` to fluent `<Object>Builder` class
 - [ ] Add tests for <untested_function> in <source_file>
 - [ ] Add edge case tests for <function>: empty input, None, error path
+
+## Acceptance Criteria
+- [ ] Repeated object construction patterns use shared factories
+- [ ] Factories with 3+ optional fields use fluent builder pattern
+- [ ] All identified coverage gaps have corresponding tests
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Builder Skeleton
 ```python

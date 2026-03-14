@@ -13,7 +13,7 @@ import pytest
 
 from base_runner import BaseRunner
 from events import EventType
-from models import ReviewerStatus, ReviewVerdict
+from models import CodeScanningAlert, ReviewerStatus, ReviewVerdict
 from reviewer import ReviewRunner
 from tests.conftest import PRInfoFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
@@ -873,12 +873,14 @@ def test_terminate_handles_process_lookup_error(config, event_bus):
     mock_proc.pid = 12345
     runner._active_procs.add(mock_proc)
 
-    with patch("runner_utils.os.killpg", side_effect=ProcessLookupError):
+    with patch("runner_utils.os.killpg", side_effect=ProcessLookupError) as mock_killpg:
         runner.terminate()  # Should not raise
+    mock_killpg.assert_called_once()
 
 
 def test_terminate_with_no_active_processes(config, event_bus):
     runner = _make_runner(config, event_bus)
+    assert len(runner._active_procs) == 0
     runner.terminate()  # Should not raise
 
 
@@ -1407,19 +1409,14 @@ class TestRunPrecheckContext:
             result = await captured_execute["fn"](["cmd"], "prompt")
 
         assert result == "transcript"
-        mock_self_execute.assert_called_once_with(
-            ["cmd"],
-            "prompt",
-            tmp_path,
-            {"pr": pr_info.number, "issue": task.id, "source": "reviewer"},
-            telemetry_stats={
-                "context_chars_before": len(task.body or "") + len("diff"),
-                "context_chars_after": len("prompt"),
-                "pruned_chars_total": len(task.body or "")
-                + len("diff")
-                - len("prompt"),
-            },
-        )
+        call_kwargs = mock_self_execute.call_args
+        assert call_kwargs is not None
+        telemetry = call_kwargs.kwargs["telemetry_stats"]
+        expected_before = len(task.body or "") + len("diff")
+        expected_after = len("prompt")
+        assert telemetry["context_chars_before"] == expected_before
+        assert telemetry["context_chars_after"] == expected_after
+        assert telemetry["pruned_chars_total"] == expected_before - expected_after
 
 
 # ---------------------------------------------------------------------------
@@ -1540,14 +1537,14 @@ class TestFormatCodeScanningAlerts:
 
     def test_formats_single_alert(self):
         alerts = [
-            {
-                "severity": "error",
-                "security_severity": "high",
-                "path": "src/db.js",
-                "start_line": 42,
-                "rule": "js/sql-injection",
-                "message": "SQL injection vulnerability",
-            }
+            CodeScanningAlert(
+                severity="error",
+                security_severity="high",
+                path="src/db.js",
+                start_line=42,
+                rule="js/sql-injection",
+                message="SQL injection vulnerability",
+            )
         ]
         result = ReviewRunner._format_code_scanning_alerts(alerts, 6000)
         assert "[HIGH]" in result
@@ -1557,27 +1554,27 @@ class TestFormatCodeScanningAlerts:
 
     def test_uses_severity_when_no_security_severity(self):
         alerts = [
-            {
-                "severity": "warning",
-                "security_severity": None,
-                "path": "foo.py",
-                "start_line": 10,
-                "rule": "py/unused-import",
-                "message": "",
-            }
+            CodeScanningAlert(
+                severity="warning",
+                security_severity=None,
+                path="foo.py",
+                start_line=10,
+                rule="py/unused-import",
+                message="",
+            )
         ]
         result = ReviewRunner._format_code_scanning_alerts(alerts, 6000)
         assert "[WARNING]" in result
 
     def test_truncates_at_max_chars(self):
         alerts = [
-            {
-                "severity": "error",
-                "path": f"src/file{i}.py",
-                "start_line": i,
-                "rule": f"rule-{i}",
-                "message": f"Alert message {i}",
-            }
+            CodeScanningAlert(
+                severity="error",
+                path=f"src/file{i}.py",
+                start_line=i,
+                rule=f"rule-{i}",
+                message=f"Alert message {i}",
+            )
             for i in range(100)
         ]
         result = ReviewRunner._format_code_scanning_alerts(alerts, 200)
@@ -1587,13 +1584,13 @@ class TestFormatCodeScanningAlerts:
 
     def test_truncation_includes_gh_command(self):
         alerts = [
-            {
-                "severity": "error",
-                "path": f"src/file{i}.py",
-                "start_line": i,
-                "rule": f"rule-{i}",
-                "message": "x" * 50,
-            }
+            CodeScanningAlert(
+                severity="error",
+                path=f"src/file{i}.py",
+                start_line=i,
+                rule=f"rule-{i}",
+                message="x" * 50,
+            )
             for i in range(100)
         ]
         result = ReviewRunner._format_code_scanning_alerts(
@@ -1601,15 +1598,30 @@ class TestFormatCodeScanningAlerts:
         )
         assert "gh api repos/org/repo/code-scanning/alerts" in result
 
+    def test_truncation_without_repo_uses_empty_interpolation(self):
+        alerts = [
+            CodeScanningAlert(
+                severity="error",
+                path=f"src/file{i}.py",
+                start_line=i,
+                rule=f"rule-{i}",
+                message="x" * 50,
+            )
+            for i in range(100)
+        ]
+        result = ReviewRunner._format_code_scanning_alerts(alerts, 200)
+        assert "truncated" in result
+        assert "gh api repos/" in result
+
     def test_no_truncation_within_limit(self):
         alerts = [
-            {
-                "severity": "error",
-                "path": "foo.py",
-                "start_line": 1,
-                "rule": "test-rule",
-                "message": "msg",
-            }
+            CodeScanningAlert(
+                severity="error",
+                path="foo.py",
+                start_line=1,
+                rule="test-rule",
+                message="msg",
+            )
         ]
         result = ReviewRunner._format_code_scanning_alerts(alerts, 6000)
         assert "truncated" not in result
@@ -1628,14 +1640,14 @@ def test_build_review_prompt_includes_code_scanning_alerts(config, event_bus):
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
     alerts = [
-        {
-            "severity": "error",
-            "security_severity": "high",
-            "path": "src/db.js",
-            "start_line": 42,
-            "rule": "js/sql-injection",
-            "message": "SQL injection",
-        }
+        CodeScanningAlert(
+            severity="error",
+            security_severity="high",
+            path="src/db.js",
+            start_line=42,
+            rule="js/sql-injection",
+            message="SQL injection",
+        )
     ]
 
     with (
@@ -1686,14 +1698,14 @@ def test_build_ci_fix_prompt_includes_code_scanning_alerts(config, event_bus):
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
     alerts = [
-        {
-            "severity": "error",
-            "security_severity": "critical",
-            "path": "src/auth.py",
-            "start_line": 10,
-            "rule": "py/hardcoded-credentials",
-            "message": "Hardcoded password",
-        }
+        CodeScanningAlert(
+            severity="error",
+            security_severity="critical",
+            path="src/auth.py",
+            start_line=10,
+            rule="py/hardcoded-credentials",
+            message="Hardcoded password",
+        )
     ]
 
     prompt, _stats = runner._build_ci_fix_prompt(

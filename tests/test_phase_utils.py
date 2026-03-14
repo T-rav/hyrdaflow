@@ -23,6 +23,7 @@ from phase_utils import (
     next_adr_number,
     publish_review_status,
     record_harness_failure,
+    reraise_on_credit_or_bug,
     run_concurrent_batch,
     run_refilling_pool,
     safe_file_memory_suggestion,
@@ -375,11 +376,12 @@ class TestSafeFileMemorySuggestion:
             "phase_utils.file_memory_suggestion",
             new_callable=AsyncMock,
             side_effect=RuntimeError("API error"),
-        ):
+        ) as mock_suggest:
             # Should not raise
             await safe_file_memory_suggestion(
                 "transcript", "planner", "issue #42", config, prs, state
             )
+        mock_suggest.assert_awaited_once()  # confirms RuntimeError was caught and swallowed
 
     @pytest.mark.asyncio
     async def test_logs_error_on_exception(self) -> None:
@@ -467,13 +469,14 @@ class TestRecordHarnessFailure:
 
     def test_noop_when_store_is_none(self) -> None:
         """Should not raise when harness_insights is None."""
-        record_harness_failure(
+        result = record_harness_failure(
             None,
             42,
             FailureCategory.PLAN_VALIDATION,
             "Some error",
             stage=PipelineStage.PLAN,
         )
+        assert result is None  # noop when store is None
 
     def test_catches_exception_from_store(self) -> None:
         """Should catch and log exceptions from the store without propagating."""
@@ -809,13 +812,15 @@ class TestPipelineEscalator:
         escalator = self._make_escalator(harness_insights=None)
         issue = MagicMock(id=1)
 
-        # Should not raise
+        # Should not raise — harness_insights=None is a safe noop
         await escalator(
             issue,
             cause="test",
             details="test details",
             category=FailureCategory.PLAN_VALIDATION,
         )
+        # harness_insights is None so no recording attempt should be made
+        assert escalator._harness_insights is None
 
     @pytest.mark.asyncio
     async def test_uses_configured_labels_and_stage(self) -> None:
@@ -844,3 +849,81 @@ class TestPipelineEscalator:
         state.set_hitl_origin.assert_called_once_with(99, "hydraflow-ready")
         record = harness.append_failure.call_args.args[0]
         assert record.stage == PipelineStage.IMPLEMENT
+
+
+class TestReraiseOnCreditOrBug:
+    """Tests for reraise_on_credit_or_bug — centralised exception guard."""
+
+    def test_reraises_credit_exhausted_error(self) -> None:
+        """CreditExhaustedError should be re-raised."""
+        from subprocess_util import CreditExhaustedError
+
+        with pytest.raises(CreditExhaustedError):
+            try:
+                raise CreditExhaustedError("out of credits")
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
+
+    def test_reraises_type_error(self) -> None:
+        """TypeError (likely bug) should be re-raised."""
+        with pytest.raises(TypeError):
+            try:
+                raise TypeError("bad type")
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
+
+    def test_reraises_key_error(self) -> None:
+        """KeyError (likely bug) should be re-raised."""
+        with pytest.raises(KeyError):
+            try:
+                raise KeyError("missing key")
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
+
+    def test_reraises_attribute_error(self) -> None:
+        """AttributeError (likely bug) should be re-raised."""
+        with pytest.raises(AttributeError):
+            try:
+                raise AttributeError("no attr")
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
+
+    def test_does_not_reraise_runtime_error(self) -> None:
+        """RuntimeError is transient — should NOT be re-raised."""
+        handled = False
+        try:
+            raise RuntimeError("transient")
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            handled = True
+        assert handled
+
+    def test_does_not_reraise_os_error(self) -> None:
+        """OSError is transient — should NOT be re-raised."""
+        handled = False
+        try:
+            raise OSError("disk full")
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            handled = True
+        assert handled
+
+    def test_does_not_reraise_generic_exception(self) -> None:
+        """Generic Exception should NOT be re-raised."""
+        handled = False
+        try:
+            raise Exception("generic")
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            handled = True
+        assert handled
+
+    def test_reraises_authentication_error(self) -> None:
+        """AuthenticationError should be re-raised like CreditExhaustedError."""
+        from subprocess_util import AuthenticationError
+
+        with pytest.raises(AuthenticationError):
+            try:
+                raise AuthenticationError("bad token")
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)

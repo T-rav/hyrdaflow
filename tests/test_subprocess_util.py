@@ -554,6 +554,23 @@ class TestRunSubprocessTimeout:
         proc.wait.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_timeout_chains_original_exception(self) -> None:
+        """SubprocessTimeoutError should chain the original TimeoutError via __cause__."""
+        proc = AsyncMock()
+        proc.returncode = None
+        proc.communicate = AsyncMock(side_effect=TimeoutError)
+        proc.kill = MagicMock()
+        proc.wait = AsyncMock()
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=proc),
+            patch("asyncio.wait_for", side_effect=TimeoutError("timed out")),
+            pytest.raises(SubprocessTimeoutError) as exc_info,
+        ):
+            await run_subprocess("sleep", "999", timeout=1.0)
+        assert exc_info.value.__cause__ is not None
+        assert isinstance(exc_info.value.__cause__, TimeoutError)
+
+    @pytest.mark.asyncio
     async def test_default_timeout_is_120(self) -> None:
         """Default timeout should be 120 seconds."""
         import inspect

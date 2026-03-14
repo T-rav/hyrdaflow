@@ -241,6 +241,7 @@ class TestEventBusPublishSubscribe:
         bus = EventBus()
         event = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(event)  # should not raise
+        assert len(bus._subscribers) == 0
 
     @pytest.mark.asyncio
     async def test_set_session_id_auto_injects(self) -> None:
@@ -376,6 +377,7 @@ class TestEventBusUnsubscribe:
         orphan: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         # Should not raise
         bus.unsubscribe(orphan)
+        assert orphan not in bus._subscribers
 
     @pytest.mark.asyncio
     async def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
@@ -383,6 +385,7 @@ class TestEventBusUnsubscribe:
         queue = bus.subscribe()
         bus.unsubscribe(queue)
         bus.unsubscribe(queue)  # second call should not raise
+        assert queue not in bus._subscribers
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +524,7 @@ class TestEventBusClear:
     async def test_clear_on_empty_bus_does_not_raise(self) -> None:
         bus = EventBus()
         bus.clear()  # should not raise
+        assert bus._subscribers == []
 
     @pytest.mark.asyncio
     async def test_bus_usable_after_clear(self) -> None:
@@ -1090,3 +1094,70 @@ class TestEventLogAppend:
         await event_log.append(event)
 
         assert (tmp_path / "deep" / "nested" / "events.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# _rotate_sync OSError handling (issue #2576)
+# ---------------------------------------------------------------------------
+
+
+class TestRotateSyncOSError:
+    """Verify _rotate_sync handles OSError when opening the file."""
+
+    def test_rotate_sync_returns_early_on_open_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_rotate_sync should log a warning and return if open() raises OSError."""
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
+        log_path.write_text((event.model_dump_json() + "\n") * 10)
+
+        event_log = EventLog(log_path)
+        with (
+            patch("builtins.open", side_effect=OSError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Could not read event log for rotation" in caplog.text
+
+    def test_rotate_sync_file_deleted_between_stat_and_open(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_rotate_sync should log a warning if file is deleted after stat()."""
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
+        log_path.write_text((event.model_dump_json() + "\n") * 10)
+
+        event_log = EventLog(log_path)
+        # Simulate TOCTOU: delete file after stat() succeeds but before open()
+        original_open = open
+
+        def delayed_delete(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            log_path.unlink(missing_ok=True)
+            return original_open(*args, **kwargs)  # type: ignore[arg-type]
+
+        with (
+            patch("builtins.open", side_effect=delayed_delete),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Could not read event log for rotation" in caplog.text
+
+    def test_rotate_sync_logs_warning_on_atomic_write_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_rotate_sync should log a warning and not raise if atomic_write raises OSError."""
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
+        log_path.write_text((event.model_dump_json() + "\n") * 10)
+
+        event_log = EventLog(log_path)
+        with (
+            patch("events.atomic_write", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.events"),
+        ):
+            event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        assert "Could not write rotated event log" in caplog.text

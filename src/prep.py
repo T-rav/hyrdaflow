@@ -387,7 +387,7 @@ class RepoAuditor:
                 if re.search(r"^lint(-check)?\s*:", content, re.MULTILINE):
                     tools.append("make lint target")
             except OSError:
-                pass
+                logger.debug("Could not read Makefile", exc_info=True)
 
         package_json = self._root / "package.json"
         if package_json.is_file():
@@ -582,7 +582,7 @@ class RepoAuditor:
                 if match:
                     thresholds.append((".coveragerc:fail_under", float(match.group(1))))
             except OSError:
-                pass
+                logger.debug("Could not read .coveragerc", exc_info=True)
 
         for filename in ("Makefile", "makefile", "GNUmakefile"):
             path = self._root / filename
@@ -608,6 +608,9 @@ class RepoAuditor:
                 ):
                     thresholds.append((f"{filename}:--cov-fail-under", float(val)))
             except OSError:
+                logger.debug(
+                    "Could not read %s for coverage policy", filename, exc_info=True
+                )
                 continue
 
         package_json = self._root / "package.json"

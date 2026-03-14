@@ -73,6 +73,12 @@ You are a code quality auditor focused on dead code detection for the project at
 ## Context
 <1-2 sentences on why this cleanup matters>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Dead Code Found
 | Type | File:Line | Name | Reason |
 |------|-----------|------|--------|
@@ -81,6 +87,12 @@ You are a code quality auditor focused on dead code detection for the project at
 ## Suggested Actions
 - [ ] Remove <item> — unused since <reason>
 - [ ] Remove <item> — only referenced by other dead code
+
+## Acceptance Criteria
+- [ ] All identified dead code items are removed
+- [ ] No remaining references to removed symbols
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Impact
 - Lines removable: ~<N>
@@ -165,6 +177,12 @@ You are a code quality auditor focused on method size, class cohesion, and dupli
 ## Context
 <1-2 sentences on why small methods and focused classes matter here>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Long Methods
 | File:Line | Method | Lines | Issue |
 |-----------|--------|-------|-------|
@@ -185,6 +203,13 @@ You are a code quality auditor focused on method size, class cohesion, and dupli
 - [ ] Split `<GodClass>` into `<ClassA>` (methods a,b,c) + `<ClassB>` (methods d,e,f)
 - [ ] Replace magic value `<value>` with named constant
 - [ ] Deduplicate <pattern> into shared `<helper>()`
+
+## Acceptance Criteria
+- [ ] No method exceeds 50 lines of logic
+- [ ] No class exceeds 200 lines or 7 public methods
+- [ ] Duplicated patterns are extracted into shared helpers
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Code Example (Before/After)
 <Show a concrete before/after for the highest-impact item>
@@ -264,6 +289,12 @@ You are a code quality auditor focused on error handling and robustness for the 
 ## Context
 <1-2 sentences on the robustness risk>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Findings
 | Severity | File:Line | Issue | Risk |
 |----------|-----------|-------|------|
@@ -273,6 +304,13 @@ You are a code quality auditor focused on error handling and robustness for the 
 - [ ] <file:line> — Add error handling for <operation>
 - [ ] <file:line> — Replace bare except with specific exception type
 - [ ] <file:line> — Add timeout to subprocess call
+
+## Acceptance Criteria
+- [ ] All bare/broad excepts are replaced with specific exception types
+- [ ] All subprocess/external calls have timeouts and error handling
+- [ ] Resource management uses context managers or proper cleanup
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Impact
 - Blast radius: <what breaks if this isn't fixed>
@@ -344,6 +382,12 @@ You are a code quality auditor focused on type safety and API consistency for th
 ## Context
 <1-2 sentences on why type safety/consistency matters here>
 
+**Type:** chore
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
 ## Findings
 | Issue | File:Line | Current | Suggested |
 |-------|-----------|---------|-----------|
@@ -353,6 +397,13 @@ You are a code quality auditor focused on type safety and API consistency for th
 - [ ] <file:line> — Add return type annotation `-> X`
 - [ ] <file:line> — Replace `Any` with `SpecificType`
 - [ ] <file:line> — Rename `issue_num` to `issue_number` for consistency
+
+## Acceptance Criteria
+- [ ] All public functions have complete type annotations
+- [ ] No unnecessary `Any` types remain
+- [ ] Parameter naming is consistent across modules
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
 
 ## Impact
 - Type checker improvements: <N> new errors caught

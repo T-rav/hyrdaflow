@@ -225,10 +225,10 @@ async def stream_claude_process(
             return transcript
 
         return await asyncio.wait_for(_stream_body(), timeout=timeout)
-    except TimeoutError:
+    except TimeoutError as exc:
         proc.kill()
         await proc.wait()
-        raise RuntimeError(f"Agent process timed out after {timeout}s") from None
+        raise RuntimeError(f"Agent process timed out after {timeout}s") from exc
     except asyncio.CancelledError:
         proc.kill()
         raise

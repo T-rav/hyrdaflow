@@ -175,7 +175,8 @@ class TestStatusCallbackProtocol:
     def test_lambda_satisfies_protocol(self) -> None:
         """A lambda with matching signature should satisfy StatusCallback."""
         cb: StatusCallback = lambda name, status, details=None: None  # noqa: E731
-        cb("worker", "ok", {"key": "value"})
+        result = cb("worker", "ok", {"key": "value"})
+        assert result is None
 
     def test_callable_with_optional_details(self) -> None:
         """StatusCallback should allow calling without the details arg."""
@@ -240,7 +241,7 @@ class TestWorkFnProtocol:
 
         fn: WorkFn = my_work
         await fn()
-        assert called
+        assert called is True
 
     @pytest.mark.asyncio
     async def test_async_function_returning_value_satisfies_protocol(self) -> None:

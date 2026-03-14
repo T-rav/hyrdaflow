@@ -217,6 +217,7 @@ class Task(BaseModel):
     """Source-agnostic task representation.
 
     Maps to a GitHub issue or any other task backend.
+    ``id`` corresponds to :attr:`GitHubIssue.number` (the GitHub issue number).
     """
 
     id: int
@@ -379,20 +380,6 @@ class PlannerStatus(StrEnum):
     RETRYING = "retrying"
     DONE = "done"
     FAILED = "failed"
-
-
-class RunnerResult(Protocol):
-    """Common interface shared by all runner result types.
-
-    Every runner (agent, planner, reviewer, HITL) returns a result model
-    that satisfies this protocol, enabling generic handling in telemetry,
-    logging, and state tracking.
-    """
-
-    success: bool
-    error: str | None
-    duration_seconds: float
-    transcript: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -717,6 +704,20 @@ class ReviewVerdict(StrEnum):
     COMMENT = "comment"
 
 
+class CodeScanningAlert(BaseModel):
+    """A single code scanning alert from GitHub's code-scanning API."""
+
+    model_config = ConfigDict(frozen=True)
+
+    number: int | None = None
+    severity: str | None = None
+    security_severity: str | None = None
+    path: str | None = None
+    start_line: int | None = None
+    rule: str | None = None
+    message: str | None = None
+
+
 class ReviewResult(BaseModel):
     """Outcome of a reviewer agent run."""
 
@@ -917,21 +918,6 @@ class JudgeResult(BaseModel):
     def failed_criteria(self) -> list[VerificationCriterion]:
         """Return only the criteria that failed."""
         return [c for c in self.criteria if not c.passed]
-
-
-# --- Batch ---
-
-
-class BatchResult(BaseModel):
-    """Summary of a full batch cycle."""
-
-    batch_number: int
-    issues: list[Task] = Field(default_factory=list)
-    plan_results: list[PlanResult] = Field(default_factory=list)
-    worker_results: list[WorkerResult] = Field(default_factory=list)
-    pr_infos: list[PRInfo] = Field(default_factory=list)
-    review_results: list[ReviewResult] = Field(default_factory=list)
-    merged_prs: list[int] = Field(default_factory=list)
 
 
 # --- Baseline Policy ---
@@ -1727,13 +1713,6 @@ class SessionEndPayload(TypedDict):
     issues_failed: int
 
 
-class PhaseChangePayload(TypedDict, total=False):
-    """Payload for ``EventType.PHASE_CHANGE``."""
-
-    phase: str
-    repo: str
-
-
 class TranscriptLinePayload(TypedDict, total=False):
     """Payload for ``EventType.TRANSCRIPT_LINE``.
 
@@ -2378,7 +2357,7 @@ class CiGateFn(Protocol):
         wt_path: Path,
         result: ReviewResult,
         worker_id: int,
-        code_scanning_alerts: list[dict] | None = None,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
     ) -> bool: ...
 
 

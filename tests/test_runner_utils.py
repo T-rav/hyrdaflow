@@ -511,6 +511,39 @@ class TestStreamClaudeProcessLifecycle:
         mock_proc.wait.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_timeout_chains_original_exception(self, event_bus) -> None:
+        """Timeout RuntimeError should chain the original TimeoutError via __cause__."""
+
+        class HangingIter:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self) -> bytes:
+                await asyncio.sleep(3600)
+                return b""
+
+        mock_proc = AsyncMock()
+        mock_proc.returncode = None
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = HangingIter()
+        mock_proc.stderr = AsyncMock()
+        mock_proc.stderr.read = AsyncMock(return_value=b"")
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        mock_create = AsyncMock(return_value=mock_proc)
+
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            pytest.raises(RuntimeError, match="timed out") as exc_info,
+        ):
+            await stream_claude_process(**_default_kwargs(event_bus), timeout=0.01)
+
+        assert exc_info.value.__cause__ is not None
+        assert isinstance(exc_info.value.__cause__, TimeoutError)
+
+    @pytest.mark.asyncio
     async def test_cancellation_cancels_stderr_task(self, event_bus) -> None:
         """On CancelledError, stderr_task must be cancelled — no pending task leak."""
         stderr_read_started = asyncio.Event()
@@ -582,7 +615,7 @@ class TestStreamClaudeProcessLifecycle:
                 )
             )
 
-        assert proc_was_tracked
+        assert proc_was_tracked is True
         assert len(active_procs) == 0
 
 
@@ -613,13 +646,17 @@ class TestTerminateProcesses:
         proc.pid = 12345
         active: set[asyncio.subprocess.Process] = {proc}
 
-        with patch("runner_utils.os.killpg", side_effect=ProcessLookupError):
+        with patch(
+            "runner_utils.os.killpg", side_effect=ProcessLookupError
+        ) as mock_killpg:
             terminate_processes(active)  # Should not raise
+        mock_killpg.assert_called_once()
 
     def test_empty_set_is_noop(self) -> None:
         """terminate_processes with empty set should be a no-op."""
         active: set[asyncio.subprocess.Process] = set()
         terminate_processes(active)  # Should not raise
+        assert len(active) == 0
 
     def test_uses_killpg_with_sigkill(self) -> None:
         """terminate_processes should use os.killpg() with SIGKILL."""
