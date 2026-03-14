@@ -918,7 +918,9 @@ class TestPickRepoFolder:
 class TestBrowsableFilesystemAPI:
     """Tests for /api/fs/roots and /api/fs/list endpoints."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
+    def _make_router(
+        self, config, event_bus, state, tmp_path, *, allowed_repo_roots_fn=None
+    ):
         from dashboard_routes import create_router
         from pr_manager import PRManager
 
@@ -933,6 +935,7 @@ class TestBrowsableFilesystemAPI:
             set_run_task=lambda t: None,
             ui_dist_dir=tmp_path / "no-dist",
             template_dir=tmp_path / "no-templates",
+            allowed_repo_roots_fn=allowed_repo_roots_fn,
         )
 
     def _get_endpoint(self, router, target_path: str):
@@ -997,11 +1000,15 @@ class TestBrowsableFilesystemAPI:
         (root / "repo-a").mkdir()
         (root / "repo-b").mkdir()
         (root / ".hidden").mkdir()
-        router = self._make_router(config, event_bus, state, tmp_path)
+        router = self._make_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            allowed_repo_roots_fn=lambda: (str(root),),
+        )
         endpoint = self._get_endpoint(router, "/api/fs/list")
-
-        with patch("dashboard_routes._allowed_repo_roots", return_value=(str(root),)):
-            resp = await endpoint(path=str(root))
+        resp = await endpoint(path=str(root))
 
         data = json_mod.loads(resp.body)
         assert resp.status_code == 200

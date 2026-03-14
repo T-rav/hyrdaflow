@@ -145,16 +145,16 @@ class TestIndexRoute:
 
         from dashboard import HydraFlowDashboard
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        # Patch both _UI_DIST_DIR and _TEMPLATE_DIR to non-existent paths
-        with (
-            patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
-            patch("dashboard._TEMPLATE_DIR", tmp_path / "no-templates"),
-        ):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/")
+        dashboard = HydraFlowDashboard(
+            config,
+            event_bus,
+            state,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/")
 
         assert response.status_code == 200
         assert "<h1>" in response.text
@@ -2584,12 +2584,10 @@ class TestStaticDashboardJS:
         js_file = static_dir / "dashboard.js"
         js_file.write_text("// dashboard JS")
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        with patch("dashboard._STATIC_DIR", static_dir):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/static/dashboard.js")
+        dashboard = HydraFlowDashboard(config, event_bus, state, static_dir=static_dir)
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/static/dashboard.js")
 
         assert response.status_code == 200
         assert "// dashboard JS" in response.text
@@ -2606,15 +2604,16 @@ class TestFallbackTemplateExternalJS:
 
         from dashboard import HydraFlowDashboard
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        with (
-            patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
-            patch("dashboard._STATIC_DIR", tmp_path / "no-static"),
-        ):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/")
+        dashboard = HydraFlowDashboard(
+            config,
+            event_bus,
+            state,
+            ui_dist_dir=tmp_path / "no-dist",
+            static_dir=tmp_path / "no-static",
+        )
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/")
 
         body = response.text
         assert 'src="/static/dashboard.js"' in body
@@ -2627,15 +2626,16 @@ class TestFallbackTemplateExternalJS:
 
         from dashboard import HydraFlowDashboard
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        with (
-            patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
-            patch("dashboard._STATIC_DIR", tmp_path / "no-static"),
-        ):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/")
+        dashboard = HydraFlowDashboard(
+            config,
+            event_bus,
+            state,
+            ui_dist_dir=tmp_path / "no-dist",
+            static_dir=tmp_path / "no-static",
+        )
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/")
 
         body = response.text
         assert "onclick=" not in body
@@ -2648,15 +2648,16 @@ class TestFallbackTemplateExternalJS:
 
         from dashboard import HydraFlowDashboard
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        with (
-            patch("dashboard._UI_DIST_DIR", tmp_path / "no-dist"),
-            patch("dashboard._STATIC_DIR", tmp_path / "no-static"),
-        ):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/")
+        dashboard = HydraFlowDashboard(
+            config,
+            event_bus,
+            state,
+            ui_dist_dir=tmp_path / "no-dist",
+            static_dir=tmp_path / "no-static",
+        )
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/")
 
         body = response.text
         # The template should not have inline JS with WebSocket logic
@@ -2755,12 +2756,10 @@ class TestSPACatchAll:
         (dist_dir / "index.html").write_text("<html><body>SPA</body></html>")
         (dist_dir / "logo.png").write_bytes(b"fake-png-data")
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        with patch("dashboard._UI_DIST_DIR", dist_dir):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/logo.png")
+        dashboard = HydraFlowDashboard(config, event_bus, state, ui_dist_dir=dist_dir)
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/logo.png")
 
         assert response.status_code == 200
         assert response.content == b"fake-png-data"
@@ -2801,12 +2800,10 @@ class TestSPACatchAll:
         # Create a symlink inside dist_dir pointing outside
         (dist_dir / "escape.txt").symlink_to(tmp_path / "secret.txt")
 
-        dashboard = HydraFlowDashboard(config, event_bus, state)
-
-        with patch("dashboard._UI_DIST_DIR", dist_dir):
-            app = dashboard.create_app()
-            client = TestClient(app)
-            response = client.get("/escape.txt")
+        dashboard = HydraFlowDashboard(config, event_bus, state, ui_dist_dir=dist_dir)
+        app = dashboard.create_app()
+        client = TestClient(app)
+        response = client.get("/escape.txt")
 
         # The symlink target resolves outside dist_dir; the is_relative_to
         # jail check must reject it and serve SPA HTML instead.
