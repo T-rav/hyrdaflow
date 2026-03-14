@@ -3130,7 +3130,7 @@ class TestPRInfoDescriptions:
 class TestLoopResult:
     """Tests for the LoopResult dataclass."""
 
-    def test_defaults(self) -> None:
+    def test_loop_result_defaults_attempts_to_zero(self) -> None:
         result = LoopResult(passed=True, summary="OK")
         assert result.passed is True
         assert result.summary == "OK"
@@ -3142,17 +3142,17 @@ class TestLoopResult:
         assert result.summary == "failed"
         assert result.attempts == 3
 
-    def test_frozen(self) -> None:
+    def test_loop_result_is_immutable(self) -> None:
         result = LoopResult(passed=True, summary="OK")
         with pytest.raises(AttributeError):
             result.passed = False  # type: ignore[misc]
 
-    def test_equality(self) -> None:
+    def test_loop_result_equal_when_fields_match(self) -> None:
         a = LoopResult(passed=True, summary="OK", attempts=1)
         b = LoopResult(passed=True, summary="OK", attempts=1)
         assert a == b
 
-    def test_inequality(self) -> None:
+    def test_loop_result_not_equal_when_passed_differs(self) -> None:
         a = LoopResult(passed=True, summary="OK")
         b = LoopResult(passed=False, summary="OK")
         assert a != b
