@@ -107,6 +107,7 @@ class HydraFlowEvent(BaseModel):
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     data: EventData = Field(default_factory=dict)
     session_id: str | None = None
+    repo: str | None = None
 
     def typed_data(self, cls: type[_T]) -> _T:
         """Cast ``self.data`` to a typed payload class for safe access.
@@ -278,7 +279,7 @@ class EventBus:
         self._active_session_id = session_id
 
     def set_repo(self, repo: str) -> None:
-        """Set the active repo slug to auto-inject into published event data."""
+        """Set the active repo slug to auto-inject into published events."""
         self._active_repo = repo
 
     @property
@@ -290,12 +291,8 @@ class EventBus:
         """Publish *event* to all subscribers and append to history."""
         if event.session_id is None and getattr(self, "_active_session_id", None):
             event.session_id = self._active_session_id
-        if (
-            self._active_repo
-            and isinstance(event.data, dict)
-            and "repo" not in event.data
-        ):
-            event.data["repo"] = self._active_repo
+        if self._active_repo and event.repo is None:
+            event.repo = self._active_repo
         self._history.append(event)
         if len(self._history) > self._max_history:
             self._history = self._history[-self._max_history :]

@@ -272,6 +272,52 @@ class TestEventBusPublishSubscribe:
         assert event.session_id is None
 
     @pytest.mark.asyncio
+    async def test_set_repo_injects_top_level_repo(self) -> None:
+        bus = EventBus()
+        bus.set_repo("owner/repo")
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={"issue": 1})
+        await bus.publish(event)
+        assert event.repo == "owner/repo"
+        assert "repo" not in event.data
+
+    @pytest.mark.asyncio
+    async def test_set_repo_does_not_override_explicit(self) -> None:
+        bus = EventBus()
+        bus.set_repo("owner/repo")
+        event = HydraFlowEvent(
+            type=EventType.WORKER_UPDATE,
+            data={"issue": 1},
+            repo="other/repo",
+        )
+        await bus.publish(event)
+        assert event.repo == "other/repo"
+
+    @pytest.mark.asyncio
+    async def test_publish_does_not_mutate_event_data_dict(self) -> None:
+        """Verify publish() no longer injects 'repo' into event.data."""
+        bus = EventBus()
+        bus.set_repo("owner/repo")
+        original_data = {"issue": 1}
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=original_data)
+        await bus.publish(event)
+        assert "repo" not in event.data
+        assert "repo" not in original_data
+
+    @pytest.mark.asyncio
+    async def test_repo_field_defaults_to_none(self) -> None:
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE)
+        assert event.repo is None
+
+    @pytest.mark.asyncio
+    async def test_repo_field_included_in_serialization(self) -> None:
+        bus = EventBus()
+        bus.set_repo("owner/repo")
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data={"issue": 1})
+        await bus.publish(event)
+        dumped = event.model_dump()
+        assert dumped["repo"] == "owner/repo"
+
+    @pytest.mark.asyncio
     async def test_subscribe_with_custom_max_queue(self) -> None:
         bus = EventBus()
         queue = bus.subscribe(max_queue=10)
@@ -481,7 +527,7 @@ class TestEventBusClear:
         first_event = EventFactory.create(type=EventType.PHASE_CHANGE)
         await bus.publish(first_event)
         assert first_event.session_id == "session-123"
-        assert first_event.data["repo"] == "hydraflow/repo"
+        assert first_event.repo == "hydraflow/repo"
 
         async def _noop() -> None:
             return None
@@ -501,7 +547,7 @@ class TestEventBusClear:
 
         assert bus.current_session_id is None
         assert next_event.session_id is None
-        assert "repo" not in next_event.data
+        assert next_event.repo is None
         assert bus._active_repo == ""
         assert not bus._pending_persists
 

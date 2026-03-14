@@ -618,7 +618,7 @@ export function reducer(state, action) {
     case 'session_start': {
       const newSession = {
         id: action.data.session_id,
-        repo: action.data.repo,
+        repo: action.repo || action.data.repo,
         started_at: action.timestamp || new Date().toISOString(),
         ended_at: null,
         issues_processed: [],
