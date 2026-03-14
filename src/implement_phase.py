@@ -465,6 +465,9 @@ class ImplementPhase:
             pr = await self._prs.find_open_pr_for_branch(
                 result.branch, issue_number=issue.id
             )
+            if pr is not None and pr.number > 0:
+                expected_title = PRManager.expected_pr_title(issue.id, issue.title)
+                await self._prs.update_pr_title(pr.number, expected_title)
         result.pr_info = pr
         return pr
 
