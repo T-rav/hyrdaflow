@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import PendingReport
+from models import PendingReport, TrackedReport
 from report_issue_loop import ReportIssueLoop
 from state import StateTracker
 from tests.helpers import make_bg_loop_deps
@@ -717,3 +717,238 @@ class TestSaveScreenshotResourceManagement:
 
         fd_after = len(os.listdir(f"/proc/{pid}/fd"))
         assert fd_after <= fd_before, "FD leaked after _save_screenshot"
+
+
+# ---------------------------------------------------------------------------
+# Tracked report status transition tests
+# ---------------------------------------------------------------------------
+
+
+def _enqueue_with_tracking(
+    state: StateTracker, description: str = "Test bug"
+) -> PendingReport:
+    """Enqueue a PendingReport and create a matching TrackedReport."""
+    report = PendingReport(description=description)
+    state.enqueue_report(report)
+    tracked = TrackedReport(
+        id=report.id,
+        reporter_id="test-user",
+        description=description,
+        status="queued",
+    )
+    state.add_tracked_report(tracked)
+    return report
+
+
+class TestTrackedReportStatusTransitions:
+    """Tests that _do_work updates TrackedReport status at each lifecycle stage."""
+
+    @pytest.mark.asyncio
+    async def test_status_transitions_to_in_progress_on_start(
+        self, tmp_path: Path
+    ) -> None:
+        """When processing begins, tracked report status becomes in-progress."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        async def check_status_during_processing(**kwargs: Any) -> str:
+            # During agent execution the tracked report should be in-progress
+            tracked = state.get_tracked_report(report.id)
+            assert tracked is not None
+            assert tracked.status == "in-progress"
+            return "https://github.com/acme/repo/issues/200"
+
+        with patch(
+            "report_issue_loop.stream_claude_process",
+            side_effect=check_status_during_processing,
+        ):
+            await loop._do_work()
+
+    @pytest.mark.asyncio
+    async def test_status_transitions_to_fixed_on_success(self, tmp_path: Path) -> None:
+        """On successful issue creation, tracked report status becomes fixed."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/201"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        assert tracked.status == "fixed"
+
+    @pytest.mark.asyncio
+    async def test_fixed_report_has_linked_issue_url(self, tmp_path: Path) -> None:
+        """On success, the tracked report's linked_issue_url is populated."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/202"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        assert "issues/202" in tracked.linked_issue_url
+
+    @pytest.mark.asyncio
+    async def test_status_transitions_to_closed_on_escalation(
+        self, tmp_path: Path
+    ) -> None:
+        """After max retries, tracked report status becomes closed."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+        # Pre-set to 4 attempts so next failure triggers escalation
+        for _ in range(4):
+            state.fail_report(report.id)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        assert tracked.status == "closed"
+
+    @pytest.mark.asyncio
+    async def test_status_reverts_to_queued_on_retry_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """On a non-final failure, tracked report status reverts to queued."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        assert tracked.status == "queued"
+
+    @pytest.mark.asyncio
+    async def test_history_entries_added_for_transitions(self, tmp_path: Path) -> None:
+        """Each status transition appends a history entry."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/203"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        actions = [h.action for h in tracked.history]
+        assert "processing" in actions
+        assert "fixed" in actions
+
+    @pytest.mark.asyncio
+    async def test_history_entries_added_for_retry(self, tmp_path: Path) -> None:
+        """On a non-final failure, history records both in-progress and retry actions."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        actions = [h.action for h in tracked.history]
+        assert "processing" in actions
+        assert "retry" in actions
+
+    @pytest.mark.asyncio
+    async def test_history_entries_added_for_escalation(self, tmp_path: Path) -> None:
+        """On final failure, history records both in-progress and escalated actions."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+        for _ in range(4):
+            state.fail_report(report.id)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            await loop._do_work()
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        actions = [h.action for h in tracked.history]
+        assert "processing" in actions
+        assert "escalated" in actions
+
+    @pytest.mark.asyncio
+    async def test_no_tracked_report_does_not_crash(self, tmp_path: Path) -> None:
+        """When no TrackedReport exists, status updates are silently skipped."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Only enqueue PendingReport, no TrackedReport
+        report = PendingReport(description="No tracker")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/204"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_no_tracked_report_does_not_crash_on_retry(
+        self, tmp_path: Path
+    ) -> None:
+        """When no TrackedReport exists and agent fails, retry path silently skips updates."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Only enqueue PendingReport, no TrackedReport
+        report = PendingReport(description="No tracker")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 0
+        assert result["error"] is True
+
+    @pytest.mark.asyncio
+    async def test_status_reverts_to_queued_when_agent_raises_exception(
+        self, tmp_path: Path
+    ) -> None:
+        """When stream_claude_process raises, status transitions in-progress → queued."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process",
+            side_effect=RuntimeError("agent crashed"),
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 0
+        assert result["error"] is True
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        assert tracked.status == "queued"
+        actions = [h.action for h in tracked.history]
+        assert "processing" in actions
+        assert "retry" in actions

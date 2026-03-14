@@ -64,6 +64,12 @@
           },
           {
             "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.check-test-counterpart.sh",
+            "timeout": 10,
+            "statusMessage": "Checking for test counterpart..."
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.enforce-migrations.sh",
             "timeout": 10,
             "statusMessage": "Checking for direct DB schema changes..."
@@ -140,6 +146,12 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-code-changes.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.auto-lint-after-edit.sh",
+            "timeout": 15,
+            "statusMessage": "Auto-fixing lint issues..."
           }
         ]
       },
@@ -150,6 +162,12 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.track-code-changes.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.auto-lint-after-edit.sh",
+            "timeout": 15,
+            "statusMessage": "Auto-fixing lint issues..."
           }
         ]
       }

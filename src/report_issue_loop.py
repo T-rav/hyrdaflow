@@ -79,6 +79,15 @@ class ReportIssueLoop(BaseBackgroundLoop):
         if report is None:
             return None
 
+        # Transition tracked report to "in-progress" so the UI reflects
+        # that the report is actively being processed.
+        self._state.update_tracked_report(
+            report.id,
+            status="in-progress",
+            action_label="processing",
+            detail="Agent started processing bug report",
+        )
+
         # Save screenshot to a temp PNG so the agent can *see* it via Read
         # and reference it as a markdown image in the issue body.  The `gh
         # issue create` CLI auto-uploads local image paths used in markdown.
@@ -188,6 +197,22 @@ class ReportIssueLoop(BaseBackgroundLoop):
             # Verify the agent applied the correct label and screenshot
             await self._verify_issue(issue_number, ready_label, screenshot_url)
 
+            issue_url = f"https://github.com/{self._config.repo}/issues/{issue_number}"
+
+            # Set linked_issue_url before update_tracked_report so both
+            # fields are persisted atomically in the same save() call.
+            tracked = self._state.get_tracked_report(report.id)
+            if tracked:
+                tracked.linked_issue_url = issue_url
+
+            # Mark tracked report as fixed (also saves state)
+            self._state.update_tracked_report(
+                report.id,
+                status="fixed",
+                action_label="fixed",
+                detail=f"Created issue #{issue_number}",
+            )
+
             # Success — remove from queue
             self._state.remove_report(report.id)
             logger.info(
@@ -207,6 +232,15 @@ class ReportIssueLoop(BaseBackgroundLoop):
         if attempt_count >= _MAX_REPORT_ATTEMPTS:
             self._state.remove_report(report.id)
             await self._escalate_failed_report(report)
+
+            # Mark tracked report as closed after escalation
+            self._state.update_tracked_report(
+                report.id,
+                status="closed",
+                action_label="escalated",
+                detail=f"Failed after {attempt_count} attempts — escalated to HITL",
+            )
+
             logger.error(
                 "Report %s failed %d times — escalated to HITL",
                 report.id,
@@ -218,6 +252,14 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 "error": True,
                 "escalated": True,
             }
+
+        # Revert tracked report to queued for retry
+        self._state.update_tracked_report(
+            report.id,
+            status="queued",
+            action_label="retry",
+            detail=f"Attempt {attempt_count}/{_MAX_REPORT_ATTEMPTS} failed — will retry",
+        )
 
         logger.warning(
             "Report %s failed (attempt %d/%d) — will retry next cycle",

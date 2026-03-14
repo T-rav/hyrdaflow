@@ -84,6 +84,17 @@ HydraFlow creates isolated git worktrees for each issue. **Always clean up workt
 - Coverage threshold: 70%
 - **Never write tests for ADR markdown content.** ADRs are documentation, not code. Do not create `test_adr_NNNN_*.py` files that assert on markdown headings, status fields, or prose content — these break whenever the document is edited and provide no value. Only test ADR-related *code* (e.g., `test_adr_reviewer.py` tests the reviewer logic).
 
+## Quality Before Completion
+
+**Always run lint and tests before declaring work complete or committing.** Do not present implementation as "done" until quality checks pass.
+
+1. After each significant code change: `make lint` (auto-fixes formatting and imports)
+2. Before committing: `make quality` (lint + typecheck + security + tests in parallel)
+3. If lint auto-fixes files, re-check for type errors introduced by removed imports
+4. Track your edits across files — avoid creating duplicate helpers or inconsistent naming when refactoring multiple test files
+
+The `/hf.quality-gate` command runs a structured quality check sequence. Use it before presenting work as complete.
+
 ## Never Skip Commit Hooks
 
 **NEVER** use `git commit --no-verify` or `--no-hooks` flags. Always fix code issues first.
