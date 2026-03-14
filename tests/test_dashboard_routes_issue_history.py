@@ -1639,8 +1639,18 @@ class TestEnrichmentErrorResilience:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(side_effect=_side_effect)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with (
+            patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher),
+            patch("dashboard_routes.logger") as mock_logger,
+        ):
             response = await endpoint(limit=100)
+
+        # Failing fetch for issue 301 should have been logged as a warning
+        assert mock_logger.warning.called
+        warning_args = mock_logger.warning.call_args[0]
+        assert "enrichment" in warning_args[0].lower() or isinstance(
+            warning_args[-1], RuntimeError
+        )
 
         payload = json.loads(response.body)
         issue_302 = next(

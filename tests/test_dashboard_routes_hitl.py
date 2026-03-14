@@ -1781,7 +1781,7 @@ class TestBuildHitlContextNoneBody:
         import json
 
         payload = json.loads(resp.body)
-        assert "summary" in payload
+        assert payload.get("summary") == "summary line"
         # The context should have been built without error
         assert len(captured_context) == 1
         assert "Issue #99" in captured_context[0]
