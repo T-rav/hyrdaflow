@@ -907,3 +907,48 @@ class TestTrackedReportStatusTransitions:
 
         assert result is not None
         assert result["processed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_no_tracked_report_does_not_crash_on_retry(
+        self, tmp_path: Path
+    ) -> None:
+        """When no TrackedReport exists and agent fails, retry path silently skips updates."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Only enqueue PendingReport, no TrackedReport
+        report = PendingReport(description="No tracker")
+        state.enqueue_report(report)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 0
+        assert result["error"] is True
+
+    @pytest.mark.asyncio
+    async def test_status_reverts_to_queued_when_agent_raises_exception(
+        self, tmp_path: Path
+    ) -> None:
+        """When stream_claude_process raises, status transitions in-progress → queued."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = _enqueue_with_tracking(state)
+
+        with patch(
+            "report_issue_loop.stream_claude_process",
+            side_effect=RuntimeError("agent crashed"),
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 0
+        assert result["error"] is True
+
+        tracked = state.get_tracked_report(report.id)
+        assert tracked is not None
+        assert tracked.status == "queued"
+        actions = [h.action for h in tracked.history]
+        assert "processing" in actions
+        assert "retry" in actions
