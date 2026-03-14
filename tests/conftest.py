@@ -45,10 +45,11 @@ if TYPE_CHECKING:
 #
 # - ``setup_test_environment`` removes HYDRAFLOW_*/HYDRA_*/GIT_* env vars so
 #   that tests don't accidentally read the host's configuration.  A
-#   ``finally`` block restores original values, but an abnormal termination
-#   (SIGKILL, segfault) would leave the environment corrupted for any
-#   subsequent in-process test run.  This is an acceptable trade-off because
-#   pytest does not survive such terminations anyway.
+#   ``finally`` block restores original values after all tests in the session
+#   complete.  An abnormal process termination (SIGKILL, segfault) will kill
+#   the pytest process before the ``finally`` runs, but since the environment
+#   is process-local, it cannot affect any other process — this is an
+#   acceptable trade-off.
 #
 # - ``_reset_gh_semaphore`` clears module-level private state in
 #   subprocess_util to prevent cross-test leakage of semaphore/rate-limit

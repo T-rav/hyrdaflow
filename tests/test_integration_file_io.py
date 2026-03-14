@@ -154,7 +154,9 @@ class TestFileLock:
                     # Non-atomic read-modify-write: without mutual exclusion
                     # another thread could read the same value before we write.
                     current = int(counter_path.read_text())
-                    yield_point.wait(timeout=0)  # yield CPU without wall-clock delay
+                    yield_point.wait(
+                        timeout=0
+                    )  # no wall-clock delay; no CPU yield guaranteed
                     counter_path.write_text(str(current + 1))
 
         threads = [threading.Thread(target=worker) for _ in range(3)]
