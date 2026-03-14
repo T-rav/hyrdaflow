@@ -85,20 +85,20 @@ class PipelineScript:
     hitl_resolutions: dict[int, str] = field(default_factory=dict)
     credit_resume_seconds: float = 0.01
 
-    def triage_for(self, issue_id: int) -> str:
-        return self.triage_routes.get(issue_id, "plan")
+    def triage_for(self, issue_number: int) -> str:
+        return self.triage_routes.get(issue_number, "plan")
 
-    def plan_for(self, issue_id: int) -> str:
-        return self.plan_routes.get(issue_id, "ready")
+    def plan_for(self, issue_number: int) -> str:
+        return self.plan_routes.get(issue_number, "ready")
 
-    def implement_for(self, issue_id: int) -> str:
-        return self.implement_behaviors.get(issue_id, "success")
+    def implement_for(self, issue_number: int) -> str:
+        return self.implement_behaviors.get(issue_number, "success")
 
-    def review_for(self, issue_id: int) -> str:
-        return self.review_behaviors.get(issue_id, "merge")
+    def review_for(self, issue_number: int) -> str:
+        return self.review_behaviors.get(issue_number, "merge")
 
-    def hitl_for(self, issue_id: int) -> str:
-        return self.hitl_resolutions.get(issue_id, "plan")
+    def hitl_for(self, issue_number: int) -> str:
+        return self.hitl_resolutions.get(issue_number, "plan")
 
 
 class ScriptedGitHub:
@@ -120,8 +120,8 @@ class ScriptedGitHub:
         self._prs[issue.id] = pr
         return pr
 
-    def get_pr(self, issue_id: int) -> PRInfo | None:
-        return self._prs.get(issue_id)
+    def get_pr(self, issue_number: int) -> PRInfo | None:
+        return self._prs.get(issue_number)
 
     def active_issue_numbers(self) -> Iterable[int]:
         return self._prs.keys()

@@ -14,6 +14,7 @@ from models import (
     BatchResult,
     BGWorkerHealth,
     CIStatus,
+    CodeScanningAlert,
     ConflictResolutionResult,
     ControlStatusConfig,
     ControlStatusResponse,
@@ -3337,3 +3338,65 @@ class TestRunnerResultProtocol:
         assert isinstance(obj.duration_seconds, float)
         assert isinstance(obj.transcript, str)
         assert obj.error is None or isinstance(obj.error, str)
+
+
+# ---------------------------------------------------------------------------
+# CodeScanningAlert
+# ---------------------------------------------------------------------------
+
+
+class TestCodeScanningAlert:
+    """Tests for the CodeScanningAlert model."""
+
+    def test_construct_with_all_fields(self):
+        alert = CodeScanningAlert(
+            number=1,
+            severity="error",
+            security_severity="high",
+            path="src/db.js",
+            start_line=42,
+            rule="js/sql-injection",
+            message="SQL injection vulnerability",
+        )
+        assert alert.number == 1
+        assert alert.severity == "error"
+        assert alert.security_severity == "high"
+        assert alert.path == "src/db.js"
+        assert alert.start_line == 42
+        assert alert.rule == "js/sql-injection"
+        assert alert.message == "SQL injection vulnerability"
+
+    def test_construct_with_defaults(self):
+        alert = CodeScanningAlert()
+        assert alert.number is None
+        assert alert.severity is None
+        assert alert.security_severity is None
+        assert alert.path is None
+        assert alert.start_line is None
+        assert alert.rule is None
+        assert alert.message is None
+
+    def test_model_validate_from_dict(self):
+        raw = {
+            "number": 3,
+            "severity": "warning",
+            "path": "foo.py",
+            "start_line": 10,
+            "rule": "py/unused-import",
+            "message": "Unused import",
+        }
+        alert = CodeScanningAlert.model_validate(raw)
+        assert alert.number == 3
+        assert alert.path == "foo.py"
+        assert alert.security_severity is None
+
+    def test_frozen_immutability(self):
+        alert = CodeScanningAlert(severity="error")
+        with pytest.raises(ValidationError):
+            alert.severity = "warning"  # type: ignore[misc]
+
+    def test_ignores_unknown_fields(self):
+        raw = {"severity": "error", "extra_field": "ignored"}
+        alert = CodeScanningAlert.model_validate(raw)
+        assert alert.severity == "error"
+        assert not hasattr(alert, "extra_field")
