@@ -5,13 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from makefile_scaffold import (
-    ScaffoldResult,
     discover_project_paths,
     generate_makefile,
     merge_makefile,
     parse_makefile,
-    scaffold_makefile,
-    scaffold_makefiles,
 )
 
 
@@ -281,137 +278,9 @@ class TestMergeMakefile:
         assert new_content.count(".DEFAULT_GOAL") == 1
 
 
-class TestScaffoldMakefile:
-    """Tests for scaffold_makefile()."""
+class TestDiscoverProjectPaths:
+    """Tests for discover_project_paths()."""
 
-    def test_creates_new_makefile_for_python_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        result = scaffold_makefile(tmp_path)
-        assert result.created is True
-        assert result.language == "python"
-        makefile = tmp_path / "Makefile"
-        assert makefile.exists()
-        content = makefile.read_text()
-        assert "ruff" in content
-        assert "pytest" in content
-
-    def test_creates_new_makefile_for_js_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "package.json").touch()
-        result = scaffold_makefile(tmp_path)
-        assert result.created is True
-        assert result.language == "node"
-        content = (tmp_path / "Makefile").read_text()
-        assert "npx eslint" in content
-
-    def test_creates_new_makefile_for_go_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "go.mod").touch()
-        result = scaffold_makefile(tmp_path)
-        assert result.created is True
-        assert result.language == "go"
-        content = (tmp_path / "Makefile").read_text()
-        assert "go test ./..." in content
-
-    def test_creates_new_makefile_for_rust_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").touch()
-        result = scaffold_makefile(tmp_path)
-        assert result.created is True
-        assert result.language == "rust"
-        content = (tmp_path / "Makefile").read_text()
-        assert "cargo test --all-targets" in content
-
-    def test_merges_into_existing_makefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        makefile = tmp_path / "Makefile"
-        makefile.write_text("clean:\n\trm -rf dist\n")
-        result = scaffold_makefile(tmp_path)
-        assert result.created is False
-        assert len(result.targets_added) > 0
-        content = makefile.read_text()
-        assert "clean:" in content
-        assert "lint:" in content
-
-    def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        result = scaffold_makefile(tmp_path, dry_run=True)
-        assert result.language == "python"
-        assert not (tmp_path / "Makefile").exists()
-
-    def test_dry_run_does_not_modify_existing_makefile(self, tmp_path: Path) -> None:
-        # dry_run=True on the merge path must not write to the existing file
-        (tmp_path / "pyproject.toml").touch()
-        makefile = tmp_path / "Makefile"
-        original = "clean:\n\trm -rf dist\n"
-        makefile.write_text(original)
-        result = scaffold_makefile(tmp_path, dry_run=True)
-        # File must be unchanged
-        assert makefile.read_text() == original
-        # But the result should still report what would have been added
-        assert len(result.targets_added) > 0
-        assert result.language == "python"
-
-    def test_returns_warnings_for_conflicts(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        makefile = tmp_path / "Makefile"
-        makefile.write_text("test:\n\tnpm test\n")
-        result = scaffold_makefile(tmp_path)
-        assert len(result.warnings) > 0
-        assert any("test" in w for w in result.warnings)
-
-    def test_skips_unknown_language(self, tmp_path: Path) -> None:
-        result = scaffold_makefile(tmp_path)
-        assert result.language == "unknown"
-        assert len(result.targets_added) == 0
-        assert not (tmp_path / "Makefile").exists()
-
-    def test_idempotent_on_complete_makefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        scaffold_makefile(tmp_path)
-        content_first = (tmp_path / "Makefile").read_text()
-        result = scaffold_makefile(tmp_path)
-        content_second = (tmp_path / "Makefile").read_text()
-        assert content_first == content_second
-        assert len(result.targets_added) == 0
-
-    def test_finds_lowercase_makefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        makefile = tmp_path / "makefile"
-        makefile.write_text("clean:\n\trm -rf dist\n")
-        result = scaffold_makefile(tmp_path)
-        assert result.created is False
-        # Should have merged into the existing lowercase makefile
-        content = makefile.read_text()
-        assert "lint:" in content
-
-    def test_finds_gnumakefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        makefile = tmp_path / "GNUmakefile"
-        makefile.write_text("clean:\n\trm -rf dist\n")
-        result = scaffold_makefile(tmp_path)
-        assert result.created is False
-        content = makefile.read_text()
-        assert "lint:" in content
-
-    def test_empty_makefile_treated_as_new(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        makefile = tmp_path / "Makefile"
-        makefile.write_text("   \n\n")
-        result = scaffold_makefile(tmp_path)
-        assert result.created is True
-        content = makefile.read_text()
-        assert "ruff" in content
-
-    def test_scaffold_result_fields(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").touch()
-        result = scaffold_makefile(tmp_path)
-        assert isinstance(result, ScaffoldResult)
-        assert isinstance(result.created, bool)
-        assert isinstance(result.targets_added, list)
-        assert isinstance(result.warnings, list)
-        assert isinstance(result.skipped, list)
-        assert isinstance(result.language, str)
-
-
-class TestScaffoldMakefiles:
     def test_discovers_multiple_project_paths(self, tmp_path: Path) -> None:
         (tmp_path / "backend").mkdir()
         (tmp_path / "backend" / "pyproject.toml").touch()
@@ -448,14 +317,3 @@ class TestScaffoldMakefiles:
         rels = {str(p.relative_to(tmp_path)) for p in paths}
         assert "backend" in rels
         assert "hydra" not in rels
-
-    def test_scaffolds_makefiles_for_multiple_projects(self, tmp_path: Path) -> None:
-        (tmp_path / "backend").mkdir()
-        (tmp_path / "backend" / "pyproject.toml").touch()
-        (tmp_path / "frontend").mkdir()
-        (tmp_path / "frontend" / "package.json").write_text("{}\n")
-        result = scaffold_makefiles(tmp_path)
-        assert "backend" in result.results
-        assert "frontend" in result.results
-        assert (tmp_path / "backend" / "Makefile").exists()
-        assert (tmp_path / "frontend" / "Makefile").exists()

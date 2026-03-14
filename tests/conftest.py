@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from ci_scaffold import CIScaffoldResult
     from config import HydraFlowConfig
     from events import HydraFlowEvent
-    from lint_scaffold import LintScaffoldResult
     from models import (
         AnalysisResult,
         GitHubIssue,
@@ -624,32 +623,6 @@ def event_bus():
     from events import EventBus
 
     return EventBus()
-
-
-# --- Lint Scaffold Result Factory ---
-
-
-class LintScaffoldResultFactory:
-    """Factory for LintScaffoldResult instances."""
-
-    @staticmethod
-    def create(
-        *,
-        scaffolded: list[str] | None = None,
-        skipped: list[str] | None = None,
-        modified_files: list[str] | None = None,
-        created_files: list[str] | None = None,
-        language: str = "python",
-    ) -> LintScaffoldResult:
-        from lint_scaffold import LintScaffoldResult
-
-        return LintScaffoldResult(
-            scaffolded=scaffolded or [],
-            skipped=skipped or [],
-            modified_files=modified_files or [],
-            created_files=created_files or [],
-            language=language,
-        )
 
 
 # --- Orchestrator Mock ---

@@ -981,6 +981,7 @@ class TestCheckCoveragePolicy:
             with caplog.at_level(logging.DEBUG, logger="hydraflow.prep"):
                 check = auditor._check_coverage_policy()
             # Should not crash — gracefully degrades without detecting the threshold
+            # Returns PARTIAL (no enforced threshold) when .coveragerc is unreadable
             assert check.status == AuditCheckStatus.PARTIAL
             assert any(
                 "Could not read .coveragerc" in r.message for r in caplog.records

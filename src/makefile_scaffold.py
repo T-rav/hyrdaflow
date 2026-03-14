@@ -7,12 +7,9 @@ stack (Python, Node, Java, Ruby/Rails, C#, Go, Rust, C++).
 
 from __future__ import annotations
 
-import dataclasses
 import re
 from pathlib import Path
 
-from manifest import detect_language  # noqa: F401 - compatibility re-export
-from polyglot_prep import detect_prep_stack
 from prep_ignore import PREP_IGNORED_DIRS, load_git_submodule_roots
 
 _PYTHON_TARGETS: dict[str, str] = {
@@ -226,26 +223,6 @@ _ALL_TARGET_NAMES = [
     "quality-lite",
     "quality",
 ]
-
-_MAKEFILE_NAMES = ("GNUmakefile", "makefile", "Makefile")
-
-
-@dataclasses.dataclass
-class ScaffoldResult:
-    """Result of a Makefile scaffolding operation."""
-
-    created: bool = False
-    targets_added: list[str] = dataclasses.field(default_factory=list)
-    warnings: list[str] = dataclasses.field(default_factory=list)
-    skipped: list[str] = dataclasses.field(default_factory=list)
-    language: str = "unknown"
-
-
-@dataclasses.dataclass
-class MultiScaffoldResult:
-    """Result of scaffolding Makefiles across discovered project paths."""
-
-    results: dict[str, ScaffoldResult] = dataclasses.field(default_factory=dict)
 
 
 _PROJECT_MARKERS: tuple[str, ...] = (
@@ -536,79 +513,3 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
         new_lines += "\n"
 
     return new_lines, warnings
-
-
-def _find_existing_makefile(repo_root: Path) -> Path | None:
-    """Find an existing Makefile, checking GNUmakefile, makefile, Makefile."""
-    for name in _MAKEFILE_NAMES:
-        path = repo_root / name
-        if path.exists():
-            return path
-    return None
-
-
-def scaffold_makefile(repo_root: Path, dry_run: bool = False) -> ScaffoldResult:
-    """Scaffold or merge Makefile targets for a repo.
-
-    Detects language, checks for existing Makefile, generates or merges
-    targets, and writes the result (unless dry_run is True).
-    """
-    language = detect_prep_stack(repo_root)
-    result = ScaffoldResult(language=language)
-
-    if language == "unknown":
-        return result
-
-    existing_path = _find_existing_makefile(repo_root)
-
-    if existing_path is not None:
-        existing_content = existing_path.read_text()
-
-        # Treat empty/whitespace-only Makefiles as "no Makefile"
-        if not existing_content.strip():
-            content = generate_makefile(language)
-            result.created = True
-            result.targets_added = list(_ALL_TARGET_NAMES)
-            if not dry_run:
-                existing_path.write_text(content)
-            return result
-
-        existing_targets = parse_makefile(existing_content)
-        new_content, warnings = merge_makefile(existing_content, language)
-        result.warnings = warnings
-
-        # Determine which targets were added
-        template_targets = _targets_for_language(language)
-        all_names = [
-            "help",
-            *template_targets.keys(),
-            "smoke",
-            "quality-lite",
-            "quality",
-        ]
-        result.targets_added = [n for n in all_names if n not in existing_targets]
-        result.skipped = [n for n in all_names if n in existing_targets]
-
-        if result.targets_added and not dry_run:
-            existing_path.write_text(new_content)
-    else:
-        content = generate_makefile(language)
-        result.created = True
-        result.targets_added = list(_ALL_TARGET_NAMES)
-        if not dry_run:
-            makefile_path = repo_root / "Makefile"
-            makefile_path.write_text(content)
-
-    return result
-
-
-def scaffold_makefiles(repo_root: Path, dry_run: bool = False) -> MultiScaffoldResult:
-    """Scaffold Makefiles for each discovered project path in a repository."""
-    out = MultiScaffoldResult()
-    for project_path in discover_project_paths(repo_root):
-        result = scaffold_makefile(project_path, dry_run=dry_run)
-        if result.language == "unknown":
-            continue
-        rel = str(project_path.relative_to(repo_root)) or "."
-        out.results[rel] = result
-    return out
