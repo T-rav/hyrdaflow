@@ -1570,6 +1570,31 @@ class TestSummariseWithModel:
         assert call_args[1].get("input") is None
 
     @pytest.mark.asyncio
+    async def test_custom_tool_uses_tool_variable_not_hardcoded_claude(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-codex tool must use the configured tool name, not hardcoded 'claude'."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            memory_compaction_tool="pi",
+            memory_compaction_model="pi-model",
+        )
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+
+        await worker._summarise_with_model("content", 4000)
+
+        runner.run_simple.assert_awaited_once()
+        cmd = runner.run_simple.call_args[0][0]
+        assert cmd[0] == "pi", f"Expected tool 'pi' but got '{cmd[0]}'"
+        assert cmd[1] == "-p"
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "pi-model"
+
+    @pytest.mark.asyncio
     async def test_codex_tool_passes_prompt_as_cli_arg(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(
             repo_root=tmp_path,

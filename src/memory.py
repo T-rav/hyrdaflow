@@ -771,7 +771,7 @@ class MemorySyncWorker:
             ]
             cmd_input = None
         else:
-            cmd = ["claude", "-p", prompt, "--model", model]
+            cmd = [tool, "-p", prompt, "--model", model]
             cmd_input = None
         env = make_clean_env(self._config.gh_token)
 
