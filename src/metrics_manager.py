@@ -161,19 +161,27 @@ class MetricsManager:
             return []
 
         snapshots: list[MetricsSnapshot] = []
-        with open(snapshots_file) as f:
-            for raw_line in f:
-                stripped = raw_line.strip()
-                if not stripped:
-                    continue
-                try:
-                    snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                except ValidationError:
-                    logger.debug(
-                        "Skipping corrupt metrics snapshot line",
-                        exc_info=True,
-                    )
-                    continue
+        try:
+            with open(snapshots_file) as f:
+                for raw_line in f:
+                    stripped = raw_line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        snapshots.append(MetricsSnapshot.model_validate_json(stripped))
+                    except ValidationError:
+                        logger.debug(
+                            "Skipping corrupt metrics snapshot line",
+                            exc_info=True,
+                        )
+                        continue
+        except OSError:
+            logger.warning(
+                "Could not read snapshots file: %s",
+                snapshots_file,
+                exc_info=True,
+            )
+            return []
 
         # Return oldest-first, capped at limit
         return snapshots[-limit:]

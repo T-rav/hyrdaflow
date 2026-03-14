@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -920,3 +920,43 @@ class TestFieldDescriptions:
         assert "description" in props["window_size"]
         assert "description" in props["description"]
         assert "description" in props["suggestion"]
+
+
+# ---------------------------------------------------------------------------
+# mark_pattern_proposed OSError handling (issue #2576)
+# ---------------------------------------------------------------------------
+
+
+class TestMarkPatternProposedOSError:
+    """Verify mark_pattern_proposed handles OSError on write_text."""
+
+    def test_logs_warning_on_write_oserror(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """mark_pattern_proposed should log a warning if write_text raises OSError."""
+        import logging
+
+        store = HarnessInsightStore(memory_dir=tmp_path)
+
+        with (
+            patch.object(
+                type(store._proposed_path),
+                "write_text",
+                side_effect=OSError("disk full"),
+            ),
+            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
+        ):
+            store.mark_pattern_proposed("category:quality_gate")
+
+        assert "Could not write proposed patterns" in caplog.text
+
+    def test_does_not_raise_on_write_oserror(self, tmp_path: Path) -> None:
+        """mark_pattern_proposed should not raise when write_text fails."""
+        store = HarnessInsightStore(memory_dir=tmp_path)
+
+        with patch.object(
+            type(store._proposed_path),
+            "write_text",
+            side_effect=OSError("read-only filesystem"),
+        ):
+            store.mark_pattern_proposed("category:ci_failure")  # should not raise

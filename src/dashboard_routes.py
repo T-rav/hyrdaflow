@@ -1152,20 +1152,29 @@ def create_router(
             if ms_num > 0 and not row.get("crate_number"):
                 row["crate_number"] = ms_num
             for link in parse_task_links(issue.body or ""):
-                tid = int(link.target_id)
+                try:
+                    tid = int(link.target_id)
+                except (ValueError, TypeError):
+                    continue
                 row["linked_issues"][tid] = {
                     "target_id": tid,
                     "kind": str(link.kind),
                     "target_url": link.target_url or None,
                 }
 
-        await asyncio.gather(*(_fetch_and_apply(num) for num in issue_numbers))
+        results = await asyncio.gather(
+            *(_fetch_and_apply(num) for num in issue_numbers),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Issue enrichment fetch failed: %s", result)
 
     def _build_hitl_context(
         issue: GitHubIssue, *, cause: str, origin: str | None
     ) -> str:
         """Build a text context block for HITL summary generation."""
-        body = issue.body.strip()
+        body = (issue.body or "").strip()
         comments = issue.comments
         recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
         comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)

@@ -3216,3 +3216,50 @@ class TestActiveCrate:
 
         tracker = StateTracker(state_file)
         assert tracker.get_active_crate_number() is None
+
+
+# ---------------------------------------------------------------------------
+# get_active_worktrees ValueError handling (issue #2576)
+# ---------------------------------------------------------------------------
+
+
+class TestGetActiveWorktreesValueError:
+    """Verify get_active_worktrees handles non-integer keys gracefully."""
+
+    def test_skips_non_integer_keys(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Non-integer worktree keys should be skipped with a warning."""
+        import logging
+
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        # Inject corrupt data directly
+        tracker._data.active_worktrees["abc"] = "/wt/abc"
+        tracker._data.active_worktrees["42"] = "/wt/42"
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
+            result = tracker.get_active_worktrees()
+
+        assert result == {42: "/wt/42"}
+        assert "Skipping non-integer worktree key" in caplog.text
+
+    def test_returns_empty_dict_when_all_keys_invalid(self, tmp_path: Path) -> None:
+        """All non-integer keys should result in an empty dict."""
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        tracker._data.active_worktrees["foo"] = "/wt/foo"
+        tracker._data.active_worktrees["bar"] = "/wt/bar"
+
+        result = tracker.get_active_worktrees()
+        assert result == {}
+
+    def test_valid_keys_unaffected(self, tmp_path: Path) -> None:
+        """Valid integer-string keys should still convert correctly."""
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+        tracker.set_worktree(10, "/wt/10")
+        tracker.set_worktree(20, "/wt/20")
+
+        result = tracker.get_active_worktrees()
+        assert result == {10: "/wt/10", 20: "/wt/20"}
