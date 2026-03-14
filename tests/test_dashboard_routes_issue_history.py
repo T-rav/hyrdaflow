@@ -1571,6 +1571,176 @@ class TestIssueHistoryCache:
         assert ids == {5, 10}
 
 
+class TestEnrichmentErrorResilience:
+    """Tests for error handling in _enrich_issue_history_with_github (issue #2573)."""
+
+    @pytest.mark.asyncio
+    async def test_gather_return_exceptions_survives_failing_fetch(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """One failing fetch should not crash enrichment for other issues."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            (
+                r.endpoint
+                for r in router.routes
+                if getattr(r, "path", "") == "/api/issues/history"
+            ),
+            None,
+        )
+        assert endpoint is not None, "/api/issues/history route not found"
+
+        # Create two issues
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-03-01T00:00:00+00:00",
+                data={"issue": 301, "title": "Issue #301"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-03-01T00:00:01+00:00",
+                data={"issue": 302, "title": "Issue #302"},
+            )
+        )
+
+        # Issue 301 raises, issue 302 succeeds
+        good_issue = type(
+            "MockIssue",
+            (),
+            {
+                "number": 302,
+                "title": "Good issue",
+                "url": "https://example.com/issues/302",
+                "labels": [],
+                "body": "",
+                "milestone_number": None,
+            },
+        )()
+
+        async def _side_effect(num: int):
+            if num == 301:
+                raise RuntimeError("Network error")
+            return good_issue
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch_issue_by_number = AsyncMock(side_effect=_side_effect)
+        with (
+            patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher),
+            patch("dashboard_routes.logger") as mock_logger,
+        ):
+            response = await endpoint(limit=100)
+
+        # Failing fetch for issue 301 should have been logged as a warning
+        assert mock_logger.warning.called
+        warning_args = mock_logger.warning.call_args[0]
+        assert "enrichment" in warning_args[0].lower() or isinstance(
+            warning_args[-1], RuntimeError
+        )
+
+        payload = json.loads(response.body)
+        issue_302 = next(
+            (x for x in payload["items"] if x["issue_number"] == 302), None
+        )
+        assert issue_302 is not None
+        assert issue_302["title"] == "Good issue"
+
+    @pytest.mark.asyncio
+    async def test_non_integer_target_id_is_skipped(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """A link with a non-integer target_id should be silently skipped."""
+        import json
+
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        router = create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        )
+        endpoint = next(
+            (
+                r.endpoint
+                for r in router.routes
+                if getattr(r, "path", "") == "/api/issues/history"
+            ),
+            None,
+        )
+        assert endpoint is not None, "/api/issues/history route not found"
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                timestamp="2026-03-01T00:00:00+00:00",
+                data={"issue": 400, "title": "Issue #400"},
+            )
+        )
+
+        # Return issue with valid link text; we patch parse_task_links
+        # to return a link with a non-integer target_id
+        mock_issue = type(
+            "MockIssue",
+            (),
+            {
+                "number": 400,
+                "title": "Has bad link",
+                "url": "https://example.com/issues/400",
+                "labels": [],
+                "body": "relates to #5",
+                "milestone_number": None,
+            },
+        )()
+
+        from models import TaskLink, TaskLinkKind
+
+        bad_link = TaskLink(kind=TaskLinkKind.RELATES_TO, target_id=5)
+        # Force target_id to a non-integer via object.__setattr__
+        object.__setattr__(bad_link, "target_id", "not-a-number")
+
+        mock_fetcher = AsyncMock()
+        mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=mock_issue)
+        with (
+            patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher),
+            patch("dashboard_routes.parse_task_links", return_value=[bad_link]),
+        ):
+            response = await endpoint(limit=100)
+
+        payload = json.loads(response.body)
+        issue_400 = next(
+            (x for x in payload["items"] if x["issue_number"] == 400), None
+        )
+        assert issue_400 is not None
+        # The bad link should have been skipped
+        assert issue_400["linked_issues"] == []
+
+
 # ---------------------------------------------------------------------------
 # Repo-scoped API contract tests
 # ---------------------------------------------------------------------------
