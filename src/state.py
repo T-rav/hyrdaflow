@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from pydantic import ValidationError
 
@@ -38,6 +38,8 @@ from models import (
 
 logger = logging.getLogger("hydraflow.state")
 
+_V = TypeVar("_V")
+
 
 class StateTracker:
     """JSON-file backed state for crash recovery.
@@ -49,6 +51,18 @@ class StateTracker:
         self._path = state_file
         self._data: StateData = StateData()
         self.load()
+
+    # --- int↔str key conversion helpers ---
+
+    @staticmethod
+    def _key(issue_id: int) -> str:
+        """Convert an integer issue/PR number to the string key used in state dicts."""
+        return str(issue_id)
+
+    @staticmethod
+    def _int_keys(d: dict[str, _V]) -> dict[int, _V]:
+        """Return a copy of *d* with all keys converted from ``str`` to ``int``."""
+        return {int(k): v for k, v in d.items()}
 
     def _normalise_details(self, raw: dict[str, object] | str | None) -> dict[str, Any]:
         """Ensure worker heartbeat details are stored as dicts."""
@@ -128,89 +142,89 @@ class StateTracker:
 
     def mark_issue(self, issue_number: int, status: str) -> None:
         """Record the processing status for *issue_number*."""
-        self._data.processed_issues[str(issue_number)] = status
+        self._data.processed_issues[self._key(issue_number)] = status
         self.save()
 
     # --- worktree tracking ---
 
     def get_active_worktrees(self) -> dict[int, str]:
         """Return ``{issue_number: worktree_path}`` mapping."""
-        return {int(k): v for k, v in self._data.active_worktrees.items()}
+        return self._int_keys(self._data.active_worktrees)
 
     def set_worktree(self, issue_number: int, path: str) -> None:
         """Record the worktree filesystem *path* for *issue_number*."""
-        self._data.active_worktrees[str(issue_number)] = path
+        self._data.active_worktrees[self._key(issue_number)] = path
         self.save()
 
     def remove_worktree(self, issue_number: int) -> None:
         """Remove the worktree mapping for *issue_number* (no-op if absent)."""
-        self._data.active_worktrees.pop(str(issue_number), None)
+        self._data.active_worktrees.pop(self._key(issue_number), None)
         self.save()
 
     # --- branch tracking ---
 
     def set_branch(self, issue_number: int, branch: str) -> None:
         """Record the active *branch* name for *issue_number*."""
-        self._data.active_branches[str(issue_number)] = branch
+        self._data.active_branches[self._key(issue_number)] = branch
         self.save()
 
     def get_branch(self, issue_number: int) -> str | None:
         """Return the active branch for *issue_number*, or *None*."""
-        return self._data.active_branches.get(str(issue_number))
+        return self._data.active_branches.get(self._key(issue_number))
 
     # --- PR tracking ---
 
     def mark_pr(self, pr_number: int, status: str) -> None:
         """Record the review *status* for *pr_number*."""
-        self._data.reviewed_prs[str(pr_number)] = status
+        self._data.reviewed_prs[self._key(pr_number)] = status
         self.save()
 
     # --- HITL origin tracking ---
 
     def set_hitl_origin(self, issue_number: int, label: str) -> None:
         """Record the label that was active before HITL escalation."""
-        self._data.hitl_origins[str(issue_number)] = label
+        self._data.hitl_origins[self._key(issue_number)] = label
         self.save()
 
     def get_hitl_origin(self, issue_number: int) -> str | None:
         """Return the pre-HITL label for *issue_number*, or *None*."""
-        return self._data.hitl_origins.get(str(issue_number))
+        return self._data.hitl_origins.get(self._key(issue_number))
 
     def remove_hitl_origin(self, issue_number: int) -> None:
         """Clear the HITL origin record for *issue_number*."""
-        self._data.hitl_origins.pop(str(issue_number), None)
+        self._data.hitl_origins.pop(self._key(issue_number), None)
         self.save()
 
     # --- HITL cause tracking ---
 
     def set_hitl_cause(self, issue_number: int, cause: str) -> None:
         """Record the escalation reason for *issue_number*."""
-        self._data.hitl_causes[str(issue_number)] = cause
+        self._data.hitl_causes[self._key(issue_number)] = cause
         self.save()
 
     def get_hitl_cause(self, issue_number: int) -> str | None:
         """Return the escalation reason for *issue_number*, or *None*."""
-        return self._data.hitl_causes.get(str(issue_number))
+        return self._data.hitl_causes.get(self._key(issue_number))
 
     def remove_hitl_cause(self, issue_number: int) -> None:
         """Clear the escalation reason for *issue_number*."""
-        self._data.hitl_causes.pop(str(issue_number), None)
+        self._data.hitl_causes.pop(self._key(issue_number), None)
         self.save()
 
     # --- HITL summary cache ---
 
     def set_hitl_summary(self, issue_number: int, summary: str) -> None:
         """Persist cached LLM summary text for *issue_number*."""
-        self._data.hitl_summaries[str(issue_number)] = HITLSummaryCacheEntry(
+        self._data.hitl_summaries[self._key(issue_number)] = HITLSummaryCacheEntry(
             summary=summary,
             updated_at=datetime.now(UTC).isoformat(),
         )
-        self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self._data.hitl_summary_failures.pop(self._key(issue_number), None)
         self.save()
 
     def get_hitl_summary(self, issue_number: int) -> str | None:
         """Return cached summary for *issue_number*, or ``None`` if absent."""
-        entry = self._data.hitl_summaries.get(str(issue_number))
+        entry = self._data.hitl_summaries.get(self._key(issue_number))
         if not entry:
             return None
         summary = str(getattr(entry, "summary", "")).strip()
@@ -218,7 +232,7 @@ class StateTracker:
 
     def get_hitl_summary_updated_at(self, issue_number: int) -> str | None:
         """Return cached summary update timestamp for *issue_number*."""
-        entry = self._data.hitl_summaries.get(str(issue_number))
+        entry = self._data.hitl_summaries.get(self._key(issue_number))
         if not entry:
             return None
         updated = getattr(entry, "updated_at", None)
@@ -226,28 +240,30 @@ class StateTracker:
 
     def remove_hitl_summary(self, issue_number: int) -> None:
         """Delete cached summary for *issue_number*."""
-        self._data.hitl_summaries.pop(str(issue_number), None)
-        self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self._data.hitl_summaries.pop(self._key(issue_number), None)
+        self._data.hitl_summary_failures.pop(self._key(issue_number), None)
         self.save()
 
     def set_hitl_summary_failure(self, issue_number: int, error: str) -> None:
         """Persist failure metadata for summary generation attempts."""
-        self._data.hitl_summary_failures[str(issue_number)] = HITLSummaryFailureEntry(
-            last_failed_at=datetime.now(UTC).isoformat(),
-            error=error[:300],
+        self._data.hitl_summary_failures[self._key(issue_number)] = (
+            HITLSummaryFailureEntry(
+                last_failed_at=datetime.now(UTC).isoformat(),
+                error=error[:300],
+            )
         )
         self.save()
 
     def get_hitl_summary_failure(self, issue_number: int) -> tuple[str | None, str]:
         """Return ``(last_failed_at, error)`` for summary generation failures."""
-        entry = self._data.hitl_summary_failures.get(str(issue_number))
+        entry = self._data.hitl_summary_failures.get(self._key(issue_number))
         if not entry:
             return None, ""
         return getattr(entry, "last_failed_at", None), getattr(entry, "error", "")
 
     def clear_hitl_summary_failure(self, issue_number: int) -> None:
         """Clear summary-generation failure metadata for *issue_number*."""
-        self._data.hitl_summary_failures.pop(str(issue_number), None)
+        self._data.hitl_summary_failures.pop(self._key(issue_number), None)
         self.save()
 
     # --- HITL visual evidence ---
@@ -256,27 +272,27 @@ class StateTracker:
         self, issue_number: int, evidence: VisualEvidence
     ) -> None:
         """Persist visual validation evidence for *issue_number*."""
-        self._data.hitl_visual_evidence[str(issue_number)] = evidence
+        self._data.hitl_visual_evidence[self._key(issue_number)] = evidence
         self.save()
 
     def get_hitl_visual_evidence(self, issue_number: int) -> VisualEvidence | None:
         """Return visual evidence for *issue_number*, or ``None``."""
-        return self._data.hitl_visual_evidence.get(str(issue_number))
+        return self._data.hitl_visual_evidence.get(self._key(issue_number))
 
     def remove_hitl_visual_evidence(self, issue_number: int) -> None:
         """Clear visual evidence for *issue_number*."""
-        self._data.hitl_visual_evidence.pop(str(issue_number), None)
+        self._data.hitl_visual_evidence.pop(self._key(issue_number), None)
         self.save()
 
     # --- review attempt tracking ---
 
     def get_review_attempts(self, issue_number: int) -> int:
         """Return the current review attempt count for *issue_number* (default 0)."""
-        return self._data.review_attempts.get(str(issue_number), 0)
+        return self._data.review_attempts.get(self._key(issue_number), 0)
 
     def increment_review_attempts(self, issue_number: int) -> int:
         """Increment and return the new review attempt count for *issue_number*."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         current = self._data.review_attempts.get(key, 0)
         self._data.review_attempts[key] = current + 1
         self.save()
@@ -284,23 +300,23 @@ class StateTracker:
 
     def reset_review_attempts(self, issue_number: int) -> None:
         """Clear the review attempt counter for *issue_number*."""
-        self._data.review_attempts.pop(str(issue_number), None)
+        self._data.review_attempts.pop(self._key(issue_number), None)
         self.save()
 
     # --- review feedback storage ---
 
     def set_review_feedback(self, issue_number: int, feedback: str) -> None:
         """Store review feedback for *issue_number*."""
-        self._data.review_feedback[str(issue_number)] = feedback
+        self._data.review_feedback[self._key(issue_number)] = feedback
         self.save()
 
     def get_review_feedback(self, issue_number: int) -> str | None:
         """Return stored review feedback for *issue_number*, or *None*."""
-        return self._data.review_feedback.get(str(issue_number))
+        return self._data.review_feedback.get(self._key(issue_number))
 
     def clear_review_feedback(self, issue_number: int) -> None:
         """Clear stored review feedback for *issue_number*."""
-        self._data.review_feedback.pop(str(issue_number), None)
+        self._data.review_feedback.pop(self._key(issue_number), None)
         self.save()
 
     # --- verification issue tracking ---
@@ -309,31 +325,31 @@ class StateTracker:
         self, original_issue: int, verification_issue: int
     ) -> None:
         """Record the verification issue number for *original_issue*."""
-        self._data.verification_issues[str(original_issue)] = verification_issue
+        self._data.verification_issues[self._key(original_issue)] = verification_issue
         self.save()
 
     def get_verification_issue(self, original_issue: int) -> int | None:
         """Return the verification issue number for *original_issue*, or *None*."""
-        return self._data.verification_issues.get(str(original_issue))
+        return self._data.verification_issues.get(self._key(original_issue))
 
     def clear_verification_issue(self, original_issue: int) -> None:
         """Remove the verification issue mapping for *original_issue*."""
-        self._data.verification_issues.pop(str(original_issue), None)
+        self._data.verification_issues.pop(self._key(original_issue), None)
         self.save()
 
     def get_all_verification_issues(self) -> dict[int, int]:
         """Return all pending verification issue mappings as {original: verify}."""
-        return {int(k): v for k, v in self._data.verification_issues.items()}
+        return self._int_keys(self._data.verification_issues)
 
     # --- issue attempt tracking ---
 
     def get_issue_attempts(self, issue_number: int) -> int:
         """Return the current implementation attempt count for *issue_number* (default 0)."""
-        return self._data.issue_attempts.get(str(issue_number), 0)
+        return self._data.issue_attempts.get(self._key(issue_number), 0)
 
     def increment_issue_attempts(self, issue_number: int) -> int:
         """Increment and return the new implementation attempt count for *issue_number*."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         current = self._data.issue_attempts.get(key, 0)
         self._data.issue_attempts[key] = current + 1
         self.save()
@@ -341,7 +357,7 @@ class StateTracker:
 
     def reset_issue_attempts(self, issue_number: int) -> None:
         """Clear the implementation attempt counter for *issue_number*."""
-        self._data.issue_attempts.pop(str(issue_number), None)
+        self._data.issue_attempts.pop(self._key(issue_number), None)
         self.save()
 
     # --- active issue numbers ---
@@ -359,12 +375,12 @@ class StateTracker:
 
     def set_interrupted_issues(self, mapping: dict[int, str]) -> None:
         """Persist interrupted issue → phase mapping (int keys stored as strings)."""
-        self._data.interrupted_issues = {str(k): v for k, v in mapping.items()}
+        self._data.interrupted_issues = {self._key(k): v for k, v in mapping.items()}
         self.save()
 
     def get_interrupted_issues(self) -> dict[int, str]:
         """Return interrupted issue mapping with int keys."""
-        return {int(k): v for k, v in self._data.interrupted_issues.items()}
+        return self._int_keys(self._data.interrupted_issues)
 
     def clear_interrupted_issues(self) -> None:
         """Clear the interrupted issues mapping and persist."""
@@ -375,28 +391,28 @@ class StateTracker:
 
     def set_last_reviewed_sha(self, issue_number: int, sha: str) -> None:
         """Record the last-reviewed commit SHA for *issue_number*."""
-        self._data.last_reviewed_shas[str(issue_number)] = sha
+        self._data.last_reviewed_shas[self._key(issue_number)] = sha
         self.save()
 
     def get_last_reviewed_sha(self, issue_number: int) -> str | None:
         """Return the last-reviewed commit SHA for *issue_number*, or *None*."""
-        return self._data.last_reviewed_shas.get(str(issue_number))
+        return self._data.last_reviewed_shas.get(self._key(issue_number))
 
     def clear_last_reviewed_sha(self, issue_number: int) -> None:
         """Clear the last-reviewed commit SHA for *issue_number*."""
-        self._data.last_reviewed_shas.pop(str(issue_number), None)
+        self._data.last_reviewed_shas.pop(self._key(issue_number), None)
         self.save()
 
     # --- worker result metadata ---
 
     def set_worker_result_meta(self, issue_number: int, meta: WorkerResultMeta) -> None:
         """Persist worker result metadata for *issue_number*."""
-        self._data.worker_result_meta[str(issue_number)] = meta
+        self._data.worker_result_meta[self._key(issue_number)] = meta
         self.save()
 
     def get_worker_result_meta(self, issue_number: int) -> WorkerResultMeta:
         """Return worker result metadata for *issue_number*, or empty dict."""
-        return self._data.worker_result_meta.get(str(issue_number), {})
+        return self._data.worker_result_meta.get(self._key(issue_number), {})
 
     # --- issue outcome tracking ---
 
@@ -427,7 +443,7 @@ class StateTracker:
             IssueOutcomeType.VERIFY_RESOLVED: "total_outcomes_verify_resolved",
         }
 
-        key = str(issue_number)
+        key = self._key(issue_number)
         previous = self._data.issue_outcomes.get(key)
         if previous is not None:
             old_attr = counter_map.get(previous.outcome)
@@ -454,7 +470,7 @@ class StateTracker:
 
     def get_outcome(self, issue_number: int) -> IssueOutcome | None:
         """Return the recorded outcome for *issue_number*, or ``None``."""
-        return self._data.issue_outcomes.get(str(issue_number))
+        return self._data.issue_outcomes.get(self._key(issue_number))
 
     def get_all_outcomes(self) -> dict[str, IssueOutcome]:
         """Return all recorded issue outcomes (deep copy)."""
@@ -470,7 +486,7 @@ class StateTracker:
         self, issue_number: int, hook_name: str, error: str
     ) -> None:
         """Append a :class:`HookFailureRecord` for *issue_number*."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         if key not in self._data.hook_failures:
             self._data.hook_failures[key] = []
         self._data.hook_failures[key].append(
@@ -491,24 +507,26 @@ class StateTracker:
         """Return hook failure records for *issue_number* (deep copy)."""
         return [
             f.model_copy(deep=True)
-            for f in self._data.hook_failures.get(str(issue_number), [])
+            for f in self._data.hook_failures.get(self._key(issue_number), [])
         ]
 
     # --- epic state tracking ---
 
     def get_epic_state(self, epic_number: int) -> EpicState | None:
         """Return the persisted state for *epic_number*, or ``None``."""
-        es = self._data.epic_states.get(str(epic_number))
+        es = self._data.epic_states.get(self._key(epic_number))
         return es.model_copy(deep=True) if es else None
 
     def upsert_epic_state(self, state: EpicState) -> None:
         """Create or update the persisted state for an epic."""
-        self._data.epic_states[str(state.epic_number)] = state.model_copy(deep=True)
+        self._data.epic_states[self._key(state.epic_number)] = state.model_copy(
+            deep=True
+        )
         self.save()
 
     def mark_epic_child_complete(self, epic_number: int, child_number: int) -> None:
         """Move *child_number* to completed_children for *epic_number*."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         if child_number not in epic.completed_children:
@@ -520,7 +538,7 @@ class StateTracker:
 
     def mark_epic_child_failed(self, epic_number: int, child_number: int) -> None:
         """Move *child_number* to failed_children for *epic_number*."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         if child_number not in epic.failed_children:
@@ -530,7 +548,7 @@ class StateTracker:
 
     def mark_epic_child_approved(self, epic_number: int, child_number: int) -> None:
         """Add *child_number* to approved_children for *epic_number*."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         if child_number not in epic.approved_children:
@@ -544,7 +562,7 @@ class StateTracker:
         Returns a dict with keys: total, merged, in_progress, pending,
         approved, ready_to_merge, merge_strategy.
         """
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return {}
         total = len(epic.child_issues)
@@ -579,7 +597,7 @@ class StateTracker:
 
     def close_epic(self, epic_number: int) -> None:
         """Mark an epic as closed."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         epic.closed = True
@@ -590,12 +608,14 @@ class StateTracker:
 
     def upsert_release(self, release: Release) -> None:
         """Create or update a release record, keyed by epic number."""
-        self._data.releases[str(release.epic_number)] = release.model_copy(deep=True)
+        self._data.releases[self._key(release.epic_number)] = release.model_copy(
+            deep=True
+        )
         self.save()
 
     def get_release(self, epic_number: int) -> Release | None:
         """Return the release for *epic_number*, or ``None``."""
-        rel = self._data.releases.get(str(epic_number))
+        rel = self._data.releases.get(self._key(epic_number))
         return rel.model_copy(deep=True) if rel else None
 
     def get_all_releases(self) -> dict[str, Release]:
@@ -1029,7 +1049,7 @@ class StateTracker:
 
     def record_stage_retry(self, issue_number: int, stage: str) -> None:
         """Increment the retry count for a specific stage on an issue."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         retries = self._data.lifetime_stats.retries_per_stage
         if key not in retries:
             retries[key] = {}
@@ -1259,7 +1279,7 @@ class StateTracker:
         Caps at *max_records* (falls back to ``_MAX_BASELINE_AUDIT_RECORDS``).
         """
         cap = max_records or self._MAX_BASELINE_AUDIT_RECORDS
-        key = str(issue_number)
+        key = self._key(issue_number)
         if key not in self._data.baseline_audit:
             self._data.baseline_audit[key] = []
         self._data.baseline_audit[key].append(record)
@@ -1269,13 +1289,13 @@ class StateTracker:
 
     def get_baseline_audit(self, issue_number: int) -> list[BaselineAuditRecord]:
         """Return baseline audit records for *issue_number*."""
-        return list(self._data.baseline_audit.get(str(issue_number), []))
+        return list(self._data.baseline_audit.get(self._key(issue_number), []))
 
     def get_latest_baseline_record(
         self, issue_number: int
     ) -> BaselineAuditRecord | None:
         """Return the most recent baseline audit record, or *None*."""
-        records = self._data.baseline_audit.get(str(issue_number), [])
+        records = self._data.baseline_audit.get(self._key(issue_number), [])
         return records[-1] if records else None
 
     def rollback_baseline(
@@ -1288,7 +1308,7 @@ class StateTracker:
     ) -> BaselineAuditRecord:
         """Record a baseline rollback for *issue_number*."""
         # Find the last non-rollback record to identify files
-        records = self._data.baseline_audit.get(str(issue_number), [])
+        records = self._data.baseline_audit.get(self._key(issue_number), [])
         changed_files: list[str] = []
         for record in reversed(records):
             if record.change_type != BaselineChangeType.ROLLBACK:
