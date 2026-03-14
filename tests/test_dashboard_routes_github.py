@@ -12,51 +12,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from repo_store import RepoRecord
-
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config) -> None:
-    """Keep route tests deterministic."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
+from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestGitHubRepoEndpoints:
     """Tests for /api/github/repos and /api/github/clone routes."""
-
-    def _make_router(
-        self, config, event_bus, state, tmp_path, *, register_repo_cb=None
-    ):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            register_repo_cb=register_repo_cb,
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path, method=None):
-        for route in router.routes:
-            if not (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                continue
-            if method is None or (
-                hasattr(route, "methods") and method in route.methods
-            ):
-                return route.endpoint
-        return None
 
     # -----------------------------------------------------------------------
     # GET /api/github/repos
@@ -66,8 +26,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_success(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
         assert endpoint is not None
 
         gh_output = json.dumps(
@@ -96,8 +56,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_with_query_filter(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         gh_output = json.dumps(
             [
@@ -131,8 +91,8 @@ class TestGitHubRepoEndpoints:
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Repos with owner: null must not crash the query filter."""
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         gh_output = json.dumps(
             [
@@ -158,8 +118,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_gh_not_found(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         with patch(
             "asyncio.create_subprocess_exec",
@@ -174,8 +134,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_timeout(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(side_effect=TimeoutError())
@@ -190,8 +150,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_auth_error(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"", b"auth login required"))
@@ -207,8 +167,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_gh_failure(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"", b"some error"))
@@ -224,8 +184,8 @@ class TestGitHubRepoEndpoints:
     async def test_list_github_repos_bad_json(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"not json", b""))
@@ -246,8 +206,8 @@ class TestGitHubRepoEndpoints:
         self, config, event_bus, state, tmp_path
     ) -> None:
         config.repos_workspace_dir = tmp_path / "repos"
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
         assert endpoint is not None
 
         mock_proc = AsyncMock()
@@ -272,8 +232,8 @@ class TestGitHubRepoEndpoints:
         clone_dir.mkdir(parents=True)
         (clone_dir / ".git").mkdir()
 
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         # No subprocess should be called since already cloned
         response = await endpoint(req={"slug": "alice/myrepo"})
@@ -285,8 +245,8 @@ class TestGitHubRepoEndpoints:
     async def test_clone_github_repo_missing_slug(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         response = await endpoint(req={"slug": ""})
         assert response.status_code == 400
@@ -297,8 +257,8 @@ class TestGitHubRepoEndpoints:
     async def test_clone_github_repo_invalid_slug(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         response = await endpoint(req={"slug": "noslash"})
         assert response.status_code == 400
@@ -307,8 +267,8 @@ class TestGitHubRepoEndpoints:
     async def test_clone_github_repo_no_body(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         response = await endpoint(req=None)
         assert response.status_code == 400
@@ -318,8 +278,8 @@ class TestGitHubRepoEndpoints:
         self, config, event_bus, state, tmp_path
     ) -> None:
         config.repos_workspace_dir = tmp_path / "repos"
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         with patch(
             "asyncio.create_subprocess_exec",
@@ -333,8 +293,8 @@ class TestGitHubRepoEndpoints:
         self, config, event_bus, state, tmp_path
     ) -> None:
         config.repos_workspace_dir = tmp_path / "repos"
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(return_value=(b"", b"repository not found"))
@@ -351,8 +311,8 @@ class TestGitHubRepoEndpoints:
         self, config, event_bus, state, tmp_path
     ) -> None:
         config.repos_workspace_dir = tmp_path / "repos"
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(side_effect=TimeoutError())
@@ -377,10 +337,10 @@ class TestGitHubRepoEndpoints:
         mock_cfg = MagicMock()
         register_cb = AsyncMock(return_value=(record, mock_cfg))
 
-        router, _ = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, register_repo_cb=register_cb
         )
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         with patch("prep.ensure_labels", new_callable=AsyncMock) as mock_labels:
             response = await endpoint(req={"slug": "alice/myrepo"})
@@ -400,10 +360,10 @@ class TestGitHubRepoEndpoints:
         (clone_dir / ".git").mkdir()
 
         register_cb = AsyncMock(side_effect=ValueError("duplicate"))
-        router, _ = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, register_repo_cb=register_cb
         )
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         response = await endpoint(req={"slug": "alice/myrepo"})
         assert response.status_code == 400
@@ -420,10 +380,10 @@ class TestGitHubRepoEndpoints:
         (clone_dir / ".git").mkdir()
 
         register_cb = AsyncMock(side_effect=RuntimeError("unexpected"))
-        router, _ = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, register_repo_cb=register_cb
         )
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         response = await endpoint(req={"slug": "alice/myrepo"})
         assert response.status_code == 500
@@ -432,8 +392,8 @@ class TestGitHubRepoEndpoints:
     async def test_clone_slug_with_empty_owner(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         response = await endpoint(req={"slug": "/myrepo"})
         assert response.status_code == 400
@@ -444,8 +404,8 @@ class TestGitHubRepoEndpoints:
     ) -> None:
         """Slugs containing path traversal sequences must be rejected."""
         config.repos_workspace_dir = tmp_path / "repos"
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/clone", "POST")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/clone", "POST")
 
         for malicious_slug in [
             "alice/../../etc",
@@ -462,8 +422,8 @@ class TestGitHubRepoEndpoints:
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Query should match against owner/name combined slug."""
-        router, _ = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._find_endpoint(router, "/api/github/repos", "GET")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/github/repos", "GET")
 
         gh_output = json.dumps(
             [
