@@ -251,9 +251,9 @@ class PlanPhase:
                     "Failed to post transcript summary for issue #%d", issue.id
                 )
 
-    def _plan_log_reference(self, issue_id: int) -> str:
+    def _plan_log_reference(self, issue_number: int) -> str:
         """Return a display-friendly log path for planner transcripts."""
-        log_path = self._config.log_dir / f"plan-issue-{issue_id}.txt"
+        log_path = self._config.log_dir / f"plan-issue-{issue_number}.txt"
         return self._config.format_path_for_display(log_path)
 
     # ------------------------------------------------------------------
