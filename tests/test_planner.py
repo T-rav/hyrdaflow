@@ -55,6 +55,19 @@ def _valid_plan(*, word_pad: int = 200) -> str:
         "## File Delta\n\n"
         "MODIFIED: src/models.py\n"
         "MODIFIED: src/config.py\n\n"
+        "## Task Graph\n\n"
+        "### P1 \u2014 Data Model\n"
+        "**Files:** src/models.py (modify)\n"
+        "**Tests:**\n"
+        "- Creating a new model instance persists and returns an id\n"
+        "- Invalid fields raise ValidationError\n"
+        "**Depends on:** (none)\n\n"
+        "### P2 \u2014 Configuration\n"
+        "**Files:** src/config.py (modify)\n"
+        "**Tests:**\n"
+        "- Config field accepts valid values\n"
+        "- Config field rejects invalid values\n"
+        "**Depends on:** P1\n\n"
         "## Implementation Steps\n\n"
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -522,8 +535,9 @@ def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus)
 
 
 def test_significant_words_extracts_long_words(config, event_bus):
-    runner = _make_runner(config, event_bus)
-    words = runner._significant_words("Fix the broken authentication handler")
+    from plan_validation import _significant_words
+
+    words = _significant_words("Fix the broken authentication handler")
     assert "broken" in words
     assert "authentication" in words
     assert "handler" in words
@@ -534,8 +548,9 @@ def test_significant_words_extracts_long_words(config, event_bus):
 
 
 def test_significant_words_filters_stop_words(config, event_bus):
-    runner = _make_runner(config, event_bus)
-    words = runner._significant_words("This should have been done with more care")
+    from plan_validation import _significant_words
+
+    words = _significant_words("This should have been done with more care")
     # All are stop words or short
     assert "this" not in words
     assert "should" not in words
@@ -548,8 +563,9 @@ def test_significant_words_filters_stop_words(config, event_bus):
 
 
 def test_significant_words_empty_string(config, event_bus):
-    runner = _make_runner(config, event_bus)
-    words = runner._significant_words("")
+    from plan_validation import _significant_words
+
+    words = _significant_words("")
     assert words == set()
 
 
@@ -724,25 +740,22 @@ def test_score_actionability_high_for_concrete_plan(config, event_bus):
 def test_score_actionability_low_for_shallow_plan(config, event_bus):
     """Shallow plans with vague steps should rank low."""
     runner = _make_runner(config, event_bus)
+    # Build a plan without Task Graph to test Implementation Steps scoring alone
     shallow_plan = (
-        _valid_plan()
-        .replace(
-            "1. Add the new model class to models.py\n"
-            "2. Add configuration field to config.py\n"
-            "3. Wire up the new model in the orchestrator\n"
-            "4. Add validation logic",
-            "1. Do stuff\n2. Make better",
-        )
-        .replace(
-            "## Testing Strategy\n\n"
-            "- Add tests/test_models.py for the new model\n"
-            "- Add tests/test_config.py for the new config field",
-            "## Testing Strategy\n\n- Manual check",
-        )
-        .replace(
-            "## File Delta\n\nMODIFIED: src/models.py\nMODIFIED: src/config.py",
-            "## File Delta\n\nNone",
-        )
+        "## Files to Modify\n\n"
+        "- src/app.py — fix\n\n"
+        "## New Files\n\nNone\n\n"
+        "## File Delta\n\nNone\n\n"
+        "## Task Graph\n\n"
+        "### P1 \u2014 Fix\n"
+        "**Files:** (tbd)\n"
+        "**Tests:**\n"
+        "**Depends on:** (none)\n\n"
+        "## Implementation Steps\n\n"
+        "1. Do stuff\n2. Make better\n\n"
+        "## Testing Strategy\n\n- Manual check\n\n"
+        "## Acceptance Criteria\n\n- Works\n\n"
+        "## Key Considerations\n\n- None\n\n" + " ".join(["word"] * 120)
     )
     score, rank = runner._score_actionability(shallow_plan, scale="full")
     assert score < 65
@@ -795,7 +808,7 @@ def test_validate_plan_logs_warning_on_word_mismatch(config, event_bus):
     # Valid plan but title words don't overlap with plan
     plan = _valid_plan().replace("authentication", "database")
 
-    with mock_patch("planner.logger") as mock_logger:
+    with mock_patch("plan_validation.logger") as mock_logger:
         runner._validate_plan(task, plan)
 
     mock_logger.warning.assert_called_once()
@@ -1566,7 +1579,7 @@ def test_build_prompt_includes_required_schema_headers(config, event_bus, issue)
     assert "## Files to Modify" in prompt
     assert "## New Files" in prompt
     assert "## File Delta" in prompt
-    assert "## Implementation Steps" in prompt
+    assert "## Task Graph" in prompt
     assert "## Testing Strategy" in prompt
     assert "## Acceptance Criteria" in prompt
     assert "## Key Considerations" in prompt
@@ -1588,12 +1601,12 @@ def test_build_prompt_warns_about_rejection(config, event_bus, issue):
 
 
 def test_required_sections_has_seven_entries(config, event_bus):
-    """PlannerRunner.REQUIRED_SECTIONS should have 7 entries (including File Delta)."""
+    """PlannerRunner.REQUIRED_SECTIONS should have 7 entries (including Task Graph)."""
     assert len(PlannerRunner.REQUIRED_SECTIONS) == 7
     assert "## Files to Modify" in PlannerRunner.REQUIRED_SECTIONS
     assert "## New Files" in PlannerRunner.REQUIRED_SECTIONS
     assert "## File Delta" in PlannerRunner.REQUIRED_SECTIONS
-    assert "## Implementation Steps" in PlannerRunner.REQUIRED_SECTIONS
+    assert "## Task Graph" in PlannerRunner.REQUIRED_SECTIONS
     assert "## Testing Strategy" in PlannerRunner.REQUIRED_SECTIONS
     assert "## Acceptance Criteria" in PlannerRunner.REQUIRED_SECTIONS
     assert "## Key Considerations" in PlannerRunner.REQUIRED_SECTIONS
@@ -1879,7 +1892,7 @@ def test_build_retry_prompt_full_has_all_sections(config, event_bus, issue):
 
 def test_section_descriptions_cover_all_required_sections():
     """Every header in REQUIRED_SECTIONS has a corresponding entry in _PLAN_SECTION_DESCRIPTIONS."""
-    from planner import _PLAN_SECTION_DESCRIPTIONS
+    from plan_constants import PLAN_SECTION_DESCRIPTIONS as _PLAN_SECTION_DESCRIPTIONS
 
     desc_headers = {h for h, _ in _PLAN_SECTION_DESCRIPTIONS}
     for header in PlannerRunner.REQUIRED_SECTIONS:
@@ -1890,7 +1903,7 @@ def test_section_descriptions_cover_all_required_sections():
 
 def test_section_descriptions_cover_all_lite_sections():
     """Every header in LITE_REQUIRED_SECTIONS has a corresponding entry in _PLAN_SECTION_DESCRIPTIONS."""
-    from planner import _PLAN_SECTION_DESCRIPTIONS
+    from plan_constants import PLAN_SECTION_DESCRIPTIONS as _PLAN_SECTION_DESCRIPTIONS
 
     desc_headers = {h for h, _ in _PLAN_SECTION_DESCRIPTIONS}
     for header in PlannerRunner.LITE_REQUIRED_SECTIONS:
@@ -1918,6 +1931,132 @@ def test_format_sections_list_lite_has_only_three_sections():
     )
     for header in full_only:
         assert header not in result, f"{header} should not be in lite sections list"
+
+
+# ---------------------------------------------------------------------------
+# Task Graph extraction and validation
+# ---------------------------------------------------------------------------
+
+
+def test_extract_task_graph_phases_parses_valid_graph(config, event_bus):
+    """extract_phases extracts phases with files, tests, and deps."""
+    from task_graph import extract_phases
+
+    body = (
+        "### P1 \u2014 Data Model\n"
+        "**Files:** src/models.py (modify), migrations/001.py (create)\n"
+        "**Tests:**\n"
+        "- Creating a Widget persists and returns an id\n"
+        "- Duplicate name raises IntegrityError\n"
+        "**Depends on:** (none)\n\n"
+        "### P2 \u2014 Service Layer\n"
+        "**Files:** src/service.py (create)\n"
+        "**Tests:**\n"
+        "- Service.create() with valid input returns a Widget\n"
+        "**Depends on:** P1\n"
+    )
+    phases = extract_phases(body)
+    assert len(phases) == 2
+    assert phases[0].id == "P1"
+    assert phases[0].name == "P1 \u2014 Data Model"
+    assert "src/models.py" in phases[0].files
+    assert len(phases[0].tests) == 2
+    assert phases[0].depends_on == []
+    assert phases[1].id == "P2"
+    assert phases[1].depends_on == ["P1"]
+
+
+def test_extract_task_graph_phases_returns_empty_for_no_phases(config, event_bus):
+    """extract_phases returns [] when no P{N} headers found."""
+    from task_graph import extract_phases
+
+    assert extract_phases("Just some text") == []
+
+
+def test_validate_plan_rejects_task_graph_without_phases(config, event_bus):
+    """A Task Graph section with no ### P{N} subsections is rejected."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Add feature")
+    plan = _valid_plan().replace(
+        "### P1 \u2014 Data Model\n"
+        "**Files:** src/models.py (modify)\n"
+        "**Tests:**\n"
+        "- Creating a new model instance persists and returns an id\n"
+        "- Invalid fields raise ValidationError\n"
+        "**Depends on:** (none)\n\n"
+        "### P2 \u2014 Configuration\n"
+        "**Files:** src/config.py (modify)\n"
+        "**Tests:**\n"
+        "- Config field accepts valid values\n"
+        "- Config field rejects invalid values\n"
+        "**Depends on:** P1",
+        "Some vague description of steps",
+    )
+    errors = runner._validate_plan(task, plan, scale="full")
+    assert any("at least one ### P{N} phase" in e for e in errors)
+
+
+def test_validate_plan_rejects_phase_without_files(config, event_bus):
+    """A Task Graph phase missing **Files:** is rejected."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Add feature")
+    plan = _valid_plan().replace(
+        "**Files:** src/models.py (modify)\n",
+        "",
+        1,  # only replace first occurrence
+    )
+    errors = runner._validate_plan(task, plan, scale="full")
+    assert any("must include **Files:**" in e for e in errors)
+
+
+def test_validate_plan_rejects_phase_without_tests(config, event_bus):
+    """A Task Graph phase missing **Tests:** is rejected."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Add feature")
+    plan = _valid_plan().replace(
+        "**Tests:**\n"
+        "- Creating a new model instance persists and returns an id\n"
+        "- Invalid fields raise ValidationError\n",
+        "",
+        1,  # only replace first occurrence
+    )
+    errors = runner._validate_plan(task, plan, scale="full")
+    assert any("must include **Tests:**" in e for e in errors)
+
+
+def test_validate_plan_rejects_invalid_dependency_ref(config, event_bus):
+    """A Task Graph phase referencing a non-existent dependency is rejected."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Add feature")
+    plan = _valid_plan().replace("**Depends on:** P1", "**Depends on:** P9")
+    errors = runner._validate_plan(task, plan, scale="full")
+    assert any("P9 which does not exist" in e for e in errors)
+
+
+def test_validate_plan_task_graph_not_required_for_lite(config, event_bus):
+    """Lite plans should not require a Task Graph section."""
+    runner = _make_runner(config, event_bus)
+    task = Task(id=1, title="Fix typo")
+    errors = runner._validate_plan(task, _lite_plan(), scale="lite")
+    assert not any("Task Graph" in e for e in errors)
+
+
+def test_build_prompt_includes_task_graph_guidance_for_full(config, event_bus, issue):
+    """Full plan prompt includes Task Graph format guidance with example."""
+    runner = _make_runner(config, event_bus)
+    task = issue.to_task()
+    prompt, _ = runner._build_prompt_with_stats(task, scale="full")
+    assert "Task Graph Format" in prompt
+    assert "### P1" in prompt
+    assert "behavioral" in prompt.lower()
+
+
+def test_build_prompt_no_task_graph_guidance_for_lite(config, event_bus, issue):
+    """Lite plan prompt does not include Task Graph format guidance."""
+    runner = _make_runner(config, event_bus)
+    task = issue.to_task()
+    prompt, _ = runner._build_prompt_with_stats(task, scale="lite")
+    assert "Task Graph Format" not in prompt
 
 
 # ---------------------------------------------------------------------------

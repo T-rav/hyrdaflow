@@ -537,6 +537,11 @@ class HydraFlowConfig(BaseModel):
         description="CLI backend for planning agents",
     )
     planner_model: str = Field(default="opus", description="Model for planning agents")
+    tdd_max_remediation_loops: int = Field(
+        default=4,
+        ge=0,
+        description="Max fix attempts per TDD REFACTOR sub-agent before reporting failure",
+    )
     triage_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
         description="CLI backend for triage agents",

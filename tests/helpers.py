@@ -1054,6 +1054,7 @@ def make_implement_phase(
     mock_store.mark_active = lambda num, stage: None
     mock_store.mark_complete = lambda num: None
     mock_store.is_active = lambda num: False
+    mock_store.enrich_with_comments = AsyncMock(side_effect=lambda task: task)
 
     mock_wt = AsyncMock()
     mock_wt.create = AsyncMock(

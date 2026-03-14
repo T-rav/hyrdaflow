@@ -61,6 +61,15 @@ def _make_loop(
     return loop, deps.stop_event, state, pr_manager
 
 
+class TestReportIssueLoopStartup:
+    """Tests for ReportIssueLoop startup behaviour."""
+
+    def test_run_on_startup_enabled(self, tmp_path: Path) -> None:
+        """ReportIssueLoop should process queued reports immediately on startup."""
+        loop, _stop, _state, _pr = _make_loop(tmp_path)
+        assert loop._run_on_startup is True
+
+
 class TestReportIssueLoopDoWork:
     """Tests for ReportIssueLoop._do_work."""
 
@@ -932,7 +941,7 @@ class TestTrackedReportStatusTransitions:
     async def test_status_reverts_to_queued_when_agent_raises_exception(
         self, tmp_path: Path
     ) -> None:
-        """When stream_claude_process raises, status transitions in-progress → queued."""
+        """When stream_claude_process raises, status transitions in-progress -> queued."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         report = _enqueue_with_tracking(state)
 

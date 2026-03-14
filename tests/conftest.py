@@ -158,6 +158,7 @@ class TaskFactory:
         comments: list[str] | None = None,
         source_url: str = "",
         links: list[Any] | None = None,
+        complexity_score: int = 0,
     ):
         from models import Task
 
@@ -170,6 +171,7 @@ class TaskFactory:
             source_url=source_url
             or f"https://github.com/test-org/test-repo/issues/{id}",
             links=links if links is not None else [],
+            complexity_score=complexity_score,
         )
 
 

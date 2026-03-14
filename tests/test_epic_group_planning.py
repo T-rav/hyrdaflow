@@ -252,7 +252,7 @@ class TestPlanEpicGroup:
 
         call_count = 0
 
-        async def _plan_side_effect(task, worker_id=0):
+        async def _plan_side_effect(task, worker_id=0, **kwargs):
             nonlocal call_count
             call_count += 1
             return PlanResult(
@@ -315,7 +315,7 @@ class TestPlanEpicGroup:
         ]
 
         planners.plan = AsyncMock(
-            side_effect=lambda task, worker_id=0: PlanResult(
+            side_effect=lambda task, worker_id=0, **kwargs: PlanResult(
                 issue_number=task.id, success=True, plan=f"Plan for #{task.id}"
             )
         )
@@ -491,7 +491,7 @@ class TestPlanIssuesMixedEpicAndStandalone:
         store.get_plannable = lambda _max_count: _calls.pop(0) if _calls else []
 
         planners.plan = AsyncMock(
-            side_effect=lambda task, worker_id=0: PlanResult(
+            side_effect=lambda task, worker_id=0, **kwargs: PlanResult(
                 issue_number=task.id,
                 success=True,
                 plan=f"Plan for #{task.id}",
@@ -538,7 +538,7 @@ class TestPlanIssuesMixedEpicAndStandalone:
         store.get_plannable = lambda _max_count: _items.pop(0) if _items else []
 
         planners.plan = AsyncMock(
-            side_effect=lambda task, worker_id=0: PlanResult(
+            side_effect=lambda task, worker_id=0, **kwargs: PlanResult(
                 issue_number=task.id,
                 success=True,
                 plan=f"Plan for #{task.id}",

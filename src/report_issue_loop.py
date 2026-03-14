@@ -62,6 +62,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
             enabled_cb=enabled_cb,
             sleep_fn=sleep_fn,
             interval_cb=interval_cb,
+            run_on_startup=True,
         )
         self._state = state
         self._pr_manager = pr_manager
@@ -215,6 +216,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
 
             # Success — remove from queue
             self._state.remove_report(report.id)
+            self._state.update_tracked_report(
+                report.id,
+                status="fixed",
+                detail=f"Created issue #{issue_number}",
+                action_label="processed",
+            )
             logger.info(
                 "Processed report %s as issue #%d: %s",
                 report.id,
@@ -231,6 +238,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
         attempt_count = self._state.fail_report(report.id)
         if attempt_count >= _MAX_REPORT_ATTEMPTS:
             self._state.remove_report(report.id)
+            self._state.update_tracked_report(
+                report.id,
+                status="closed",
+                detail=f"Failed {attempt_count} times — escalated to HITL",
+                action_label="escalated",
+            )
             await self._escalate_failed_report(report)
 
             # Mark tracked report as closed after escalation

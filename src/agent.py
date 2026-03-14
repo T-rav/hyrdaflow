@@ -22,6 +22,7 @@ from review_insights import (
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 from subprocess_util import CreditExhaustedError
+from task_graph import extract_phases, has_task_graph, topological_sort
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
 if TYPE_CHECKING:
@@ -396,6 +397,77 @@ Run through this checklist before your final commit:
             + f"\n[Comment truncated from {len(raw):,} chars]"
         )
 
+    def _build_tdd_subagent_plan(self, plan_comment: str) -> str:
+        """Build a Task Graph plan that instructs the agent to use sub-agents.
+
+        Parses phases from the plan, topologically sorts them, and builds
+        concrete per-phase RED/GREEN/REFACTOR sub-agent instructions with
+        the actual files, tests, and dependency info from each phase.
+        """
+        phases = topological_sort(extract_phases(plan_comment))
+        max_fix = self._config.tdd_max_remediation_loops
+
+        header = (
+            "\n\n## Implementation Plan — TDD Sub-Agent Isolation\n\n"
+            "This plan uses a **Task Graph**. For each phase below, launch "
+            "**three sub-agents** using the **Agent tool** in strict sequence.\n\n"
+        )
+
+        rules = (
+            "### Rules\n\n"
+            "- Complete each phase fully (RED → GREEN → REFACTOR) before "
+            "starting the next\n"
+            "- Each sub-agent runs in the same worktree and sees prior commits\n"
+            "- If a sub-agent fails, report the failure with details — do NOT "
+            "retry silently\n"
+            f"- REFACTOR sub-agent may attempt up to **{max_fix}** fix cycles "
+            "before reporting failure\n\n"
+        )
+
+        phase_sections: list[str] = []
+        for i, phase in enumerate(phases, 1):
+            files_str = ", ".join(f"`{f}`" for f in phase.files) or "(none listed)"
+            tests_str = (
+                "\n".join(f"  - {t}" for t in phase.tests) or "  - (none listed)"
+            )
+            deps_str = ", ".join(phase.depends_on) or "none"
+
+            phase_sections.append(
+                f"### Phase {i}: {phase.name}\n\n"
+                f"**Files:** {files_str}  \n"
+                f"**Depends on:** {deps_str}\n\n"
+                f"**1. RED sub-agent** — Launch with prompt:\n"
+                f'> "Write FAILING tests for {phase.name}. '
+                f"Test these behavioral specs:\n{tests_str}\n"
+                f"ONLY create/modify files in `tests/`. Do NOT touch source files. "
+                f'Commit when done."\n\n'
+                f"**2. GREEN sub-agent** — Launch with prompt:\n"
+                f'> "Implement the MINIMUM code to make all failing tests pass '
+                f"for {phase.name}. Modify these files: {files_str}. "
+                f"ONLY change source/implementation files (NOT test files). "
+                f'Commit when done."\n\n'
+                f"**3. REFACTOR sub-agent** — Launch with prompt:\n"
+                f'> "Run `make test`. If tests fail, fix implementation code '
+                f"(not tests). Repeat until the full suite passes (max "
+                f'{max_fix} attempts). Commit fixes."\n\n'
+            )
+
+        # If parsing found no phases, include the raw plan as fallback
+        if not phase_sections:
+            return (
+                "\n\n## Implementation Plan\n\n"
+                "Follow this plan closely. It uses a **Task Graph** with "
+                "ordered phases.\n"
+                "Execute phases in order (P1 before P2, etc.). For each phase:\n"
+                "1. Write tests that encode the behavioral specs listed.\n"
+                "2. Run tests — they should FAIL.\n"
+                "3. Implement the minimum code to make tests pass.\n"
+                "4. Run the full test suite before moving to the next phase.\n\n"
+                f"{plan_comment}"
+            )
+
+        return header + rules + "\n".join(phase_sections)
+
     def _build_prompt_with_stats(
         self, issue: Task, review_feedback: str = "", prior_failure: str = ""
     ) -> tuple[str, dict[str, object]]:
@@ -423,12 +495,16 @@ Run through this checklist before your final commit:
                 label="Implementation plan",
             )
             history_after += len(plan_comment)
-            plan_section = (
-                f"\n\n## Implementation Plan\n\n"
-                f"Follow this plan closely. It was created by a planner agent "
-                f"that already analyzed the codebase.\n\n"
-                f"{plan_comment}"
-            )
+            # Detect whether the plan uses Task Graph format
+            if has_task_graph(plan_comment):
+                plan_section = self._build_tdd_subagent_plan(plan_comment)
+            else:
+                plan_section = (
+                    f"\n\n## Implementation Plan\n\n"
+                    f"Follow this plan closely. It was created by a planner agent "
+                    f"that already analyzed the codebase.\n\n"
+                    f"{plan_comment}"
+                )
 
         review_feedback_section = ""
         if review_feedback:

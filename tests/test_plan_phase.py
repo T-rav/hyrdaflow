@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from models import PlanResult, Task
+from models import PlanResult, ResearchResult, Task
 from tests.conftest import TaskFactory
 from tests.helpers import make_plan_phase, supply_once
 
@@ -228,7 +228,7 @@ class TestPlanPhase:
         was_active_during_plan = False
 
         async def check_active_plan(
-            issue_obj: object, worker_id: int = 0
+            issue_obj: object, worker_id: int = 0, **kwargs: object
         ) -> PlanResult:
             nonlocal was_active_during_plan
             was_active_during_plan = store.is_active(42)
@@ -1051,3 +1051,77 @@ class TestPlanPhaseBatchScaling:
         config.max_planners = 5  # type: ignore[assignment]
         await phase.plan_issues()
         store.get_plannable.assert_called_with(1)
+
+
+# ---------------------------------------------------------------------------
+# Research integration
+# ---------------------------------------------------------------------------
+
+
+class TestPlanPhaseResearch:
+    """Tests for pre-plan research triggering."""
+
+    def test_should_research_true_when_runner_present(self, config):
+        """Research runs when runner is wired."""
+        phase, *_ = make_plan_phase(config)
+        phase._research_runner = AsyncMock()
+        assert phase._should_research() is True
+
+    def test_should_research_false_when_no_runner(self, config):
+        """No research_runner means no research."""
+        phase, *_ = make_plan_phase(config)
+        # phase._research_runner is None by default
+        assert phase._should_research() is False
+
+    @pytest.mark.asyncio
+    async def test_plan_one_calls_research_for_complex_issue(self, config):
+        """When research is triggered, result context is passed to planner."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+
+        research_mock = AsyncMock()
+        research_mock.research = AsyncMock(
+            return_value=ResearchResult(
+                issue_number=1, success=True, research="Found relevant files"
+            )
+        )
+        phase._research_runner = research_mock
+
+        issue = TaskFactory.create(id=1)
+        plan_result = PlanResult(
+            issue_number=1,
+            success=True,
+            plan="## Files to Modify\n- src/main.py\n## Testing Strategy\n- tests/test.py",
+            summary="Plan summary",
+        )
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        research_mock.research.assert_awaited_once()
+        planners.plan.assert_awaited_once()
+        # Verify research_context was passed
+        call_kwargs = planners.plan.call_args
+        assert call_kwargs.kwargs.get("research_context") == "Found relevant files"
+
+    @pytest.mark.asyncio
+    async def test_plan_one_skips_research_when_no_runner(self, config):
+        """Without a research runner, planning proceeds without research."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+
+        # No research_runner set (default None)
+        issue = TaskFactory.create(id=1)
+        plan_result = PlanResult(
+            issue_number=1,
+            success=True,
+            plan="## Files to Modify\n- src/main.py\n## Testing Strategy\n- tests/test.py",
+            summary="Plan summary",
+        )
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        # Planner called with empty research_context
+        call_kwargs = planners.plan.call_args
+        assert call_kwargs.kwargs.get("research_context") == ""

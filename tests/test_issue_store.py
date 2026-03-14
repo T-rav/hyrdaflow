@@ -1300,3 +1300,81 @@ class TestAdditiveOnlyQueue:
         await store.refresh()
         assert len(store._queues[STAGE_FIND]) == 2
         assert store._queue_members[STAGE_FIND] == {1, 2}
+
+
+# ── Comment Enrichment ───────────────────────────────────────────────
+
+
+class TestEnrichWithComments:
+    """IssueStore.enrich_with_comments fetches and attaches comments."""
+
+    @pytest.mark.asyncio
+    async def test_enriches_task_with_fetched_comments(self) -> None:
+        fetcher = AsyncMock()
+        fetcher.fetch_all = AsyncMock(return_value=[])
+        fetcher.fetch_issue_comments = AsyncMock(
+            return_value=["## Implementation Plan\nDo the thing"]
+        )
+        store = _make_store(fetcher=fetcher)
+        task = TaskFactory.create(id=42, tags=["hydraflow-ready"])
+
+        enriched = await store.enrich_with_comments(task)
+
+        assert enriched.comments == ["## Implementation Plan\nDo the thing"]
+        fetcher.fetch_issue_comments.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_returns_original_when_no_comments(self) -> None:
+        fetcher = AsyncMock()
+        fetcher.fetch_all = AsyncMock(return_value=[])
+        fetcher.fetch_issue_comments = AsyncMock(return_value=[])
+        store = _make_store(fetcher=fetcher)
+        task = TaskFactory.create(id=10, tags=["hydraflow-ready"])
+
+        enriched = await store.enrich_with_comments(task)
+
+        assert enriched.comments == []
+
+    @pytest.mark.asyncio
+    async def test_returns_original_on_fetch_failure(self) -> None:
+        fetcher = AsyncMock()
+        fetcher.fetch_all = AsyncMock(return_value=[])
+        fetcher.fetch_issue_comments = AsyncMock(side_effect=RuntimeError("API error"))
+        store = _make_store(fetcher=fetcher)
+        task = TaskFactory.create(id=10, tags=["hydraflow-ready"])
+
+        enriched = await store.enrich_with_comments(task)
+
+        assert enriched is task  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_works_with_wrapped_fetcher(self) -> None:
+        """When the fetcher is a GitHubTaskFetcher wrapper, reach through."""
+        inner = AsyncMock()
+        inner.fetch_issue_comments = AsyncMock(return_value=["plan text"])
+        wrapper = AsyncMock()
+        wrapper._fetcher = inner
+        del wrapper.fetch_issue_comments
+        wrapper.fetch_all = AsyncMock(return_value=[])
+        store = _make_store(fetcher=wrapper)
+        task = TaskFactory.create(id=5, tags=["hydraflow-ready"])
+
+        enriched = await store.enrich_with_comments(task)
+
+        assert enriched.comments == ["plan text"]
+        inner.fetch_issue_comments.assert_awaited_once_with(5)
+
+    @pytest.mark.asyncio
+    async def test_returns_original_when_fetcher_has_no_comment_method(self) -> None:
+        """Gracefully handles fetchers that don't support comment fetching."""
+
+        class BareTaskFetcher:
+            async def fetch_all(self) -> list:
+                return []
+
+        store = _make_store(fetcher=BareTaskFetcher())  # type: ignore[arg-type]
+        task = TaskFactory.create(id=10, tags=["hydraflow-ready"])
+
+        enriched = await store.enrich_with_comments(task)
+
+        assert enriched is task

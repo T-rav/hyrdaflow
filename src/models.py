@@ -229,6 +229,9 @@ class Task(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     links: list[TaskLink] = Field(default_factory=list)
     parent_epic: int | None = None
+    complexity_score: int = Field(
+        default=0, ge=0, le=10, description="Complexity score from triage (0-10)"
+    )
 
 
 # --- GitHub ---
@@ -451,6 +454,21 @@ class PlanResult(BaseModel):
     )
     epic_number: int = Field(
         default=0, description="Parent epic issue number, 0 if standalone"
+    )
+
+
+class ResearchResult(BaseModel):
+    """Outcome of a research agent run (pre-plan exploration)."""
+
+    issue_number: int = Field(description="GitHub issue number researched")
+    success: bool = Field(default=False, description="Whether research succeeded")
+    research: str = Field(default="", description="Structured research context")
+    transcript: str = Field(default="", description="Raw agent transcript")
+    duration_seconds: float = Field(
+        default=0.0, ge=0, description="Wall-clock seconds for the research run"
+    )
+    error: str | None = Field(
+        default=None, description="Error message if research failed"
     )
 
 

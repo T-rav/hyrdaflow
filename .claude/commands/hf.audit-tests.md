@@ -1,6 +1,6 @@
 # Test Audit
 
-Run a comprehensive test quality audit across the entire repo. Analyzes test naming, structure, hygiene, factory usage, anti-patterns, coverage gaps, and flaky patterns. Creates GitHub issues for findings so HydraFlow can process them.
+Run a comprehensive test quality audit across the entire repo. Analyzes test naming, structure, hygiene, factory usage, fluent builder patterns, anti-patterns, coverage gaps, and flaky patterns. Creates GitHub issues for findings so HydraFlow can process them.
 
 ## Instructions
 
@@ -19,7 +19,7 @@ Run a comprehensive test quality audit across the entire repo. Analyzes test nam
 3. **Launch agents in parallel** using `Task` with `run_in_background: true` and `subagent_type: "general-purpose"`:
    - **Agent 1: Test naming, structure & method size** — Checks naming conventions, 3As structure, single responsibility, small test methods, and organization.
    - **Agent 2: Anti-patterns, hygiene & flaky tests** — Detects over-mocking, weak assertions, duplicate helpers, flaky patterns, and test isolation issues.
-   - **Agent 3: Factory/fixture gaps & coverage** — Finds missing factories, repeated setup, coverage gaps, and missing edge case tests.
+   - **Agent 3: Factory/fixture gaps, builder enforcement & coverage** — Finds missing factories, enforces fluent builder pattern, checks coverage gaps, and missing edge case tests.
 
 4. Wait for all agents to complete.
 5. After all finish, run `gh issue list --repo $REPO --label $LABEL --state open --search "test quality" --limit 200` to show the user a final summary of all issues created.
@@ -253,33 +253,58 @@ You are a test quality auditor focused on test infrastructure and coverage gaps 
    - Complex arrange blocks (> 10 lines of setup) that could be a one-liner with a factory
 4. Cross-reference with existing helpers.py — is the factory already there but not used?
 
-### Phase 3: Find Coverage Gaps
-5. For each source module, check if corresponding tests exist:
+### Phase 3: Enforce Fluent Builder Pattern
+5. For each existing factory and builder in helpers.py/conftest.py, check:
+   - **Fluent API required**: Builders for objects with 3+ optional fields MUST use fluent `.with_<field>()` chaining syntax, NOT `**kwargs` dicts
+   - **Pattern**: `BuilderClass().with_x(val).with_y(val).build()` — each `.with_*()` returns `self`, `.build()` returns the constructed object
+   - **Flag**: Factory functions using `**overrides` dict pattern for objects with 3+ configurable fields — these should be converted to fluent builders
+   - **Flag**: Builders that exist but don't return `self` from setter methods (broken chain)
+   - **Flag**: Builders missing a `.build()` terminal method
+   - **Flag**: Builders with inconsistent method naming (mixing `.set_x()`, `.with_x()`, `.x()` styles — standardize on `.with_x()`)
+   - **Flag**: Test files that construct complex objects inline instead of using an available builder
+6. For each finding, provide: file:line, current pattern, and a concrete builder skeleton:
+   ```python
+   class <Object>Builder:
+       def __init__(self):
+           self._field = <default>
+       def with_<field>(self, value) -> "<Object>Builder":
+           self._field = value
+           return self
+       def build(self) -> <Object>:
+           return <Object>(field=self._field)
+   ```
+7. Check that tests USE the fluent syntax for readability:
+   - **Good**: `ConfigBuilder().with_repo("owner/repo").with_dry_run(True).build()`
+   - **Bad**: `make_config(repo="owner/repo", dry_run=True)` (when builder exists)
+   - **Bad**: `ConfigBuilder().build()` with manual attribute assignment after
+
+### Phase 4: Find Coverage Gaps
+8. For each source module, check if corresponding tests exist:
    - Every public function/method should have at least one test
    - Every error path (except/raise) should have a test
    - Every branch (if/elif/else) should have at least one test per path
    - Every Pydantic model should have validation tests
-6. Identify untested modules (source files with no corresponding test file)
-7. Identify undertested modules (test file exists but < 50% of public functions tested)
+9. Identify untested modules (source files with no corresponding test file)
+10. Identify undertested modules (test file exists but < 50% of public functions tested)
 
-### Phase 4: Find Missing Edge Case Tests
-8. For each tested function, check if edge cases are covered:
+### Phase 5: Find Missing Edge Case Tests
+11. For each tested function, check if edge cases are covered:
    - Empty inputs (empty string, empty list, empty dict, None)
    - Boundary values (0, -1, MAX_INT, empty collection)
    - Error conditions (network failure, file not found, permission denied)
    - Concurrent access (if async code)
    - Large inputs (if the function processes collections)
 
-### Phase 5: Audit Fixture Hygiene
-9. Check:
+### Phase 6: Audit Fixture Hygiene
+12. Check:
    - Are fixtures scoped correctly? (session vs function vs module)
    - Are there fixtures in test files that should be in conftest.py?
    - Are there conftest fixtures that are only used by one test file?
    - Are there fixture chains that are too deep? (fixture depends on fixture depends on fixture)
    - Are fixtures doing too much? (> 15 lines — split into factory + fixture wrapper)
 
-### Phase 6: Create GitHub Issues
-10. Check for duplicate GH issues first, then create themed issues
+### Phase 7: Create GitHub Issues
+13. Check for duplicate GH issues first, then create themed issues
 
 ## Issue Body Format
 ```markdown
@@ -291,6 +316,12 @@ You are a test quality auditor focused on test infrastructure and coverage gaps 
 |--------|---------|---------------|-------------------|
 | <HydraFlowConfig(...)> | <test_a, test_b, test_c> | <5> | <make_config() in helpers.py> |
 
+## Builder Pattern Violations
+| File:Line | Current Pattern | Issue | Suggested Fix |
+|-----------|----------------|-------|---------------|
+| <path:line> | `make_config(**overrides)` | kwargs factory with 5+ fields | Convert to `ConfigBuilder().with_x().build()` |
+| <path:line> | `FooBuilder().set_x()` | Inconsistent naming | Rename to `.with_x()` |
+
 ## Coverage Gaps
 | Source File | Public Functions | Tested | Untested |
 |-------------|-----------------|--------|----------|
@@ -298,20 +329,34 @@ You are a test quality auditor focused on test infrastructure and coverage gaps 
 
 ## Suggested Fixes
 - [ ] Add `make_<object>()` factory to helpers.py for <repeated pattern>
+- [ ] Convert `make_<object>(**overrides)` to fluent `<Object>Builder` class
 - [ ] Add tests for <untested_function> in <source_file>
 - [ ] Add edge case tests for <function>: empty input, None, error path
 
-## Factory Skeleton
+## Builder Skeleton
 ```python
-def make_<object>(**overrides):
-    defaults = { ... }
-    defaults.update(overrides)
-    return <Object>(**defaults)
+class <Object>Builder:
+    def __init__(self):
+        self._field_a = <default>
+        self._field_b = <default>
+
+    def with_<field_a>(self, value: <type>) -> "<Object>Builder":
+        self._field_a = value
+        return self
+
+    def with_<field_b>(self, value: <type>) -> "<Object>Builder":
+        self._field_b = value
+        return self
+
+    def build(self) -> <Object>:
+        return <Object>(field_a=self._field_a, field_b=self._field_b)
 ```
 ```
 
 ## Grouping Strategy
 - "Test Quality: Add missing factories for <pattern>"
+- "Test Quality: Convert kwargs factories to fluent builders"
+- "Test Quality: Fix builder pattern violations"
 - "Test Quality: Add tests for untested functions in <module>"
 - "Test Quality: Add edge case tests for <module>"
 - "Test Quality: Clean up fixture organization"
