@@ -61,6 +61,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                     # Remove from state first so a crash between steps
                     # leaves the entry gone (destroy is idempotent).
                     self._state.remove_worktree(issue_number)
+                    self._state.remove_branch(issue_number)
                     await self._worktrees.destroy(issue_number)
                     collected += 1
                     logger.info("GC: collected workspace for issue #%d", issue_number)
@@ -87,6 +88,13 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 _MAX_GC_PER_CYCLE - collected
             )
             collected += branch_count
+
+        # Phase 4: prune stale active_branches entries with no worktree
+        if not self._stop_event.is_set():
+            pruned = await self._prune_stale_branch_entries(
+                _MAX_GC_PER_CYCLE - collected
+            )
+            collected += pruned
 
         return {"collected": collected, "skipped": skipped, "errors": errors}
 
@@ -295,8 +303,34 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                     cwd=self._config.repo_root,
                     gh_token=self._config.gh_token,
                 )
+                self._state.remove_branch(issue_number)
                 collected += 1
                 logger.info("GC: deleted orphaned branch %s", branch)
             except RuntimeError:
                 logger.debug("GC: could not delete branch %s", branch, exc_info=True)
         return collected
+
+    async def _prune_stale_branch_entries(self, budget: int = _MAX_GC_PER_CYCLE) -> int:
+        """Remove ``active_branches`` entries whose issue has no worktree and is safe to GC."""
+        active_worktrees = self._state.get_active_worktrees()
+        active_branches = self._state.get_active_branches()
+        pruned = 0
+        for issue_number in list(active_branches.keys()):
+            if self._stop_event.is_set() or pruned >= budget:
+                break
+            if issue_number in active_worktrees:
+                continue  # worktree still exists — branch entry is valid
+            try:
+                if await self._is_safe_to_gc(issue_number):
+                    self._state.remove_branch(issue_number)
+                    pruned += 1
+                    logger.info(
+                        "GC: pruned stale branch entry for issue #%d", issue_number
+                    )
+            except Exception:
+                logger.warning(
+                    "GC: could not prune branch entry for issue #%d",
+                    issue_number,
+                    exc_info=True,
+                )
+        return pruned
