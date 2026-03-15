@@ -447,6 +447,32 @@ class TestRouteContextHitlSummaryRetryDue:
 
         assert ctx.hitl_summary_retry_due(123) is False
 
+    def test_custom_cooldown_respected(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        from pr_manager import PRManager
+
+        # Use a very long cooldown — a recent failure should block retry.
+        ctx = RouteContext(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=PRManager(config, event_bus),
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+            hitl_summary_cooldown_seconds=9999,
+        )
+        state.set_hitl_summary_failure(456, "some failure")
+
+        assert ctx.hitl_summary_retry_due(456) is False
+
 
 class TestRouteContextExecuteAdminTask:
     """P2 — execute_admin_task delegates correctly."""

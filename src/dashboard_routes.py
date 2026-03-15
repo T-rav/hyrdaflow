@@ -812,7 +812,6 @@ def create_router(
         return ctx.pr_manager_for(cfg, bus)
 
     def _list_repo_records() -> list[RepoRecord]:
-        """Return repo records from the callback or store, with error fallback."""
         return ctx.list_repo_records()
 
     # Supervisor client/manager removed with hf_cli package (issue #2205).
