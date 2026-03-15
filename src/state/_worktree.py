@@ -41,6 +41,10 @@ class WorktreeStateMixin:
 
     # --- branch tracking ---
 
+    def get_active_branches(self) -> dict[int, str]:
+        """Return ``{issue_number: branch_name}`` mapping."""
+        return self._int_keys(self._data.active_branches)
+
     def set_branch(self, issue_number: int, branch: str) -> None:
         """Record the active *branch* name for *issue_number*."""
         self._data.active_branches[self._key(issue_number)] = branch
@@ -49,3 +53,8 @@ class WorktreeStateMixin:
     def get_branch(self, issue_number: int) -> str | None:
         """Return the active branch for *issue_number*, or *None*."""
         return self._data.active_branches.get(self._key(issue_number))
+
+    def remove_branch(self, issue_number: int) -> None:
+        """Remove the branch mapping for *issue_number* (no-op if absent)."""
+        self._data.active_branches.pop(self._key(issue_number), None)
+        self.save()
