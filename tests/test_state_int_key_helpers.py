@@ -72,6 +72,14 @@ class TestIntKeys:
         result = StateTracker._int_keys({"5": "val"})
         assert result == {5: "val"}
 
+    def test_skips_non_integer_keys(self) -> None:
+        result = StateTracker._int_keys({"1": "a", "bad": "b", "3": "c"})
+        assert result == {1: "a", 3: "c"}
+
+    def test_all_non_integer_keys_returns_empty(self) -> None:
+        result = StateTracker._int_keys({"foo": "a", "bar": "b"})
+        assert result == {}
+
 
 # ---------------------------------------------------------------------------
 # Integration: helpers are used by accessor methods

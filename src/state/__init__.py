@@ -71,8 +71,17 @@ class StateTracker(
 
     @staticmethod
     def _int_keys(d: dict[str, _V]) -> dict[int, _V]:
-        """Return a copy of *d* with all keys converted from ``str`` to ``int``."""
-        return {int(k): v for k, v in d.items()}
+        """Return a copy of *d* with all keys converted from ``str`` to ``int``.
+
+        Non-integer keys are skipped with a warning.
+        """
+        result: dict[int, _V] = {}
+        for k, v in d.items():
+            try:
+                result[int(k)] = v
+            except (ValueError, TypeError):
+                logger.warning("Skipping non-integer state key: %r", k)
+        return result
 
     # --- persistence ---
 
