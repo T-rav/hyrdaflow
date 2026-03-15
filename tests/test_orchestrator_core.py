@@ -19,7 +19,7 @@ from models import (
     WorkerResult,
 )
 from orchestrator import HydraFlowOrchestrator
-from tests.conftest import TaskFactory, WorkerResultFactory
+from tests.conftest import ReviewResultFactory, TaskFactory, WorkerResultFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1099,14 +1099,12 @@ class TestPostReviewHooks:
     async def test_calls_post_run_hooks_for_transcripts(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         _mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="reviewed code",
@@ -1128,14 +1126,12 @@ class TestPostReviewHooks:
     async def test_merged_result_triggers_pull_and_crate(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         _mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="merged PR",
@@ -1154,14 +1150,12 @@ class TestPostReviewHooks:
     async def test_skips_hooks_for_empty_transcript(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         _mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="",
@@ -1178,14 +1172,12 @@ class TestPostReviewHooks:
     async def test_review_status_failed_on_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         _mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="CI failed",
@@ -1204,14 +1196,12 @@ class TestPostReviewHooks:
     async def test_review_status_success_on_merge(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         _mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="merged successfully",

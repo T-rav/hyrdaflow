@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,10 +14,13 @@ from epic import (
     EpicCompletionChecker,
     extract_version_from_title,
 )
-from models import GitHubIssue, Release
+from models import Release
 from state import StateTracker
 from tests.conftest import IssueFactory
 from tests.helpers import ConfigFactory
+
+if TYPE_CHECKING:
+    from models import GitHubIssue
 
 # ---------------------------------------------------------------------------
 # Release model
@@ -282,12 +286,12 @@ class TestPRManagerReleaseMethods:
 # ---------------------------------------------------------------------------
 
 
-def _make_epic_issue(
-    number: int, sub_issues: list[int], title: str = "[Epic] Test"
-) -> GitHubIssue:
+def _make_epic_issue(number: int, sub_issues: list[int], title: str = "[Epic] Test"):
     lines = [f"- [ ] #{n} — Sub-issue {n}" for n in sub_issues]
     body = "## Epic\n\n" + "\n".join(lines)
-    return GitHubIssue(number=number, title=title, body=body, labels=["hydraflow-epic"])
+    return IssueFactory.create(
+        number=number, title=title, body=body, labels=["hydraflow-epic"]
+    )
 
 
 def _make_release_checker(
@@ -337,7 +341,7 @@ class TestEpicCompletionWithRelease:
             2: IssueFactory.create(
                 number=2, labels=["hydraflow-fixed"], title="Issue #2"
             ),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100,
                 title="[Epic] v1.0.0 — Features",
                 body="",
@@ -364,7 +368,7 @@ class TestEpicCompletionWithRelease:
             2: IssueFactory.create(
                 number=2, labels=["hydraflow-fixed"], title="Fix auth"
             ),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100,
                 title="[Epic] v1.0.0 — Features",
                 body="",
@@ -409,7 +413,7 @@ class TestEpicCompletionWithRelease:
             1: IssueFactory.create(
                 number=1, labels=["hydraflow-fixed"], title="Feature A"
             ),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100,
                 title="[Epic] v2.0.0 release",
                 body="",
@@ -435,7 +439,7 @@ class TestEpicCompletionWithRelease:
         epic = _make_epic_issue(100, [1], title="[Epic] Feature set without version")
         sub_issues = {
             1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100,
                 title="[Epic] Feature set without version",
                 body="",
@@ -457,7 +461,7 @@ class TestEpicCompletionWithRelease:
         epic = _make_epic_issue(100, [1], title="[Epic] 3.0.0 release")
         sub_issues = {
             1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100,
                 title="[Epic] 3.0.0 release",
                 body="",
@@ -481,7 +485,7 @@ class TestEpicCompletionWithRelease:
         epic = _make_epic_issue(100, [1], title="[Epic] v1.0.0")
         sub_issues = {
             1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100, title="[Epic] v1.0.0", body="", labels=["hydraflow-epic"]
             ),
         }
@@ -502,7 +506,7 @@ class TestEpicCompletionWithRelease:
         epic = _make_epic_issue(100, [1], title="[Epic] v1.0.0")
         sub_issues = {
             1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: GitHubIssue(
+            100: IssueFactory.create(
                 number=100, title="[Epic] v1.0.0", body="", labels=["hydraflow-epic"]
             ),
         }

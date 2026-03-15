@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from models import ConflictResolutionResult, HITLItem, LoopResult
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
-from tests.conftest import IssueFactory, make_state
+from tests.conftest import HITLResultFactory, IssueFactory, make_state
 from tests.helpers import ConfigFactory
 
 
@@ -441,15 +441,11 @@ class TestGenericResolution:
 
     @pytest.mark.asyncio
     async def test_generic_cause_delegates_to_hitl_runner(self, tmp_path: Path) -> None:
-        from models import HITLResult
-
         issue = IssueFactory.create(
             title="Fix widget", body="body", labels=["hydraflow-hitl"]
         )
         hitl_runner = AsyncMock()
-        hitl_runner.run = AsyncMock(
-            return_value=HITLResult(issue_number=42, success=True)
-        )
+        hitl_runner.run = AsyncMock(return_value=HITLResultFactory.create())
 
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,

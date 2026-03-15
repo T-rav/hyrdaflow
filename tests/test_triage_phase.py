@@ -13,11 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
-from tests.conftest import TaskFactory
+from tests.conftest import TaskFactory, TriageResultFactory
 from tests.helpers import make_triage_phase, supply_once
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from models import TriageResult
 
 
 # ---------------------------------------------------------------------------
@@ -32,13 +33,11 @@ class TestTriagePhase:
     async def test_triage_promotes_ready_issue_to_planning(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import TriageResult
-
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=1, title="Implement feature X", body="A" * 100)
 
         triage.evaluate = AsyncMock(
-            return_value=TriageResult(issue_number=1, ready=True)
+            return_value=TriageResultFactory.create(issue_number=1, ready=True)
         )
         store.get_triageable = supply_once([issue])
 
@@ -52,13 +51,11 @@ class TestTriagePhase:
     async def test_triage_escalates_unready_issue_to_hitl(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import TriageResult
-
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
-            return_value=TriageResult(
+            return_value=TriageResultFactory.create(
                 issue_number=2,
                 ready=False,
                 reasons=["Body is too short or empty (minimum 50 characters)"],
@@ -79,13 +76,11 @@ class TestTriagePhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Escalating an unready issue should record find_label as HITL origin."""
-        from models import TriageResult
-
         phase, state, triage, _prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
-            return_value=TriageResult(
+            return_value=TriageResultFactory.create(
                 issue_number=2,
                 ready=False,
                 reasons=["Body is too short or empty (minimum 50 characters)"],
@@ -102,13 +97,11 @@ class TestTriagePhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Escalating an unready issue should record cause in state."""
-        from models import TriageResult
-
         phase, state, triage, _prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
         triage.evaluate = AsyncMock(
-            return_value=TriageResult(
+            return_value=TriageResultFactory.create(
                 issue_number=2,
                 ready=False,
                 reasons=["Body is too short or empty (minimum 50 characters)"],
@@ -124,8 +117,6 @@ class TestTriagePhase:
     async def test_triage_stops_when_stop_event_set(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import TriageResult
-
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issues = [
             TaskFactory.create(id=1, title="Issue one long enough", body="A" * 100),
@@ -138,7 +129,7 @@ class TestTriagePhase:
             nonlocal call_count
             call_count += 1
             phase._stop_event.set()  # Stop after first evaluation
-            return TriageResult(issue_number=1, ready=True)
+            return TriageResultFactory.create(issue_number=1, ready=True)
 
         triage.evaluate = AsyncMock(side_effect=evaluate_then_stop)
         store.get_triageable = supply_once(issues)
@@ -165,8 +156,6 @@ class TestTriagePhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Triage should mark issues active to prevent re-queuing by refresh."""
-        from models import TriageResult
-
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=1, title="Triage test", body="A" * 100)
 
@@ -175,7 +164,7 @@ class TestTriagePhase:
         async def check_active(issue_obj: object) -> TriageResult:
             nonlocal was_active_during_evaluate
             was_active_during_evaluate = store.is_active(1)
-            return TriageResult(issue_number=1, ready=True)
+            return TriageResultFactory.create(issue_number=1, ready=True)
 
         triage.evaluate = AsyncMock(side_effect=check_active)
         store.get_triageable = supply_once([issue])
@@ -190,8 +179,6 @@ class TestTriagePhase:
         self, config: HydraFlowConfig
     ) -> None:
         """Multiple issues should be triaged concurrently up to max_triagers."""
-        from models import TriageResult
-
         config.max_triagers = 2
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issues = [
@@ -211,7 +198,9 @@ class TestTriagePhase:
             await asyncio.sleep(0.01)
             async with lock:
                 active_count -= 1
-            return TriageResult(issue_number=getattr(issue, "id", 0), ready=True)
+            return TriageResultFactory.create(
+                issue_number=getattr(issue, "id", 0), ready=True
+            )
 
         triage.evaluate = AsyncMock(side_effect=track_concurrency)
         store.get_triageable = supply_once(*[[i] for i in issues])

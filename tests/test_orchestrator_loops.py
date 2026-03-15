@@ -23,7 +23,7 @@ from models import (
 )
 from orchestrator import HydraFlowOrchestrator
 from subprocess_util import AuthenticationError
-from tests.conftest import TaskFactory, WorkerResultFactory
+from tests.conftest import ReviewResultFactory, TaskFactory, WorkerResultFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,12 +67,10 @@ def make_review_result(
     verdict: ReviewVerdict = ReviewVerdict.APPROVE,
     transcript: str = "",
 ) -> ReviewResult:
-    return ReviewResult(
+    return ReviewResultFactory.create(
         pr_number=pr_number,
         issue_number=issue_number,
         verdict=verdict,
-        summary="Looks good.",
-        fixes_made=False,
         transcript=transcript,
     )
 

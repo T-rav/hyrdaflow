@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from typing import TYPE_CHECKING
 
 from models import PlanResult, ResearchResult, Task
-from tests.conftest import PlanResultFactory, TaskFactory
+from tests.conftest import AnalysisResultFactory, PlanResultFactory, TaskFactory
 from tests.helpers import make_plan_phase, supply_once
 
 if TYPE_CHECKING:
@@ -460,7 +460,7 @@ class TestPlanPhase:
     ) -> None:
         """PASS verdict should proceed with normal label swap."""
         from analysis import PlanAnalyzer
-        from models import AnalysisResult, AnalysisSection, AnalysisVerdict
+        from models import AnalysisVerdict
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
@@ -471,10 +471,10 @@ class TestPlanPhase:
             summary="Done",
         )
 
-        pass_result = AnalysisResult(
+        pass_result = AnalysisResultFactory.create(
             issue_number=42,
             sections=[
-                AnalysisSection(
+                AnalysisResultFactory.create_section(
                     name="File Validation",
                     verdict=AnalysisVerdict.PASS,
                     details=["All good"],
@@ -497,7 +497,7 @@ class TestPlanPhase:
     ) -> None:
         """WARN verdict should still proceed with normal label swap."""
         from analysis import PlanAnalyzer
-        from models import AnalysisResult, AnalysisSection, AnalysisVerdict
+        from models import AnalysisVerdict
 
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
@@ -508,10 +508,10 @@ class TestPlanPhase:
             summary="Done",
         )
 
-        warn_result = AnalysisResult(
+        warn_result = AnalysisResultFactory.create(
             issue_number=42,
             sections=[
-                AnalysisSection(
+                AnalysisResultFactory.create_section(
                     name="Conflict Check",
                     verdict=AnalysisVerdict.WARN,
                     details=["Minor overlap"],
