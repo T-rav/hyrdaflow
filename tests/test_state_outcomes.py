@@ -723,7 +723,7 @@ class TestGetActiveWorktreesValueError:
             result = tracker.get_active_worktrees()
 
         assert result == {42: "/wt/42"}
-        assert "Skipping non-integer key" in caplog.text
+        assert "Skipping non-integer state key" in caplog.text
 
     def test_returns_empty_dict_when_all_keys_invalid(self, tmp_path: Path) -> None:
         """All non-integer keys should result in an empty dict."""

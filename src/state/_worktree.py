@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeVar
+
+_V = TypeVar("_V")
 
 if TYPE_CHECKING:
     from models import StateData
@@ -19,7 +21,7 @@ class WorktreeStateMixin:
     def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
 
     @staticmethod
-    def _int_keys(d: dict[str, Any]) -> dict[int, Any]: ...  # provided by StateTracker
+    def _int_keys(d: dict[str, _V]) -> dict[int, _V]: ...  # provided by StateTracker
 
     # --- worktree tracking ---
 

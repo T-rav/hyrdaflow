@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from models import (
     HookFailureRecord,
@@ -11,6 +11,8 @@ from models import (
     IssueOutcomeType,
     WorkerResultMeta,
 )
+
+_V = TypeVar("_V")
 
 if TYPE_CHECKING:
     from models import StateData
@@ -25,6 +27,9 @@ class IssueStateMixin:
 
     @staticmethod
     def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
+
+    @staticmethod
+    def _int_keys(d: dict[str, _V]) -> dict[int, _V]: ...  # provided by StateTracker
 
     # --- issue tracking ---
 
@@ -79,7 +84,7 @@ class IssueStateMixin:
 
     def get_interrupted_issues(self) -> dict[int, str]:
         """Return interrupted issue mapping with int keys."""
-        return {int(k): v for k, v in self._data.interrupted_issues.items()}
+        return self._int_keys(self._data.interrupted_issues)
 
     def clear_interrupted_issues(self) -> None:
         """Clear the interrupted issues mapping and persist."""
@@ -117,7 +122,7 @@ class IssueStateMixin:
 
     def get_all_verification_issues(self) -> dict[int, int]:
         """Return all pending verification issue mappings as {original: verify}."""
-        return {int(k): v for k, v in self._data.verification_issues.items()}
+        return self._int_keys(self._data.verification_issues)
 
     # --- issue outcome tracking ---
 
