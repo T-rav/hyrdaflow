@@ -1,6 +1,6 @@
 # ADR-0012: Epic Merge Coordination Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context
@@ -55,18 +55,20 @@ and `EpicManager.on_child_approved()`:
 ```
 Review approves PR
   → PostMergeHandler.handle_approved()
+    → _notify_epic_approval(issue_number)          [unconditional]
+      → EpicManager.on_child_approved()
+      → Records approval in EpicState.approved_children
+      → Applies hydraflow-approved label to the child PR
     → _should_defer_merge(issue_number)
       → Checks parent epics via EpicManager.find_parent_epics()
       → If all parents use "independent": proceed to merge
       → If any parent uses bundled/bundled_hitl/ordered:
-        1. Record in EpicState.approved_children
-        2. Call EpicManager.on_child_approved()
-        3. Check bundle readiness (all children approved?)
-        4. If ready:
+        1. Check bundle readiness (all children approved?)
+        2. If ready:
            - bundled: auto-merge all via release_epic()
            - bundled_hitl: escalate to HITL with merge instructions
            - ordered: merge in registration order via release_epic()
-        5. If not ready: hold (do not merge), log status
+        3. If not ready: hold (do not merge), log status
 ```
 
 ### Model changes
@@ -86,6 +88,34 @@ to a coordinated epic. When a defer is indicated, `handle_approved()` calls
 readiness, and dispatches to the appropriate strategy handler (`_handle_bundled_ready`,
 `_handle_bundled_hitl_ready`, or `_handle_ordered_ready`). The PR remains open and
 approved until the bundle is ready.
+
+### Relationship to ADR-0011
+
+ADR-0011 prohibits placing **release-creation** logic in `PostMergeHandler`, directing
+it instead to `EpicCompletionChecker._try_close_epic()`. ADR-0012 intentionally places
+**merge-coordination** hooks (approval notification and defer checks) in
+`PostMergeHandler` because this is the only point in the pipeline where the merge
+decision can be intercepted before execution. These are distinct concerns:
+release-creation runs *after* all children complete and the epic closes, while
+merge-coordination runs *before* each individual merge to decide whether to proceed
+or hold. ADR-0012 does not supersede ADR-0011; the two ADRs govern different stages
+of the epic lifecycle.
+
+### `hydraflow-approved` label lifecycle
+
+The `hydraflow-approved` label tracks child PRs that have passed review but are held
+from merge under a coordinated strategy:
+
+- **Applied:** By `EpicManager.on_child_approved()` when a child PR passes review
+  and belongs to an epic with a non-independent merge strategy (`bundled`,
+  `bundled_hitl`, or `ordered`).
+- **Removed on merge:** By `release_epic()` after the bundle is ready and the PR
+  is successfully merged.
+- **Removed on failure:** When a child PR fails review or CI while held, the label
+  is removed by `EpicManager.on_child_failed()` and the child moves to
+  `EpicState.failed_children`.
+- **Removed on cancellation:** If the epic is cancelled or the child is removed
+  from the epic's `child_issues` list, the label is removed during cleanup.
 
 ### Failure path
 
