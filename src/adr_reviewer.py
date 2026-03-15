@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from adr_pre_validator import ADRPreValidator, ADRValidationResult
 from agent_cli import build_lightweight_command
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
-from phase_utils import is_likely_bug
+from phase_utils import _ADR_FILE_RE, is_likely_bug
 from subprocess_util import make_clean_env, run_subprocess
 
 if TYPE_CHECKING:
@@ -24,7 +24,6 @@ logger = logging.getLogger("hydraflow.adr_reviewer")
 
 # Valid statuses are single words: Proposed, Accepted, Superseded, Deprecated, Rejected.
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
-_ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
 _DUPLICATE_THRESHOLD = 0.7
 
 
