@@ -1,7 +1,7 @@
 # ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
 **Status:** Accepted
-**Date:** 2026-03-08
+**Date:** 2026-03-15
 
 ## Context
 
