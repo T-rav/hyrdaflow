@@ -24,7 +24,7 @@ from verification import format_verification_issue_body
 
 
 class TestPromptBudgetDefaults:
-    """All 11 new config fields have the expected defaults."""
+    """All 12 new config fields have the expected defaults."""
 
     @pytest.fixture
     def cfg(self, tmp_path: Path) -> HydraFlowConfig:
