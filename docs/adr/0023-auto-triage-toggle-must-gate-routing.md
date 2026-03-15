@@ -129,5 +129,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 - Source memory: #2327
 - Source issue: #2341
+- Supersedes: [ADR-0023 Gate Triage Call on Config Toggle, Not Just HITL Fallback](0023-gate-triage-call-not-hitl-fallback.md)
+- Related: [ADR-0023 Stats Counter Placement in Delegating Helpers](0023-stats-counter-placement-in-delegating-helpers.md) — covers the removed rule that stats counters must be placed inside the helper's branching logic, not at the call site
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
 - `src/config.py` — `adr_auto_triage` toggle definition
