@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -431,7 +431,7 @@ class TestSummarizeAndComment:
 
 
 class TestSummarizeAndPublish:
-    """Tests for issue-based transcript summaries (legacy path, now always off)."""
+    """Tests for issue-based transcript summaries (always-on path)."""
 
     @pytest.mark.asyncio
     async def test_noop_when_disabled(self, tmp_path: Path) -> None:
@@ -448,6 +448,28 @@ class TestSummarizeAndPublish:
         result = await summarizer.summarize_and_publish(
             transcript="x" * 1000, issue_number=42, phase="implement"
         )
+
+        assert result is None
+        prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_summary_generation_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """Returns None when _generate_summary produces no content."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.create_issue = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        with patch.object(
+            summarizer, "_generate_summary", new_callable=AsyncMock, return_value=None
+        ):
+            result = await summarizer.summarize_and_publish(
+                transcript="x" * 1000, issue_number=42, phase="implement"
+            )
 
         assert result is None
         prs.create_issue.assert_not_called()
