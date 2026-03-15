@@ -85,6 +85,22 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_VISUAL_PER_SCREEN_BUDGET_BYTES",
         5_000_000,
     ),
+    # Prompt budget configuration
+    ("max_discussion_comment_chars", "HYDRAFLOW_MAX_DISCUSSION_COMMENT_CHARS", 500),
+    ("max_common_feedback_chars", "HYDRAFLOW_MAX_COMMON_FEEDBACK_CHARS", 2_000),
+    ("max_impl_plan_chars", "HYDRAFLOW_MAX_IMPL_PLAN_CHARS", 6_000),
+    ("max_review_feedback_chars", "HYDRAFLOW_MAX_REVIEW_FEEDBACK_CHARS", 2_000),
+    ("max_planner_comment_chars", "HYDRAFLOW_MAX_PLANNER_COMMENT_CHARS", 1_000),
+    ("max_planner_line_chars", "HYDRAFLOW_MAX_PLANNER_LINE_CHARS", 500),
+    ("max_hitl_correction_chars", "HYDRAFLOW_MAX_HITL_CORRECTION_CHARS", 4_000),
+    ("max_hitl_cause_chars", "HYDRAFLOW_MAX_HITL_CAUSE_CHARS", 2_000),
+    ("max_ci_log_prompt_chars", "HYDRAFLOW_MAX_CI_LOG_PROMPT_CHARS", 6_000),
+    ("max_unsticker_cause_chars", "HYDRAFLOW_MAX_UNSTICKER_CAUSE_CHARS", 3_000),
+    (
+        "max_verification_instructions_chars",
+        "HYDRAFLOW_MAX_VERIFICATION_INSTRUCTIONS_CHARS",
+        50_000,
+    ),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -719,6 +735,74 @@ class HydraFlowConfig(BaseModel):
         ge=1_000,
         le=100_000,
         description="Max characters for code scanning alert injection",
+    )
+
+    # Prompt budget configuration — truncation limits for prompt sections
+    max_discussion_comment_chars: int = Field(
+        default=500,
+        ge=100,
+        le=10_000,
+        description="Max characters per discussion comment in implementation prompts",
+    )
+    max_common_feedback_chars: int = Field(
+        default=2_000,
+        ge=100,
+        le=20_000,
+        description="Max characters for common feedback section in implementation prompts",
+    )
+    max_impl_plan_chars: int = Field(
+        default=6_000,
+        ge=1_000,
+        le=50_000,
+        description="Max characters for implementation plan in agent prompts",
+    )
+    max_review_feedback_chars: int = Field(
+        default=2_000,
+        ge=100,
+        le=20_000,
+        description="Max characters for review feedback in implementation prompts",
+    )
+    max_planner_comment_chars: int = Field(
+        default=1_000,
+        ge=100,
+        le=10_000,
+        description="Max characters per comment in planner prompts",
+    )
+    max_planner_line_chars: int = Field(
+        default=500,
+        ge=100,
+        le=5_000,
+        description="Max characters per line in planner prompts (prevents unsplittable chunks)",
+    )
+    max_hitl_correction_chars: int = Field(
+        default=4_000,
+        ge=500,
+        le=50_000,
+        description="Max characters for HITL human correction text in prompts",
+    )
+    max_hitl_cause_chars: int = Field(
+        default=2_000,
+        ge=100,
+        le=20_000,
+        description="Max characters for HITL escalation cause in prompts",
+    )
+    max_ci_log_prompt_chars: int = Field(
+        default=6_000,
+        ge=1_000,
+        le=50_000,
+        description="Max characters for CI logs in reviewer fix prompts",
+    )
+    max_unsticker_cause_chars: int = Field(
+        default=3_000,
+        ge=100,
+        le=20_000,
+        description="Max characters for escalation cause in PR unsticker prompts",
+    )
+    max_verification_instructions_chars: int = Field(
+        default=50_000,
+        ge=1_000,
+        le=65_000,
+        description="Max characters for verification instructions in post-merge issues",
     )
 
     # Visual gate
