@@ -100,6 +100,7 @@ class HydraFlowOrchestrator:
         # Credit pause — set when API credits are exhausted
         self._credits_paused_until: datetime | None = None
         self._credit_pause_lock = asyncio.Lock()
+        self._credit_resume_event = asyncio.Event()
         # Session tracking
         self._current_session: SessionLog | None = None
         self._session_issue_results: dict[int, bool] = {}
@@ -306,6 +307,17 @@ class HydraFlowOrchestrator:
 
     # Alias for backward compatibility
     request_stop = stop
+
+    def clear_credit_pause(self) -> bool:
+        """Clear credit pause and wake the sleeping pause loop.
+
+        Returns ``True`` if a pause was active and has been cleared.
+        """
+        if self._credits_paused_until is None:
+            return False
+        self._credits_paused_until = None
+        self._credit_resume_event.set()
+        return True
 
     def reset(self) -> None:
         """Reset the stop event so the orchestrator can be started again."""
@@ -1354,9 +1366,26 @@ class HydraFlowOrchestrator:
         self._svc.hitl_runner.terminate()
 
     async def _sleep_until_resume(self, resume_at: datetime) -> None:
-        """Sleep until *resume_at* (interruptible by stop event)."""
+        """Sleep until *resume_at* (interruptible by stop or credit-resume event)."""
         pause_seconds = max((resume_at - datetime.now(UTC)).total_seconds(), 0)
-        await self._sleep_or_stop(pause_seconds)
+        self._credit_resume_event.clear()
+
+        async def _either_event() -> None:
+            """Return when either stop or credit-resume fires."""
+            _done, pending = await asyncio.wait(
+                [
+                    asyncio.create_task(self._stop_event.wait()),
+                    asyncio.create_task(self._credit_resume_event.wait()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await t
+
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(_either_event(), timeout=pause_seconds)
 
     async def _pause_for_credits(
         self,

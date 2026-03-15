@@ -608,5 +608,72 @@ class TestBgWorkerIntervalEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# /api/control/clear-credit-pause endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestClearCreditPauseEndpoint:
+    """Tests for POST /api/control/clear-credit-pause."""
+
+    @pytest.mark.asyncio
+    async def test_clears_active_credit_pause(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Endpoint returns 200 and calls clear_credit_pause on orchestrator."""
+        mock_orch = MagicMock()
+        mock_orch.clear_credit_pause = MagicMock(return_value=True)
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = find_endpoint(router, "/api/control/clear-credit-pause", "POST")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert response.status_code == 200
+        assert data["status"] == "resumed"
+        mock_orch.clear_credit_pause.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_400_when_no_active_pause(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Endpoint returns 400 when no credit pause is active."""
+        mock_orch = MagicMock()
+        mock_orch.clear_credit_pause = MagicMock(return_value=False)
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = find_endpoint(router, "/api/control/clear-credit-pause", "POST")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert response.status_code == 400
+        assert "no active credit pause" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_returns_400_when_no_orchestrator(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Endpoint returns 400 when orchestrator is not running."""
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: None
+        )
+        endpoint = find_endpoint(router, "/api/control/clear-credit-pause", "POST")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert response.status_code == 400
+        assert "not running" in data["error"]
+
+    def test_route_is_registered(self, config, event_bus, state, tmp_path) -> None:
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        paths = {route.path for route in router.routes if hasattr(route, "path")}
+        assert "/api/control/clear-credit-pause" in paths
+
+
+# ---------------------------------------------------------------------------
 # /api/pipeline endpoint
 # ---------------------------------------------------------------------------

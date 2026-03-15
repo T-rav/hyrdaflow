@@ -18,12 +18,30 @@ const TAB_LABELS = {
   system: 'System',
 }
 
-function SystemAlertBanner({ alert }) {
+function SystemAlertBanner({ alert, creditsPaused, onRefresh }) {
+  const [refreshing, setRefreshing] = React.useState(false)
   if (!alert) return null
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await onRefresh()
+    setRefreshing(false)
+  }
+
   return (
-    <div style={styles.alertBanner}>
+    <div style={styles.alertBanner} data-testid="system-alert-banner">
       <span style={styles.alertIcon}>!</span>
       <span>{alert.message}</span>
+      {creditsPaused && (
+        <button
+          style={styles.alertRefreshBtn}
+          onClick={handleRefresh}
+          disabled={refreshing}
+          data-testid="credit-refresh-btn"
+        >
+          {refreshing ? 'Checking...' : 'Refresh'}
+        </button>
+      )}
       {alert.source && <span style={styles.alertSource}>Source: {alert.source}</span>}
     </div>
   )
@@ -98,6 +116,8 @@ function AppContent() {
     stageStatus,
     requestChanges,
     config,
+    clearCreditPause,
+    creditsPausedUntil,
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
@@ -140,7 +160,7 @@ function AppContent() {
           onClear={() => selectSession(null)}
           liveStats={selectedSessionLiveStats}
         />
-        <SystemAlertBanner alert={systemAlert} />
+        <SystemAlertBanner alert={systemAlert} creditsPaused={!!creditsPausedUntil} onRefresh={clearCreditPause} />
         <ConfigWarningBanner warning={configWarning} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
 
@@ -272,6 +292,18 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     flexShrink: 0,
+  },
+  alertRefreshBtn: {
+    padding: '4px 12px',
+    fontSize: 11,
+    fontWeight: 600,
+    background: theme.red,
+    color: theme.white,
+    border: 'none',
+    borderRadius: 4,
+    cursor: 'pointer',
+    transition: 'opacity 0.15s',
+    marginLeft: 8,
   },
   alertSource: {
     marginLeft: 'auto',

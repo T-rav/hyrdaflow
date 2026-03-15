@@ -412,6 +412,56 @@ class TestRunStatusCreditsPaused:
 
 
 # ===========================================================================
+# orchestrator — clear_credit_pause
+# ===========================================================================
+
+
+class TestClearCreditPause:
+    """Tests for the clear_credit_pause method."""
+
+    def test_clears_active_pause(self, config: HydraFlowConfig) -> None:
+        """clear_credit_pause returns True and clears state when pause is active."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        assert orch.clear_credit_pause() is True
+        assert orch._credits_paused_until is None
+
+    def test_returns_false_when_no_pause(self, config: HydraFlowConfig) -> None:
+        """clear_credit_pause returns False when no pause is active."""
+        orch = HydraFlowOrchestrator(config)
+        assert orch.clear_credit_pause() is False
+
+    def test_sets_credit_resume_event(self, config: HydraFlowConfig) -> None:
+        """clear_credit_pause sets the _credit_resume_event to wake sleeping pause."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        orch.clear_credit_pause()
+        assert orch._credit_resume_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_wakes_sleeping_pause(self, config: HydraFlowConfig) -> None:
+        """clear_credit_pause interrupts _sleep_until_resume and resumes loops."""
+        orch = HydraFlowOrchestrator(config)
+        resume_at = datetime.now(UTC) + timedelta(hours=5)
+        orch._credits_paused_until = resume_at
+
+        sleep_task = asyncio.create_task(orch._sleep_until_resume(resume_at))
+        await asyncio.sleep(0.01)
+        orch.clear_credit_pause()
+        # Should complete quickly, not wait 5 hours
+        await asyncio.wait_for(sleep_task, timeout=2.0)
+
+    def test_run_status_not_paused_after_clear(self, config: HydraFlowConfig) -> None:
+        """run_status should not be 'credits_paused' after clear_credit_pause."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        orch._running = True
+        assert orch.run_status == "credits_paused"
+        orch.clear_credit_pause()
+        assert orch.run_status == "running"
+
+
+# ===========================================================================
 # orchestrator — credit exhaustion pause and resume
 # ===========================================================================
 
@@ -448,7 +498,11 @@ class TestCreditExhaustionPauseResume:
         async def instant_sleep(seconds: int | float) -> None:
             await asyncio.sleep(0)
 
+        async def instant_credit_sleep(_resume_at: datetime) -> None:
+            await asyncio.sleep(0)
+
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        orch._sleep_until_resume = instant_credit_sleep  # type: ignore[method-assign]
 
         await asyncio.wait_for(
             asyncio.gather(
@@ -504,7 +558,11 @@ class TestCreditExhaustionPauseResume:
         async def instant_sleep(seconds: int | float) -> None:
             await asyncio.sleep(0)
 
+        async def instant_credit_sleep(_resume_at: datetime) -> None:
+            await asyncio.sleep(0)
+
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        orch._sleep_until_resume = instant_credit_sleep  # type: ignore[method-assign]
 
         await asyncio.wait_for(
             asyncio.gather(
@@ -540,27 +598,30 @@ class TestCreditExhaustionPauseResume:
         orch._svc.implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
-        sleep_durations: list[float] = []
+        resume_times: list[datetime] = []
 
-        async def capture_sleep(seconds: int | float) -> None:
-            sleep_durations.append(float(seconds))
+        async def instant_sleep(seconds: int | float) -> None:
             await asyncio.sleep(0)
 
-        orch._sleep_or_stop = capture_sleep  # type: ignore[method-assign]
+        async def capture_credit_sleep(resume_at: datetime) -> None:
+            resume_times.append(resume_at)
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        orch._sleep_until_resume = capture_credit_sleep  # type: ignore[method-assign]
 
         await asyncio.wait_for(
             asyncio.gather(
                 orch.run(),
-                _poll_then_stop(lambda: any(s > 3600 for s in sleep_durations), orch),
+                _poll_then_stop(lambda: len(resume_times) >= 1, orch),
             ),
             timeout=10.0,
         )
 
-        # The first sleep should be for the default 5 hours + buffer
-        credit_sleep = [s for s in sleep_durations if s > 3600]
-        assert len(credit_sleep) >= 1
-        # Should be approximately 5 hours + 1 minute buffer = 18060 seconds
-        assert credit_sleep[0] > 17000  # roughly 5 hours
+        # The resume_at should be ~5 hours + 1 minute buffer from now
+        assert len(resume_times) >= 1
+        pause_seconds = (resume_times[0] - datetime.now(UTC)).total_seconds()
+        assert pause_seconds > 17000  # roughly 5 hours
 
     @pytest.mark.asyncio
     async def test_credit_exhaustion_terminates_active_processes(
@@ -609,7 +670,11 @@ class TestCreditExhaustionPauseResume:
         async def instant_sleep(seconds: int | float) -> None:
             await asyncio.sleep(0)
 
+        async def instant_credit_sleep(_resume_at: datetime) -> None:
+            await asyncio.sleep(0)
+
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        orch._sleep_until_resume = instant_credit_sleep  # type: ignore[method-assign]
 
         await asyncio.wait_for(
             asyncio.gather(

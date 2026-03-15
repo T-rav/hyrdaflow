@@ -1269,6 +1269,17 @@ export function HydraFlowProvider({ children }) {
     }
   }, [fetchWithRepo])
 
+  const clearCreditPause = useCallback(async () => {
+    try {
+      const res = await fetchWithRepo('/api/control/clear-credit-pause', { method: 'POST' })
+      if (!res.ok) return false
+      await refreshControlStatus()
+      return true
+    } catch {
+      return false
+    }
+  }, [fetchWithRepo, refreshControlStatus])
+
   const startOrchestrator = useCallback(async () => {
     if (state.selectedRepoSlug) {
       const result = await startRuntime(state.selectedRepoSlug)
@@ -1583,6 +1594,7 @@ export function HydraFlowProvider({ children }) {
     stopOrchestrator,
     releaseEpic,
     refreshControlStatus,
+    clearCreditPause,
   }
 
   return (

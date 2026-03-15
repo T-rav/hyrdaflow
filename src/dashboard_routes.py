@@ -2130,6 +2130,20 @@ def create_router(
         await orch.request_stop()
         return JSONResponse({"status": "stopping"})
 
+    @router.post("/api/control/clear-credit-pause")
+    async def clear_credit_pause(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Clear the credit pause and resume processing loops."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
+        if not orch:
+            return JSONResponse({"error": "not running"}, status_code=400)
+        cleared = orch.clear_credit_pause()
+        if not cleared:
+            return JSONResponse({"error": "no active credit pause"}, status_code=400)
+        return JSONResponse({"status": "resumed"})
+
     @router.get("/api/control/status")
     async def get_control_status(
         repo: RepoSlugParam = None,
