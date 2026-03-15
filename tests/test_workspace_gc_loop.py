@@ -697,6 +697,29 @@ class TestGCRemovesBranchStateOnWorktreeCollection:
         await loop._do_work()
         assert state.get_branch(42) is None
 
+    @pytest.mark.asyncio
+    async def test_phase1_removes_branch_before_destroy(self, tmp_path: Path) -> None:
+        """remove_branch must be called before destroy (crash-safe ordering)."""
+        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        state.set_branch(42, "agent/issue-42")
+        loop._get_issue_state = AsyncMock(return_value="closed")
+
+        call_order: list[str] = []
+        original_remove_branch = state.remove_branch
+
+        def tracked_remove_branch(num: int) -> None:
+            call_order.append("remove_branch")
+            original_remove_branch(num)
+
+        async def tracked_destroy(num: int) -> None:
+            call_order.append("destroy")
+
+        state.remove_branch = tracked_remove_branch  # type: ignore[method-assign]
+        loop._worktrees.destroy = tracked_destroy  # type: ignore[method-assign]
+        await loop._do_work()
+        assert "remove_branch" in call_order
+        assert call_order.index("remove_branch") < call_order.index("destroy")
+
 
 class TestGCRemovesBranchStateOnOrphanedBranchDeletion:
     """Phase 3: deleting an orphaned branch also removes its state entry."""
@@ -755,3 +778,24 @@ class TestGCPrunesStaleActiveBranches:
         result = await loop._do_work()
         assert state.get_branch(42) is None
         assert result["collected"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_exception_during_pruning_skips_entry_and_continues(
+        self, tmp_path: Path
+    ) -> None:
+        """An exception during _is_safe_to_gc is caught; remaining entries are still pruned."""
+        loop, state, _e = _make_loop(tmp_path)
+        state.set_branch(10, "agent/issue-10")
+        state.set_branch(20, "agent/issue-20")
+
+        async def fail_first(issue_number: int) -> bool:
+            if issue_number == 10:
+                raise RuntimeError("API failure")
+            return True
+
+        loop._is_safe_to_gc = AsyncMock(side_effect=fail_first)
+        pruned = await loop._prune_stale_branch_entries()
+        # issue 10 raised — skipped; issue 20 succeeded — pruned
+        assert pruned == 1
+        assert state.get_branch(10) == "agent/issue-10"
+        assert state.get_branch(20) is None
