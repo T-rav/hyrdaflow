@@ -434,6 +434,25 @@ class TestSummarizeAndPublish:
     """Tests for issue-based transcript summaries (always-on path)."""
 
     @pytest.mark.asyncio
+    async def test_noop_when_disabled(self, tmp_path: Path) -> None:
+        """Returns None immediately when transcript summarization is disabled."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summarization_enabled=False
+        )
+        prs = MagicMock()
+        prs.create_issue = AsyncMock()
+        bus = MagicMock()
+        state = MagicMock()
+
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        result = await summarizer.summarize_and_publish(
+            transcript="x" * 1000, issue_number=42, phase="implement"
+        )
+
+        assert result is None
+        prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_returns_none_when_summary_generation_fails(
         self, tmp_path: Path
     ) -> None:
