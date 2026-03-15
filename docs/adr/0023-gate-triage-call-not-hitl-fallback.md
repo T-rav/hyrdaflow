@@ -78,9 +78,9 @@ Key rules:
 5. **Stats must be coupled to the action, not to the toggle check.** The
    `auto_triaged` counter should increment when triage actually occurs (i.e.
    inside the success branch of the helper), not in a separate conditional
-   block that can drift out of sync with the routing logic. See
-   ADR-0023 (Stats Counter Placement in Delegating Helpers) for the full
-   counter-placement principle.
+   block that can drift out of sync with the routing logic. See the
+   [Stats Counter Placement in Delegating Helpers ADR](0023-stats-counter-placement-in-delegating-helpers.md)
+   for the full counter-placement principle.
 
 ### Verification checklist
 
