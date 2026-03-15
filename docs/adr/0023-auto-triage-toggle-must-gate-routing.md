@@ -1,6 +1,7 @@
 # ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
 **Status:** Proposed
+**Supersedes:** [ADR-0023 Gate Triage Call on Config Toggle, Not Just HITL Fallback](0023-gate-triage-call-not-hitl-fallback.md)
 **Date:** 2026-03-08
 
 ## Context
@@ -55,10 +56,31 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
    grep for the routing target (e.g. `_route_to_triage`) is the minimum
    verification step.
 
-4. **Stats must be coupled to the action, not to the toggle check.**  The
-   `auto_triaged` counter should increment when triage actually occurs (i.e.
-   inside the success branch of the helper), not in a separate conditional
-   block that can drift out of sync with the routing logic.
+### Toggle-first guard pattern
+
+The correct structure for any routing method that chooses between triage and
+HITL based on a config toggle:
+
+```python
+# Correct pattern: gate triage on the toggle
+if not self._config.adr_auto_triage:
+    await self._escalate_to_hitl(result, reason=reason)
+    return
+
+routed = await self._route_to_triage(result, reason=reason)
+if not routed:
+    await self._escalate_to_hitl(result, reason=reason)
+```
+
+### Verification checklist
+
+When reviewing any routing method that calls both `_route_to_triage` and
+`_escalate_to_hitl`:
+
+- Confirm the config toggle is checked **before** the triage call.
+- Confirm the toggle-off path calls HITL and returns without invoking triage.
+- Confirm tests enable the toggle when asserting triage is called, and disable
+  it when asserting HITL is called directly.
 
 ## Consequences
 
@@ -107,5 +129,7 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
 
 - Source memory: #2327
 - Source issue: #2341
+- Supersedes: [ADR-0023 Gate Triage Call on Config Toggle, Not Just HITL Fallback](0023-gate-triage-call-not-hitl-fallback.md)
+- Related: [ADR-0023 Stats Counter Placement in Delegating Helpers](0023-stats-counter-placement-in-delegating-helpers.md) — covers the extracted rule that stats counters must be placed inside the helper's branching logic, not at the call site
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
 - `src/config.py` — `adr_auto_triage` toggle definition
