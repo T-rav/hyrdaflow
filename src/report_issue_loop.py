@@ -97,10 +97,10 @@ class ReportIssueLoop(BaseBackgroundLoop):
         for report in self._state.get_pending_reports():
             try:
                 created = datetime.fromisoformat(report.created_at)
+                if created < cutoff:
+                    stale_ids.append(report.id)
             except (ValueError, TypeError):
                 continue
-            if created < cutoff:
-                stale_ids.append(report.id)
 
         for report_id in stale_ids:
             self._state.remove_report(report_id)

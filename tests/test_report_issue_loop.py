@@ -1061,6 +1061,21 @@ class TestStaleReportSweep:
 
         assert state.peek_report() is None
 
+    def test_naive_datetime_skipped_gracefully(self, tmp_path: Path) -> None:
+        """Reports with naive (no-tz) created_at are skipped without crashing."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Naive datetime string (no timezone info) — older than threshold
+        naive_time = "2020-01-01T00:00:00"  # no UTC offset
+        report = PendingReport(description="Old naive", created_at=naive_time)
+        state.enqueue_report(report)
+
+        # Should not raise TypeError from offset-naive vs offset-aware comparison
+        loop._close_stale_reports()
+
+        # Report stays in queue (skipped, not closed)
+        assert state.peek_report() is not None
+        assert state.peek_report().id == report.id
+
 
 # ---------------------------------------------------------------------------
 # Startup drain tests
