@@ -93,6 +93,18 @@ logger = logging.getLogger("hydraflow.dashboard")
 
 _SAFE_SLUG_COMPONENT = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
+# Interval bounds per editable worker.
+# memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
+# pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
+_INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
+    "memory_sync": (10, 14400),
+    "metrics": (30, 14400),
+    "pr_unsticker": (60, 86400),
+    "pipeline_poller": (5, 14400),
+    "adr_reviewer": (28800, 432000),
+    "verify_monitor": (60, 86400),
+}
+
 _SUPERVISOR_UNAVAILABLE_PREFIXES: tuple[str, ...] = (
     "hydraflow supervisor is not running.",
     "hf supervisor is not running.",
@@ -2517,18 +2529,6 @@ def create_router(
         if not triggered:
             return JSONResponse({"error": f"unknown worker '{name}'"}, status_code=404)
         return JSONResponse({"status": "ok", "name": name})
-
-    # Interval bounds per editable worker.
-    # memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
-    # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
-    _INTERVAL_BOUNDS = {
-        "memory_sync": (10, 14400),
-        "metrics": (30, 14400),
-        "pr_unsticker": (60, 86400),
-        "pipeline_poller": (5, 14400),
-        "adr_reviewer": (28800, 432000),
-        "verify_monitor": (60, 86400),
-    }
 
     @router.post("/api/control/bg-worker/interval")
     async def set_bg_worker_interval(body: dict[str, Any]) -> JSONResponse:
