@@ -434,9 +434,11 @@ class TestSummarizeAndPublish:
     """Tests for issue-based transcript summaries (legacy path, now always off)."""
 
     @pytest.mark.asyncio
-    async def test_noop_by_default(self, tmp_path: Path) -> None:
-        """Default config returns None immediately (feature removed)."""
-        config = ConfigFactory.create(repo_root=tmp_path)
+    async def test_noop_when_disabled(self, tmp_path: Path) -> None:
+        """Disabled config returns None immediately."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path, transcript_summarization_enabled=False
+        )
         prs = MagicMock()
         prs.create_issue = AsyncMock()
         bus = MagicMock()

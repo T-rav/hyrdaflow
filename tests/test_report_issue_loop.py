@@ -1023,7 +1023,8 @@ class TestStaleReportSweep:
         assert len(pending) == 1
         assert pending[0].id == fresh.id
 
-    def test_stale_sweep_runs_each_cycle(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_stale_sweep_runs_each_cycle(self, tmp_path: Path) -> None:
         """_do_work sweeps stale reports before processing the queue."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
@@ -1038,9 +1039,7 @@ class TestStaleReportSweep:
         state.add_tracked_report(tracked)
 
         # _do_work should sweep the stale report and return None (no fresh work)
-        import asyncio as _aio
-
-        result = _aio.get_event_loop().run_until_complete(loop._do_work())
+        result = await loop._do_work()
         assert result is None
         assert state.peek_report() is None
         tr = state.get_tracked_report(stale.id)
