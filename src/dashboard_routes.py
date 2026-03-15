@@ -3379,12 +3379,7 @@ def create_router(
         )
 
     @router.post("/api/repos")
-    async def ensure_repo(
-        req: dict[str, Any] | None = Body(default=None),  # noqa: ARG001
-        req_query: str | None = Query(default=None, alias="req"),  # noqa: ARG001
-        slug: str | None = Query(default=None),  # noqa: ARG001
-        repo: RepoSlugParam = None,  # noqa: ARG001
-    ) -> JSONResponse:
+    async def ensure_repo() -> JSONResponse:
         """Legacy endpoint — supervisor feature removed (issue #2205)."""
         return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
 

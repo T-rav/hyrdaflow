@@ -917,12 +917,7 @@ class TestEnsureRepoCompatibilityEndpoint:
         endpoint = find_endpoint(router, "/api/repos", method="POST")
         assert endpoint is not None
 
-        resp = await endpoint(
-            req=None,
-            req_query="8thlight/insightmesh",
-            slug=None,
-            repo=None,
-        )
+        resp = await endpoint()
         data = json.loads(resp.body)
         assert resp.status_code == 503
         assert data["error"] == "supervisor unavailable"
@@ -931,19 +926,14 @@ class TestEnsureRepoCompatibilityEndpoint:
     async def test_json_slug_also_returns_503(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """JSON-formatted slug also gets 503 when supervisor is unavailable."""
+        """POST /api/repos always returns 503 (supervisor feature removed)."""
         import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/repos", method="POST")
         assert endpoint is not None
 
-        resp = await endpoint(
-            req=None,
-            req_query='{"slug":"8thlight/insightmesh"}',
-            slug=None,
-            repo=None,
-        )
+        resp = await endpoint()
         data = json.loads(resp.body)
         assert resp.status_code == 503
         assert data["error"] == "supervisor unavailable"
