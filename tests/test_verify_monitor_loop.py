@@ -252,6 +252,7 @@ class TestVerifyMonitorLoopOrphanedReconciliation:
         # Issue is still open and has active mapping — should not reconcile
         assert result is not None
         state.record_outcome.assert_not_called()
+        state.clear_verification_issue.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_non_verify_pending_outcomes(self, tmp_path: Path) -> None:
