@@ -64,6 +64,34 @@ Some consequences.
     return path
 
 
+class TestADRFileREShared:
+    """Verify ADR_FILE_RE is shared between adr_reviewer and phase_utils."""
+
+    def test_adr_reviewer_uses_phase_utils_regex(self) -> None:
+        """adr_reviewer.ADR_FILE_RE must be the exact same object as phase_utils.ADR_FILE_RE."""
+        import adr_reviewer
+        import phase_utils
+
+        assert adr_reviewer.ADR_FILE_RE is phase_utils.ADR_FILE_RE
+
+    def test_shared_regex_matches_adr_filenames(self) -> None:
+        """The shared regex correctly matches NNNN-*.md and captures the number."""
+        import adr_reviewer
+
+        m = adr_reviewer.ADR_FILE_RE.match("0023-some-title.md")
+        assert m is not None
+        assert m.group(1) == "0023"
+
+    def test_shared_regex_rejects_non_adr_filenames(self) -> None:
+        """The shared regex rejects files that don't match the ADR naming pattern."""
+        import adr_reviewer
+
+        assert adr_reviewer.ADR_FILE_RE.match("README.md") is None
+        assert adr_reviewer.ADR_FILE_RE.match("abc-title.md") is None
+        assert adr_reviewer.ADR_FILE_RE.match("00-short.md") is None
+        assert adr_reviewer.ADR_FILE_RE.match("023-title.md") is None
+
+
 class TestFindProposedADRs:
     """Tests for _find_proposed_adrs."""
 
