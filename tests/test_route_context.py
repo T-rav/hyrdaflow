@@ -614,6 +614,63 @@ class TestRouteContextComputeHitlSummary:
         assert result == "line one\nline two"
         assert state.get_hitl_summary(42) == "line one\nline two"
 
+    @pytest.mark.asyncio
+    async def test_returns_none_when_summarizer_returns_empty(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        config.transcript_summarization_enabled = True
+        config.dry_run = False
+        config.gh_token = "tok"
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        issue = MagicMock()
+        issue.number = 10
+        issue.title = "Test"
+        issue.body = ""
+        issue.comments = []
+        ctx.issue_fetcher = MagicMock()
+        ctx.issue_fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        ctx.hitl_summarizer = MagicMock()
+        ctx.hitl_summarizer.summarize_hitl_context = AsyncMock(return_value="")
+
+        result = await ctx.compute_hitl_summary(10, cause="x", origin=None)
+
+        assert result is None
+        failed_at, _ = state.get_hitl_summary_failure(10)
+        assert failed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_normalization_produces_empty(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        config.transcript_summarization_enabled = True
+        config.dry_run = False
+        config.gh_token = "tok"
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        issue = MagicMock()
+        issue.number = 11
+        issue.title = "Test"
+        issue.body = ""
+        issue.comments = []
+        ctx.issue_fetcher = MagicMock()
+        ctx.issue_fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        ctx.hitl_summarizer = MagicMock()
+        # Return a string of only whitespace/dashes — normalisation strips these to ""
+        ctx.hitl_summarizer.summarize_hitl_context = AsyncMock(return_value="  -  \n  ")
+
+        result = await ctx.compute_hitl_summary(11, cause="x", origin=None)
+
+        assert result is None
+        failed_at, _ = state.get_hitl_summary_failure(11)
+        assert failed_at is not None
+
 
 class TestRouteContextWarmHitlSummary:
     """P2 — warm_hitl_summary guards against duplicate inflight requests."""

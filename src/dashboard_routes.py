@@ -902,6 +902,19 @@ def create_router(
     def _serve_spa_index() -> HTMLResponse:
         return ctx.serve_spa_index()
 
+    def _hitl_summary_retry_due(issue_number: int) -> bool:
+        return ctx.hitl_summary_retry_due(issue_number)
+
+    async def _compute_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> str | None:
+        return await ctx.compute_hitl_summary(issue_number, cause=cause, origin=origin)
+
+    async def _warm_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> None:
+        await ctx.warm_hitl_summary(issue_number, cause=cause, origin=origin)
+
     def _load_local_metrics_cache(
         target_config: HydraFlowConfig,
         limit: int = 100,
@@ -1381,19 +1394,6 @@ def create_router(
         for result in results:
             if isinstance(result, Exception):
                 logger.warning("Issue enrichment fetch failed: %s", result)
-
-    def _hitl_summary_retry_due(issue_number: int) -> bool:
-        return ctx.hitl_summary_retry_due(issue_number)
-
-    async def _compute_hitl_summary(
-        issue_number: int, *, cause: str, origin: str | None
-    ) -> str | None:
-        return await ctx.compute_hitl_summary(issue_number, cause=cause, origin=origin)
-
-    async def _warm_hitl_summary(
-        issue_number: int, *, cause: str, origin: str | None
-    ) -> None:
-        await ctx.warm_hitl_summary(issue_number, cause=cause, origin=origin)
 
     @router.get("/healthz")
     def get_health() -> JSONResponse:
