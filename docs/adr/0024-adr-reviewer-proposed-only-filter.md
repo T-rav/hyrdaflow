@@ -1,4 +1,4 @@
-# ADR-0023: ADR Reviewer Proposed-Only Filter and Validator Scope
+# ADR-0024: ADR Reviewer Proposed-Only Filter and Validator Scope
 
 **Status:** Proposed
 **Date:** 2026-03-07
@@ -20,9 +20,6 @@ code.
 Tests that exercise status-specific branches (such as superseded-status validation)
 test the validator in isolation rather than through the review flow. This creates a
 gap: the tests pass, but the code paths they cover are never triggered in production.
-
-**Source memory:** Issue #2251 — [Memory] ADR pre-review validator only processes
-Status: Proposed ADRs.
 
 ## Decision
 
@@ -80,7 +77,7 @@ pipeline and document the following boundaries:
 
 ## Related
 
-- Issue #2251 — Source memory: ADR pre-review validator only processes Status: Proposed ADRs
+- Issue #2251 — ADR pre-review validator only processes Status: Proposed ADRs
 - Issue #2253 — This ADR task
 - `src/adr_reviewer.py` — `ADRCouncilReviewer._find_proposed_adrs` (line 92)
 - `src/adr_reviewer.py` — `ADRCouncilReviewer.review_proposed_adrs` (line 43)
