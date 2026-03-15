@@ -1,6 +1,6 @@
 # ADR-0012: Epic Merge Coordination Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-01
 
 ## Context
@@ -55,18 +55,20 @@ and `EpicManager.on_child_approved()`:
 ```
 Review approves PR
   → PostMergeHandler.handle_approved()
-    → _should_defer_merge(issue_number)
+    → _notify_epic_approval(issue_number)          [unconditional w.r.t. merge strategy]
+      → EpicManager.on_child_approved()
+      → Records approval in EpicState.approved_children
+      → Applies hydraflow-approved label to the child PR (non-independent strategies only)
+      → If strategy ≠ independent AND bundle ready (all siblings approved or completed):
+        - bundled: auto-merge all via _handle_bundled_ready() → release_epic()
+        - bundled_hitl: escalate to HITL with merge instructions
+        - ordered: merge in registration order via _handle_ordered_ready() → release_epic()
+      → If strategy ≠ independent AND bundle not yet ready: hold, await siblings
+    → _should_defer_merge(issue_number)            [boolean: should this PR skip merge_pr()?]
       → Checks parent epics via EpicManager.find_parent_epics()
-      → If all parents use "independent": proceed to merge
-      → If any parent uses bundled/bundled_hitl/ordered:
-        1. Record in EpicState.approved_children
-        2. Call EpicManager.on_child_approved()
-        3. Check bundle readiness (all children approved?)
-        4. If ready:
-           - bundled: auto-merge all via release_epic()
-           - bundled_hitl: escalate to HITL with merge instructions
-           - ordered: merge in registration order via release_epic()
-        5. If not ready: hold (do not merge), log status
+      → Returns True if any parent epic uses bundled/bundled_hitl/ordered
+      → If True: return early — do not call merge_pr() for this issue now
+      → If False (all parents independent, or no parent epics): proceed to merge
 ```
 
 ### Model changes
@@ -79,13 +81,42 @@ Extend `EpicState` with:
 
 ### Integration point
 
-`PostMergeHandler._should_defer_merge()` is called before the `merge_pr()` call.
-It queries `EpicManager.find_parent_epics()` to discover whether the issue belongs
-to a coordinated epic. When a defer is indicated, `handle_approved()` calls
-`EpicManager.on_child_approved()` which records the approval, checks bundle
-readiness, and dispatches to the appropriate strategy handler (`_handle_bundled_ready`,
-`_handle_bundled_hitl_ready`, or `_handle_ordered_ready`). The PR remains open and
-approved until the bundle is ready.
+`PostMergeHandler.handle_approved()` first calls `_notify_epic_approval()` (which
+calls `EpicManager.on_child_approved()`) unconditionally w.r.t. merge strategy —
+recording the approval, checking bundle readiness, and dispatching to the appropriate
+strategy handler (`_handle_bundled_ready`, `_handle_bundled_hitl_ready`, or
+`_handle_ordered_ready`). Only after that does it call `_should_defer_merge()`, which
+queries `EpicManager.find_parent_epics()` to decide whether to proceed to merge or
+hold. When a defer is indicated, `handle_approved()` returns early without merging
+and the PR remains open and approved until the bundle is ready.
+
+### Relationship to ADR-0011
+
+ADR-0011 prohibits placing **release-creation** logic in `PostMergeHandler`, directing
+it instead to `EpicCompletionChecker._try_close_epic()`. ADR-0012 intentionally places
+**merge-coordination** hooks (approval notification and defer checks) in
+`PostMergeHandler` because this is the only point in the pipeline where the merge
+decision can be intercepted before execution. These are distinct concerns:
+release-creation runs *after* all children complete and the epic closes, while
+merge-coordination runs *before* each individual merge to decide whether to proceed
+or hold. ADR-0012 does not supersede ADR-0011; the two ADRs govern different stages
+of the epic lifecycle.
+
+### `hydraflow-approved` label lifecycle
+
+The `hydraflow-approved` label tracks child PRs that have passed review but are held
+from merge under a coordinated strategy:
+
+- **Applied:** By `EpicManager.on_child_approved()` when a child PR passes review
+  and belongs to an epic with a non-independent merge strategy (`bundled`,
+  `bundled_hitl`, or `ordered`).
+- **Removed on merge:** By `release_epic()` after the bundle is ready and the PR
+  is successfully merged.
+- **Removed on failure:** When a child PR fails review or CI while held, the label
+  is removed by `EpicManager.on_child_failed()` and the child moves to
+  `EpicState.failed_children`.
+- **Removed on cancellation:** If the epic is cancelled or the child is removed
+  from the epic's `child_issues` list, the label is removed during cleanup.
 
 ### Failure path
 
