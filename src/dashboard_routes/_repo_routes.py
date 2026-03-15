@@ -8,11 +8,12 @@ import json
 import logging
 import os
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
 
+from dashboard_routes._context import RepoSlugParam
 from dashboard_routes._helpers import (
     _SAFE_SLUG_COMPONENT,
     _SUPERVISOR_UNAVAILABLE_MESSAGE,
@@ -28,11 +29,6 @@ if TYPE_CHECKING:
     from dashboard_routes._context import RouterContext
 
 logger = logging.getLogger("hydraflow.dashboard")
-
-RepoSlugParam = Annotated[
-    str | None,
-    Query(description="Repo slug to scope the request"),
-]
 
 
 # ------------------------------------------------------------------

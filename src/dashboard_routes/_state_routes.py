@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from dashboard_routes._context import RepoSlugParam
 from dashboard_routes._helpers import _FRONTEND_STAGE_TO_LABEL_FIELD, _STAGE_NAME_MAP
 from events import EventType, HydraFlowEvent
 from models import (
@@ -26,10 +27,6 @@ if TYPE_CHECKING:
     from dashboard_routes._context import RouterContext
 
 logger = logging.getLogger("hydraflow.dashboard")
-
-RepoSlugParam = Annotated[
-    str | None, Query(description="Repo slug to scope the request")
-]
 
 
 def register_state_routes(router: APIRouter, ctx: RouterContext) -> None:

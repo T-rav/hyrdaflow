@@ -5,11 +5,12 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections import Counter
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
 
+from dashboard_routes._context import RepoSlugParam
 from models import (
     MetricsHistoryResponse,
     MetricsResponse,
@@ -20,10 +21,6 @@ if TYPE_CHECKING:
     from dashboard_routes._context import RouterContext
 
 logger = logging.getLogger("hydraflow.dashboard")
-
-RepoSlugParam = Annotated[
-    str | None, Query(description="Repo slug to scope the request")
-]
 
 
 def register_metrics_routes(router: APIRouter, ctx: RouterContext) -> None:
