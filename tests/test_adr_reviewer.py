@@ -169,6 +169,14 @@ class TestLoadAllADRs:
         result = reviewer._load_all_adrs(adr_dir)
         assert result[0][1] == "use docker containers"
 
+    def test_includes_filename_in_tuple(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 5, "Use Docker Containers", "Accepted")
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._load_all_adrs(adr_dir)
+        assert len(result[0]) == 4
+        assert result[0][3] == "0005-use-docker-containers.md"
+
 
 class TestBuildIndexContext:
     """Tests for _build_index_context."""
@@ -180,15 +188,17 @@ class TestBuildIndexContext:
 
     def test_unknown_status(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
-        all_adrs = [(1, "No Status ADR", "No status field in content")]
+        all_adrs = [
+            (1, "No Status ADR", "No status field in content", "0001-no-status-adr.md")
+        ]
         result = reviewer._build_index_context(all_adrs)
         assert "Unknown" in result
 
     def test_formats_multiple_adrs(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "First", "**Status:** Accepted"),
-            (2, "Second", "**Status:** Proposed"),
+            (1, "First", "**Status:** Accepted", "0001-first.md"),
+            (2, "Second", "**Status:** Proposed", "0002-second.md"),
         ]
         result = reviewer._build_index_context(all_adrs)
         assert "ADR-0001" in result
@@ -215,15 +225,19 @@ class TestDuplicateDetection:
                 1,
                 "use docker for isolation",
                 "# Use Docker for Isolation\n\n## Decision\nUse Docker.",
+                "0001-use-docker-for-isolation.md",
             ),
             (
                 2,
                 "use docker for isolation",
                 "# Use Docker for Isolation\n\n## Decision\nUse Docker containers.",
+                "0002-use-docker-for-isolation.md",
             ),
         ]
         content = "# Use Docker for Isolation\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates(
+            "0001-use-docker-for-isolation.md", content, all_adrs
+        )
         assert len(result) == 1
         assert result[0][0] == 2
         assert result[0][2] >= 0.7
@@ -231,39 +245,98 @@ class TestDuplicateDetection:
     def test_different_adrs_no_duplicates(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "use docker", "# Use Docker\n\n## Decision\nUse Docker."),
+            (
+                1,
+                "use docker",
+                "# Use Docker\n\n## Decision\nUse Docker.",
+                "0001-use-docker.md",
+            ),
             (
                 2,
                 "adopt typescript",
                 "# Adopt TypeScript\n\n## Decision\nSwitch to TypeScript.",
+                "0002-adopt-typescript.md",
             ),
         ]
         content = "# Use Docker\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates("0001-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
     def test_self_exclusion(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "use docker", "# Use Docker\n\n## Decision\nUse Docker."),
+            (
+                1,
+                "use docker",
+                "# Use Docker\n\n## Decision\nUse Docker.",
+                "0001-use-docker.md",
+            ),
         ]
         content = "# Use Docker\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates("0001-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
     def test_threshold_boundary(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "a", "# A\n\n## Decision\nX"),
+            (1, "a", "# A\n\n## Decision\nX", "0001-a.md"),
             (
                 2,
                 "completely different thing entirely",
                 "# Completely Different Thing Entirely\n\n## Decision\nY something else entirely different",
+                "0002-completely-different-thing-entirely.md",
             ),
         ]
         content = "# A\n\n## Decision\nX"
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates("0001-a.md", content, all_adrs)
         # Titles "A" and "Completely Different Thing Entirely" should be below threshold
+        assert len(result) == 0
+
+    def test_same_number_different_files_detected(self, tmp_path: Path) -> None:
+        """Files sharing the same ADR number but different filenames must be compared."""
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = [
+            (
+                23,
+                "use docker for isolation",
+                "# Use Docker for Isolation\n\n## Decision\nUse Docker.",
+                "0023-use-docker-for-isolation.md",
+            ),
+            (
+                23,
+                "use docker for isolation v2",
+                "# Use Docker for Isolation\n\n## Decision\nUse Docker containers.",
+                "0023-use-docker-for-isolation-v2.md",
+            ),
+            (
+                23,
+                "adopt kubernetes",
+                "# Adopt Kubernetes\n\n## Decision\nSwitch to K8s.",
+                "0023-adopt-kubernetes.md",
+            ),
+        ]
+        content = "# Use Docker for Isolation\n\n## Decision\nUse Docker."
+        result = reviewer._detect_duplicates(
+            "0023-use-docker-for-isolation.md", content, all_adrs
+        )
+        # Should detect the v2 file as duplicate (similar title/content), but not self
+        assert len(result) >= 1
+        matched_numbers_and_titles = [(r[0], r[1]) for r in result]
+        assert any("v2" in title for _, title in matched_numbers_and_titles)
+
+    def test_same_number_self_excluded_by_filename(self, tmp_path: Path) -> None:
+        """Even with same ADR number, the file should not match against itself."""
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = [
+            (
+                23,
+                "use docker",
+                "# Use Docker\n\n## Decision\nUse Docker.",
+                "0023-use-docker.md",
+            ),
+        ]
+        content = "# Use Docker\n\n## Decision\nUse Docker."
+        result = reviewer._detect_duplicates("0023-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
 
