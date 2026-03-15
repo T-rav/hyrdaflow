@@ -589,10 +589,7 @@ class ImplementPhase:
         # Reserve a unique ADR number by scanning the primary repo (not the
         # worktree copy) and the in-process assignment set.
         primary_adr_dir = self._config.repo_root / "docs" / "adr"
-        adr_number = next_adr_number(
-            primary_adr_dir,
-            primary_adr_dir=primary_adr_dir,
-        )
+        adr_number = next_adr_number(primary_adr_dir)
         adr_number_str = f"{adr_number:04d}"
 
         body = issue.body.strip() or "No ADR draft body provided."
