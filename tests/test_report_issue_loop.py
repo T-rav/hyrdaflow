@@ -7,6 +7,7 @@ import base64
 import os
 import sys
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -957,3 +958,270 @@ class TestTrackedReportStatusTransitions:
         actions = [h.action for h in tracked.history]
         assert "processing" in actions
         assert "retry" in actions
+
+
+# ---------------------------------------------------------------------------
+# Stale report sweep tests
+# ---------------------------------------------------------------------------
+
+
+class TestStaleReportSweep:
+    """Tests for _close_stale_reports() auto-closing old queued reports."""
+
+    def test_stale_report_auto_closed(self, tmp_path: Path) -> None:
+        """Reports older than the threshold are removed and marked closed."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Create a report with a created_at 8 hours ago (threshold is 6h)
+        old_time = (datetime.now(UTC) - timedelta(hours=8)).isoformat()
+        report = PendingReport(description="Old bug", created_at=old_time)
+        state.enqueue_report(report)
+        tracked = TrackedReport(
+            id=report.id,
+            reporter_id="user1",
+            description="Old bug",
+            status="queued",
+        )
+        state.add_tracked_report(tracked)
+
+        loop._close_stale_reports()
+
+        # Report should be removed from pending queue
+        assert state.peek_report() is None
+        # Tracked report should be closed
+        tr = state.get_tracked_report(report.id)
+        assert tr is not None
+        assert tr.status == "closed"
+        actions = [h.action for h in tr.history]
+        assert "stale" in actions
+
+    def test_fresh_report_not_closed(self, tmp_path: Path) -> None:
+        """Reports within the threshold are left untouched."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Create a report 1 hour ago (threshold is 6h)
+        recent_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        report = PendingReport(description="Recent bug", created_at=recent_time)
+        state.enqueue_report(report)
+
+        loop._close_stale_reports()
+
+        assert state.peek_report() is not None
+        assert state.peek_report().id == report.id
+
+    def test_mixed_stale_and_fresh(self, tmp_path: Path) -> None:
+        """Only stale reports are closed; fresh ones remain."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        recent_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        stale = PendingReport(description="Stale", created_at=old_time)
+        fresh = PendingReport(description="Fresh", created_at=recent_time)
+        state.enqueue_report(stale)
+        state.enqueue_report(fresh)
+
+        loop._close_stale_reports()
+
+        pending = state.get_pending_reports()
+        assert len(pending) == 1
+        assert pending[0].id == fresh.id
+
+    def test_stale_sweep_runs_each_cycle(self, tmp_path: Path) -> None:
+        """_do_work sweeps stale reports before processing the queue."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        stale = PendingReport(description="Stale bug", created_at=old_time)
+        state.enqueue_report(stale)
+        tracked = TrackedReport(
+            id=stale.id,
+            reporter_id="user1",
+            description="Stale bug",
+            status="queued",
+        )
+        state.add_tracked_report(tracked)
+
+        # _do_work should sweep the stale report and return None (no fresh work)
+        import asyncio as _aio
+
+        result = _aio.get_event_loop().run_until_complete(loop._do_work())
+        assert result is None
+        assert state.peek_report() is None
+        tr = state.get_tracked_report(stale.id)
+        assert tr is not None
+        assert tr.status == "closed"
+
+    def test_custom_threshold_from_config(self, tmp_path: Path) -> None:
+        """The threshold respects config.stale_report_threshold_hours."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        # Set threshold to 2 hours
+        object.__setattr__(loop._config, "stale_report_threshold_hours", 2)
+        # Report 3 hours old — should be stale with 2h threshold
+        old_time = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
+        report = PendingReport(description="Custom threshold", created_at=old_time)
+        state.enqueue_report(report)
+
+        loop._close_stale_reports()
+
+        assert state.peek_report() is None
+
+
+# ---------------------------------------------------------------------------
+# Startup drain tests
+# ---------------------------------------------------------------------------
+
+
+class TestStartupDrain:
+    """Tests that startup processes all queued reports, not just one."""
+
+    @pytest.mark.asyncio
+    async def test_startup_drains_all_queued_reports(self, tmp_path: Path) -> None:
+        """On startup, all queued reports are processed (not just the first)."""
+        loop, stop_event, state, _pr = _make_loop(tmp_path)
+        # Enqueue 3 reports
+        reports = []
+        for i in range(3):
+            r = PendingReport(description=f"Bug {i}")
+            state.enqueue_report(r)
+            reports.append(r)
+
+        call_count = 0
+
+        async def mock_stream(**kwargs: Any) -> str:
+            nonlocal call_count
+            call_count += 1
+            return f"https://github.com/acme/repo/issues/{100 + call_count}"
+
+        with patch("report_issue_loop.stream_claude_process", side_effect=mock_stream):
+            # Stop after startup drain
+            stop_event.set()
+            await loop.run()
+
+        # All 3 reports should have been processed
+        assert call_count == 3
+        assert state.peek_report() is None
+
+    @pytest.mark.asyncio
+    async def test_startup_sweeps_stale_before_drain(self, tmp_path: Path) -> None:
+        """On startup, stale reports are closed before draining fresh ones."""
+        loop, stop_event, state, _pr = _make_loop(tmp_path)
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        stale = PendingReport(description="Stale", created_at=old_time)
+        fresh = PendingReport(description="Fresh")
+        state.enqueue_report(stale)
+        state.enqueue_report(fresh)
+        tracked = TrackedReport(
+            id=stale.id,
+            reporter_id="user1",
+            description="Stale",
+            status="queued",
+        )
+        state.add_tracked_report(tracked)
+
+        call_count = 0
+
+        async def mock_stream(**kwargs: Any) -> str:
+            nonlocal call_count
+            call_count += 1
+            return f"https://github.com/acme/repo/issues/{200 + call_count}"
+
+        with patch("report_issue_loop.stream_claude_process", side_effect=mock_stream):
+            stop_event.set()
+            await loop.run()
+
+        # Only the fresh report should have been processed
+        assert call_count == 1
+        # Stale report should be closed
+        tr = state.get_tracked_report(stale.id)
+        assert tr is not None
+        assert tr.status == "closed"
+
+
+# ---------------------------------------------------------------------------
+# Config field tests
+# ---------------------------------------------------------------------------
+
+
+class TestStaleReportConfig:
+    """Tests for stale_report_threshold_hours config field."""
+
+    def test_default_value(self, tmp_path: Path) -> None:
+        """Default stale_report_threshold_hours is 6."""
+        loop, _stop, _state, _pr = _make_loop(tmp_path)
+        assert loop._config.stale_report_threshold_hours == 6
+
+    def test_env_override(self, tmp_path: Path) -> None:
+        """stale_report_threshold_hours can be set via env var."""
+        with patch.dict(os.environ, {"HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS": "12"}):
+            from config import HydraFlowConfig
+
+            cfg = HydraFlowConfig(repo="owner/repo", repo_root=tmp_path)
+            assert cfg.stale_report_threshold_hours == 12
+
+
+# ---------------------------------------------------------------------------
+# Trigger on submit tests
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerOnSubmit:
+    """Tests that submit_report triggers the report-issue worker."""
+
+    @pytest.mark.asyncio
+    async def test_submit_report_triggers_worker(self, tmp_path: Path) -> None:
+        """POST /api/report triggers the report_issue background worker."""
+        from events import EventBus
+        from models import ReportIssueRequest
+        from state import StateTracker
+        from tests.helpers import ConfigFactory, make_dashboard_router
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        bus = EventBus()
+        st = StateTracker(tmp_path / "state.json")
+        mock_orch = MagicMock()
+        mock_orch.trigger_bg_worker = MagicMock(return_value=True)
+
+        router, _pr = make_dashboard_router(
+            config, bus, st, tmp_path, get_orch=lambda: mock_orch
+        )
+
+        # Find the submit_report endpoint
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/api/report":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None, "Could not find /api/report endpoint"
+
+        request = ReportIssueRequest(description="Test bug")
+        await endpoint(request)
+        mock_orch.trigger_bg_worker.assert_called_once_with("report_issue")
+
+    @pytest.mark.asyncio
+    async def test_submit_report_no_orchestrator_does_not_crash(
+        self, tmp_path: Path
+    ) -> None:
+        """POST /api/report works even when orchestrator is not running."""
+        from events import EventBus
+        from models import ReportIssueRequest
+        from state import StateTracker
+        from tests.helpers import ConfigFactory, make_dashboard_router
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        bus = EventBus()
+        st = StateTracker(tmp_path / "state.json")
+
+        # get_orch returns None (no orchestrator running)
+        router, _pr = make_dashboard_router(
+            config, bus, st, tmp_path, get_orch=lambda: None
+        )
+
+        endpoint = None
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/api/report":
+                endpoint = route.endpoint
+                break
+        assert endpoint is not None
+
+        request = ReportIssueRequest(description="Test bug no orch")
+        response = await endpoint(request)
+        import json
+
+        data = json.loads(response.body)
+        assert data["status"] == "queued"

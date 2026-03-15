@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +61,70 @@ class ReportIssueLoop(BaseBackgroundLoop):
     def _get_default_interval(self) -> int:
         return self._config.report_issue_interval
 
+    async def run(self) -> None:
+        """Override to drain all queued reports on startup, not just one."""
+        if self._run_on_startup:
+            self._close_stale_reports()
+            while self._state.peek_report() is not None:
+                await self._execute_cycle()
+
+        while not self._stop_event.is_set():
+            interval = self._get_interval()
+            if self._run_on_startup:
+                triggered = await self._sleep_or_trigger(interval)
+                if self._stop_event.is_set():
+                    break
+                if not self._enabled_cb(self._worker_name) and not triggered:
+                    continue
+            elif not self._enabled_cb(self._worker_name):
+                triggered = await self._sleep_or_trigger(interval)
+                if not triggered:
+                    continue
+            await self._execute_cycle()
+            if not self._run_on_startup:
+                await self._sleep_or_trigger(interval)
+
+    def _close_stale_reports(self) -> None:
+        """Auto-close queued reports older than the configured threshold.
+
+        Reports that have been sitting at ``queued`` longer than
+        ``stale_report_threshold_hours`` are removed from the pending
+        queue and their tracked status is set to ``closed``.
+        """
+        threshold = timedelta(hours=self._config.stale_report_threshold_hours)
+        cutoff = datetime.now(UTC) - threshold
+        stale_ids: list[str] = []
+        for report in self._state.get_pending_reports():
+            try:
+                created = datetime.fromisoformat(report.created_at)
+            except (ValueError, TypeError):
+                continue
+            if created < cutoff:
+                stale_ids.append(report.id)
+
+        for report_id in stale_ids:
+            self._state.remove_report(report_id)
+            self._state.update_tracked_report(
+                report_id,
+                status="closed",
+                action_label="stale",
+                detail=(
+                    f"Auto-closed: queued for more than "
+                    f"{self._config.stale_report_threshold_hours}h without processing"
+                ),
+            )
+            logger.warning(
+                "Auto-closed stale report %s (queued > %dh)",
+                report_id,
+                self._config.stale_report_threshold_hours,
+            )
+
     async def _do_work(self) -> dict[str, Any] | None:
         if self._config.dry_run:
             return None
+
+        # Sweep stale reports each cycle before processing
+        self._close_stale_reports()
 
         report = self._state.peek_report()
         if report is None:
