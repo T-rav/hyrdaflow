@@ -40,8 +40,6 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         pending = self._state.get_all_verification_issues()
-        if not pending:
-            return None
 
         resolved = 0
         checked = 0
@@ -51,10 +49,19 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
                 checked += 1
                 if issue is None:
                     logger.warning(
-                        "Verify issue #%d for original #%d not found — skipping",
+                        "Verify issue #%d for original #%d not found — treating as resolved",
                         verify_issue,
                         original_issue,
                     )
+                    self._state.record_outcome(
+                        original_issue,
+                        IssueOutcomeType.VERIFY_RESOLVED,
+                        reason=f"Verification issue #{verify_issue} not found (deleted/inaccessible)",
+                        phase="verify",
+                        verification_issue_number=verify_issue,
+                    )
+                    self._state.clear_verification_issue(original_issue)
+                    resolved += 1
                     continue
                 if issue.state == "closed":
                     self._state.record_outcome(
@@ -78,4 +85,37 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
                     original_issue,
                 )
 
+        # Bug B reconciliation: scan outcomes for orphaned VERIFY_PENDING entries
+        # whose verification_issues mapping was cleared (e.g. manual state edit).
+        orphaned = self._reconcile_orphaned_pending(pending)
+        resolved += orphaned
+
+        if not pending and resolved == 0:
+            return None
+
         return {"checked": checked, "resolved": resolved, "pending": len(pending)}
+
+    def _reconcile_orphaned_pending(self, active_verification: dict[int, int]) -> int:
+        """Transition orphaned VERIFY_PENDING outcomes that have no verification_issues entry."""
+        all_outcomes = self._state.get_all_outcomes()
+        reconciled = 0
+        for key, outcome in all_outcomes.items():
+            if outcome.outcome != IssueOutcomeType.VERIFY_PENDING:
+                continue
+            issue_number = int(key)
+            if issue_number in active_verification:
+                continue
+            # Orphaned: outcome is VERIFY_PENDING but no verification_issues entry exists
+            self._state.record_outcome(
+                issue_number,
+                IssueOutcomeType.VERIFY_RESOLVED,
+                reason="Orphaned verify_pending — no active verification issue found",
+                phase="verify",
+                verification_issue_number=outcome.verification_issue_number,
+            )
+            logger.info(
+                "Reconciled orphaned verify_pending for issue #%d",
+                issue_number,
+            )
+            reconciled += 1
+        return reconciled
