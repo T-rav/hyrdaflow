@@ -31,6 +31,235 @@ class AuthenticationRetryError(RuntimeError):
     """
 
 
+def prepare_command(cmd: list[str], prompt: str) -> tuple[list[str], int]:
+    """Build the final command list and determine stdin mode.
+
+    Returns ``(cmd_to_run, stdin_mode)`` where *stdin_mode* is an
+    ``asyncio.subprocess`` constant (``DEVNULL`` or ``PIPE``).
+    """
+    use_codex_exec = len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec"
+    use_pi_print = cmd and cmd[0] == "pi" and ("-p" in cmd or "--print" in cmd)
+    use_claude_print = cmd and cmd[0] == "claude" and "-p" in cmd
+    use_prompt_arg = use_codex_exec or use_pi_print or use_claude_print
+
+    if use_prompt_arg:
+        if use_claude_print or use_pi_print:
+            # Claude/Pi CLI require the prompt immediately after -p/--print;
+            # placing it at the end causes "Input must be provided" errors.
+            flag = "-p" if "-p" in cmd else "--print"
+            idx = cmd.index(flag)
+            cmd_to_run = [*cmd[: idx + 1], prompt, *cmd[idx + 1 :]]
+        else:
+            # Codex exec: prompt is a trailing positional argument.
+            cmd_to_run = [*cmd, prompt]
+    else:
+        cmd_to_run = cmd
+
+    stdin_mode = (
+        asyncio.subprocess.DEVNULL if use_prompt_arg else asyncio.subprocess.PIPE
+    )
+    return cmd_to_run, stdin_mode
+
+
+def check_post_stream_errors(
+    *,
+    raw_lines: list[str],
+    accumulated_text: str,
+    stderr_text: str,
+    early_killed: bool,
+    returncode: int | None,
+    caller_logger: logging.Logger,
+) -> None:
+    """Validate process output for auth failures, credit exhaustion, and errors.
+
+    Raises :class:`AuthenticationRetryError` or :class:`CreditExhaustedError`
+    when the relevant conditions are detected.  Logs a warning on non-zero
+    exit codes.
+    """
+    if not early_killed and returncode != 0:
+        caller_logger.warning(
+            "Process exited with code %d: %s",
+            returncode,
+            stderr_text[:500],
+        )
+
+    # Detect authentication failures from stream-json output.
+    # Claude CLI emits '"error":"authentication_failed"' when it
+    # cannot authenticate — this can be a transient OAuth token
+    # refresh failure, so the caller retries with backoff.
+    # Skip when early_killed=True — killing the process can cause
+    # in-flight API requests to fail with auth errors as a side effect.
+    if not early_killed and "authentication_failed" in "\n".join(raw_lines):
+        raise AuthenticationRetryError(
+            "Agent CLI authentication failed — check "
+            "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
+        )
+
+    # Check for credit exhaustion in both stderr and transcript.
+    # Skip when early_killed=True — the process was intentionally killed by us
+    # because it produced its expected output; credit phrases in legitimate
+    # transcript content would otherwise cause false-positive pauses.
+    combined = f"{stderr_text}\n{accumulated_text}"
+    if not early_killed and is_credit_exhaustion(combined):
+        resume_at = parse_credit_resume_time(combined)
+        raise CreditExhaustedError("API credit limit reached", resume_at=resume_at)
+
+
+def resolve_transcript(
+    result_text: str,
+    accumulated_text: str,
+    raw_lines: list[str],
+    stderr_text: str,
+    returncode: int | None,
+    caller_logger: logging.Logger,
+) -> str:
+    """Pick the best transcript from the available output sources.
+
+    Fallback chain: *result_text* → *accumulated_text* → joined *raw_lines*.
+    Logs a warning when the transcript is empty but stderr has content.
+    """
+    transcript = result_text or accumulated_text.rstrip("\n") or "\n".join(raw_lines)
+
+    # Log stderr when transcript is empty — this is the only place
+    # stderr content is available and it's critical for diagnosing
+    # silent subprocess failures (e.g. CLI auth errors, missing flags).
+    if not transcript.strip() and stderr_text:
+        caller_logger.warning(
+            "Process produced empty stdout (rc=%d), stderr: %s",
+            returncode or 0,
+            stderr_text[:500],
+        )
+
+    return transcript
+
+
+async def _write_stdin(proc: asyncio.subprocess.Process, prompt: str) -> None:
+    """Write *prompt* to the process's stdin and close it."""
+    assert proc.stdin is not None
+    proc.stdin.write(prompt.encode())
+    await proc.stdin.drain()
+    proc.stdin.close()
+
+
+async def _read_stdout_lines(
+    stdout_stream: asyncio.StreamReader,
+    parser: StreamParser,
+    event_bus: EventBus,
+    event_data: TranscriptEventData,
+    on_output: Callable[[str], bool] | None,
+    proc: asyncio.subprocess.Process,
+) -> tuple[list[str], str, str, bool]:
+    """Read and parse lines from *stdout_stream*.
+
+    Returns ``(raw_lines, result_text, accumulated_text, early_killed)``.
+    """
+    raw_lines: list[str] = []
+    result_text = ""
+    accumulated_text = ""
+    early_killed = False
+
+    async for raw in stdout_stream:
+        line = raw.decode(errors="replace").rstrip("\n")
+        raw_lines.append(line)
+        if not line.strip():
+            continue
+
+        display, result = parser.parse(line)
+        if result is not None:
+            result_text = result
+
+        if display.strip():
+            accumulated_text += display + "\n"
+            line_data: TranscriptLinePayload = {**event_data, "line": display}
+            await event_bus.publish(
+                HydraFlowEvent(
+                    type=EventType.TRANSCRIPT_LINE,
+                    data=line_data,
+                )
+            )
+
+        if on_output is not None and not early_killed and on_output(accumulated_text):
+            early_killed = True
+            proc.kill()
+            break
+
+    return raw_lines, result_text, accumulated_text, early_killed
+
+
+async def _collect_output(
+    proc: asyncio.subprocess.Process,
+    parser: StreamParser,
+    stderr_task: asyncio.Task[bytes],
+    event_bus: EventBus,
+    event_data: TranscriptEventData,
+    on_output: Callable[[str], bool] | None,
+    usage_stats: dict[str, object] | None,
+    caller_logger: logging.Logger,
+) -> str:
+    """Read stdout, wait for stderr, validate, and return the transcript."""
+    (
+        raw_lines,
+        result_text,
+        accumulated_text,
+        early_killed,
+    ) = await _read_stdout_lines(
+        proc.stdout,  # type: ignore[arg-type]
+        parser,
+        event_bus,
+        event_data,
+        on_output,
+        proc,
+    )
+
+    stderr_bytes = await stderr_task
+    await proc.wait()
+    stderr_text = stderr_bytes.decode(errors="replace").strip()
+
+    check_post_stream_errors(
+        raw_lines=raw_lines,
+        accumulated_text=accumulated_text,
+        stderr_text=stderr_text,
+        early_killed=early_killed,
+        returncode=proc.returncode,
+        caller_logger=caller_logger,
+    )
+
+    if usage_stats is not None:
+        usage_stats.update(parser.usage_snapshot)
+
+    return resolve_transcript(
+        result_text,
+        accumulated_text,
+        raw_lines,
+        stderr_text,
+        proc.returncode,
+        caller_logger,
+    )
+
+
+async def _create_and_start_process(
+    runner: SubprocessRunner,
+    cmd: list[str],
+    prompt: str,
+    cwd: Path,
+    gh_token: str,
+) -> tuple[asyncio.subprocess.Process, int]:
+    """Prepare command, create the subprocess, and return it with stdin mode."""
+    env = make_clean_env(gh_token)
+    cmd_to_run, stdin_mode = prepare_command(cmd, prompt)
+    proc = await runner.create_streaming_process(
+        cmd_to_run,
+        cwd=str(cwd),
+        env=env,
+        stdin=stdin_mode,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        limit=1024 * 1024,  # 1 MB — stream-json lines can exceed 64 KB default
+        start_new_session=True,  # Own process group for reliable cleanup
+    )
+    return proc, stdin_mode
+
+
 async def stream_claude_process(
     *,
     cmd: list[str],
@@ -48,70 +277,14 @@ async def stream_claude_process(
 ) -> str:
     """Run an agent subprocess and stream its output.
 
-    Parameters
-    ----------
-    cmd:
-        Command to execute (e.g. ``["claude", "-p", ...]`` or ``["codex", "exec", ...]``).
-    prompt:
-        Prompt text for the agent. Passed via stdin for Claude-style commands;
-        passed as a positional argument for Codex `exec`.
-    cwd:
-        Working directory for the subprocess.
-    active_procs:
-        Shared set for tracking active processes (for terminate).
-    event_bus:
-        For publishing ``TRANSCRIPT_LINE`` events.
-    event_data:
-        Base dict for event data (runner-specific keys like ``issue``/``pr``/``source``).
-        ``"line"`` is added automatically per output line.
-    logger:
-        Caller's logger for warnings (preserves per-runner log context).
-    on_output:
-        Optional callback receiving accumulated display text.
-        Return ``True`` to kill the process early.
-    usage_stats:
-        Optional dict populated with normalized usage totals and metadata
-        (availability status, backend, and raw usage blobs when emitted).
-
-    Returns
-    -------
-    str
-        The transcript string, using the fallback chain:
-        result_text → accumulated_text → raw_lines.
+    Returns the transcript string, using the fallback chain:
+    result_text -> accumulated_text -> raw_lines.
     """
-    env = make_clean_env(gh_token)
-
     if runner is None:
         runner = get_default_runner()
-    use_codex_exec = len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec"
-    use_pi_print = cmd and cmd[0] == "pi" and ("-p" in cmd or "--print" in cmd)
-    use_claude_print = cmd and cmd[0] == "claude" and "-p" in cmd
-    use_prompt_arg = use_codex_exec or use_pi_print or use_claude_print
-    if use_prompt_arg:
-        if use_claude_print or use_pi_print:
-            # Claude/Pi CLI require the prompt immediately after -p/--print;
-            # placing it at the end causes "Input must be provided" errors.
-            flag = "-p" if "-p" in cmd else "--print"
-            idx = cmd.index(flag)
-            cmd_to_run = [*cmd[: idx + 1], prompt, *cmd[idx + 1 :]]
-        else:
-            # Codex exec: prompt is a trailing positional argument.
-            cmd_to_run = [*cmd, prompt]
-    else:
-        cmd_to_run = cmd
-    stdin_mode = (
-        asyncio.subprocess.DEVNULL if use_prompt_arg else asyncio.subprocess.PIPE
-    )
 
-    proc = await runner.create_streaming_process(
-        cmd_to_run,
-        cwd=str(cwd),
-        env=env,
-        stdin=stdin_mode,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        limit=1024 * 1024,  # 1 MB — stream-json lines can exceed 64 KB default
-        start_new_session=True,  # Own process group for reliable cleanup
+    proc, stdin_mode = await _create_and_start_process(
+        runner, cmd, prompt, cwd, gh_token
     )
     active_procs.add(proc)
 
@@ -120,111 +293,25 @@ async def stream_claude_process(
         assert proc.stdout is not None
         assert proc.stderr is not None
 
-        stdout_stream = proc.stdout  # capture for nested function
+        if stdin_mode != asyncio.subprocess.DEVNULL:
+            await _write_stdin(proc, prompt)
 
-        if not use_prompt_arg:
-            assert proc.stdin is not None
-            proc.stdin.write(prompt.encode())
-            await proc.stdin.drain()
-            proc.stdin.close()
-
-        # Drain stderr in background to prevent deadlock
         stderr_task = asyncio.create_task(proc.stderr.read())
-
         parser = StreamParser()
-        raw_lines: list[str] = []
-        result_text = ""
-        accumulated_text = ""
-        early_killed = False
 
-        async def _stream_body() -> str:
-            nonlocal result_text, accumulated_text, early_killed
-
-            async for raw in stdout_stream:
-                line = raw.decode(errors="replace").rstrip("\n")
-                raw_lines.append(line)
-                if not line.strip():
-                    continue
-
-                display, result = parser.parse(line)
-                if result is not None:
-                    result_text = result
-
-                if display.strip():
-                    accumulated_text += display + "\n"
-                    line_data: TranscriptLinePayload = {**event_data, "line": display}
-                    await event_bus.publish(
-                        HydraFlowEvent(
-                            type=EventType.TRANSCRIPT_LINE,
-                            data=line_data,
-                        )
-                    )
-
-                if (
-                    on_output is not None
-                    and not early_killed
-                    and on_output(accumulated_text)
-                ):
-                    early_killed = True
-                    proc.kill()
-                    break
-
-            stderr_bytes = await stderr_task
-            await proc.wait()
-
-            stderr_text = stderr_bytes.decode(errors="replace").strip()
-
-            if not early_killed and proc.returncode != 0:
-                logger.warning(
-                    "Process exited with code %d: %s",
-                    proc.returncode,
-                    stderr_text[:500],
-                )
-
-            # Detect authentication failures from stream-json output.
-            # Claude CLI emits '"error":"authentication_failed"' when it
-            # cannot authenticate — this can be a transient OAuth token
-            # refresh failure, so the caller retries with backoff.
-            # Skip when early_killed=True — killing the process can cause
-            # in-flight API requests to fail with auth errors as a side effect.
-            raw_output = "\n".join(raw_lines)
-            if not early_killed and "authentication_failed" in raw_output:
-                raise AuthenticationRetryError(
-                    "Agent CLI authentication failed — check "
-                    "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
-                )
-
-            # Check for credit exhaustion in both stderr and transcript.
-            # Skip when early_killed=True — the process was intentionally killed by us
-            # because it produced its expected output; credit phrases in legitimate
-            # transcript content would otherwise cause false-positive pauses.
-            combined = f"{stderr_text}\n{accumulated_text}"
-            if not early_killed and is_credit_exhaustion(combined):
-                resume_at = parse_credit_resume_time(combined)
-                raise CreditExhaustedError(
-                    "API credit limit reached", resume_at=resume_at
-                )
-
-            if usage_stats is not None:
-                usage_stats.update(parser.usage_snapshot)
-
-            transcript = (
-                result_text or accumulated_text.rstrip("\n") or "\n".join(raw_lines)
-            )
-
-            # Log stderr when transcript is empty — this is the only place
-            # stderr content is available and it's critical for diagnosing
-            # silent subprocess failures (e.g. CLI auth errors, missing flags).
-            if not transcript.strip() and stderr_text:
-                logger.warning(
-                    "Process produced empty stdout (rc=%d), stderr: %s",
-                    proc.returncode or 0,
-                    stderr_text[:500],
-                )
-
-            return transcript
-
-        return await asyncio.wait_for(_stream_body(), timeout=timeout)
+        return await asyncio.wait_for(
+            _collect_output(
+                proc,
+                parser,
+                stderr_task,
+                event_bus,
+                event_data,
+                on_output,
+                usage_stats,
+                logger,
+            ),
+            timeout=timeout,
+        )
     except TimeoutError as exc:
         proc.kill()
         await proc.wait()

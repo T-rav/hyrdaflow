@@ -431,11 +431,11 @@ class TestSummarizeAndComment:
 
 
 class TestSummarizeAndPublish:
-    """Tests for issue-based transcript summaries (legacy path, now always off)."""
+    """Tests for issue-based transcript summaries."""
 
     @pytest.mark.asyncio
-    async def test_noop_by_default(self, tmp_path: Path) -> None:
-        """Default config returns None immediately (feature removed)."""
+    async def test_noop_when_transcript_too_short(self, tmp_path: Path) -> None:
+        """Short transcripts (< _MIN_TRANSCRIPT_LENGTH) are skipped."""
         config = ConfigFactory.create(repo_root=tmp_path)
         prs = MagicMock()
         prs.create_issue = AsyncMock()
@@ -444,7 +444,7 @@ class TestSummarizeAndPublish:
 
         summarizer = TranscriptSummarizer(config, prs, bus, state)
         result = await summarizer.summarize_and_publish(
-            transcript="x" * 1000, issue_number=42, phase="implement"
+            transcript="short", issue_number=42, phase="implement"
         )
 
         assert result is None

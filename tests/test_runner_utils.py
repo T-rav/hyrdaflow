@@ -16,7 +16,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventType
-from runner_utils import stream_claude_process, terminate_processes
+from runner_utils import (
+    check_post_stream_errors,
+    prepare_command,
+    resolve_transcript,
+    stream_claude_process,
+    terminate_processes,
+)
 from tests.helpers import make_streaming_proc
 
 # ---------------------------------------------------------------------------
@@ -858,3 +864,516 @@ class TestStreamClaudeProcessGhToken:
         if "GH_TOKEN" in captured_env:
             # If present, it was inherited from os.environ, not injected
             assert captured_env["GH_TOKEN"] == os.environ.get("GH_TOKEN", "")
+
+
+# ---------------------------------------------------------------------------
+# _prepare_command — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestPrepareCommand:
+    """Tests for the _prepare_command helper extracted from stream_claude_process."""
+
+    def test_claude_print_inserts_prompt_after_flag(self) -> None:
+        cmd = ["claude", "-p", "--model", "sonnet"]
+        cmd_out, stdin_mode = prepare_command(cmd, "my prompt")
+        assert cmd_out == ["claude", "-p", "my prompt", "--model", "sonnet"]
+        assert stdin_mode == asyncio.subprocess.DEVNULL
+
+    def test_codex_exec_appends_prompt(self) -> None:
+        cmd = ["codex", "exec"]
+        cmd_out, stdin_mode = prepare_command(cmd, "do stuff")
+        assert cmd_out == ["codex", "exec", "do stuff"]
+        assert stdin_mode == asyncio.subprocess.DEVNULL
+
+    def test_pi_print_inserts_prompt_after_flag(self) -> None:
+        cmd = ["pi", "-p"]
+        cmd_out, stdin_mode = prepare_command(cmd, "plan it")
+        assert cmd_out == ["pi", "-p", "plan it"]
+        assert stdin_mode == asyncio.subprocess.DEVNULL
+
+    def test_unknown_tool_uses_stdin(self) -> None:
+        cmd = ["other-tool", "--flag"]
+        cmd_out, stdin_mode = prepare_command(cmd, "prompt")
+        assert cmd_out == ["other-tool", "--flag"]
+        assert stdin_mode == asyncio.subprocess.PIPE
+
+    def test_pi_with_long_print_flag(self) -> None:
+        cmd = ["pi", "--print"]
+        cmd_out, stdin_mode = prepare_command(cmd, "prompt")
+        assert cmd_out == ["pi", "--print", "prompt"]
+        assert stdin_mode == asyncio.subprocess.DEVNULL
+
+    def test_empty_cmd_uses_stdin(self) -> None:
+        cmd: list[str] = []
+        cmd_out, stdin_mode = prepare_command(cmd, "prompt")
+        assert cmd_out == []
+        assert stdin_mode == asyncio.subprocess.PIPE
+
+
+# ---------------------------------------------------------------------------
+# _check_post_stream_errors — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestCheckPostStreamErrors:
+    """Tests for the _check_post_stream_errors helper."""
+
+    def test_raises_auth_error_on_authentication_failed(self) -> None:
+        from runner_utils import AuthenticationRetryError
+
+        with pytest.raises(AuthenticationRetryError):
+            check_post_stream_errors(
+                raw_lines=['{"error":"authentication_failed"}'],
+                accumulated_text="",
+                stderr_text="",
+                early_killed=False,
+                returncode=1,
+                caller_logger=logging.getLogger("test"),
+            )
+
+    def test_no_error_when_early_killed(self) -> None:
+        # Should not raise even with auth failure markers when early_killed
+        check_post_stream_errors(
+            raw_lines=['{"error":"authentication_failed"}'],
+            accumulated_text="",
+            stderr_text="",
+            early_killed=True,
+            returncode=0,
+            caller_logger=logging.getLogger("test"),
+        )
+
+    def test_raises_credit_exhausted_on_credit_limit(self) -> None:
+        from subprocess_util import CreditExhaustedError
+
+        with pytest.raises(CreditExhaustedError):
+            check_post_stream_errors(
+                raw_lines=[],
+                accumulated_text="Your credit balance is too low",
+                stderr_text="",
+                early_killed=False,
+                returncode=0,
+                caller_logger=logging.getLogger("test"),
+            )
+
+    def test_logs_warning_on_nonzero_exit(self, caplog) -> None:
+        test_logger = logging.getLogger("test_nonzero")
+        with caplog.at_level(logging.WARNING, logger="test_nonzero"):
+            check_post_stream_errors(
+                raw_lines=["normal output"],
+                accumulated_text="normal output",
+                stderr_text="some error",
+                early_killed=False,
+                returncode=1,
+                caller_logger=test_logger,
+            )
+        assert "exited with code 1" in caplog.text
+
+    def test_no_error_on_clean_exit(self) -> None:
+        # Should not raise on a clean exit
+        check_post_stream_errors(
+            raw_lines=["ok"],
+            accumulated_text="ok",
+            stderr_text="",
+            early_killed=False,
+            returncode=0,
+            caller_logger=logging.getLogger("test"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# _resolve_transcript — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTranscript:
+    """Tests for the _resolve_transcript helper."""
+
+    def test_prefers_result_text(self) -> None:
+        transcript = resolve_transcript(
+            result_text="result",
+            accumulated_text="accumulated",
+            raw_lines=["raw"],
+            stderr_text="",
+            returncode=0,
+            caller_logger=logging.getLogger("test"),
+        )
+        assert transcript == "result"
+
+    def test_falls_back_to_accumulated(self) -> None:
+        transcript = resolve_transcript(
+            result_text="",
+            accumulated_text="accumulated\n",
+            raw_lines=["raw"],
+            stderr_text="",
+            returncode=0,
+            caller_logger=logging.getLogger("test"),
+        )
+        assert transcript == "accumulated"
+
+    def test_falls_back_to_raw_lines(self) -> None:
+        transcript = resolve_transcript(
+            result_text="",
+            accumulated_text="",
+            raw_lines=["line1", "line2"],
+            stderr_text="",
+            returncode=0,
+            caller_logger=logging.getLogger("test"),
+        )
+        assert transcript == "line1\nline2"
+
+    def test_logs_warning_when_empty_with_stderr(self, caplog) -> None:
+        test_logger = logging.getLogger("test_empty_stderr")
+        with caplog.at_level(logging.WARNING, logger="test_empty_stderr"):
+            resolve_transcript(
+                result_text="",
+                accumulated_text="",
+                raw_lines=[],
+                stderr_text="something went wrong",
+                returncode=1,
+                caller_logger=test_logger,
+            )
+        assert "empty stdout" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _write_stdin — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestWriteStdin:
+    """Tests for the _write_stdin helper extracted from stream_claude_process."""
+
+    @pytest.mark.asyncio
+    async def test_writes_prompt_to_stdin(self) -> None:
+        """_write_stdin should encode and write the prompt, then close stdin."""
+        from runner_utils import _write_stdin
+
+        proc = AsyncMock()
+        proc.stdin = MagicMock()
+        proc.stdin.drain = AsyncMock()
+
+        await _write_stdin(proc, "hello")
+
+        proc.stdin.write.assert_called_once_with(b"hello")
+        proc.stdin.drain.assert_awaited_once()
+        proc.stdin.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_stdin_is_none(self) -> None:
+        """_write_stdin should raise AssertionError when stdin is None."""
+        from runner_utils import _write_stdin
+
+        proc = AsyncMock()
+        proc.stdin = None
+
+        with pytest.raises(AssertionError):
+            await _write_stdin(proc, "hello")
+
+
+# ---------------------------------------------------------------------------
+# _read_stdout_lines — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestReadStdoutLines:
+    """Tests for the _read_stdout_lines helper extracted from stream_claude_process."""
+
+    @pytest.mark.asyncio
+    async def test_collects_raw_lines(self, event_bus) -> None:
+        """_read_stdout_lines should collect all raw stdout lines."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Line one\n", b"Line two\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        parser = StreamParser()
+
+        raw_lines, result_text, accumulated, early_killed = await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            None,
+            proc,
+        )
+
+        assert len(raw_lines) == 2
+        assert "Line one" in raw_lines[0]
+        assert "Line two" in raw_lines[1]
+        assert early_killed is False
+
+    @pytest.mark.asyncio
+    async def test_early_kill_on_callback(self, event_bus) -> None:
+        """_read_stdout_lines should kill process when on_output returns True."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Line one\n", b"Line two\n", b"Line three\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        proc.kill = MagicMock()
+        parser = StreamParser()
+
+        raw_lines, _, _, early_killed = await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            lambda _: True,  # Kill on first output
+            proc,
+        )
+
+        assert early_killed is True
+        proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_blank_lines(self, event_bus) -> None:
+        """_read_stdout_lines should not accumulate blank lines."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Line one\n", b"\n", b"   \n", b"Line two\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        parser = StreamParser()
+
+        raw_lines, _, accumulated, _ = await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            None,
+            proc,
+        )
+
+        # Raw lines include all lines, accumulated skips blanks
+        assert len(raw_lines) == 4
+        assert "Line one" in accumulated
+        assert "Line two" in accumulated
+
+    @pytest.mark.asyncio
+    async def test_publishes_transcript_events(self, event_bus) -> None:
+        """_read_stdout_lines should publish TRANSCRIPT_LINE events."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Hello world\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        parser = StreamParser()
+
+        await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            None,
+            proc,
+        )
+
+        events = event_bus.get_history()
+        transcript_events = [e for e in events if e.type == EventType.TRANSCRIPT_LINE]
+        assert len(transcript_events) == 1
+        assert transcript_events[0].data["line"] == "Hello world"
+
+
+# ---------------------------------------------------------------------------
+# _collect_output — extracted from stream_claude_process
+# ---------------------------------------------------------------------------
+
+
+class TestCollectOutput:
+    """Tests for _collect_output extracted from stream_claude_process."""
+
+    @pytest.mark.asyncio
+    async def test_returns_transcript_from_stdout(self, event_bus) -> None:
+        """_collect_output should return transcript from parsed stdout."""
+        from runner_utils import _collect_output
+        from stream_parser import StreamParser
+
+        lines_data = [b"Hello from agent\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        proc.stdout = async_iter()
+        proc.wait = AsyncMock()
+        proc.returncode = 0
+
+        stderr_future: asyncio.Future[bytes] = asyncio.get_event_loop().create_future()
+        stderr_future.set_result(b"")
+        stderr_task = asyncio.ensure_future(stderr_future)
+
+        parser = StreamParser()
+        result = await _collect_output(
+            proc,
+            parser,
+            stderr_task,
+            event_bus,
+            {"issue": 1},
+            None,
+            None,
+            logging.getLogger("test"),
+        )
+
+        assert "Hello from agent" in result
+
+    @pytest.mark.asyncio
+    async def test_updates_usage_stats(self, event_bus) -> None:
+        """_collect_output should update usage_stats from parser snapshot."""
+        from runner_utils import _collect_output
+        from stream_parser import StreamParser
+
+        async def async_iter():
+            return
+            yield  # make it an async generator  # noqa: RET504
+
+        proc = AsyncMock()
+        proc.stdout = async_iter()
+        proc.wait = AsyncMock()
+        proc.returncode = 0
+
+        stderr_future: asyncio.Future[bytes] = asyncio.get_event_loop().create_future()
+        stderr_future.set_result(b"")
+        stderr_task = asyncio.ensure_future(stderr_future)
+
+        parser = StreamParser()
+        usage: dict[str, object] = {}
+        await _collect_output(
+            proc,
+            parser,
+            stderr_task,
+            event_bus,
+            {"issue": 1},
+            None,
+            usage,
+            logging.getLogger("test"),
+        )
+
+        # usage_stats dict should have been updated (even if empty snapshot)
+        assert isinstance(usage, dict)
+
+    @pytest.mark.asyncio
+    async def test_raises_on_auth_failure(self, event_bus) -> None:
+        """_collect_output should raise AuthenticationRetryError on auth failure."""
+        from runner_utils import AuthenticationRetryError, _collect_output
+        from stream_parser import StreamParser
+
+        lines_data = [b'"error":"authentication_failed"\n']
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        proc.stdout = async_iter()
+        proc.wait = AsyncMock()
+        proc.returncode = 1
+
+        stderr_future: asyncio.Future[bytes] = asyncio.get_event_loop().create_future()
+        stderr_future.set_result(b"")
+        stderr_task = asyncio.ensure_future(stderr_future)
+
+        parser = StreamParser()
+        with pytest.raises(AuthenticationRetryError):
+            await _collect_output(
+                proc,
+                parser,
+                stderr_task,
+                event_bus,
+                {"issue": 1},
+                None,
+                None,
+                logging.getLogger("test"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# _create_and_start_process — extracted from stream_claude_process
+# ---------------------------------------------------------------------------
+
+
+class TestCreateAndStartProcess:
+    """Tests for _create_and_start_process extracted from stream_claude_process."""
+
+    @pytest.mark.asyncio
+    async def test_returns_process_and_stdin_mode(self) -> None:
+        """_create_and_start_process returns (proc, stdin_mode) tuple."""
+        from runner_utils import _create_and_start_process
+
+        mock_proc = AsyncMock()
+        mock_runner = AsyncMock()
+        mock_runner.create_streaming_process = AsyncMock(return_value=mock_proc)
+
+        proc, stdin_mode = await _create_and_start_process(
+            mock_runner,
+            ["claude", "-p"],
+            "test prompt",
+            Path("/tmp/test"),
+            "",
+        )
+
+        assert proc is mock_proc
+        # claude -p uses prompt arg, so stdin is DEVNULL
+        assert stdin_mode == asyncio.subprocess.DEVNULL
+        mock_runner.create_streaming_process.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_passes_prompt_in_command_for_claude(self) -> None:
+        """For claude -p, the prompt should be inserted into the command."""
+        from runner_utils import _create_and_start_process
+
+        mock_proc = AsyncMock()
+        mock_runner = AsyncMock()
+        mock_runner.create_streaming_process = AsyncMock(return_value=mock_proc)
+
+        await _create_and_start_process(
+            mock_runner,
+            ["claude", "-p"],
+            "hello world",
+            Path("/tmp/test"),
+            "",
+        )
+
+        call_args = mock_runner.create_streaming_process.call_args
+        cmd_arg = call_args[0][0]
+        assert "hello world" in cmd_arg
+
+    @pytest.mark.asyncio
+    async def test_uses_pipe_stdin_for_non_prompt_cmd(self) -> None:
+        """For commands without -p, stdin should be PIPE."""
+        from runner_utils import _create_and_start_process
+
+        mock_proc = AsyncMock()
+        mock_runner = AsyncMock()
+        mock_runner.create_streaming_process = AsyncMock(return_value=mock_proc)
+
+        _, stdin_mode = await _create_and_start_process(
+            mock_runner,
+            ["some-tool"],
+            "test prompt",
+            Path("/tmp/test"),
+            "",
+        )
+
+        assert stdin_mode == asyncio.subprocess.PIPE

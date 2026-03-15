@@ -837,3 +837,105 @@ class TestEventPublishing:
         assert len(worker_updates) > 0
         for event in worker_updates:
             assert event.data.get("role") == "implementer"
+
+
+# ---------------------------------------------------------------------------
+# _build_plan_section — extracted from _build_prompt_with_stats
+# ---------------------------------------------------------------------------
+
+from prompt_builder import PromptBuilder
+
+
+class TestBuildPlanSection:
+    """Tests for the _build_plan_section helper extracted from _build_prompt_with_stats."""
+
+    def test_returns_empty_when_no_plan(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        task = Task(id=99, title="Test", body="body", comments=[], tags=[])
+        section = runner._build_plan_section(task, builder)
+        assert section == ""
+
+    def test_returns_plan_from_comment(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        plan_text = "## Implementation Plan\n\nDo the thing."
+        task = Task(
+            id=99,
+            title="Test",
+            body="body",
+            comments=[plan_text],
+            tags=[],
+        )
+        section = runner._build_plan_section(task, builder)
+        assert "## Implementation Plan" in section
+        assert "Do the thing" in section
+
+
+# ---------------------------------------------------------------------------
+# _build_history_sections — extracted from _build_prompt_with_stats
+# ---------------------------------------------------------------------------
+
+
+class TestBuildHistorySections:
+    """Tests for the _build_history_sections helper."""
+
+    def test_returns_empty_sections_with_no_data(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        task = Task(id=99, title="Test", body="body", comments=[], tags=[])
+        review, failure, comments = runner._build_history_sections(task, builder)
+        assert review == ""
+        assert failure == ""
+        assert comments == ""
+
+    def test_includes_review_feedback(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        task = Task(id=99, title="Test", body="body", comments=[], tags=[])
+        review, _, _ = runner._build_history_sections(
+            task, builder, review_feedback="Fix the bug"
+        )
+        assert "Review Feedback" in review
+        assert "Fix the bug" in review
+
+    def test_includes_prior_failure(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        task = Task(id=99, title="Test", body="body", comments=[], tags=[])
+        _, failure, _ = runner._build_history_sections(
+            task, builder, prior_failure="TypeError: bad"
+        )
+        assert "Prior Attempt Failure" in failure
+        assert "TypeError: bad" in failure
+
+    def test_includes_discussion_comments(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        task = Task(
+            id=99,
+            title="Test",
+            body="body",
+            comments=["user comment one"],
+            tags=[],
+        )
+        _, _, comments = runner._build_history_sections(task, builder)
+        assert "Discussion" in comments
+        assert "user comment one" in comments
+
+
+# ---------------------------------------------------------------------------
+# _build_insight_sections — extracted from _build_prompt_with_stats
+# ---------------------------------------------------------------------------
+
+
+class TestBuildInsightSections:
+    """Tests for the _build_insight_sections helper."""
+
+    def test_returns_empty_sections_when_no_insights(self, config, event_bus) -> None:
+        runner = AgentRunner(config, event_bus)
+        builder = PromptBuilder()
+        feedback, escalation, escalations = runner._build_insight_sections(builder)
+        assert feedback == ""
+        assert escalation == ""
+        assert escalations == []

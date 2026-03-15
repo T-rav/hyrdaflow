@@ -145,74 +145,12 @@ Run through this checklist before your final commit:
             # Force-commit any uncommitted work the agent left behind
             await self._force_commit_uncommitted(task, worktree_path)
 
-            # Diff sanity check (blocking — agent must fix flagged issues)
-            sanity = await self._run_diff_sanity_loop(
-                task, worktree_path, branch, worker_id
+            # Run post-implementation verification pipeline
+            early_return = await self._run_verification_pipeline(
+                task, worktree_path, branch, worker_id, result, start
             )
-            if not sanity.passed:
-                logger.warning(
-                    "Diff sanity flagged issues for #%d: %s",
-                    task.id,
-                    sanity.summary,
-                )
-                result.success = False
-                result.error = f"Diff sanity check failed: {sanity.summary}"
-                result.commits = await self._count_commits(worktree_path, branch)
-                await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
-                result.duration_seconds = time.monotonic() - start
+            if early_return:
                 return result
-
-            adequacy = await self._run_test_adequacy_loop(
-                task, worktree_path, branch, worker_id
-            )
-            if not adequacy.passed:
-                logger.warning(
-                    "Test adequacy flagged gaps for #%d: %s (non-blocking)",
-                    task.id,
-                    adequacy.summary,
-                )
-
-            # Mandatory pre-quality self-review/correction loop
-            pre_quality = await self._run_pre_quality_review_loop(
-                task, worktree_path, branch, worker_id
-            )
-            result.pre_quality_review_attempts = pre_quality.attempts
-            if not pre_quality.passed:
-                result.success = False
-                result.error = pre_quality.summary
-                result.commits = await self._count_commits(worktree_path, branch)
-                await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
-                result.duration_seconds = time.monotonic() - start
-                return result
-
-            # Verify the agent produced valid work
-            await self._emit_status(task.id, worker_id, WorkerStatus.TESTING)
-            verify = await self._verify_result(worktree_path, branch)
-
-            # If quality failed but commits exist, try the fix loop
-            success = verify.passed
-            last_msg = verify.summary
-            if (
-                not success
-                and last_msg != "No commits found on branch"
-                and self._config.max_quality_fix_attempts > 0
-            ):
-                fix = await self._run_quality_fix_loop(
-                    task, worktree_path, branch, last_msg, worker_id
-                )
-                success = fix.passed
-                last_msg = fix.summary
-                result.quality_fix_attempts = fix.attempts
-
-            result.success = success
-            if not success:
-                result.error = last_msg
-
-            # Count commits
-            result.commits = await self._count_commits(worktree_path, branch)
-
-            status = WorkerStatus.DONE if success else WorkerStatus.FAILED
-            await self._emit_status(task.id, worker_id, status)
 
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -492,19 +430,16 @@ Run through this checklist before your final commit:
 
         return header + rules + "\n".join(phase_sections)
 
-    def _build_prompt_with_stats(
+    def _build_plan_section(
         self,
         issue: Task,
-        review_feedback: str = "",
-        prior_failure: str = "",
+        builder: PromptBuilder,
         bead_mapping: dict[str, str] | None = None,
-    ) -> tuple[str, dict[str, object]]:
-        """Build the implementation prompt and pruning stats."""
-        builder = PromptBuilder()
-        plan_comment, other_comments = self._extract_plan_comment(issue.comments)
+    ) -> str:
+        """Build the implementation plan prompt section."""
+        plan_comment, _ = self._extract_plan_comment(issue.comments)
         raw_plan = plan_comment
 
-        # Fallback to saved plan file
         if not plan_comment:
             plan_comment = self._load_plan_fallback(issue.id)
             raw_plan = plan_comment
@@ -514,56 +449,65 @@ Run through this checklist before your final commit:
                     issue.id,
                     extra={"issue": issue.id},
                 )
+                return ""
 
-        plan_section = ""
-        if plan_comment:
-            plan_comment = self._summarize_for_prompt(
-                plan_comment,
-                max_chars=self._MAX_IMPL_PLAN_CHARS,
-                label="Implementation plan",
+        plan_comment = self._summarize_for_prompt(
+            plan_comment,
+            max_chars=self._MAX_IMPL_PLAN_CHARS,
+            label="Implementation plan",
+        )
+        builder.record_history("Implementation plan", raw_plan, plan_comment)
+
+        if has_task_graph(plan_comment):
+            return self._build_tdd_subagent_plan(
+                plan_comment, bead_mapping=bead_mapping
             )
-            builder.record_history("Implementation plan", raw_plan, plan_comment)
-            # Detect whether the plan uses Task Graph format
-            if has_task_graph(plan_comment):
-                plan_section = self._build_tdd_subagent_plan(
-                    plan_comment, bead_mapping=bead_mapping
-                )
-            else:
-                plan_section = (
-                    f"\n\n## Implementation Plan\n\n"
-                    f"Follow this plan closely. It was created by a planner agent "
-                    f"that already analyzed the codebase.\n\n"
-                    f"{plan_comment}"
-                )
+        return (
+            f"\n\n## Implementation Plan\n\n"
+            f"Follow this plan closely. It was created by a planner agent "
+            f"that already analyzed the codebase.\n\n"
+            f"{plan_comment}"
+        )
 
-        review_feedback_section = ""
+    def _build_history_sections(
+        self,
+        issue: Task,
+        builder: PromptBuilder,
+        review_feedback: str = "",
+        prior_failure: str = "",
+    ) -> tuple[str, str, str]:
+        """Build review feedback, prior failure, and discussion sections.
+
+        Returns ``(review_section, failure_section, comments_section)``.
+        """
+        _, other_comments = self._extract_plan_comment(issue.comments)
+
+        review_section = ""
         if review_feedback:
-            raw_review_feedback = review_feedback
+            raw = review_feedback
             review_feedback = self._summarize_for_prompt(
                 review_feedback,
                 max_chars=self._MAX_REVIEW_FEEDBACK_CHARS,
                 label="Review feedback",
             )
-            builder.record_history(
-                "Review feedback", raw_review_feedback, review_feedback
-            )
-            review_feedback_section = (
+            builder.record_history("Review feedback", raw, review_feedback)
+            review_section = (
                 f"\n\n## Review Feedback\n\n"
                 f"A reviewer rejected the previous implementation. "
                 f"Address all feedback below:\n\n"
                 f"{review_feedback}"
             )
 
-        prior_failure_section = ""
+        failure_section = ""
         if prior_failure:
-            raw_prior_failure = prior_failure
+            raw = prior_failure
             prior_failure = self._summarize_for_prompt(
                 prior_failure,
                 max_chars=self._config.error_output_max_chars,
                 label="Prior failure",
             )
-            builder.record_history("Prior failure", raw_prior_failure, prior_failure)
-            prior_failure_section = (
+            builder.record_history("Prior failure", raw, prior_failure)
+            failure_section = (
                 f"\n\n## Prior Attempt Failure\n\n"
                 f"Your previous implementation attempt failed with the following error. "
                 f"Avoid repeating the same mistake:\n\n"
@@ -573,28 +517,34 @@ Run through this checklist before your final commit:
         comments_section = ""
         if other_comments:
             max_comments = 6
-            selected_comments = other_comments[:max_comments]
-            compact_comments = [
-                self._truncate_comment_for_prompt(c) for c in selected_comments
-            ]
-            formatted = "\n".join(f"- {c}" for c in compact_comments)
+            selected = other_comments[:max_comments]
+            compact = [self._truncate_comment_for_prompt(c) for c in selected]
+            formatted = "\n".join(f"- {c}" for c in compact)
             builder.record_history("Discussion", "".join(other_comments), formatted)
             comments_section = f"\n\n## Discussion\n{formatted}"
             if len(other_comments) > max_comments:
                 comments_section += f"\n- ... ({len(other_comments) - max_comments} more comments omitted)"
 
-        raw_feedback_section = self._get_review_feedback_section()
+        return review_section, failure_section, comments_section
+
+    def _build_insight_sections(
+        self,
+        builder: PromptBuilder,
+    ) -> tuple[str, str, list[dict[str, str | int | list[str]]]]:
+        """Build common review feedback and escalation prompt sections.
+
+        Returns ``(feedback_section, escalation_section, escalations_data)``.
+        """
+        raw_feedback = self._get_review_feedback_section()
         feedback_section = ""
-        if raw_feedback_section:
-            compact_feedback = self._summarize_for_prompt(
-                raw_feedback_section,
+        if raw_feedback:
+            compact = self._summarize_for_prompt(
+                raw_feedback,
                 max_chars=self._MAX_COMMON_FEEDBACK_CHARS,
                 label="Common review feedback",
             )
-            builder.record_history(
-                "Common review feedback", raw_feedback_section, compact_feedback
-            )
-            feedback_section = compact_feedback
+            builder.record_history("Common review feedback", raw_feedback, compact)
+            feedback_section = compact
 
         escalations = self._get_escalation_data()
         escalation_section = ""
@@ -604,6 +554,26 @@ Run through this checklist before your final commit:
             builder.record_history(
                 "Escalations", escalation_section, escalation_section
             )
+
+        return feedback_section, escalation_section, escalations
+
+    def _build_prompt_with_stats(
+        self,
+        issue: Task,
+        review_feedback: str = "",
+        prior_failure: str = "",
+        bead_mapping: dict[str, str] | None = None,
+    ) -> tuple[str, dict[str, object]]:
+        """Build the implementation prompt and pruning stats."""
+        builder = PromptBuilder()
+
+        plan_section = self._build_plan_section(issue, builder, bead_mapping)
+        review_section, failure_section, comments_section = (
+            self._build_history_sections(issue, builder, review_feedback, prior_failure)
+        )
+        feedback_section, escalation_section, escalations = (
+            self._build_insight_sections(builder)
+        )
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
@@ -631,7 +601,7 @@ Run through this checklist before your final commit:
 
 ## Issue: {issue.title}
 
-{body}{plan_section}{review_feedback_section}{prior_failure_section}{comments_section}{manifest_section}{memory_section}{log_section}
+{body}{plan_section}{review_section}{failure_section}{comments_section}{manifest_section}{memory_section}{log_section}
 
 ## Instructions
 
@@ -669,6 +639,90 @@ Run through this checklist before your final commit:
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
         return prompt, builder.build_stats()
+
+    async def _run_verification_pipeline(
+        self,
+        task: Task,
+        worktree_path: Path,
+        branch: str,
+        worker_id: int,
+        result: WorkerResult,
+        start: float,
+    ) -> bool:
+        """Run post-implementation checks: diff sanity, adequacy, pre-quality, verify, quality fix.
+
+        Mutates *result* in place.  Returns ``True`` if the caller should
+        return early (i.e. a blocking check failed), ``False`` otherwise.
+        """
+        # Diff sanity check (blocking — agent must fix flagged issues)
+        sanity = await self._run_diff_sanity_loop(
+            task, worktree_path, branch, worker_id
+        )
+        if not sanity.passed:
+            logger.warning(
+                "Diff sanity flagged issues for #%d: %s",
+                task.id,
+                sanity.summary,
+            )
+            result.success = False
+            result.error = f"Diff sanity check failed: {sanity.summary}"
+            result.commits = await self._count_commits(worktree_path, branch)
+            await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
+            result.duration_seconds = time.monotonic() - start
+            return True
+
+        adequacy = await self._run_test_adequacy_loop(
+            task, worktree_path, branch, worker_id
+        )
+        if not adequacy.passed:
+            logger.warning(
+                "Test adequacy flagged gaps for #%d: %s (non-blocking)",
+                task.id,
+                adequacy.summary,
+            )
+
+        # Mandatory pre-quality self-review/correction loop
+        pre_quality = await self._run_pre_quality_review_loop(
+            task, worktree_path, branch, worker_id
+        )
+        result.pre_quality_review_attempts = pre_quality.attempts
+        if not pre_quality.passed:
+            result.success = False
+            result.error = pre_quality.summary
+            result.commits = await self._count_commits(worktree_path, branch)
+            await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
+            result.duration_seconds = time.monotonic() - start
+            return True
+
+        # Verify the agent produced valid work
+        await self._emit_status(task.id, worker_id, WorkerStatus.TESTING)
+        verify = await self._verify_result(worktree_path, branch)
+
+        # If quality failed but commits exist, try the fix loop
+        success = verify.passed
+        last_msg = verify.summary
+        if (
+            not success
+            and last_msg != "No commits found on branch"
+            and self._config.max_quality_fix_attempts > 0
+        ):
+            fix = await self._run_quality_fix_loop(
+                task, worktree_path, branch, last_msg, worker_id
+            )
+            success = fix.passed
+            last_msg = fix.summary
+            result.quality_fix_attempts = fix.attempts
+
+        result.success = success
+        if not success:
+            result.error = last_msg
+
+        # Count commits
+        result.commits = await self._count_commits(worktree_path, branch)
+
+        status = WorkerStatus.DONE if success else WorkerStatus.FAILED
+        await self._emit_status(task.id, worker_id, status)
+        return False
 
     async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Check that the agent produced commits and ``make quality`` passes.
