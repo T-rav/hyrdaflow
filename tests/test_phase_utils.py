@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -607,10 +608,12 @@ class TestPublishReviewStatus:
 
 class TestNextAdrNumber:
     @pytest.fixture(autouse=True)
-    def _clear_assigned(self) -> None:
-        """Reset the module-level assigned set between tests."""
+    def _clear_assigned(self) -> Generator[None, None, None]:
+        """Reset the module-level assigned set before and after each test."""
         import phase_utils
 
+        phase_utils._assigned_adr_numbers.clear()
+        yield
         phase_utils._assigned_adr_numbers.clear()
 
     def test_returns_one_for_empty_dir(self, tmp_path: Path) -> None:
