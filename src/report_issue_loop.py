@@ -85,9 +85,21 @@ class ReportIssueLoop(BaseBackgroundLoop):
         for report in self._state.get_pending_reports():
             try:
                 created = datetime.fromisoformat(report.created_at)
+                if created.tzinfo is None:
+                    logger.warning(
+                        "Report %s has naive created_at %r — assuming UTC for stale check",
+                        report.id,
+                        report.created_at,
+                    )
+                    created = created.replace(tzinfo=UTC)
                 if created < cutoff:
                     stale_ids.append(report.id)
             except (ValueError, TypeError):
+                logger.warning(
+                    "Report %s has unparseable created_at %r — skipping stale check",
+                    report.id,
+                    report.created_at,
+                )
                 continue
 
         for report_id in stale_ids:

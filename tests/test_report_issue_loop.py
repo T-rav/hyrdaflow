@@ -1060,15 +1060,37 @@ class TestStaleReportSweep:
 
         assert state.peek_report() is None
 
-    def test_naive_datetime_skipped_gracefully(self, tmp_path: Path) -> None:
-        """Reports with naive (no-tz) created_at are skipped without crashing."""
+    def test_naive_datetime_treated_as_utc(self, tmp_path: Path) -> None:
+        """Reports with naive (no-tz) created_at are assumed UTC and closed if stale."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        # Naive datetime string (no timezone info) — older than threshold
-        naive_time = "2020-01-01T00:00:00"  # no UTC offset
+        # Naive datetime string (no timezone info) — clearly older than threshold
+        naive_time = "2020-01-01T00:00:00"  # no UTC offset — assumed UTC
         report = PendingReport(description="Old naive", created_at=naive_time)
         state.enqueue_report(report)
+        tracked = TrackedReport(
+            id=report.id,
+            reporter_id="user1",
+            description="Old naive",
+            status="queued",
+        )
+        state.add_tracked_report(tracked)
 
-        # Should not raise TypeError from offset-naive vs offset-aware comparison
+        # Should not raise TypeError — naive datetime is assumed UTC
+        loop._close_stale_reports()
+
+        # Report should be auto-closed (it is from 2020 — clearly stale)
+        assert state.peek_report() is None
+        tr = state.get_tracked_report(report.id)
+        assert tr is not None
+        assert tr.status == "closed"
+
+    def test_unparseable_datetime_skipped_gracefully(self, tmp_path: Path) -> None:
+        """Reports with completely unparseable created_at are skipped without crashing."""
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Malformed date", created_at="not-a-date")
+        state.enqueue_report(report)
+
+        # Should not raise — unparseable created_at is logged and skipped
         loop._close_stale_reports()
 
         # Report stays in queue (skipped, not closed)
