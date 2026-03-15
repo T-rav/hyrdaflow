@@ -365,6 +365,154 @@ class TestEnrichFromBranch:
 
 
 # ---------------------------------------------------------------------------
+# dashboard_routes._parse_metrics_lines
+# ---------------------------------------------------------------------------
+
+
+class TestParseMetricsLines:
+    """Tests for the extracted _parse_metrics_lines helper."""
+
+    def test_valid_jsonl_lines(self) -> None:
+        from dashboard_routes import _parse_metrics_lines
+
+        line = '{"timestamp":"2025-01-01T00:00:00","data":{}}'
+        result = _parse_metrics_lines([line])
+        assert len(result) == 1
+
+    def test_blank_lines_are_skipped(self) -> None:
+        from dashboard_routes import _parse_metrics_lines
+
+        result = _parse_metrics_lines(["", "  ", "\n"])
+        assert result == []
+
+    def test_corrupt_lines_are_skipped(self, caplog: pytest.LogCaptureFixture) -> None:
+        from dashboard_routes import _parse_metrics_lines
+
+        with caplog.at_level(logging.DEBUG):
+            result = _parse_metrics_lines(["not-valid-json"])
+        assert result == []
+        assert "Skipping corrupt metrics snapshot line" in caplog.text
+
+    def test_mixed_valid_and_corrupt(self) -> None:
+        from dashboard_routes import _parse_metrics_lines
+
+        valid = '{"timestamp":"2025-01-01T00:00:00","data":{}}'
+        result = _parse_metrics_lines([valid, "bad", "", valid])
+        assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# dashboard_routes._validate_repo_request_types
+# ---------------------------------------------------------------------------
+
+
+class TestValidateRepoRequestTypes:
+    """Tests for the extracted _validate_repo_request_types helper."""
+
+    def test_valid_string_path_returns_none(self) -> None:
+        from dashboard_routes import _validate_repo_request_types
+
+        assert _validate_repo_request_types({"path": "/some/path"}) is None
+
+    def test_non_string_path_returns_error(self) -> None:
+        from dashboard_routes import _validate_repo_request_types
+
+        assert _validate_repo_request_types({"path": 123}) == "path must be a string"
+
+    def test_non_string_repo_path_returns_error(self) -> None:
+        from dashboard_routes import _validate_repo_request_types
+
+        assert (
+            _validate_repo_request_types({"repo_path": ["a"]})
+            == "path must be a string"
+        )
+
+    def test_nested_req_non_string_returns_error(self) -> None:
+        from dashboard_routes import _validate_repo_request_types
+
+        assert (
+            _validate_repo_request_types({"req": {"path": 42}})
+            == "path must be a string"
+        )
+
+    def test_no_path_keys_returns_none(self) -> None:
+        from dashboard_routes import _validate_repo_request_types
+
+        assert _validate_repo_request_types({"other": "value"}) is None
+
+    def test_none_values_are_ok(self) -> None:
+        from dashboard_routes import _validate_repo_request_types
+
+        assert _validate_repo_request_types({"path": None, "repo_path": None}) is None
+
+
+# ---------------------------------------------------------------------------
+# dashboard_routes._log_ws_error and _replay_ws_history
+# ---------------------------------------------------------------------------
+
+
+class TestLogWsError:
+    """Tests for the extracted _log_ws_error helper."""
+
+    def test_disconnect_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        from dashboard_routes import _log_ws_error
+
+        with caplog.at_level(logging.WARNING):
+            _log_ws_error(ConnectionResetError("reset"), "history replay")
+        assert "WebSocket disconnect during history replay" in caplog.text
+
+    def test_non_disconnect_logs_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        from dashboard_routes import _log_ws_error
+
+        with caplog.at_level(logging.ERROR):
+            _log_ws_error(ValueError("oops"), "live streaming")
+        assert "WebSocket error during live streaming" in caplog.text
+
+
+class TestReplayWsHistory:
+    """Tests for the extracted _replay_ws_history helper."""
+
+    @pytest.mark.asyncio
+    async def test_successful_replay_returns_true(self) -> None:
+        from dashboard_routes import _replay_ws_history
+        from events import EventType, HydraFlowEvent
+
+        ws = AsyncMock()
+        ws.send_text = AsyncMock()
+        events = [
+            HydraFlowEvent(
+                type=EventType.PHASE_CHANGE, timestamp="2025-01-01T00:00:00", data={}
+            )
+        ]
+        result = await _replay_ws_history(ws, events)
+        assert result is True
+        ws.send_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_empty_history_returns_true(self) -> None:
+        from dashboard_routes import _replay_ws_history
+
+        ws = AsyncMock()
+        result = await _replay_ws_history(ws, [])
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_broken_connection_returns_false(self) -> None:
+        from dashboard_routes import _replay_ws_history
+        from events import EventType, HydraFlowEvent
+
+        ws = AsyncMock()
+        ws.send_text = AsyncMock(side_effect=ConnectionResetError("gone"))
+        events = [
+            HydraFlowEvent(
+                type=EventType.PHASE_CHANGE, timestamp="2025-01-01T00:00:00", data={}
+            )
+        ]
+        result = await _replay_ws_history(ws, events)
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

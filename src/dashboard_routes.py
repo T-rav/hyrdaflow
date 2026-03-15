@@ -565,6 +565,78 @@ def _extract_field_from_sources(
     return candidates[0] if candidates else ""
 
 
+def _validate_repo_request_types(req: dict[str, Any]) -> str | None:
+    """Return an error message if *req* contains non-string path values, else None."""
+    for key in ("path", "repo_path"):
+        value = req.get(key)
+        if value is not None and not isinstance(value, str):
+            return "path must be a string"
+    nested = req.get("req")
+    if isinstance(nested, dict):
+        for key in ("path", "repo_path"):
+            value = nested.get(key)
+            if value is not None and not isinstance(value, str):
+                return "path must be a string"
+    return None
+
+
+async def _try_ensure_repo_labels(
+    slug: str | None,
+    cfg: HydraFlowConfig,
+) -> bool:
+    """Best-effort label creation; returns True if labels were created."""
+    if not slug:
+        return False
+    try:
+        from prep import ensure_labels  # noqa: PLC0415
+
+        await ensure_labels(cfg)
+    except Exception:  # noqa: BLE001
+        logger.warning("Label creation failed for %s", slug, exc_info=True)
+        return False
+    return True
+
+
+def _parse_metrics_lines(lines: list[str]) -> list[MetricsSnapshot]:
+    """Parse JSONL lines into MetricsSnapshot objects, skipping blanks and corrupt entries."""
+    snapshots: list[MetricsSnapshot] = []
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        try:
+            snapshots.append(MetricsSnapshot.model_validate_json(stripped))
+        except ValidationError:
+            logger.debug("Skipping corrupt metrics snapshot line", exc_info=True)
+    return snapshots
+
+
+def _log_ws_error(exc: BaseException, phase: str) -> None:
+    """Log a WebSocket error, distinguishing disconnects from real errors."""
+    if _is_likely_disconnect(exc):
+        logger.warning(
+            "WebSocket disconnect during %s: %s", phase, exc.__class__.__name__
+        )
+    else:
+        logger.error(
+            "WebSocket error during %s: %s",
+            phase,
+            exc.__class__.__name__,
+            exc_info=True,
+        )
+
+
+async def _replay_ws_history(ws: WebSocket, history: list[HydraFlowEvent]) -> bool:
+    """Send historical events to the WebSocket. Returns False if the connection broke."""
+    for event in history:
+        try:
+            await ws.send_text(event.model_dump_json())
+        except Exception as exc:
+            _log_ws_error(exc, "history replay")
+            return False
+    return True
+
+
 def _is_likely_disconnect(exc: BaseException) -> bool:
     """Return True if *exc* looks like a normal WebSocket disconnect rather than a code bug."""
     disconnect_types = (
@@ -711,21 +783,8 @@ def create_router(
         cache_file = get_metrics_cache_dir(target_config) / "snapshots.jsonl"
         if not cache_file.exists():
             return []
-        snapshots: list[MetricsSnapshot] = []
         try:
-            with open(cache_file) as f:
-                for raw_line in f:
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                    except ValidationError:
-                        logger.debug(
-                            "Skipping corrupt metrics snapshot line",
-                            exc_info=True,
-                        )
-                        continue
+            lines = cache_file.read_text().splitlines()
         except OSError:
             logger.warning(
                 "Could not read metrics cache %s",
@@ -733,6 +792,7 @@ def create_router(
                 exc_info=True,
             )
             return []
+        snapshots = _parse_metrics_lines(lines)
         return snapshots[-limit:]
 
     def _build_history_links(
@@ -3256,6 +3316,47 @@ def create_router(
             )
         return await asyncio.to_thread(func, *args, **kwargs)
 
+    async def _register_via_supervisor(  # noqa: PLR0911
+        repo_path: Path,
+        slug: str | None,
+    ) -> JSONResponse | None:
+        """Try to register a repo via the supervisor, with auto-start retry.
+
+        Returns a ``JSONResponse`` on failure or ``None`` on success.
+        """
+        if supervisor_client is None:
+            return JSONResponse(
+                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE}, status_code=503
+            )
+        try:
+            await _call_supervisor(supervisor_client.register_repo, repo_path, slug)
+            return None
+        except Exception as exc:  # noqa: BLE001
+            if not _is_expected_supervisor_unavailable(exc):
+                logger.warning("Supervisor register_repo failed: %s", exc)
+                return JSONResponse(
+                    {"error": "Failed to register repo"}, status_code=500
+                )
+        # Supervisor unavailable — try auto-start if manager is available
+        if supervisor_manager is None:
+            return JSONResponse(
+                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE}, status_code=503
+            )
+        try:
+            await _call_supervisor(supervisor_manager.ensure_running)
+            await _call_supervisor(supervisor_client.register_repo, repo_path, slug)
+            return None
+        except Exception as retry_exc:  # noqa: BLE001
+            if _is_expected_supervisor_unavailable(retry_exc):
+                return JSONResponse(
+                    {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE}, status_code=503
+                )
+            logger.warning(
+                "Supervisor register_repo failed after auto-start: %s",
+                retry_exc,
+            )
+            return JSONResponse({"error": "Failed to register repo"}, status_code=500)
+
     @router.get("/api/repos")
     async def list_supervised_repos() -> JSONResponse:
         """List repos from the store, callback, or supervisor."""
@@ -3470,20 +3571,9 @@ def create_router(
     ) -> JSONResponse:
         """Register a repo by local filesystem path (does NOT start it)."""
         if isinstance(req, dict):
-            for key in ("path", "repo_path"):
-                value = req.get(key)
-                if value is not None and not isinstance(value, str):
-                    return JSONResponse(
-                        {"error": "path must be a string"}, status_code=400
-                    )
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                for key in ("path", "repo_path"):
-                    value = nested.get(key)
-                    if value is not None and not isinstance(value, str):
-                        return JSONResponse(
-                            {"error": "path must be a string"}, status_code=400
-                        )
+            type_err = _validate_repo_request_types(req)
+            if type_err:
+                return JSONResponse({"error": type_err}, status_code=400)
         raw_path = _extract_repo_path(req, req_query, path, repo_path_query)
         if not raw_path:
             return JSONResponse({"error": "path required"}, status_code=400)
@@ -3527,15 +3617,7 @@ def create_router(
                 return JSONResponse(
                     {"error": "Failed to register repo"}, status_code=500
                 )
-            labels_created = False
-            if slug:
-                try:
-                    from prep import ensure_labels  # noqa: PLC0415
-
-                    await ensure_labels(repo_cfg)
-                    labels_created = True
-                except Exception:  # noqa: BLE001
-                    logger.warning("Label creation failed for %s", slug, exc_info=True)
+            labels_created = await _try_ensure_repo_labels(slug, repo_cfg)
             return JSONResponse(
                 {
                     "status": "ok",
@@ -3546,68 +3628,14 @@ def create_router(
             )
 
         # Register with supervisor fallback
-        if supervisor_client is None:
-            return JSONResponse(
-                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
-                status_code=503,
-            )
-        try:
-            await _call_supervisor(
-                supervisor_client.register_repo,
-                repo_path,
-                slug,
-            )
-        except Exception as exc:  # noqa: BLE001
-            if _is_expected_supervisor_unavailable(exc):
-                if supervisor_manager is not None:
-                    try:
-                        await _call_supervisor(supervisor_manager.ensure_running)
-                        await _call_supervisor(
-                            supervisor_client.register_repo,
-                            repo_path,
-                            slug,
-                        )
-                    except Exception as retry_exc:  # noqa: BLE001
-                        if _is_expected_supervisor_unavailable(retry_exc):
-                            return JSONResponse(
-                                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
-                                status_code=503,
-                            )
-                        logger.warning(
-                            "Supervisor register_repo failed after auto-start: %s",
-                            retry_exc,
-                        )
-                        return JSONResponse(
-                            {"error": "Failed to register repo"},
-                            status_code=500,
-                        )
-                else:
-                    return JSONResponse(
-                        {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
-                        status_code=503,
-                    )
-            else:
-                logger.warning("Supervisor register_repo failed: %s", exc)
-                return JSONResponse(
-                    {"error": "Failed to register repo"},
-                    status_code=500,
-                )
+        reg_error = await _register_via_supervisor(repo_path, slug)
+        if reg_error is not None:
+            return reg_error
         # Create labels (best-effort, only after successful registration)
-        labels_created = False
-        if slug:
-            try:
-                from prep import ensure_labels  # noqa: PLC0415
-
-                target_cfg = config.model_copy(
-                    update={
-                        "repo_root": repo_path,
-                        "repo": slug,
-                    },
-                )
-                await ensure_labels(target_cfg)
-                labels_created = True
-            except Exception:  # noqa: BLE001
-                logger.warning("Label creation failed for %s", slug, exc_info=True)
+        target_cfg = config.model_copy(
+            update={"repo_root": repo_path, "repo": slug},
+        )
+        labels_created = await _try_ensure_repo_labels(slug, target_cfg)
         return JSONResponse(
             {
                 "status": "ok",
@@ -4014,23 +4042,8 @@ def create_router(
         history = bus.get_history()
 
         async with bus.subscription() as queue:
-            # Send history on connect
-            for event in history:
-                try:
-                    await ws.send_text(event.model_dump_json())
-                except Exception as exc:
-                    if _is_likely_disconnect(exc):
-                        logger.warning(
-                            "WebSocket disconnect during history replay: %s",
-                            exc.__class__.__name__,
-                        )
-                    else:
-                        logger.error(
-                            "WebSocket error during history replay: %s",
-                            exc.__class__.__name__,
-                            exc_info=True,
-                        )
-                    return
+            if not await _replay_ws_history(ws, history):
+                return
 
             # Stream live events
             try:
@@ -4040,17 +4053,7 @@ def create_router(
             except WebSocketDisconnect:
                 pass
             except Exception as exc:
-                if _is_likely_disconnect(exc):
-                    logger.warning(
-                        "WebSocket disconnect during live streaming: %s",
-                        exc.__class__.__name__,
-                    )
-                else:
-                    logger.error(
-                        "WebSocket error during live streaming: %s",
-                        exc.__class__.__name__,
-                        exc_info=True,
-                    )
+                _log_ws_error(exc, "live streaming")
 
     # SPA catch-all: serve index.html for any path not matched above.
     # This must be registered LAST so it doesn't shadow API/WS routes.

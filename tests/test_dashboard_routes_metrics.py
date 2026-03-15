@@ -418,7 +418,11 @@ class TestLoadLocalMetricsCacheExceptionHandling:
         assert history_endpoint is not None
 
         with (
-            patch("builtins.open", side_effect=OSError("permission denied")),
+            patch.object(
+                type(cache_file),
+                "read_text",
+                side_effect=OSError("permission denied"),
+            ),
             caplog.at_level(logging.WARNING, logger="hydraflow.dashboard"),
         ):
             response = asyncio.run(history_endpoint())
