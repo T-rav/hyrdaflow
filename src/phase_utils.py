@@ -316,7 +316,7 @@ def load_existing_adr_topics(repo_root: Path) -> set[str]:
     return topics
 
 
-_ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
+ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +539,7 @@ def next_adr_number(
     for d in (adr_dir, primary_adr_dir):
         if d is not None and d.is_dir():
             for f in d.iterdir():
-                m = _ADR_FILE_RE.match(f.name)
+                m = ADR_FILE_RE.match(f.name)
                 if m:
                     highest = max(highest, int(m.group(1)))
 

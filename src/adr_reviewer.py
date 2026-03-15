@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from adr_pre_validator import ADRPreValidator, ADRValidationResult
 from agent_cli import build_lightweight_command
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
-from phase_utils import _ADR_FILE_RE, is_likely_bug
+from phase_utils import ADR_FILE_RE, is_likely_bug
 from subprocess_util import make_clean_env, run_subprocess
 
 if TYPE_CHECKING:
@@ -113,7 +113,7 @@ class ADRCouncilReviewer:
         """Find ADR files with Status: Proposed."""
         results: list[tuple[int, Path, str]] = []
         for path in sorted(adr_dir.glob("*.md")):
-            match = _ADR_FILE_RE.match(path.name)
+            match = ADR_FILE_RE.match(path.name)
             if not match:
                 continue
             adr_number = int(match.group(1))
@@ -131,7 +131,7 @@ class ADRCouncilReviewer:
         """Load all ADR files as (number, title, content)."""
         results: list[tuple[int, str, str]] = []
         for path in sorted(adr_dir.glob("*.md")):
-            match = _ADR_FILE_RE.match(path.name)
+            match = ADR_FILE_RE.match(path.name)
             if not match:
                 continue
             adr_number = int(match.group(1))
