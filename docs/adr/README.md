@@ -42,7 +42,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0023](0023-multi-repo-architecture-wiring-pattern.md) | Multi-Repo Architecture Wiring Pattern | Proposed |
 | [0023](0023-implementation-retry-recovery-architecture.md) | Implementation Retry Recovery Architecture | Proposed |
 | [0023](0023-supersession-regex-all-verb-forms.md) | Supersession Regex Must Include All Verb Forms | Proposed |
-| [0023](0023-duplicate-class-merge-artifact-pattern.md) | Duplicate Class Definitions — Merge-Artifact Pattern | Proposed |
+| [0024](0024-duplicate-class-merge-artifact-pattern.md) | Duplicate Class Definitions — Merge-Artifact Pattern | Proposed |
 
 ## Adding a new ADR
 

@@ -44,12 +44,15 @@ class ADRPreValidator:
         self,
         content: str,
         all_adrs: list[tuple[int, str, str]] | None = None,
+        *,
+        adr_number: int | None = None,
     ) -> ADRValidationResult:
         """Run all validation checks on an ADR.
 
         Args:
             content: The full markdown content of the ADR.
             all_adrs: Optional list of (number, title, content) for cross-reference checks.
+            adr_number: The ADR's number, used for collision detection.
 
         Returns:
             ADRValidationResult with any issues found.
@@ -59,6 +62,8 @@ class ADRPreValidator:
         self._check_required_sections(content, result)
         self._check_empty_sections(content, result)
         self._check_supersession(content, all_adrs or [], result)
+        if adr_number is not None:
+            self._check_number_collision(adr_number, all_adrs or [], result)
         return result
 
     def _check_status_field(self, content: str, result: ADRValidationResult) -> None:
@@ -108,6 +113,27 @@ class ADRPreValidator:
                             fixable=False,
                         )
                     )
+
+    def _check_number_collision(
+        self,
+        adr_number: int,
+        all_adrs: list[tuple[int, str, str]],
+        result: ADRValidationResult,
+    ) -> None:
+        """Check that no other ADR shares the same number."""
+        collisions = [title for num, title, _ in all_adrs if num == adr_number]
+        if len(collisions) > 1:
+            result.issues.append(
+                ADRValidationIssue(
+                    code="number_collision",
+                    message=(
+                        f"ADR number {adr_number:04d} is shared by "
+                        f"{len(collisions)} files — each ADR must have a "
+                        f"unique number"
+                    ),
+                    fixable=False,
+                )
+            )
 
     def _check_supersession(
         self,

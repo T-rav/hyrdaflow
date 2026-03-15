@@ -210,6 +210,62 @@ class TestCheckSupersession:
         assert "invalid_supersession" in codes
 
 
+class TestCheckNumberCollision:
+    def test_no_collision_passes(self) -> None:
+        validator = ADRPreValidator()
+        all_adrs = [
+            (1, "ADR One", "content1"),
+            (2, "ADR Two", "content2"),
+        ]
+        result = validator.validate(_valid_adr(), all_adrs, adr_number=1)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" not in codes
+
+    def test_collision_detected(self) -> None:
+        validator = ADRPreValidator()
+        all_adrs = [
+            (23, "ADR Alpha", "content1"),
+            (23, "ADR Beta", "content2"),
+            (23, "ADR Gamma", "content3"),
+        ]
+        result = validator.validate(_valid_adr(), all_adrs, adr_number=23)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" in codes
+        collision_issue = next(i for i in result.issues if i.code == "number_collision")
+        assert "0023" in collision_issue.message
+        assert "3 files" in collision_issue.message
+
+    def test_collision_not_fixable(self) -> None:
+        validator = ADRPreValidator()
+        all_adrs = [
+            (5, "ADR A", "c1"),
+            (5, "ADR B", "c2"),
+        ]
+        result = validator.validate(_valid_adr(), all_adrs, adr_number=5)
+        collision_issue = next(i for i in result.issues if i.code == "number_collision")
+        assert collision_issue.fixable is False
+
+    def test_no_collision_check_without_adr_number(self) -> None:
+        """When adr_number is not provided, collision check is skipped."""
+        validator = ADRPreValidator()
+        all_adrs = [
+            (1, "ADR A", "c1"),
+            (1, "ADR B", "c2"),
+        ]
+        result = validator.validate(_valid_adr(), all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" not in codes
+
+    def test_single_adr_at_number_no_collision(self) -> None:
+        validator = ADRPreValidator()
+        all_adrs = [
+            (1, "Only ADR", "content"),
+        ]
+        result = validator.validate(_valid_adr(), all_adrs, adr_number=1)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" not in codes
+
+
 class TestMultipleIssues:
     def test_multiple_issues_collected(self) -> None:
         """An ADR with multiple problems should report all issues."""

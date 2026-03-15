@@ -1,4 +1,4 @@
-# ADR-0023: Duplicate Class Definitions — Merge-Artifact Pattern
+# ADR-0024: Duplicate Class Definitions — Merge-Artifact Pattern
 
 **Status:** Proposed
 **Date:** 2026-03-08
@@ -67,6 +67,27 @@ models (Pydantic, dataclass, TypedDict). It does not apply to:
 - Identically-named classes in unrelated namespaces where the duplication is
   intentional and documented.
 
+### 5. Automation trigger
+
+The manual grep-based review check (section 2) becomes mandatory to replace with an
+automated lint rule when any of the following conditions are met:
+
+- A third duplicate-class incident is detected after this ADR is accepted.
+- The `src/` tree grows beyond 100 modules, making manual grep impractical.
+- A custom Ruff or Pyright plugin for cross-module duplicate-class detection becomes
+  available upstream.
+
+When triggered, the automated rule must be added to the pre-commit hook and CI
+pipeline so that duplicate class names are caught before merge without relying on
+reviewer discipline.
+
+### 6. One-time codebase audit
+
+Within two weeks of this ADR being accepted, a one-time audit of all `src/**/*.py`
+files must be performed to identify and resolve any existing duplicate class
+definitions. This audit will be tracked via a dedicated GitHub issue linked in the
+Related section below.
+
 ### Operational impact on HydraFlow workers
 
 - **Review agent** (`reviewer.py`): Should be configured to flag duplicate class names
@@ -88,23 +109,27 @@ models (Pydantic, dataclass, TypedDict). It does not apply to:
   contributors navigating the codebase.
 - The review-time grep check is lightweight and requires no new tooling — it can be
   performed with standard CLI tools or IDE search.
+- The automation trigger (section 5) provides a concrete escalation path so the manual
+  check does not persist indefinitely.
 
 **Negative / Trade-offs**
 
 - Adds a manual review step that relies on reviewer discipline. Until an automated
   lint rule is implemented, duplicates can still slip through if reviewers skip the
-  check.
+  check. The automation trigger mitigates this by setting clear criteria for when
+  automation becomes mandatory.
 - Strictly enforcing single-definition may occasionally force a type into `models.py`
   earlier than desired (when a second consumer appears), creating a small refactoring
   cost.
-- Resolving existing duplicates requires an audit of the current codebase, which is
-  a one-time effort.
+- Resolving existing duplicates requires a one-time audit of the current codebase
+  (section 6), tracked via a dedicated issue.
 
 ## Alternatives considered
 
 1. **Automated lint rule (e.g., custom Ruff or Pyright plugin)** — desirable but
    deferred. Writing a reliable cross-module duplicate-class detector is non-trivial;
    the manual review check is practical today and can be replaced by automation later.
+   The automation trigger (section 5) ensures this deferral has a concrete deadline.
 2. **Namespace-scoped uniqueness only (allow duplicates across packages)** — rejected
    because HydraFlow's `src/` tree is a single flat package; cross-module imports are
    common and namespace boundaries do not provide meaningful isolation.
@@ -117,3 +142,4 @@ models (Pydantic, dataclass, TypedDict). It does not apply to:
 - Source memory: [#2380 — Duplicate class definitions across modules — merge-artifact pattern](https://github.com/T-rav/hydra/issues/2380)
 - Implementing issue: [#2382](https://github.com/T-rav/hydra/issues/2382)
 - Related learning: [#2381 — Duplicate class definitions](https://github.com/T-rav/hydra/issues/2381)
+- One-time audit tracking: [#2382](https://github.com/T-rav/hydra/issues/2382)
