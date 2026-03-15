@@ -1,6 +1,6 @@
 # ADR-0010: Worktree and Path Isolation Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-28
 
 ## Context
