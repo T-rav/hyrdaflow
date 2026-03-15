@@ -98,9 +98,7 @@ class TestCapBody:
 # ---------------------------------------------------------------------------
 
 
-def _make_manager(config, event_bus):
-    return PRManager(config=config, event_bus=event_bus)
-
+from tests.helpers import make_pr_manager as _make_manager
 
 # ---------------------------------------------------------------------------
 # post_comment

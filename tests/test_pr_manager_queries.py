@@ -16,14 +16,7 @@ import pytest
 from pr_manager import PRManager
 from tests.conftest import SubprocessMockBuilder
 from tests.helpers import ConfigFactory
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_manager(config, event_bus):
-    return PRManager(config=config, event_bus=event_bus)
+from tests.helpers import make_pr_manager as _make_manager
 
 
 def _assert_search_api_cmd(cmd: tuple[str, ...]) -> None:

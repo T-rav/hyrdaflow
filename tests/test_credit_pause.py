@@ -79,17 +79,9 @@ async def _poll_then_stop(
     await orch.stop()
 
 
-def _mock_fetcher_noop(orch: HydraFlowOrchestrator) -> None:
-    """Mock store and fetcher methods so no real gh CLI calls are made."""
-    orch._svc.store.get_triageable = lambda _max_count: []  # type: ignore[method-assign]
-    orch._svc.store.get_plannable = lambda _max_count: []  # type: ignore[method-assign]
-    orch._svc.store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
-    orch._svc.store.start = AsyncMock()  # type: ignore[method-assign]
-    orch._svc.store.get_active_issues = lambda: {}  # type: ignore[method-assign]
-    orch._svc.fetcher.fetch_issue_by_number = AsyncMock(return_value=None)  # type: ignore[method-assign]
-    orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-    orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
-    orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
+from tests.helpers import mock_fetcher_noop
+
+_mock_fetcher_noop = mock_fetcher_noop
 
 
 # ===========================================================================
