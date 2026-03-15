@@ -626,6 +626,32 @@ class PRManager:
         """Remove *label* from a GitHub issue."""
         await self._remove_label("issue", issue_number, label)
 
+    async def get_issue_state(self, issue_number: int) -> str:
+        """Return the state of a GitHub issue (``'open'`` or ``'closed'``, empty on error)."""
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "issue",
+                "view",
+                str(issue_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "state",
+            )
+            import json as _json
+
+            data = _json.loads(output)
+            return str(data.get("state", "")).upper()
+        except Exception:
+            logger.warning(
+                "Could not fetch state of issue #%d",
+                issue_number,
+                exc_info=True,
+            )
+            return ""
+
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
         self._assert_repo()
