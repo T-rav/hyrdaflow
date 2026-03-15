@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 
 from config import HydraFlowConfig
 from events import EventBus
@@ -34,12 +34,6 @@ from dashboard_routes._helpers import (  # noqa: F401
 )
 from repo_runtime import RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
-
-# Type alias used across route modules.
-RepoSlugParam = Annotated[
-    str | None,
-    Query(description="Repo slug to scope the request"),
-]
 
 
 def create_router(
