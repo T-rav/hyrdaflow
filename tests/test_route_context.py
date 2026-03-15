@@ -546,6 +546,127 @@ class TestRouteContextExecuteAdminTask:
         assert response.status_code == 500
 
 
+class TestRouteContextComputeHitlSummary:
+    """P2 — compute_hitl_summary generates and persists a HITL summary."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_summarization_disabled(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        config.transcript_summarization_enabled = False
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+
+        result = await ctx.compute_hitl_summary(1, cause="x", origin=None)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_issue_fetch_fails(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        config.transcript_summarization_enabled = True
+        config.dry_run = False
+        config.gh_token = "tok"
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        ctx.issue_fetcher = MagicMock()
+        ctx.issue_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
+
+        result = await ctx.compute_hitl_summary(1, cause="x", origin=None)
+
+        assert result is None
+        failed_at, _ = state.get_hitl_summary_failure(1)
+        assert failed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_returns_summary_on_success(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        config.transcript_summarization_enabled = True
+        config.dry_run = False
+        config.gh_token = "tok"
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        issue = MagicMock()
+        issue.number = 42
+        issue.title = "Test issue"
+        issue.body = "body text"
+        issue.comments = []
+        ctx.issue_fetcher = MagicMock()
+        ctx.issue_fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        ctx.hitl_summarizer = MagicMock()
+        ctx.hitl_summarizer.summarize_hitl_context = AsyncMock(
+            return_value="line one\nline two"
+        )
+
+        result = await ctx.compute_hitl_summary(42, cause="ci failure", origin="review")
+
+        assert result == "line one\nline two"
+        assert state.get_hitl_summary(42) == "line one\nline two"
+
+
+class TestRouteContextWarmHitlSummary:
+    """P2 — warm_hitl_summary guards against duplicate inflight requests."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_inflight(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        ctx.hitl_summary_inflight.add(7)
+        ctx.compute_hitl_summary = AsyncMock()
+
+        await ctx.warm_hitl_summary(7, cause="x", origin=None)
+
+        ctx.compute_hitl_summary.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_removes_from_inflight_after_completion(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        ctx.compute_hitl_summary = AsyncMock(return_value="summary text")
+
+        await ctx.warm_hitl_summary(8, cause="x", origin=None)
+
+        assert 8 not in ctx.hitl_summary_inflight
+
+    @pytest.mark.asyncio
+    async def test_removes_from_inflight_on_exception(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        state: StateTracker,
+        tmp_path: Path,
+    ) -> None:
+        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        ctx.compute_hitl_summary = AsyncMock(side_effect=RuntimeError("boom"))
+
+        await ctx.warm_hitl_summary(9, cause="x", origin=None)
+
+        assert 9 not in ctx.hitl_summary_inflight
+        failed_at, _ = state.get_hitl_summary_failure(9)
+        assert failed_at is not None
+
+
 class TestCreateRouterUsesRouteContext:
     """P3 — create_router constructs a RouteContext internally."""
 

@@ -737,6 +737,83 @@ class RouteContext:
         age = (datetime.now(UTC) - failed_dt).total_seconds()
         return age >= self.hitl_summary_cooldown_seconds
 
+    async def compute_hitl_summary(
+        self, issue_number: int, *, cause: str, origin: str | None
+    ) -> str | None:
+        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
+        if (
+            not self.config.transcript_summarization_enabled
+            or self.config.dry_run
+            or not self.config.gh_token
+        ):
+            return None
+        issue = await self.issue_fetcher.fetch_issue_by_number(issue_number)
+        if issue is None:
+            self.state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
+            return None
+        context = _build_hitl_context(issue, cause=cause, origin=origin)
+        generated = await self.hitl_summarizer.summarize_hitl_context(context)
+        if not generated:
+            self.state.set_hitl_summary_failure(
+                issue_number, "Summary model returned empty"
+            )
+            return None
+        summary = _normalise_summary_lines(generated)
+        if not summary:
+            self.state.set_hitl_summary_failure(
+                issue_number, "Summary normalization produced empty output"
+            )
+            return None
+        self.state.set_hitl_summary(issue_number, summary)
+        self.state.clear_hitl_summary_failure(issue_number)
+        return summary
+
+    async def warm_hitl_summary(
+        self, issue_number: int, *, cause: str, origin: str | None
+    ) -> None:
+        """Schedule background HITL summary generation, guarded by inflight tracking."""
+        if issue_number in self.hitl_summary_inflight:
+            return
+        self.hitl_summary_inflight.add(issue_number)
+        try:
+            async with self.hitl_summary_slots:
+                await self.compute_hitl_summary(
+                    issue_number, cause=cause, origin=origin
+                )
+        except Exception as exc:
+            self.state.set_hitl_summary_failure(
+                issue_number,
+                f"{type(exc).__name__}: {exc}",
+            )
+            logger.exception(
+                "Failed to warm HITL summary for issue #%d",
+                issue_number,
+            )
+        finally:
+            self.hitl_summary_inflight.discard(issue_number)
+
+
+def _build_hitl_context(issue: GitHubIssue, *, cause: str, origin: str | None) -> str:
+    """Build a text context block for HITL summary generation."""
+    body = (issue.body or "").strip()
+    comments = issue.comments
+    recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
+    comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
+    origin_text = origin or "unknown"
+    return (
+        f"Issue #{issue.number}: {issue.title}\n"
+        f"Escalation cause: {cause or 'not recorded'}\n"
+        f"Escalation origin: {origin_text}\n\n"
+        f"Issue body:\n{body[:6000]}\n\n"
+        f"Recent comments:\n{comments_block[:3000]}"
+    )
+
+
+def _normalise_summary_lines(raw: str) -> str:
+    """Strip bullet prefixes and cap a summary to 8 lines."""
+    lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
+    return "\n".join(lines[:8]).strip()
+
 
 def create_router(
     config: HydraFlowConfig,
@@ -1305,84 +1382,18 @@ def create_router(
             if isinstance(result, Exception):
                 logger.warning("Issue enrichment fetch failed: %s", result)
 
-    def _build_hitl_context(
-        issue: GitHubIssue, *, cause: str, origin: str | None
-    ) -> str:
-        """Build a text context block for HITL summary generation."""
-        body = (issue.body or "").strip()
-        comments = issue.comments
-        recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
-        comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
-        origin_text = origin or "unknown"
-        return (
-            f"Issue #{issue.number}: {issue.title}\n"
-            f"Escalation cause: {cause or 'not recorded'}\n"
-            f"Escalation origin: {origin_text}\n\n"
-            f"Issue body:\n{body[:6000]}\n\n"
-            f"Recent comments:\n{comments_block[:3000]}"
-        )
-
-    def _normalise_summary_lines(raw: str) -> str:
-        """Strip bullet prefixes and cap a summary to 8 lines."""
-        lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
-        return "\n".join(lines[:8]).strip()
-
     def _hitl_summary_retry_due(issue_number: int) -> bool:
-        """Return True if enough time has passed to retry a failed HITL summary."""
         return ctx.hitl_summary_retry_due(issue_number)
 
     async def _compute_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> str | None:
-        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
-        if (
-            not ctx.config.transcript_summarization_enabled
-            or ctx.config.dry_run
-            or not ctx.config.gh_token
-        ):
-            return None
-        issue = await ctx.issue_fetcher.fetch_issue_by_number(issue_number)
-        if issue is None:
-            ctx.state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
-            return None
-        context = _build_hitl_context(issue, cause=cause, origin=origin)
-        generated = await ctx.hitl_summarizer.summarize_hitl_context(context)
-        if not generated:
-            ctx.state.set_hitl_summary_failure(
-                issue_number, "Summary model returned empty"
-            )
-            return None
-        summary = _normalise_summary_lines(generated)
-        if not summary:
-            ctx.state.set_hitl_summary_failure(
-                issue_number, "Summary normalization produced empty output"
-            )
-            return None
-        ctx.state.set_hitl_summary(issue_number, summary)
-        ctx.state.clear_hitl_summary_failure(issue_number)
-        return summary
+        return await ctx.compute_hitl_summary(issue_number, cause=cause, origin=origin)
 
     async def _warm_hitl_summary(
         issue_number: int, *, cause: str, origin: str | None
     ) -> None:
-        """Schedule background HITL summary generation, guarded by inflight tracking."""
-        if issue_number in ctx.hitl_summary_inflight:
-            return
-        ctx.hitl_summary_inflight.add(issue_number)
-        try:
-            async with ctx.hitl_summary_slots:
-                await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
-        except Exception as exc:
-            ctx.state.set_hitl_summary_failure(
-                issue_number,
-                f"{type(exc).__name__}: {exc}",
-            )
-            logger.exception(
-                "Failed to warm HITL summary for issue #%d",
-                issue_number,
-            )
-        finally:
-            ctx.hitl_summary_inflight.discard(issue_number)
+        await ctx.warm_hitl_summary(issue_number, cause=cause, origin=origin)
 
     @router.get("/healthz")
     def get_health() -> JSONResponse:
