@@ -55,6 +55,22 @@ class StateTracker(
     directly on this class.
     """
 
+    @staticmethod
+    def _key(issue_id: int | str) -> str:
+        """Convert an issue/PR/epic number to a string key for dict storage."""
+        return str(issue_id)
+
+    @staticmethod
+    def _int_keys(d: dict[str, Any]) -> dict[int, Any]:
+        """Convert a string-keyed dict to int-keyed, skipping invalid keys."""
+        result: dict[int, Any] = {}
+        for k, v in d.items():
+            try:
+                result[int(k)] = v
+            except (ValueError, TypeError):
+                logger.warning("Skipping non-integer key: %r", k)
+        return result
+
     def __init__(self, state_file: Path) -> None:
         self._path = state_file
         self._data: StateData = StateData()

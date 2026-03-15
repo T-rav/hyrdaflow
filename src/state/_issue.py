@@ -23,29 +23,32 @@ class IssueStateMixin:
 
     def save(self) -> None: ...  # provided by CoreMixin
 
+    @staticmethod
+    def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
+
     # --- issue tracking ---
 
     def mark_issue(self, issue_number: int, status: str) -> None:
         """Record the processing status for *issue_number*."""
-        self._data.processed_issues[str(issue_number)] = status
+        self._data.processed_issues[self._key(issue_number)] = status
         self.save()
 
     # --- PR tracking ---
 
     def mark_pr(self, pr_number: int, status: str) -> None:
         """Record the review *status* for *pr_number*."""
-        self._data.reviewed_prs[str(pr_number)] = status
+        self._data.reviewed_prs[self._key(pr_number)] = status
         self.save()
 
     # --- issue attempt tracking ---
 
     def get_issue_attempts(self, issue_number: int) -> int:
         """Return the current implementation attempt count for *issue_number* (default 0)."""
-        return self._data.issue_attempts.get(str(issue_number), 0)
+        return self._data.issue_attempts.get(self._key(issue_number), 0)
 
     def increment_issue_attempts(self, issue_number: int) -> int:
         """Increment and return the new implementation attempt count for *issue_number*."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         current = self._data.issue_attempts.get(key, 0)
         self._data.issue_attempts[key] = current + 1
         self.save()
@@ -53,7 +56,7 @@ class IssueStateMixin:
 
     def reset_issue_attempts(self, issue_number: int) -> None:
         """Clear the implementation attempt counter for *issue_number*."""
-        self._data.issue_attempts.pop(str(issue_number), None)
+        self._data.issue_attempts.pop(self._key(issue_number), None)
         self.save()
 
     # --- active issue numbers ---
@@ -71,7 +74,7 @@ class IssueStateMixin:
 
     def set_interrupted_issues(self, mapping: dict[int, str]) -> None:
         """Persist interrupted issue → phase mapping (int keys stored as strings)."""
-        self._data.interrupted_issues = {str(k): v for k, v in mapping.items()}
+        self._data.interrupted_issues = {self._key(k): v for k, v in mapping.items()}
         self.save()
 
     def get_interrupted_issues(self) -> dict[int, str]:
@@ -87,12 +90,12 @@ class IssueStateMixin:
 
     def set_worker_result_meta(self, issue_number: int, meta: WorkerResultMeta) -> None:
         """Persist worker result metadata for *issue_number*."""
-        self._data.worker_result_meta[str(issue_number)] = meta
+        self._data.worker_result_meta[self._key(issue_number)] = meta
         self.save()
 
     def get_worker_result_meta(self, issue_number: int) -> WorkerResultMeta:
         """Return worker result metadata for *issue_number*, or empty dict."""
-        return self._data.worker_result_meta.get(str(issue_number), {})
+        return self._data.worker_result_meta.get(self._key(issue_number), {})
 
     # --- verification issue tracking ---
 
@@ -100,16 +103,16 @@ class IssueStateMixin:
         self, original_issue: int, verification_issue: int
     ) -> None:
         """Record the verification issue number for *original_issue*."""
-        self._data.verification_issues[str(original_issue)] = verification_issue
+        self._data.verification_issues[self._key(original_issue)] = verification_issue
         self.save()
 
     def get_verification_issue(self, original_issue: int) -> int | None:
         """Return the verification issue number for *original_issue*, or *None*."""
-        return self._data.verification_issues.get(str(original_issue))
+        return self._data.verification_issues.get(self._key(original_issue))
 
     def clear_verification_issue(self, original_issue: int) -> None:
         """Remove the verification issue mapping for *original_issue*."""
-        self._data.verification_issues.pop(str(original_issue), None)
+        self._data.verification_issues.pop(self._key(original_issue), None)
         self.save()
 
     def get_all_verification_issues(self) -> dict[int, int]:
@@ -145,7 +148,7 @@ class IssueStateMixin:
             IssueOutcomeType.VERIFY_RESOLVED: "total_outcomes_verify_resolved",
         }
 
-        key = str(issue_number)
+        key = self._key(issue_number)
         previous = self._data.issue_outcomes.get(key)
         if previous is not None:
             old_attr = counter_map.get(previous.outcome)
@@ -172,7 +175,7 @@ class IssueStateMixin:
 
     def get_outcome(self, issue_number: int) -> IssueOutcome | None:
         """Return the recorded outcome for *issue_number*, or ``None``."""
-        return self._data.issue_outcomes.get(str(issue_number))
+        return self._data.issue_outcomes.get(self._key(issue_number))
 
     def get_all_outcomes(self) -> dict[str, IssueOutcome]:
         """Return all recorded issue outcomes (deep copy)."""
@@ -188,7 +191,7 @@ class IssueStateMixin:
         self, issue_number: int, hook_name: str, error: str
     ) -> None:
         """Append a :class:`HookFailureRecord` for *issue_number*."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         if key not in self._data.hook_failures:
             self._data.hook_failures[key] = []
         self._data.hook_failures[key].append(
@@ -209,7 +212,7 @@ class IssueStateMixin:
         """Return hook failure records for *issue_number* (deep copy)."""
         return [
             f.model_copy(deep=True)
-            for f in self._data.hook_failures.get(str(issue_number), [])
+            for f in self._data.hook_failures.get(self._key(issue_number), [])
         ]
 
     # --- active crate ---
@@ -227,9 +230,9 @@ class IssueStateMixin:
 
     def set_bead_mapping(self, issue_id: int, mapping: dict[str, str]) -> None:
         """Persist the phase→bead ID mapping for *issue_id*."""
-        self._data.bead_mappings[str(issue_id)] = mapping
+        self._data.bead_mappings[self._key(issue_id)] = mapping
         self.save()
 
     def get_bead_mapping(self, issue_id: int) -> dict[str, str]:
         """Return the phase→bead ID mapping for *issue_id*, or empty dict."""
-        return self._data.bead_mappings.get(str(issue_id), {})
+        return self._data.bead_mappings.get(self._key(issue_id), {})
