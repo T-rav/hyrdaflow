@@ -1,6 +1,6 @@
 # ADR-0023: Require Instantiation Verification for Test-Local Classes
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context
@@ -109,3 +109,12 @@ During code review of test files, reviewers must verify:
 
 - Source memory: [#2362 — Dead class artifacts in tests using mock-based failure injection](https://github.com/T-rav/hydra/issues/2362)
 - Implementing issue: [#2373](https://github.com/T-rav/hydra/issues/2373)
+## Council Amendment Notes
+
+The following amendments were generated from council feedback:
+
+- Architect: The ADR captures a genuine architectural scoping decision — a
+- Pragmatist: The scope is defensible given this project's established ADR
+- Editor: The document is well-written and complete, and ADR-0022 establishes
+
+These notes are intended to be incorporated before final acceptance.
