@@ -519,6 +519,23 @@ class TestBgWorkerIntervalEndpoint:
         assert response.status_code == 422
         assert "between 28800 and 432000" in data["error"]
 
+    def test_interval_bounds_importable_from_module(self) -> None:
+        """_INTERVAL_BOUNDS should be a module-level constant, not closure-scoped."""
+        from dashboard_routes import _INTERVAL_BOUNDS
+
+        assert isinstance(_INTERVAL_BOUNDS, dict)
+        assert "memory_sync" in _INTERVAL_BOUNDS
+        assert "metrics" in _INTERVAL_BOUNDS
+        assert "pr_unsticker" in _INTERVAL_BOUNDS
+        assert "pipeline_poller" in _INTERVAL_BOUNDS
+        assert "adr_reviewer" in _INTERVAL_BOUNDS
+        assert "verify_monitor" in _INTERVAL_BOUNDS
+        # Each entry should be a (min, max) tuple
+        for name, bounds in _INTERVAL_BOUNDS.items():
+            assert isinstance(bounds, tuple), f"{name} bounds should be a tuple"
+            assert len(bounds) == 2, f"{name} bounds should have 2 elements"
+            assert bounds[0] < bounds[1], f"{name} min should be less than max"
+
 
 # ---------------------------------------------------------------------------
 # /api/pipeline endpoint
