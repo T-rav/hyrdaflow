@@ -431,21 +431,27 @@ class TestSummarizeAndComment:
 
 
 class TestSummarizeAndPublish:
-    """Tests for issue-based transcript summaries."""
+    """Tests for issue-based transcript summaries (always-on after flag removal)."""
 
     @pytest.mark.asyncio
-    async def test_noop_when_transcript_too_short(self, tmp_path: Path) -> None:
-        """Short transcripts (< _MIN_TRANSCRIPT_LENGTH) are skipped."""
+    async def test_noop_returns_none(self, tmp_path: Path) -> None:
+        """summarize_and_publish is a permanent no-op and always returns None."""
         config = ConfigFactory.create(repo_root=tmp_path)
         prs = MagicMock()
-        prs.create_issue = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=999)
         bus = MagicMock()
+        bus.publish = AsyncMock()
         state = MagicMock()
+        runner = _make_mock_runner(stdout="### Key Decisions\n- Used factory pattern")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
         result = await summarizer.summarize_and_publish(
-            transcript="short", issue_number=42, phase="implement"
+            transcript="x" * 1000, issue_number=42, phase="implement"
         )
 
         assert result is None
         prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_summary_empty(self, tmp_path: Path) -> None:
+        """Returns None when _generate_summary produces no content."""

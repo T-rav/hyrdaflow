@@ -33,9 +33,20 @@ class IssueStateMixin:
 
     # --- issue tracking ---
 
+    _TERMINAL_STATUSES = frozenset({"merged", "failed", "completed", "hitl_closed"})
+
     def mark_issue(self, issue_number: int, status: str) -> None:
-        """Record the processing status for *issue_number*."""
+        """Record the processing status for *issue_number*.
+
+        When *status* is terminal (merged, failed, completed, hitl_closed),
+        the corresponding ``active_branches`` and ``active_worktrees``
+        entries are removed to prevent stale state accumulation.
+        """
         self._data.processed_issues[self._key(issue_number)] = status
+        if status in self._TERMINAL_STATUSES:
+            key = self._key(issue_number)
+            self._data.active_branches.pop(key, None)
+            self._data.active_worktrees.pop(key, None)
         self.save()
 
     # --- PR tracking ---
