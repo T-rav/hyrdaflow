@@ -1,4 +1,4 @@
-# ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
+# ADR-0024: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
 **Status:** Proposed
 **Date:** 2026-03-08
@@ -35,41 +35,29 @@ attempting triage.
 
 ## Decision
 
-Adopt the following rule for config-gated routing in HydraFlow workers:
+This ADR focuses on two unique contributions not covered by sibling ADRs.
+For the toggle-first guard pattern, see ADR-0023 (Gate Triage Call on Config
+Toggle).  For stats counter placement rules, see ADR-0023 (Stats Counter
+Placement in Delegating Helpers).
 
-1. **A config toggle that controls routing must gate the routing call itself,
-   not just downstream side-effects like stat counters.**  If
-   `adr_auto_triage` is `False`, no code path may call `_route_to_triage()`.
-   The toggle must be the first condition checked, before any issue creation or
-   API call occurs.
-
-2. **Centralise gated routing through a single helper.**  All post-council
+1. **Centralise gated routing through a single helper.**  All post-council
    routing decisions (reject, changes requested, no consensus) must flow
    through `_triage_or_hitl()`, which encapsulates the toggle check, the
    triage attempt, the stat increment, and the HITL fallback in one place.
    Individual routing call-sites must not duplicate this logic.
 
-3. **Audit all routing paths when adding or modifying a routing toggle.**
+2. **Audit all routing paths when adding or modifying a routing toggle.**
    When a new toggle is introduced or an existing one is changed, every method
    that could trigger the gated action must be reviewed for consistency.  A
    grep for the routing target (e.g. `_route_to_triage`) is the minimum
    verification step.
 
-4. **Stats must be coupled to the action, not to the toggle check.**  The
-   `auto_triaged` counter should increment when triage actually occurs (i.e.
-   inside the success branch of the helper), not in a separate conditional
-   block that can drift out of sync with the routing logic.
-
 ## Consequences
 
 **Positive:**
 
-- Eliminates silent toggle bypass — operators can trust that disabling
-  auto-triage actually disables it across all code paths.
 - Centralised routing helper (`_triage_or_hitl`) reduces duplication and
   makes the routing logic auditable from a single location.
-- Stats accurately reflect system behaviour, improving observability and
-  debugging.
 - Establishes a review checklist item: "does every call-site for the gated
   action check the toggle?"
 
@@ -77,9 +65,6 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
 
 - Routing changes require touching the centralised helper, which could become
   a merge-conflict hotspot if multiple features modify routing simultaneously.
-- Strict coupling between toggle and action means there is no way to
-  "soft-launch" auto-triage for a subset of routing paths without introducing
-  a separate, path-scoped toggle.
 - Auditing all routing paths on toggle changes adds review overhead, though
   this is a one-time cost per change and prevents a class of correctness bugs.
 
@@ -107,5 +92,8 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
 
 - Source memory: #2327
 - Source issue: #2341
+- Supersedes overlapping decisions from:
+  - ADR-0023 (Gate Triage Call on Config Toggle) — toggle-first guard pattern
+  - ADR-0023 (Stats Counter Placement in Delegating Helpers) — stats coupled to action
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
 - `src/config.py` — `adr_auto_triage` toggle definition

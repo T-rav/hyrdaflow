@@ -1,6 +1,6 @@
 # ADR-0023: Stats Counter Placement When Delegating to Conditional Helpers
 
-**Status:** Proposed
+**Status:** Superseded
 **Date:** 2026-03-08
 
 ## Context
@@ -83,6 +83,7 @@ returns `False`), not unconditionally after the call. A separate
 
 ## Related
 
+- **Superseded by:** ADR-0024 (Auto-Triage Toggle Must Gate Routing)
 - Source memory: #2298
 - Issue: #2306
 - ADR-0017 (Auto-Decompose Triage Counter Exclusion) — establishes the

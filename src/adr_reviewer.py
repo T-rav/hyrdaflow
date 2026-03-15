@@ -96,7 +96,7 @@ class ADRCouncilReviewer:
                 )
                 continue
 
-            duplicates = self._detect_duplicates(adr_number, adr_content, all_adrs)
+            duplicates = self._detect_duplicates(adr_content, all_adrs)
             duplicate_context = self._build_duplicate_context(duplicates)
 
             result = await self._run_council_session(
@@ -160,7 +160,6 @@ class ADRCouncilReviewer:
 
     def _detect_duplicates(
         self,
-        adr_number: int,
         content: str,
         all_adrs: list[tuple[int, str, str]],
     ) -> list[tuple[int, str, float]]:
@@ -170,7 +169,7 @@ class ADRCouncilReviewer:
 
         candidates: list[tuple[int, str, float]] = []
         for other_number, other_title, other_content in all_adrs:
-            if other_number == adr_number:
+            if other_content == content:
                 continue
             other_decision = self._extract_decision(other_content)
 
@@ -634,7 +633,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
 
         all_adrs = self._load_all_adrs(adr_dir)
         index_context = self._build_index_context(all_adrs)
-        duplicates = self._detect_duplicates(result.adr_number, amended, all_adrs)
+        duplicates = self._detect_duplicates(amended, all_adrs)
         duplicate_context = self._build_duplicate_context(duplicates)
         rerun = await self._run_council_session(
             result.adr_number,

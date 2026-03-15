@@ -223,7 +223,7 @@ class TestDuplicateDetection:
             ),
         ]
         content = "# Use Docker for Isolation\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates(content, all_adrs)
         assert len(result) == 1
         assert result[0][0] == 2
         assert result[0][2] >= 0.7
@@ -239,7 +239,7 @@ class TestDuplicateDetection:
             ),
         ]
         content = "# Use Docker\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates(content, all_adrs)
         assert len(result) == 0
 
     def test_self_exclusion(self, tmp_path: Path) -> None:
@@ -248,7 +248,7 @@ class TestDuplicateDetection:
             (1, "use docker", "# Use Docker\n\n## Decision\nUse Docker."),
         ]
         content = "# Use Docker\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates(content, all_adrs)
         assert len(result) == 0
 
     def test_threshold_boundary(self, tmp_path: Path) -> None:
@@ -262,8 +262,49 @@ class TestDuplicateDetection:
             ),
         ]
         content = "# A\n\n## Decision\nX"
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates(content, all_adrs)
         # Titles "A" and "Completely Different Thing Entirely" should be below threshold
+        assert len(result) == 0
+
+    def test_same_number_siblings_compared(self, tmp_path: Path) -> None:
+        """Same-numbered ADRs with different content should be compared."""
+        reviewer = _make_reviewer(tmp_path)
+        content_a = (
+            "# ADR-0023: Gate Triage Call\n\n"
+            "## Decision\nCheck the toggle before calling triage."
+        )
+        content_b = (
+            "# ADR-0023: Stats Counter Placement\n\n"
+            "## Decision\nPlace stats counters inside helper branching logic."
+        )
+        content_c = (
+            "# ADR-0023: Gate Triage Call Similar\n\n"
+            "## Decision\nCheck the toggle before calling triage routing."
+        )
+        all_adrs = [
+            (23, "gate triage call", content_a),
+            (23, "stats counter placement", content_b),
+            (23, "gate triage call similar", content_c),
+        ]
+        # content_a vs content_c should be similar enough to flag
+        result = reviewer._detect_duplicates(content_a, all_adrs)
+        # Must find content_c as a duplicate (same number, different content)
+        flagged_titles = [title for _, title, _ in result]
+        assert "gate triage call similar" in flagged_titles
+
+    def test_self_exclusion_by_content(self, tmp_path: Path) -> None:
+        """An ADR should not flag itself as a duplicate (matched by content)."""
+        reviewer = _make_reviewer(tmp_path)
+        content = "# Use Docker\n\n## Decision\nUse Docker."
+        all_adrs = [
+            (1, "use docker", content),
+            (
+                2,
+                "adopt typescript",
+                "# Adopt TypeScript\n\n## Decision\nSwitch to TypeScript.",
+            ),
+        ]
+        result = reviewer._detect_duplicates(content, all_adrs)
         assert len(result) == 0
 
 
