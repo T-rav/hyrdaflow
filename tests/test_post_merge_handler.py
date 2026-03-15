@@ -464,7 +464,7 @@ class TestPostMergeHandler:
 
     @pytest.mark.asyncio
     async def test_retrospective_status_callback_failure_is_swallowed(
-        self, config: HydraFlowConfig
+        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Status callback errors must not break post-merge hooks."""
         mock_retro = AsyncMock()
@@ -480,18 +480,20 @@ class TestPostMergeHandler:
 
         handler._prs.merge_pr = AsyncMock(return_value=True)
 
-        await handler.handle_approved(
-            pr,
-            issue,
-            result,
-            "diff",
-            0,
-            ci_gate_fn=AsyncMock(return_value=True),
-            escalate_fn=AsyncMock(),
-            publish_fn=AsyncMock(),
-        )
+        with caplog.at_level(logging.WARNING, logger="hydraflow.post_merge_handler"):
+            await handler.handle_approved(
+                pr,
+                issue,
+                result,
+                "diff",
+                0,
+                ci_gate_fn=AsyncMock(return_value=True),
+                escalate_fn=AsyncMock(),
+                publish_fn=AsyncMock(),
+            )
 
         assert result.merged is True
+        assert any("status callback failed" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_verification_issue_created_when_judge_returns_verdict(
@@ -1037,11 +1039,13 @@ class TestSafeHookRecovery:
         async def failing_coro():
             raise ValueError("original error")
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.post_merge_handler"):
             await handler._safe_hook("test_hook", failing_coro(), 42)
 
         # Original error should be logged as WARNING
         assert any("test_hook failed" in r.message for r in caplog.records)
+        # Secondary error (record_hook_failure crash) should also be logged
+        assert any("Failed to record hook failure" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_safe_hook_publishes_event_even_when_record_failure_crashes(
@@ -1570,9 +1574,9 @@ class TestNarrowedExceptionHandling:
 
     @pytest.mark.asyncio
     async def test_retrospective_runtime_error_is_swallowed(
-        self, config: HydraFlowConfig
+        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """RuntimeError from retrospective.record must be caught in _run_post_merge_hooks."""
+        """RuntimeError from retrospective.record must be caught and logged."""
         mock_retro = AsyncMock()
         mock_retro.record = AsyncMock(side_effect=RuntimeError("db unavailable"))
         handler = _make_handler(config, retrospective=mock_retro)
@@ -1582,18 +1586,19 @@ class TestNarrowedExceptionHandling:
 
         handler._prs.merge_pr = AsyncMock(return_value=True)
 
-        # Should not raise — RuntimeError from retrospective is caught
-        await handler.handle_approved(
-            pr,
-            issue,
-            result,
-            "diff",
-            0,
-            ci_gate_fn=AsyncMock(return_value=True),
-            escalate_fn=AsyncMock(),
-            publish_fn=AsyncMock(),
-        )
+        with caplog.at_level(logging.WARNING, logger="hydraflow.post_merge_handler"):
+            await handler.handle_approved(
+                pr,
+                issue,
+                result,
+                "diff",
+                0,
+                ci_gate_fn=AsyncMock(return_value=True),
+                escalate_fn=AsyncMock(),
+                publish_fn=AsyncMock(),
+            )
         mock_retro.record.assert_awaited_once()
+        assert any("retrospective failed" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_notify_epic_approval_catches_value_error(

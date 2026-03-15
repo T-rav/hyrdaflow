@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from models import BackgroundWorkerState, LifetimeStats
 from state import StateTracker
 from tests.helpers import make_tracker
@@ -836,11 +834,11 @@ class TestCorruptFileHandling:
         state_file.write_text("null")
 
         # Constructing a tracker on a file containing 'null' should not raise
-        try:
-            tracker = StateTracker(state_file)
-            _ = tracker.get_active_worktrees()
-        except Exception as exc:  # noqa: BLE001
-            pytest.fail(f"Unexpected exception for corrupt file: {exc}")
+        # and should return a usable (empty) state
+        tracker = StateTracker(state_file)
+        worktrees = tracker.get_active_worktrees()
+        assert isinstance(worktrees, dict)
+        assert len(worktrees) == 0
 
 
 # ---------------------------------------------------------------------------

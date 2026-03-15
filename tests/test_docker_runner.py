@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import struct
 from pathlib import Path
@@ -869,7 +870,9 @@ class TestDockerRunnerCleanup:
         container2.remove.assert_called_once_with(force=True)
 
     @pytest.mark.asyncio
-    async def test_cleanup_suppresses_errors(self, tmp_path: Path) -> None:
+    async def test_cleanup_suppresses_errors(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         runner, client = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
 
@@ -877,9 +880,11 @@ class TestDockerRunnerCleanup:
         container.remove.side_effect = RuntimeError("already removed")
 
         await runner.create_streaming_process(["echo", "1"])
-        await runner.cleanup()  # Should not raise
+        with caplog.at_level(logging.DEBUG, logger="hydraflow.docker_runner"):
+            await runner.cleanup()  # Should not raise
 
         assert len(runner._containers) == 0
+        assert any("Failed to remove container" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

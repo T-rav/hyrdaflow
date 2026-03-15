@@ -147,7 +147,7 @@ async def test_post_comment_dry_run(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_post_comment_handles_error(event_bus, tmp_path):
+async def test_post_comment_handles_error(event_bus, tmp_path, caplog):
     """post_comment should log warning on failure without raising."""
 
     cfg = ConfigFactory.create(
@@ -163,10 +163,13 @@ async def test_post_comment_handles_error(event_bus, tmp_path):
         .build()
     )
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        # Should not raise
+    with (
+        patch("asyncio.create_subprocess_exec", mock_create),
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+    ):
         await mgr.post_comment(42, "comment body")
     mock_create.assert_awaited_once()
+    assert any("Could not post comment" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +216,7 @@ async def test_post_pr_comment_dry_run(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_post_pr_comment_handles_error(event_bus, tmp_path):
+async def test_post_pr_comment_handles_error(event_bus, tmp_path, caplog):
     """post_pr_comment should log warning on failure without raising."""
 
     cfg = ConfigFactory.create(
@@ -229,10 +232,13 @@ async def test_post_pr_comment_handles_error(event_bus, tmp_path):
         .build()
     )
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        # Should not raise
+    with (
+        patch("asyncio.create_subprocess_exec", mock_create),
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+    ):
         await mgr.post_pr_comment(101, "comment body")
     mock_create.assert_awaited_once()
+    assert any("Could not post comment" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -417,8 +423,10 @@ async def test_submit_review_raises_self_review_error_on_approve_own_pr(
 
 
 @pytest.mark.asyncio
-async def test_submit_review_returns_false_on_generic_error(event_bus, tmp_path):
-    """submit_review should return False on a generic (non-self-review) error."""
+async def test_submit_review_returns_false_on_generic_error(
+    event_bus, tmp_path, caplog
+):
+    """submit_review should return False and log error on a generic failure."""
 
     cfg = ConfigFactory.create(
         repo_root=tmp_path,
@@ -433,12 +441,16 @@ async def test_submit_review_returns_false_on_generic_error(event_bus, tmp_path)
         .build()
     )
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
+    with (
+        patch("asyncio.create_subprocess_exec", mock_create),
+        caplog.at_level(logging.ERROR, logger="hydraflow.pr_manager"),
+    ):
         result = await mgr.submit_review(
             101, ReviewVerdict.REQUEST_CHANGES, "Needs work"
         )
 
     assert result is False
+    assert any("Could not submit" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -2281,16 +2293,21 @@ class TestCloseIssue:
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_close_issue_handles_error_gracefully(self, config, event_bus):
+    async def test_close_issue_handles_error_gracefully(
+        self, config, event_bus, caplog
+    ):
         manager = _make_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
         )
 
-        with patch("asyncio.create_subprocess_exec", mock_create):
-            # Should not raise
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        ):
             await manager.close_issue(999)
         mock_create.assert_awaited_once()
+        assert any("Could not close issue #999" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

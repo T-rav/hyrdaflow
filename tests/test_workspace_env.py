@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -131,8 +132,10 @@ class TestSetupEnv:
         manager._setup_env(wt_path)
         assert env_dst.is_symlink()
 
-    def test_setup_env_handles_symlink_oserror(self, config, tmp_path: Path) -> None:
-        """_setup_env should handle OSError on symlink and continue."""
+    def test_setup_env_handles_symlink_oserror(
+        self, config, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_setup_env should handle OSError on symlink and log debug message."""
         manager = WorkspaceManager(config)
         repo_root = config.repo_root
         wt_path = tmp_path / "worktree"
@@ -147,15 +150,21 @@ class TestSetupEnv:
         ui_nm_src = repo_root / "ui" / "node_modules"
         ui_nm_src.mkdir(parents=True)
 
-        with patch.object(
-            Path, "symlink_to", side_effect=OSError("perm denied")
-        ) as mock_symlink:
+        with (
+            patch.object(
+                Path, "symlink_to", side_effect=OSError("perm denied")
+            ) as mock_symlink,
+            caplog.at_level(logging.DEBUG, logger="hydraflow.workspace"),
+        ):
             manager._setup_env(wt_path)  # should not raise
 
         assert mock_symlink.call_count >= 1
+        assert any("Could not" in r.message for r in caplog.records)
 
-    def test_setup_env_handles_copy_oserror(self, config, tmp_path: Path) -> None:
-        """_setup_env should handle OSError when copying settings and continue."""
+    def test_setup_env_handles_copy_oserror(
+        self, config, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_setup_env should handle OSError when copying settings and log debug message."""
         manager = WorkspaceManager(config)
         repo_root = config.repo_root
         wt_path = tmp_path / "worktree"
@@ -168,12 +177,16 @@ class TestSetupEnv:
         settings_src = claude_dir / "settings.local.json"
         settings_src.write_text('{"allowed": []}')
 
-        with patch.object(
-            Path, "write_text", side_effect=OSError("read-only")
-        ) as mock_write:
+        with (
+            patch.object(
+                Path, "write_text", side_effect=OSError("read-only")
+            ) as mock_write,
+            caplog.at_level(logging.DEBUG, logger="hydraflow.workspace"),
+        ):
             manager._setup_env(wt_path)  # should not raise
 
         assert mock_write.call_count >= 1
+        assert any("Could not copy settings" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +292,10 @@ class TestSetupClaudeSettings:
 
         assert not (wt_path / ".claude" / "settings.local.json").exists()
 
-    def test_oserror_during_write_is_suppressed(self, config, tmp_path: Path) -> None:
-        """_setup_claude_settings should suppress OSError during file write."""
+    def test_oserror_during_write_is_suppressed(
+        self, config, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_setup_claude_settings should suppress OSError and log debug message."""
         manager = WorkspaceManager(config)
         repo_root = config.repo_root
         repo_root.mkdir(parents=True, exist_ok=True)
@@ -292,12 +307,16 @@ class TestSetupClaudeSettings:
         settings_src = claude_dir / "settings.local.json"
         settings_src.write_text('{"allowed": []}')
 
-        with patch.object(
-            Path, "write_text", side_effect=OSError("read-only")
-        ) as mock_write:
+        with (
+            patch.object(
+                Path, "write_text", side_effect=OSError("read-only")
+            ) as mock_write,
+            caplog.at_level(logging.DEBUG, logger="hydraflow.workspace"),
+        ):
             manager._setup_claude_settings(wt_path)  # should not raise
 
         assert mock_write.call_count >= 1
+        assert any("Could not copy settings" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +501,9 @@ class TestConfigureGitIdentity:
         assert calls[0].args == ("git", "config", "user.email", "bot@example.com")
 
     @pytest.mark.asyncio
-    async def test_runtime_error_does_not_raise(self, tmp_path: Path) -> None:
+    async def test_runtime_error_does_not_raise(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """_configure_git_identity should log warning and continue on RuntimeError."""
         cfg = ConfigFactory.create(
             git_user_name="Bot",
@@ -494,13 +515,16 @@ class TestConfigureGitIdentity:
         manager = WorkspaceManager(cfg)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: config error")
 
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=fail_proc
-        ) as mock_exec:
-            # Should not raise — logs warning and continues
+        with (
+            patch(
+                "asyncio.create_subprocess_exec", return_value=fail_proc
+            ) as mock_exec,
+            caplog.at_level(logging.WARNING, logger="hydraflow.workspace"),
+        ):
             await manager._configure_git_identity(tmp_path)
 
         mock_exec.assert_called_once()
+        assert any("git identity config failed" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_called_during_create(self, tmp_path: Path) -> None:
@@ -554,33 +578,42 @@ class TestCreateVenv:
         assert mock_exec.call_args.args[:2] == ("uv", "sync")
 
     @pytest.mark.asyncio
-    async def test_create_venv_swallows_errors(self, config, tmp_path: Path) -> None:
-        """_create_venv should not propagate errors if uv sync fails."""
+    async def test_create_venv_swallows_errors(
+        self, config, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_create_venv should log warning and continue if uv sync fails."""
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"uv not found")
 
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=fail_proc
-        ) as mock_exec:
-            # Should not raise
+        with (
+            patch(
+                "asyncio.create_subprocess_exec", return_value=fail_proc
+            ) as mock_exec,
+            caplog.at_level(logging.WARNING, logger="hydraflow.workspace"),
+        ):
             await manager._create_venv(tmp_path)
 
         mock_exec.assert_called_once()
+        assert any("uv sync failed" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_create_venv_swallows_file_not_found_error(
-        self, config, tmp_path: Path
+        self, config, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """_create_venv should handle missing uv binary (FileNotFoundError)."""
+        """_create_venv should log warning when uv binary is missing."""
         manager = WorkspaceManager(config)
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=FileNotFoundError("uv"),
-        ) as mock_exec:
-            await manager._create_venv(tmp_path)  # should not raise
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError("uv"),
+            ) as mock_exec,
+            caplog.at_level(logging.WARNING, logger="hydraflow.workspace"),
+        ):
+            await manager._create_venv(tmp_path)
 
         mock_exec.assert_called_once()
+        assert any("uv sync failed" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -611,15 +644,20 @@ class TestInstallHooks:
         )
 
     @pytest.mark.asyncio
-    async def test_install_hooks_swallows_errors(self, config, tmp_path: Path) -> None:
-        """_install_hooks should not propagate errors if git config fails."""
+    async def test_install_hooks_swallows_errors(
+        self, config, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_install_hooks should log warning and continue if git config fails."""
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"error")
 
-        with patch(
-            "asyncio.create_subprocess_exec", return_value=fail_proc
-        ) as mock_exec:
-            # Should not raise
+        with (
+            patch(
+                "asyncio.create_subprocess_exec", return_value=fail_proc
+            ) as mock_exec,
+            caplog.at_level(logging.WARNING, logger="hydraflow.workspace"),
+        ):
             await manager._install_hooks(tmp_path)
 
         mock_exec.assert_called_once()
+        assert any("git hooks setup failed" in r.message for r in caplog.records)

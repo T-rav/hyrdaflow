@@ -149,16 +149,19 @@ async def test_add_pr_labels_empty_list_skips_command(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
+async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus, caplog):
     manager = _make_manager(config, event_bus)
     mock_create = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("label error").build()
     )
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        # Should not raise
+    with (
+        patch("asyncio.create_subprocess_exec", mock_create),
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+    ):
         await manager.add_pr_labels(101, ["bug"])
     mock_create.assert_awaited_once()
+    assert any("Could not add label" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -192,16 +195,21 @@ async def test_remove_pr_label_dry_run_skips_command(dry_config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_remove_pr_label_subprocess_error_does_not_raise(config, event_bus):
+async def test_remove_pr_label_subprocess_error_does_not_raise(
+    config, event_bus, caplog
+):
     manager = _make_manager(config, event_bus)
     mock_create = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("label error").build()
     )
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
-        # Should not raise
+    with (
+        patch("asyncio.create_subprocess_exec", mock_create),
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+    ):
         await manager.remove_pr_label(101, "hydraflow-review")
     mock_create.assert_awaited_once()
+    assert any("Could not remove label" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +267,7 @@ class TestCommentHelper:
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_comment_error_does_not_raise(self, event_bus, tmp_path):
+    async def test_comment_error_does_not_raise(self, event_bus, tmp_path, caplog):
         """_comment should log a warning on failure without propagating the error."""
 
         cfg = ConfigFactory.create(
@@ -275,10 +283,13 @@ class TestCommentHelper:
             .build()
         )
 
-        with patch("asyncio.create_subprocess_exec", mock_create):
-            # Should not raise even on subprocess failure
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        ):
             await mgr._comment("pr", 99, "body")
         mock_create.assert_awaited_once()
+        assert any("Could not post comment" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +349,7 @@ class TestAddLabelsHelper:
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_add_labels_error_does_not_raise(self, config, event_bus):
+    async def test_add_labels_error_does_not_raise(self, config, event_bus, caplog):
         """_add_labels should log a warning on failure without propagating the error."""
         mgr = _make_manager(config, event_bus)
         mock_create = (
@@ -348,10 +359,13 @@ class TestAddLabelsHelper:
             .build()
         )
 
-        with patch("asyncio.create_subprocess_exec", mock_create):
-            # Should not raise even on subprocess failure
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        ):
             await mgr._add_labels("issue", 42, ["missing-label"])
         mock_create.assert_awaited_once()
+        assert any("Could not add label" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +413,7 @@ class TestRemoveLabelHelper:
         mock_create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_remove_label_error_does_not_raise(self, config, event_bus):
+    async def test_remove_label_error_does_not_raise(self, config, event_bus, caplog):
         """_remove_label should log a warning on failure without propagating the error."""
         mgr = _make_manager(config, event_bus)
         mock_create = (
@@ -409,10 +423,13 @@ class TestRemoveLabelHelper:
             .build()
         )
 
-        with patch("asyncio.create_subprocess_exec", mock_create):
-            # Should not raise even on subprocess failure
+        with (
+            patch("asyncio.create_subprocess_exec", mock_create),
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        ):
             await mgr._remove_label("issue", 42, "missing-label")
         mock_create.assert_awaited_once()
+        assert any("Could not remove label" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_remove_label_missing_label_404_is_noop(
