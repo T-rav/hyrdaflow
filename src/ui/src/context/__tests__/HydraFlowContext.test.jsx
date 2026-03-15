@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import { reducer } from '../HydraFlowContext'
+import { reducer, getPipelineAction } from '../HydraFlowContext'
 
 const emptyPipeline = {
   triage: [],
@@ -418,6 +418,46 @@ describe('WS_PIPELINE_UPDATE reducer', () => {
     expect(next.pipelineIssues.plan).toHaveLength(1)
     expect(next.pipelineIssues.plan[0].status).toBe('failed')
     expect(next.pipelineIssues.implement).toHaveLength(0)
+  })
+})
+
+describe('getPipelineAction', () => {
+  it('triage_update done → move triage→plan as queued', () => {
+    const action = getPipelineAction({ type: 'triage_update', data: { issue: 5, status: 'done' } })
+    expect(action).toEqual({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: 5, fromStage: 'triage', toStage: 'plan', status: 'queued' } })
+  })
+
+  it('triage_update failed → mark failed in-place', () => {
+    const action = getPipelineAction({ type: 'triage_update', data: { issue: 5, status: 'failed' } })
+    expect(action).toEqual({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: 5, fromStage: null, toStage: null, status: 'failed' } })
+  })
+
+  it('triage_update active status → mark active in-place', () => {
+    const action = getPipelineAction({ type: 'triage_update', data: { issue: 5, status: 'evaluating' } })
+    expect(action).toEqual({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: 5, fromStage: null, toStage: null, status: 'active' } })
+  })
+
+  it('planner_update done → move plan→implement as queued', () => {
+    const action = getPipelineAction({ type: 'planner_update', data: { issue: 7, status: 'done' } })
+    expect(action).toEqual({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: 7, fromStage: 'plan', toStage: 'implement', status: 'queued' } })
+  })
+
+  it('planner_update failed → mark failed in-place', () => {
+    const action = getPipelineAction({ type: 'planner_update', data: { issue: 7, status: 'failed' } })
+    expect(action).toEqual({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: 7, fromStage: null, toStage: null, status: 'failed' } })
+  })
+
+  it('planner_update planning status → mark active in-place', () => {
+    const action = getPipelineAction({ type: 'planner_update', data: { issue: 7, status: 'planning' } })
+    expect(action).toEqual({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: 7, fromStage: null, toStage: null, status: 'active' } })
+  })
+
+  it('event with no issue number → returns null', () => {
+    expect(getPipelineAction({ type: 'triage_update', data: { status: 'failed' } })).toBeNull()
+  })
+
+  it('unrecognised event type → returns null', () => {
+    expect(getPipelineAction({ type: 'metrics_update', data: { issue: 1 } })).toBeNull()
   })
 })
 
