@@ -24,6 +24,7 @@ from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
     is_adr_issue_title,
+    next_adr_number,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
@@ -585,11 +586,22 @@ class ImplementPhase:
         if plan_path.exists():
             return
 
+        # Reserve a unique ADR number by scanning the primary repo (not the
+        # worktree copy) and the in-process assignment set.
+        primary_adr_dir = self._config.repo_root / "docs" / "adr"
+        adr_number = next_adr_number(
+            primary_adr_dir,
+            primary_adr_dir=primary_adr_dir,
+        )
+        adr_number_str = f"{adr_number:04d}"
+
         body = issue.body.strip() or "No ADR draft body provided."
         plan_text = (
             "## Implementation Plan\n\n"
-            "1. Create or update a single ADR markdown file under `docs/adr/` "
-            "for this issue.\n"
+            f"1. Create a single ADR markdown file named "
+            f"`docs/adr/{adr_number_str}-<slug>.md` (ADR number "
+            f"**{adr_number_str}** is pre-assigned — do NOT pick a different "
+            f"number).\n"
             "2. Preserve and refine the ADR sections (`Context`, `Decision`, "
             "`Consequences`) using the issue draft as source material.\n"
             "3. Ensure the ADR content is actionable and concrete enough for "
