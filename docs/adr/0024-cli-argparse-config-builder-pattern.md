@@ -1,7 +1,12 @@
-# ADR-0023: CLI Architecture — argparse with Config Builder Pattern
+# ADR-0024: CLI Architecture — argparse with Config Builder Pattern
 
-**Status:** Proposed
+**Status:** Deferred
 **Date:** 2026-03-08
+
+> **Note:** The primary implementation files described in this ADR (`src/cli.py`
+> and `src/hf_cli/__main__.py`) currently reside on a feature branch and have
+> not yet been merged to `main`. This ADR is recorded as Deferred and will move
+> to Accepted once the feature branch lands.
 
 ## Context
 
@@ -53,9 +58,11 @@ explicit precedence (lowest to highest):
 4. **CLI arguments** — Highest priority; only explicitly-provided args override.
 5. **Repo-scoped overlay** — Applied post-validation for fields not set by CLI.
 
-The builder tracks which CLI args were explicitly provided (`cli_explicit` set)
-so that repo-scoped overlays only fill in gaps rather than clobbering intentional
-CLI overrides.
+The builder tracks which CLI args were explicitly provided via the
+`cli_explicit_fields` frozenset on `HydraFlowConfig` (and the corresponding
+`cli_explicit` parameter in `runtime_config.py`'s repo-overlay function) so that
+repo-scoped overlays only fill in gaps rather than clobbering intentional CLI
+overrides.
 
 ### Two-layer dispatch
 
@@ -75,8 +82,8 @@ without requiring a shared CLI framework.
   place.
 - Pydantic validation in `HydraFlowConfig` catches invalid combinations at
   startup, before any orchestrator loop runs.
-- The `cli_explicit` tracking enables repo-scoped overlays to coexist with CLI
-  overrides without ambiguity.
+- The `cli_explicit_fields` tracking enables repo-scoped overlays to coexist with
+  CLI overrides without ambiguity.
 
 **Negative / Trade-offs:**
 
@@ -105,8 +112,11 @@ without requiring a shared CLI framework.
 ## Related
 
 - Source memory: Issue #2268
-- `src/cli.py` — `build_config()`, `parse_args()`, `main()`
-- `src/hf_cli/__main__.py` — Two-layer CLI dispatcher
-- `src/config.py` — `HydraFlowConfig` Pydantic model
+- `src/cli.py` — `build_config()`, `parse_args()`, `main()` *(feature branch —
+  not yet on `main`)*
+- `src/hf_cli/__main__.py` — Two-layer CLI dispatcher *(feature branch — not yet
+  on `main`)*
+- `src/config.py` — `HydraFlowConfig` Pydantic model, `cli_explicit_fields` field
+- `src/runtime_config.py` — `resolve_runtime_config()`, `cli_explicit` parameter
 - ADR-0004 — CLI-based Agent Runtime (related but distinct: ADR-0004 covers
   agent invocation via CLI subprocesses, this ADR covers HydraFlow's own CLI)
