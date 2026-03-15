@@ -18,12 +18,28 @@ const TAB_LABELS = {
   system: 'System',
 }
 
+function formatResumeAt(isoString) {
+  if (!isoString) return null
+  const d = new Date(isoString)
+  if (isNaN(d.getTime())) return null
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (sameDay) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 function SystemAlertBanner({ alert, onDismiss }) {
   if (!alert) return null
+  const resumeTime = formatResumeAt(alert.resume_at)
   return (
     <div style={styles.alertBanner}>
       <span style={styles.alertIcon}>!</span>
-      <span>{alert.message}</span>
+      <span>{alert.message}{resumeTime && ` Resumes at ${resumeTime}.`}</span>
       {alert.source && <span style={styles.alertSource}>Source: {alert.source}</span>}
       {onDismiss && (
         <span
