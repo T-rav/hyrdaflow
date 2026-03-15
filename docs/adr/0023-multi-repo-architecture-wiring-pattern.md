@@ -37,10 +37,9 @@ eliminate the initialization asymmetry with `_run_headless()`:
    `server.py` should create a `RepoRuntime` via `RepoRuntime.create()` (or a
    `RepoRuntimeRegistry` for multi-repo configs) and derive `event_bus`, `state`,
    and `orchestrator` from it, eliminating the duplicate bare-object construction.
-
-Backward compatibility is preserved by existing code: the `_resolve_runtime()`
-fallback in `dashboard_routes.py` already handles the `registry=None` case, so
-single-repo deployments require no configuration change.
+2. **Preserve single-repo backward compatibility**: The `_resolve_runtime()`
+   fallback in `dashboard_routes.py` already handles the `registry=None` case, so
+   single-repo deployments require no configuration change.
 
 ### Relationship to ADR-0009
 
@@ -102,7 +101,8 @@ across the multi-repo deployment. They serve different architectural layers:
   opt-in and untested. Once the `_run_with_dashboard()` refactor lands, integration
   tests should cover `RepoRuntimeRegistry` registration, runtime start/stop, and
   the `/api/runtimes` endpoint surface under both single-registry and no-registry
-  configurations (tracked in ADR-0022).
+  configurations. The integration test infrastructure patterns are established in
+  ADR-0022 (Pipeline Integration Harness for Cross-Phase Testing).
 
 ## Related
 
