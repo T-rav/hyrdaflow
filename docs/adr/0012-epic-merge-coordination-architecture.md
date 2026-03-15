@@ -55,7 +55,7 @@ and `EpicManager.on_child_approved()`:
 ```
 Review approves PR
   → PostMergeHandler.handle_approved()
-    → _notify_epic_approval(issue_number)          [unconditional]
+    → _notify_epic_approval(issue_number)          [unconditional w.r.t. merge strategy]
       → EpicManager.on_child_approved()
       → Records approval in EpicState.approved_children
       → Applies hydraflow-approved label to the child PR
@@ -81,13 +81,14 @@ Extend `EpicState` with:
 
 ### Integration point
 
-`PostMergeHandler._should_defer_merge()` is called before the `merge_pr()` call.
-It queries `EpicManager.find_parent_epics()` to discover whether the issue belongs
-to a coordinated epic. When a defer is indicated, `handle_approved()` calls
-`EpicManager.on_child_approved()` which records the approval, checks bundle
-readiness, and dispatches to the appropriate strategy handler (`_handle_bundled_ready`,
-`_handle_bundled_hitl_ready`, or `_handle_ordered_ready`). The PR remains open and
-approved until the bundle is ready.
+`PostMergeHandler.handle_approved()` first calls `_notify_epic_approval()` (which
+calls `EpicManager.on_child_approved()`) unconditionally w.r.t. merge strategy —
+recording the approval, checking bundle readiness, and dispatching to the appropriate
+strategy handler (`_handle_bundled_ready`, `_handle_bundled_hitl_ready`, or
+`_handle_ordered_ready`). Only after that does it call `_should_defer_merge()`, which
+queries `EpicManager.find_parent_epics()` to decide whether to proceed to merge or
+hold. When a defer is indicated, `handle_approved()` returns early without merging
+and the PR remains open and approved until the bundle is ready.
 
 ### Relationship to ADR-0011
 
