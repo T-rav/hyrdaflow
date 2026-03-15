@@ -1,7 +1,8 @@
 # ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
-**Status:** Proposed
+**Status:** Superseded
 **Date:** 2026-03-08
+**Superseded by:** [ADR-0023: Gate Triage Call on Config Toggle, Not Just HITL Fallback](0023-gate-triage-call-not-hitl-fallback.md)
 
 ## Context
 

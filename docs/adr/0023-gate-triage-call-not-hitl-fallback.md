@@ -16,7 +16,17 @@ deadlocked, the system must choose between two paths:
 A config toggle (e.g., `adr_review_auto_triage`) is intended to control whether
 the system uses automatic triage or always escalates to HITL. The current
 implementation in `_route_result` always calls `_route_to_triage` first and only
-falls back to `_escalate_to_hitl` when triage fails (returns `False`):
+falls back to `_escalate_to_hitl` when triage fails (returns `False`).
+
+Three routing paths required audit for toggle consistency:
+
+| Method                         | Purpose                                          |
+|--------------------------------|--------------------------------------------------|
+| `_handle_pre_review_failure()` | Routes ADRs that fail structural validation      |
+| `_triage_or_hitl()`           | Routes post-council rejected/changes-requested   |
+| `_handle_duplicate()`          | Always escalates duplicates to HITL (correct)    |
+
+The anti-pattern in `_route_result`:
 
 ```python
 # Current anti-pattern
@@ -65,6 +75,12 @@ Key rules:
 4. **Apply consistently.** Every code path in `_route_result` that calls both
    `_route_to_triage` and `_escalate_to_hitl` must follow this pattern
    (REJECT, REQUEST_CHANGES, and the default/deadlock branch).
+5. **Stats must be coupled to the action, not to the toggle check.** The
+   `auto_triaged` counter should increment when triage actually occurs (i.e.
+   inside the success branch of the helper), not in a separate conditional
+   block that can drift out of sync with the routing logic. See
+   ADR-0023 (Stats Counter Placement in Delegating Helpers) for the full
+   counter-placement principle.
 
 ### Verification checklist
 
@@ -75,6 +91,9 @@ When reviewing any routing method that calls both `_route_to_triage` and
 - Confirm the toggle-off path calls HITL and returns without invoking triage.
 - Confirm tests enable the toggle when asserting triage is called, and disable
   it when asserting HITL is called directly.
+- A grep for the routing target (e.g. `grep -r _route_to_triage`) is the
+  minimum verification step when adding or modifying a routing toggle — every
+  call-site must be checked for toggle consistency.
 
 ## Consequences
 
@@ -110,8 +129,11 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- Source memory: #2345
-- Issue: #2355
+- Source memory: #2345, #2327
+- Issue: #2355, #2341
 - Related learning: #2346, #2350
-- `src/adr_reviewer.py` — `_route_result`, `_route_to_triage`, `_escalate_to_hitl`
+- Supersedes: [ADR-0023: Auto-Triage Toggle Must Gate Routing](0023-auto-triage-toggle-must-gate-routing.md) (merged content; see #2736)
+- Related ADR: [ADR-0023: Stats Counter Placement in Delegating Helpers](0023-stats-counter-placement-in-delegating-helpers.md) — counter-placement principle for delegating helpers
+- Related ADR: [ADR-0023: Tests Must Match Toggle State They Assert](0023-tests-must-match-toggle-state-they-assert.md) — test discipline for toggle-gated paths
+- `src/adr_reviewer.py` — `_route_result`, `_route_to_triage`, `_escalate_to_hitl`, `_handle_pre_review_failure`, `_handle_duplicate`
 - `src/config.py` — `HydraFlowConfig` (toggle definition)
