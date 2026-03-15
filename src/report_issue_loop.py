@@ -194,11 +194,13 @@ class ReportIssueLoop(BaseBackgroundLoop):
             if tracked:
                 tracked.linked_issue_url = issue_url
 
-            # Success — mark tracked report and remove from queue
+            # Success — mark as "filed" (issue created, not yet resolved).
+            # The report only becomes "fixed" when the linked issue is
+            # confirmed closed/merged via the status-refresh endpoint.
             self._state.update_tracked_report(
                 report.id,
-                status="fixed",
-                action_label="fixed",
+                status="filed",
+                action_label="filed",
                 detail=f"Created issue #{issue_number}",
             )
             self._state.remove_report(report.id)

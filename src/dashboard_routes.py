@@ -440,6 +440,15 @@ def _extract_repo_path(
     )
 
 
+_ISSUE_URL_RE = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
+
+
+def _extract_issue_number(url: str) -> int:
+    """Extract the issue number from a GitHub issue URL, or return 0."""
+    m = _ISSUE_URL_RE.search(url)
+    return int(m.group(1)) if m else 0
+
+
 def _extract_field_from_sources(
     field_names: tuple[str, str],
     req: dict[str, Any] | None,
@@ -3810,8 +3819,8 @@ def create_router(
         # Validate state-machine transitions
         valid_actions: dict[str, list[str]] = {
             "confirm_fixed": ["fixed"],
-            "reopen": ["fixed", "in-progress", "closed"],
-            "cancel": ["queued", "in-progress", "fixed", "reopened"],
+            "reopen": ["filed", "fixed", "in-progress", "closed"],
+            "cancel": ["queued", "in-progress", "filed", "fixed", "reopened"],
         }
         if report.status not in valid_actions.get(body.action, []):
             return JSONResponse(
@@ -3822,7 +3831,17 @@ def create_router(
             )
         action_map: dict[
             str,
-            tuple[Literal["queued", "in-progress", "fixed", "closed", "reopened"], str],
+            tuple[
+                Literal[
+                    "queued",
+                    "in-progress",
+                    "filed",
+                    "fixed",
+                    "closed",
+                    "reopened",
+                ],
+                str,
+            ],
         ] = {
             "confirm_fixed": ("closed", "Confirmed fixed by reporter"),
             "reopen": ("reopened", "Reopened by reporter"),
@@ -3846,6 +3865,59 @@ def create_router(
         if report is None:
             return JSONResponse({"error": "Report not found"}, status_code=404)
         return JSONResponse([entry.model_dump() for entry in report.history])
+
+    @router.post("/api/reports/refresh")
+    async def refresh_report_statuses(reporter_id: str = "") -> JSONResponse:
+        """Refresh statuses for filed and stale-queued reports.
+
+        * **Filed** reports: checks the linked GitHub issue state; if
+          the issue is closed the report transitions to ``"fixed"``.
+        * **Stale queued** reports (>30 min): re-enqueues them into the
+          pending queue so the background worker retries processing.
+        """
+        refreshed: list[dict[str, str]] = []
+
+        # --- filed → fixed when linked issue is closed ---
+        for report in state.get_filed_reports():
+            if reporter_id and report.reporter_id != reporter_id:
+                continue
+            issue_number = _extract_issue_number(report.linked_issue_url)
+            if issue_number <= 0:
+                continue
+            issue_state = await pr_manager.get_issue_state(issue_number)
+            if issue_state == "CLOSED":
+                state.update_tracked_report(
+                    report.id,
+                    status="fixed",
+                    action_label="fixed",
+                    detail=f"Issue #{issue_number} closed",
+                )
+                refreshed.append({"id": report.id, "new_status": "fixed"})
+
+        # --- stale queued → re-enqueue pending ---
+        for report in state.get_stale_queued_reports(stale_minutes=30):
+            if reporter_id and report.reporter_id != reporter_id:
+                continue
+            # Only re-enqueue if there's no pending entry already
+            pending_ids = {p.id for p in state.get_pending_reports()}
+            if report.id not in pending_ids:
+                from models import PendingReport
+
+                state.enqueue_report(
+                    PendingReport(
+                        id=report.id,
+                        description=report.description,
+                        reporter_id=report.reporter_id,
+                    )
+                )
+                state.update_tracked_report(
+                    report.id,
+                    action_label="retry",
+                    detail="Stale queued report re-enqueued for processing",
+                )
+                refreshed.append({"id": report.id, "new_status": "queued"})
+
+        return JSONResponse({"refreshed": refreshed})
 
     @router.get("/api/sessions")
     async def get_sessions(

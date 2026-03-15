@@ -419,3 +419,359 @@ class TestTrackedReportPersistence:
         assert reports[0].status == "in-progress"
         assert len(reports[0].history) == 1
         assert reports[0].history[0].action == "processing"
+
+
+# ---------------------------------------------------------------------------
+# Filed status model tests
+# ---------------------------------------------------------------------------
+
+
+class TestFiledStatus:
+    """Tests for the new 'filed' status in TrackedReport."""
+
+    def test_tracked_report_filed_status_valid(self) -> None:
+        report = TrackedReport(reporter_id="u1", description="Bug", status="filed")
+        assert report.status == "filed"
+
+    def test_tracked_report_filed_linked_issue(self) -> None:
+        report = TrackedReport(
+            reporter_id="u1",
+            description="Bug",
+            status="filed",
+            linked_issue_url="https://github.com/acme/repo/issues/42",
+        )
+        assert report.linked_issue_url == "https://github.com/acme/repo/issues/42"
+
+
+# ---------------------------------------------------------------------------
+# State methods for filed/stale reports
+# ---------------------------------------------------------------------------
+
+
+class TestFiledAndStaleStateMethods:
+    """Tests for get_filed_reports and get_stale_queued_reports."""
+
+    def test_get_filed_reports_returns_only_filed(self, state) -> None:
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="A", status="filed")
+        )
+        state.add_tracked_report(
+            TrackedReport(id="r2", reporter_id="u1", description="B", status="queued")
+        )
+        state.add_tracked_report(
+            TrackedReport(id="r3", reporter_id="u1", description="C", status="fixed")
+        )
+        filed = state.get_filed_reports()
+        assert len(filed) == 1
+        assert filed[0].id == "r1"
+
+    def test_get_filed_reports_empty(self, state) -> None:
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="A", status="queued")
+        )
+        assert state.get_filed_reports() == []
+
+    def test_get_stale_queued_reports_returns_old_queued(self, state) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        old_time = (datetime.now(UTC) - timedelta(minutes=60)).isoformat()
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Old",
+                status="queued",
+                created_at=old_time,
+            )
+        )
+        state.add_tracked_report(
+            TrackedReport(
+                id="r2",
+                reporter_id="u1",
+                description="New",
+                status="queued",
+            )
+        )
+        stale = state.get_stale_queued_reports(stale_minutes=30)
+        assert len(stale) == 1
+        assert stale[0].id == "r1"
+
+    def test_get_stale_queued_reports_ignores_non_queued(self, state) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        old_time = (datetime.now(UTC) - timedelta(minutes=60)).isoformat()
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Old filed",
+                status="filed",
+                created_at=old_time,
+            )
+        )
+        stale = state.get_stale_queued_reports(stale_minutes=30)
+        assert stale == []
+
+
+# ---------------------------------------------------------------------------
+# Extract issue number helper tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractIssueNumber:
+    """Tests for _extract_issue_number from dashboard_routes."""
+
+    def test_valid_issue_url(self) -> None:
+        from dashboard_routes import _extract_issue_number
+
+        assert _extract_issue_number("https://github.com/acme/repo/issues/42") == 42
+
+    def test_no_issue_url(self) -> None:
+        from dashboard_routes import _extract_issue_number
+
+        assert _extract_issue_number("no url here") == 0
+
+    def test_empty_string(self) -> None:
+        from dashboard_routes import _extract_issue_number
+
+        assert _extract_issue_number("") == 0
+
+
+# ---------------------------------------------------------------------------
+# Refresh endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshReportStatuses:
+    """Tests for POST /api/reports/refresh endpoint."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path, method="POST"):
+        for route in router.routes:
+            if not (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                continue
+            if hasattr(route, "methods") and method in route.methods:
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_filed_report_transitions_to_fixed_when_issue_closed(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url="https://github.com/acme/repo/issues/42",
+            )
+        )
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/refresh")
+        assert endpoint is not None
+
+        with patch.object(
+            pr_mgr, "get_issue_state", new_callable=AsyncMock, return_value="CLOSED"
+        ):
+            response = await endpoint(reporter_id="u1")
+
+        data = json.loads(response.body)
+        assert len(data["refreshed"]) == 1
+        assert data["refreshed"][0]["new_status"] == "fixed"
+
+        report = state.get_tracked_report("r1")
+        assert report is not None
+        assert report.status == "fixed"
+
+    @pytest.mark.asyncio
+    async def test_filed_report_stays_filed_when_issue_open(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url="https://github.com/acme/repo/issues/42",
+            )
+        )
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/refresh")
+
+        with patch.object(
+            pr_mgr, "get_issue_state", new_callable=AsyncMock, return_value="OPEN"
+        ):
+            response = await endpoint(reporter_id="u1")
+
+        data = json.loads(response.body)
+        assert len(data["refreshed"]) == 0
+
+        report = state.get_tracked_report("r1")
+        assert report is not None
+        assert report.status == "filed"
+
+    @pytest.mark.asyncio
+    async def test_stale_queued_report_reenqueued(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        old_time = (datetime.now(UTC) - timedelta(minutes=60)).isoformat()
+        state.add_tracked_report(
+            TrackedReport(
+                id="r-stale",
+                reporter_id="u1",
+                description="Stale bug",
+                status="queued",
+                created_at=old_time,
+            )
+        )
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/refresh")
+
+        response = await endpoint(reporter_id="u1")
+        data = json.loads(response.body)
+        assert len(data["refreshed"]) == 1
+        assert data["refreshed"][0]["id"] == "r-stale"
+
+        # Verify it was re-enqueued in pending
+        pending = state.get_pending_reports()
+        assert any(p.id == "r-stale" for p in pending)
+
+    @pytest.mark.asyncio
+    async def test_stale_not_reenqueued_if_already_pending(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from models import PendingReport
+
+        old_time = (datetime.now(UTC) - timedelta(minutes=60)).isoformat()
+        state.add_tracked_report(
+            TrackedReport(
+                id="r-stale",
+                reporter_id="u1",
+                description="Stale bug",
+                status="queued",
+                created_at=old_time,
+            )
+        )
+        # Already in pending queue
+        state.enqueue_report(
+            PendingReport(id="r-stale", description="Stale bug", reporter_id="u1")
+        )
+        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/refresh")
+
+        response = await endpoint(reporter_id="u1")
+        data = json.loads(response.body)
+        # Should NOT be re-enqueued since it's already pending
+        assert len(data["refreshed"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Updated state machine transition tests
+# ---------------------------------------------------------------------------
+
+
+class TestFiledStatusTransitions:
+    """Tests for state machine transitions involving the 'filed' status."""
+
+    def _make_router(self, config, event_bus, state, tmp_path):
+        from dashboard_routes import create_router
+        from pr_manager import PRManager
+
+        pr_mgr = PRManager(config, event_bus)
+        return create_router(
+            config=config,
+            event_bus=event_bus,
+            state=state,
+            pr_manager=pr_mgr,
+            get_orchestrator=lambda: None,
+            set_orchestrator=lambda o: None,
+            set_run_task=lambda t: None,
+            ui_dist_dir=tmp_path / "no-dist",
+            template_dir=tmp_path / "no-templates",
+        ), pr_mgr
+
+    def _find_endpoint(self, router, path, method="PATCH"):
+        for route in router.routes:
+            if not (
+                hasattr(route, "path")
+                and route.path == path
+                and hasattr(route, "endpoint")
+            ):
+                continue
+            if hasattr(route, "methods") and method in route.methods:
+                return route.endpoint
+        return None
+
+    @pytest.mark.asyncio
+    async def test_cancel_filed_report(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """A filed report can be cancelled."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="X", status="filed")
+        )
+        router, _pr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/{report_id}")
+        body = TrackedReportUpdate(action="cancel")
+        response = await endpoint("r1", body)
+        data = json.loads(response.body)
+        assert data["status"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_reopen_filed_report(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """A filed report can be reopened."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="X", status="filed")
+        )
+        router, _pr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/{report_id}")
+        body = TrackedReportUpdate(action="reopen")
+        response = await endpoint("r1", body)
+        data = json.loads(response.body)
+        assert data["status"] == "reopened"
+
+    @pytest.mark.asyncio
+    async def test_confirm_fixed_on_filed_not_allowed(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Confirm fixed is NOT allowed on a filed report (only on 'fixed')."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="X", status="filed")
+        )
+        router, _pr = self._make_router(config, event_bus, state, tmp_path)
+        endpoint = self._find_endpoint(router, "/api/reports/{report_id}")
+        body = TrackedReportUpdate(action="confirm_fixed")
+        response = await endpoint("r1", body)
+        assert response.status_code == 422
