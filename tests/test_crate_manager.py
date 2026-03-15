@@ -15,12 +15,10 @@ from tests.helpers import ConfigFactory
 
 def _make_manager(
     *,
-    auto_crate: bool = False,
     active_crate: int | None = None,
 ) -> tuple[CrateManager, MagicMock, AsyncMock, EventBus]:
     """Create a CrateManager with mocked dependencies."""
     config = ConfigFactory.create()
-    config.auto_crate = auto_crate
 
     state = MagicMock()
     state.get_active_crate_number.return_value = active_crate
@@ -152,17 +150,8 @@ class TestAutoPackageIfNeeded:
     """Tests for auto_package_if_needed milestone creation."""
 
     @pytest.mark.asyncio
-    async def test_does_nothing_when_auto_crate_disabled(self) -> None:
-        cm, _, pr_mock, _ = _make_manager(auto_crate=False)
-        task = TaskFactory.create(id=1, tags=["hydraflow-plan"])
-
-        await cm.auto_package_if_needed([task])
-
-        pr_mock.create_milestone.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_does_nothing_when_active_crate_exists(self) -> None:
-        cm, _, pr_mock, _ = _make_manager(auto_crate=True, active_crate=5)
+        cm, _, pr_mock, _ = _make_manager(active_crate=5)
         task = TaskFactory.create(id=1, tags=["hydraflow-plan"])
 
         await cm.auto_package_if_needed([task])
@@ -171,7 +160,7 @@ class TestAutoPackageIfNeeded:
 
     @pytest.mark.asyncio
     async def test_does_nothing_when_no_uncrated_issues(self) -> None:
-        cm, _, pr_mock, _ = _make_manager(auto_crate=True, active_crate=None)
+        cm, _, pr_mock, _ = _make_manager(active_crate=None)
 
         await cm.auto_package_if_needed([])
 
@@ -179,7 +168,7 @@ class TestAutoPackageIfNeeded:
 
     @pytest.mark.asyncio
     async def test_creates_milestone_assigns_and_activates(self) -> None:
-        cm, state_mock, pr_mock, bus = _make_manager(auto_crate=True, active_crate=None)
+        cm, state_mock, pr_mock, bus = _make_manager(active_crate=None)
         pr_mock.list_milestones.return_value = []
         pr_mock.create_milestone.return_value = Crate(number=10, title="2026-03-01.1")
         task1 = TaskFactory.create(id=1, tags=["hydraflow-plan"])
@@ -196,7 +185,7 @@ class TestAutoPackageIfNeeded:
     @pytest.mark.asyncio
     async def test_survives_create_milestone_failure(self) -> None:
         """auto_package_if_needed must not crash when milestone creation fails."""
-        cm, state_mock, pr_mock, _ = _make_manager(auto_crate=True, active_crate=None)
+        cm, state_mock, pr_mock, _ = _make_manager(active_crate=None)
         pr_mock.list_milestones.return_value = []
         pr_mock.create_milestone.side_effect = RuntimeError("API error")
         task = TaskFactory.create(id=1, tags=["hydraflow-plan"])
@@ -208,7 +197,7 @@ class TestAutoPackageIfNeeded:
     @pytest.mark.asyncio
     async def test_continues_when_set_milestone_fails_for_some(self) -> None:
         """If assigning one issue fails, others should still be assigned."""
-        cm, state_mock, pr_mock, _ = _make_manager(auto_crate=True, active_crate=None)
+        cm, state_mock, pr_mock, _ = _make_manager(active_crate=None)
         pr_mock.list_milestones.return_value = []
         pr_mock.create_milestone.return_value = Crate(number=10, title="2026-03-01.1")
         pr_mock.set_issue_milestone.side_effect = [

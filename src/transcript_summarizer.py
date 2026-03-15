@@ -257,11 +257,8 @@ class TranscriptSummarizer:
         """Summarize a transcript and publish as a GitHub issue.
 
         Returns the created issue number, or ``None`` if skipped/failed.
-        Only active when ``transcript_summary_as_issue`` is enabled.
         Never raises — all errors are logged and swallowed.
         """
-        if not self._config.transcript_summary_as_issue:
-            return None
         try:
             return await self._summarize_and_publish_inner(
                 transcript, issue_number, phase, issue_title, duration_seconds

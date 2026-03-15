@@ -1684,7 +1684,7 @@ def create_router(
 
     @router.get("/api/crates/active")
     async def get_active_crate() -> JSONResponse:
-        """Return the active crate number, title, progress, and auto_crate flag."""
+        """Return the active crate number, title, and progress."""
         orch = get_orchestrator()
         active_number = state.get_active_crate_number()
         result: dict[str, Any] = {
@@ -1694,7 +1694,6 @@ def create_router(
             "open_issues": 0,
             "closed_issues": 0,
             "total_issues": 0,
-            "auto_crate": config.auto_crate,
         }
         if active_number is not None and orch is not None:
             try:
@@ -1828,11 +1827,6 @@ def create_router(
                     _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
                 )
             enriched.append(data)
-
-        # When memory auto-approve is on, filter out memory suggestions that
-        # were queued before the setting was enabled.
-        if config.memory_auto_approve:
-            enriched = [d for d in enriched if not d.get("isMemorySuggestion")]
 
         return JSONResponse(enriched)
 
@@ -2182,7 +2176,6 @@ def create_router(
                 max_hitl_workers=_cfg.max_hitl_workers,
                 batch_size=_cfg.batch_size,
                 model=_cfg.model,
-                memory_auto_approve=_cfg.memory_auto_approve,
                 pr_unstick_batch_size=_cfg.pr_unstick_batch_size,
                 worktree_base=str(_cfg.worktree_base),
             ),
@@ -2236,11 +2229,9 @@ def create_router(
         "poll_interval",
         "pr_unstick_interval",
         "pr_unstick_batch_size",
-        "memory_auto_approve",
         "unstick_auto_merge",
         "unstick_all_causes",
         "worktree_base",
-        "auto_crate",
     }
 
     @router.patch("/api/control/config")

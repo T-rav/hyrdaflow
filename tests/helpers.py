@@ -310,15 +310,11 @@ class ConfigFactory:
         ui_dirs: list[str] | None = None,
         docker_network: str = "",
         docker_extra_mounts: list[str] | None = None,
-        memory_auto_approve: bool = False,
         memory_prune_stale_items: bool = True,
-        transcript_summary_as_issue: bool = False,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
-        inject_runtime_logs: bool = False,
         max_runtime_log_chars: int = 8_000,
         max_ci_log_chars: int = 12_000,
-        code_scanning_enabled: bool = False,
         max_code_scanning_chars: int = 6_000,
         visual_gate_enabled: bool = False,
         visual_gate_bypass: bool = False,
@@ -337,7 +333,6 @@ class ConfigFactory:
         enable_fresh_branch_rebuild: bool = True,
         max_troubleshooting_prompt_chars: int = 3000,
         epic_group_planning: bool = False,
-        epic_auto_decompose: bool = False,
         epic_decompose_complexity_threshold: int = 8,
         epic_monitor_interval: int = 1800,
         epic_sweep_interval: int = 3600,
@@ -352,7 +347,6 @@ class ConfigFactory:
         artifact_retention_days: int = 30,
         artifact_max_size_mb: int = 500,
         runs_gc_interval: int = 3600,
-        release_on_epic_close: bool = False,
         release_version_source: Literal[
             "epic_title", "milestone", "manual"
         ] = "epic_title",
@@ -374,8 +368,6 @@ class ConfigFactory:
         adr_review_interval: int = 86400,
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
-        adr_review_enabled: bool = False,
-        adr_review_auto_triage: bool = False,
         adr_review_model: str = "sonnet",
         adr_auto_triage: bool = False,
         adr_pre_review: bool = True,
@@ -524,15 +516,11 @@ class ConfigFactory:
                 docker_extra_mounts=docker_extra_mounts
                 if docker_extra_mounts is not None
                 else [],
-                memory_auto_approve=memory_auto_approve,
                 memory_prune_stale_items=memory_prune_stale_items,
-                transcript_summary_as_issue=transcript_summary_as_issue,
                 harness_insight_window=harness_insight_window,
                 harness_pattern_threshold=harness_pattern_threshold,
-                inject_runtime_logs=inject_runtime_logs,
                 max_runtime_log_chars=max_runtime_log_chars,
                 max_ci_log_chars=max_ci_log_chars,
-                code_scanning_enabled=code_scanning_enabled,
                 max_code_scanning_chars=max_code_scanning_chars,
                 visual_gate_enabled=visual_gate_enabled,
                 visual_gate_bypass=visual_gate_bypass,
@@ -548,7 +536,6 @@ class ConfigFactory:
                 enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
                 max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
                 epic_group_planning=epic_group_planning,
-                epic_auto_decompose=epic_auto_decompose,
                 epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
                 epic_monitor_interval=epic_monitor_interval,
                 epic_sweep_interval=epic_sweep_interval,
@@ -561,7 +548,6 @@ class ConfigFactory:
                 artifact_retention_days=artifact_retention_days,
                 artifact_max_size_mb=artifact_max_size_mb,
                 runs_gc_interval=runs_gc_interval,
-                release_on_epic_close=release_on_epic_close,
                 release_version_source=release_version_source,
                 release_tag_prefix=release_tag_prefix,
                 baseline_snapshot_patterns=baseline_snapshot_patterns
@@ -602,8 +588,6 @@ class ConfigFactory:
                 adr_review_interval=adr_review_interval,
                 adr_review_approval_threshold=adr_review_approval_threshold,
                 adr_review_max_rounds=adr_review_max_rounds,
-                adr_review_enabled=adr_review_enabled,
-                adr_review_auto_triage=adr_review_auto_triage,
                 adr_review_model=adr_review_model,
                 adr_auto_triage=adr_auto_triage,
                 adr_pre_review=adr_pre_review,
@@ -632,7 +616,6 @@ class PipelineHarness:
             max_planners=1,
             max_reviewers=1,
             visual_validation_enabled=False,
-            code_scanning_enabled=False,
             max_ci_fix_attempts=0,
         )
         self._ensure_test_dirs()
@@ -1052,6 +1035,7 @@ def make_implement_phase(
             worker_id: int = 0,
             review_feedback: str = "",
             prior_failure: str = "",
+            bead_mapping: dict[str, str] | None = None,
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,

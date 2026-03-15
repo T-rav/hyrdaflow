@@ -1482,7 +1482,6 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
     from tests.conftest import PRInfoFactory, TaskFactory
 
     config = ConfigFactory.create(
-        inject_runtime_logs=True,
         repo_root=tmp_path,
     )
     log_dir = tmp_path / ".hydraflow" / "logs"

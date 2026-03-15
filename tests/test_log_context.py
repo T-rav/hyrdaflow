@@ -61,31 +61,21 @@ class TestTruncateLog:
 class TestLoadRuntimeLogs:
     """Tests for load_runtime_logs()."""
 
-    def test_returns_empty_when_disabled(self, tmp_path: Path) -> None:
-        """Returns empty string when inject_runtime_logs is False."""
-        config = ConfigFactory.create(
-            inject_runtime_logs=False,
-            repo_root=tmp_path,
-        )
-        assert load_runtime_logs(config) == ""
-
     def test_returns_empty_when_file_missing(self, tmp_path: Path) -> None:
         """Returns empty string when log file doesn't exist."""
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         assert load_runtime_logs(config) == ""
 
     def test_returns_tail_of_log(self, tmp_path: Path) -> None:
-        """Returns the log content when file exists and feature is enabled."""
+        """Returns the log content when file exists."""
         log_dir = tmp_path / ".hydraflow" / "logs"
         log_dir.mkdir(parents=True)
         log_file = log_dir / "hydraflow.log"
         log_file.write_text("line 1\nline 2\nline 3\n")
 
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         result = load_runtime_logs(config)
@@ -100,7 +90,6 @@ class TestLoadRuntimeLogs:
         log_file.write_text("x" * 50_000)
 
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             max_runtime_log_chars=1_000,
             repo_root=tmp_path,
         )
@@ -116,7 +105,6 @@ class TestLoadRuntimeLogs:
         log_file.write_text("   \n  \n")
 
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         assert load_runtime_logs(config) == ""
@@ -129,7 +117,6 @@ class TestLoadRuntimeLogs:
         log_file.write_text("some content")
 
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):

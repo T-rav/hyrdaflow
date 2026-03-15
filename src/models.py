@@ -1227,6 +1227,7 @@ class StateData(BaseModel):
     releases: dict[str, Release] = Field(default_factory=dict)
     baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     active_crate_number: int | None = None
+    bead_mappings: dict[str, dict[str, str]] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -1538,7 +1539,6 @@ class ControlStatusConfig(BaseModel):
     max_hitl_workers: int = 0
     batch_size: int = 0
     model: str = ""
-    memory_auto_approve: bool = False
     pr_unstick_batch_size: int = 10
     worktree_base: str = ""
 

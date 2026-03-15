@@ -19,18 +19,14 @@ from tests.helpers import ConfigFactory, make_triage_phase, supply_once
 def _make_reviewer(
     tmp_path: Path,
     *,
-    adr_review_enabled: bool = True,
     adr_review_approval_threshold: int = 2,
     adr_review_max_rounds: int = 3,
-    adr_review_auto_triage: bool = False,
 ) -> ADRCouncilReviewer:
     """Build an ADRCouncilReviewer with test-friendly defaults."""
     config = ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        adr_review_enabled=adr_review_enabled,
         adr_review_approval_threshold=adr_review_approval_threshold,
         adr_review_max_rounds=adr_review_max_rounds,
-        adr_review_auto_triage=adr_review_auto_triage,
     )
     from events import EventBus
 
@@ -505,7 +501,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_reject_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -534,7 +530,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_request_changes_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -604,7 +600,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_no_consensus_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -636,7 +632,7 @@ class TestVerdictRouting:
     async def test_triage_route_fallbacks_to_hitl_when_triage_fails(
         self, tmp_path: Path
     ) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -1352,7 +1348,6 @@ class TestExecuteOrchestrator:
         """Codex tool uses codex exec."""
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            adr_review_enabled=True,
             background_tool="codex",
         )
         from events import EventBus
@@ -1376,7 +1371,6 @@ class TestExecuteOrchestrator:
         """inherit tool should resolve to claude."""
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            adr_review_enabled=True,
             background_tool="inherit",
         )
         from events import EventBus
@@ -1519,7 +1513,6 @@ class TestCommitAcceptance:
         """Bug fix: dry_run should skip all git operations."""
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            adr_review_enabled=True,
             dry_run=True,
         )
         from events import EventBus
@@ -1877,14 +1870,14 @@ class TestReviewProposedADRs:
 
 
 class TestAutoTriage:
-    """Tests for the adr_review_auto_triage config flag."""
+    """Tests for the auto-triage behavior (always on)."""
 
     @pytest.mark.asyncio
     async def test_auto_triage_increments_auto_triaged_not_escalated(
         self, tmp_path: Path
     ) -> None:
         """When auto_triage is True and triage succeeds, auto_triaged increments."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -1911,42 +1904,11 @@ class TestAutoTriage:
         assert stats["escalated"] == 0
 
     @pytest.mark.asyncio
-    async def test_auto_triage_disabled_escalates_to_hitl(self, tmp_path: Path) -> None:
-        """When auto_triage is False, triage is skipped and HITL is called directly."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=False)
-        result = ADRCouncilResult(
-            adr_number=1,
-            adr_title="Test",
-            final_decision="REJECT",
-        )
-        stats = {
-            "accepted": 0,
-            "rejected": 0,
-            "escalated": 0,
-            "duplicates": 0,
-            "auto_triaged": 0,
-        }
-        with (
-            patch.object(
-                reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=True
-            ) as mock_triage,
-            patch.object(
-                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
-            ) as mock_hitl,
-        ):
-            await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
-            mock_triage.assert_not_awaited()
-            mock_hitl.assert_awaited_once()
-        assert stats["auto_triaged"] == 0
-        assert stats["escalated"] == 1
-        assert stats["rejected"] == 1
-
-    @pytest.mark.asyncio
     async def test_auto_triage_fallback_to_hitl_on_triage_failure(
         self, tmp_path: Path
     ) -> None:
         """When auto_triage is True but triage fails, escalated increments."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -1975,7 +1937,7 @@ class TestAutoTriage:
     @pytest.mark.asyncio
     async def test_duplicate_auto_triaged_when_enabled(self, tmp_path: Path) -> None:
         """Duplicate with auto_triage=True routes to triage label, not HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Dup",
@@ -1993,28 +1955,6 @@ class TestAutoTriage:
 
         # Should use find_label (triage) not hitl_label
         assert stats["auto_triaged"] == 1
-
-    @pytest.mark.asyncio
-    async def test_duplicate_hitl_when_auto_triage_disabled(
-        self, tmp_path: Path
-    ) -> None:
-        """Duplicate with auto_triage=False routes to HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=False)
-        result = ADRCouncilResult(
-            adr_number=1,
-            adr_title="Dup",
-            final_decision="DUPLICATE",
-            duplicate_detected=True,
-            duplicate_of=2,
-        )
-        stats = {"auto_triaged": 0, "escalated": 0}
-        await reviewer._handle_duplicate(result, stats)
-
-        call_args = reviewer._prs.create_issue.await_args
-        labels_kwarg = call_args.kwargs.get("labels", [])
-        assert list(reviewer._config.hitl_label) == labels_kwarg
-        assert stats["escalated"] == 1
-        assert stats["auto_triaged"] == 0
 
 
 class TestPreValidationGate:
@@ -2112,7 +2052,7 @@ class TestPreValidationGate:
         self, tmp_path: Path
     ) -> None:
         """Pre-validation failure creates a triage issue."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
         validation = ADRValidationResult(
@@ -2143,7 +2083,7 @@ class TestPreValidationGate:
         self, tmp_path: Path
     ) -> None:
         """If triage issue creation fails, pre-validation falls back to HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         # Make first create_issue call fail, second succeed
         reviewer._prs.create_issue = AsyncMock(side_effect=[Exception("API error"), 99])
 
@@ -2165,33 +2105,6 @@ class TestPreValidationGate:
         assert stats["auto_triaged"] == 0
         assert stats["escalated"] == 1
 
-    @pytest.mark.asyncio
-    async def test_pre_validation_failure_auto_triage_disabled_goes_to_hitl(
-        self, tmp_path: Path
-    ) -> None:
-        """When auto_triage is False, pre-validation failure goes directly to HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=False)
-        from adr_pre_validator import ADRValidationIssue, ADRValidationResult
-
-        validation = ADRValidationResult(
-            issues=[
-                ADRValidationIssue(
-                    code="missing_section_context",
-                    message="ADR is missing required section: ## Context",
-                    fixable=False,
-                )
-            ]
-        )
-        stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
-        await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
-
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        labels_kwarg = call_args.kwargs.get("labels", [])
-        assert list(reviewer._config.hitl_label) == labels_kwarg
-        assert stats["auto_triaged"] == 0
-        assert stats["escalated"] == 1
-
 
 class TestStatsIntegrity:
     """Tests that stats counters are mutually exclusive — no double-counting."""
@@ -2201,7 +2114,7 @@ class TestStatsIntegrity:
         self, tmp_path: Path
     ) -> None:
         """escalated must not increment when auto_triaged increments."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",

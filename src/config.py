@@ -129,14 +129,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED",
         True,
     ),
-    (
-        "transcript_summary_as_issue",
-        "HYDRAFLOW_TRANSCRIPT_SUMMARY_AS_ISSUE",
-        False,
-    ),
-    ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
     ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
-    ("inject_runtime_logs", "HYDRAFLOW_INJECT_RUNTIME_LOGS", False),
     ("unstick_auto_merge", "HYDRAFLOW_UNSTICK_AUTO_MERGE", True),
     ("unstick_all_causes", "HYDRAFLOW_UNSTICK_ALL_CAUSES", True),
     (
@@ -144,15 +137,10 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_ENABLE_FRESH_BRANCH_REBUILD",
         True,
     ),
-    ("auto_crate", "HYDRAFLOW_AUTO_CRATE", False),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
-    ("code_scanning_enabled", "HYDRAFLOW_CODE_SCANNING_ENABLED", False),
     ("visual_gate_enabled", "HYDRAFLOW_VISUAL_GATE_ENABLED", False),
     ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
-    ("release_on_epic_close", "HYDRAFLOW_RELEASE_ON_EPIC_CLOSE", False),
-    ("adr_review_enabled", "HYDRAFLOW_ADR_REVIEW_ENABLED", False),
-    ("adr_review_auto_triage", "HYDRAFLOW_ADR_REVIEW_AUTO_TRIAGE", False),
     (
         "screenshot_redaction_enabled",
         "HYDRAFLOW_SCREENSHOT_REDACTION_ENABLED",
@@ -430,10 +418,6 @@ class HydraFlowConfig(BaseModel):
         le=5,
         description="Max gap review + re-plan iterations (0 disables gap review)",
     )
-    epic_auto_decompose: bool = Field(
-        default=False,
-        description="Auto-decompose large issues into epics during triage",
-    )
     epic_decompose_complexity_threshold: int = Field(
         default=8,
         ge=1,
@@ -504,16 +488,7 @@ class HydraFlowConfig(BaseModel):
         default="independent",
         description="How to coordinate merging of epic sub-issue PRs",
     )
-    auto_crate: bool = Field(
-        default=False,
-        description="When True, auto-package uncrated labeled issues into crates. When False, human must assign via UI.",
-    )
-
     # Release configuration
-    release_on_epic_close: bool = Field(
-        default=False,
-        description="Create a GitHub Release when an epic completes",
-    )
     release_version_source: Literal["epic_title", "milestone", "manual"] = Field(
         default="epic_title",
         description="How to determine the release version string",
@@ -721,22 +696,12 @@ class HydraFlowConfig(BaseModel):
         description="Cheap model for summarising memory digest when over size limit",
     )
 
-    # Memory auto-approve
-    memory_auto_approve: bool = Field(
-        default=False,
-        description="When True, memory suggestions skip HITL and go directly to the sync queue",
-    )
-
     memory_prune_stale_items: bool = Field(
         default=True,
         description="Remove local memory item files whose source issue is no longer active",
     )
 
     # Observability context injection
-    inject_runtime_logs: bool = Field(
-        default=False,
-        description="Inject runtime application logs into agent context (opt-in)",
-    )
     max_runtime_log_chars: int = Field(
         default=8_000,
         ge=1_000,
@@ -748,10 +713,6 @@ class HydraFlowConfig(BaseModel):
         ge=1_000,
         le=100_000,
         description="Max characters for CI failure log injection",
-    )
-    code_scanning_enabled: bool = Field(
-        default=False,
-        description="Fetch GitHub code scanning alerts and inject into review context",
     )
     max_code_scanning_chars: int = Field(
         default=6_000,
@@ -887,11 +848,6 @@ class HydraFlowConfig(BaseModel):
         le=500_000,
         description="Max transcript characters to send for summarization (truncated from end)",
     )
-    transcript_summary_as_issue: bool = Field(
-        default=False,
-        description="Also create standalone GitHub issues for transcript summaries (default: off)",
-    )
-
     # Report issue worker
     report_issue_tool: Literal["claude", "codex", "pi"] = Field(
         default="claude",
@@ -1054,14 +1010,6 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=5,
         description="Maximum deliberation rounds before forcing a decision",
-    )
-    adr_review_enabled: bool = Field(
-        default=False,
-        description="Enable the ADR council review background loop",
-    )
-    adr_review_auto_triage: bool = Field(
-        default=False,
-        description="Route non-accepted council outcomes to triage instead of HITL",
     )
     adr_review_model: str = Field(
         default="sonnet",
