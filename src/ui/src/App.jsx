@@ -21,7 +21,16 @@ const TAB_LABELS = {
 function formatResumeAt(isoString) {
   if (!isoString) return null
   const d = new Date(isoString)
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (isNaN(d.getTime())) return null
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (sameDay) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function SystemAlertBanner({ alert }) {
