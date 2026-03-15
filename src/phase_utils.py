@@ -27,6 +27,10 @@ T_Result = TypeVar("T_Result")
 _ADR_TITLE_RE = re.compile(r"^\s*\[ADR\]\s+", re.IGNORECASE)
 _ADR_REQUIRED_HEADINGS = ("## Context", "## Decision", "## Consequences")
 
+# Module-level set tracking ADR numbers already handed out in this process,
+# so concurrent workers each get a unique number even before their files land.
+_assigned_adr_numbers: set[int] = set()
+
 
 async def run_concurrent_batch(
     items: list[T],
@@ -515,17 +519,33 @@ class PipelineEscalator:
         )
 
 
-def next_adr_number(adr_dir: Path) -> int:
-    """Return the next available ADR number by scanning *adr_dir*.
+def next_adr_number(
+    adr_dir: Path,
+    *,
+    primary_adr_dir: Path | None = None,
+) -> int:
+    """Return the next available ADR number, unique across concurrent workers.
 
-    Avoids number collisions when multiple ADR PRs are in flight
-    concurrently — each should call this against the worktree's
-    ``docs/adr/`` after merging main to pick a unique number.
+    Scans both the local *adr_dir* **and** the *primary_adr_dir* (the
+    primary repo checkout, not a worktree copy) to find the highest
+    existing number.  Also considers numbers already handed out via
+    ``_assigned_adr_numbers`` so that concurrent workers in the same
+    process each receive a distinct number.
+
+    The returned number is recorded in ``_assigned_adr_numbers`` so
+    subsequent calls will never return the same value.
     """
     highest = 0
-    if adr_dir.is_dir():
-        for f in adr_dir.iterdir():
-            m = _ADR_FILE_RE.match(f.name)
-            if m:
-                highest = max(highest, int(m.group(1)))
-    return highest + 1
+    for d in (adr_dir, primary_adr_dir):
+        if d is not None and d.is_dir():
+            for f in d.iterdir():
+                m = _ADR_FILE_RE.match(f.name)
+                if m:
+                    highest = max(highest, int(m.group(1)))
+
+    if _assigned_adr_numbers:
+        highest = max(highest, *_assigned_adr_numbers)
+
+    number = highest + 1
+    _assigned_adr_numbers.add(number)
+    return number
