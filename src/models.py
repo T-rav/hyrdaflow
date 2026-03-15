@@ -1740,6 +1740,7 @@ class SystemAlertPayload(TypedDict, total=False):
     threshold: object
     hook_name: str
     issue: int
+    resume_at: str
 
 
 class TranscriptSummaryPayload(TypedDict, total=False):

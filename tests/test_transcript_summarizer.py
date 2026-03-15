@@ -435,7 +435,7 @@ class TestSummarizeAndPublish:
 
     @pytest.mark.asyncio
     async def test_noop_when_disabled(self, tmp_path: Path) -> None:
-        """Disabled config returns None immediately."""
+        """Returns None immediately when transcript summarization is disabled."""
         config = ConfigFactory.create(
             repo_root=tmp_path, transcript_summarization_enabled=False
         )
