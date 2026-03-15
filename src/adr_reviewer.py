@@ -96,7 +96,7 @@ class ADRCouncilReviewer:
                 )
                 continue
 
-            duplicates = self._detect_duplicates(adr_number, adr_content, all_adrs)
+            duplicates = self._detect_duplicates(adr_path.name, adr_content, all_adrs)
             duplicate_context = self._build_duplicate_context(duplicates)
 
             result = await self._run_council_session(
@@ -128,9 +128,9 @@ class ADRCouncilReviewer:
                 results.append((adr_number, path, content))
         return results
 
-    def _load_all_adrs(self, adr_dir: Path) -> list[tuple[int, str, str]]:
-        """Load all ADR files as (number, title, content)."""
-        results: list[tuple[int, str, str]] = []
+    def _load_all_adrs(self, adr_dir: Path) -> list[tuple[int, str, str, str]]:
+        """Load all ADR files as (number, title, content, filename)."""
+        results: list[tuple[int, str, str, str]] = []
         for path in sorted(adr_dir.glob("*.md")):
             match = _ADR_FILE_RE.match(path.name)
             if not match:
@@ -146,13 +146,13 @@ class ADRCouncilReviewer:
             except (OSError, UnicodeDecodeError):
                 logger.warning("Skipping unreadable ADR file: %s", path)
                 continue
-            results.append((adr_number, title, content))
+            results.append((adr_number, title, content, path.name))
         return results
 
-    def _build_index_context(self, all_adrs: list[tuple[int, str, str]]) -> str:
+    def _build_index_context(self, all_adrs: list[tuple[int, str, str, str]]) -> str:
         """Build a summary index of all ADRs for council context."""
         lines: list[str] = []
-        for number, title, content in all_adrs:
+        for number, title, content, _filename in all_adrs:
             status_match = _STATUS_RE.search(content)
             status = status_match.group(1) if status_match else "Unknown"
             lines.append(f"- ADR-{number:04d}: {title} (Status: {status})")
@@ -160,17 +160,22 @@ class ADRCouncilReviewer:
 
     def _detect_duplicates(
         self,
-        adr_number: int,
+        adr_filename: str,
         content: str,
-        all_adrs: list[tuple[int, str, str]],
+        all_adrs: list[tuple[int, str, str, str]],
     ) -> list[tuple[int, str, float]]:
-        """Detect potential duplicates using title + Decision section similarity."""
+        """Detect potential duplicates using title + Decision section similarity.
+
+        Self-comparison is skipped by filename so that same-numbered ADRs
+        (e.g. collision files like 0023-foo.md and 0023-bar.md) are still
+        compared against each other rather than silently excluded.
+        """
         decision = self._extract_decision(content)
         title = self._extract_title(content)
 
         candidates: list[tuple[int, str, float]] = []
-        for other_number, other_title, other_content in all_adrs:
-            if other_number == adr_number:
+        for other_number, other_title, other_content, other_filename in all_adrs:
+            if other_filename == adr_filename:
                 continue
             other_decision = self._extract_decision(other_content)
 
@@ -634,7 +639,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
 
         all_adrs = self._load_all_adrs(adr_dir)
         index_context = self._build_index_context(all_adrs)
-        duplicates = self._detect_duplicates(result.adr_number, amended, all_adrs)
+        duplicates = self._detect_duplicates(adr_path.name, amended, all_adrs)
         duplicate_context = self._build_duplicate_context(duplicates)
         rerun = await self._run_council_session(
             result.adr_number,
