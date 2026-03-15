@@ -224,6 +224,8 @@ class TestVerifyMonitorLoopOrphanedReconciliation:
             phase="verify",
             verification_issue_number=555,
         )
+        # Orphaned reconciliation has no verification_issues entry to clear
+        state.clear_verification_issue.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_reconciliation_when_verification_entry_exists(
@@ -250,7 +252,7 @@ class TestVerifyMonitorLoopOrphanedReconciliation:
         result = await loop._do_work()
 
         # Issue is still open and has active mapping — should not reconcile
-        assert result is not None
+        assert result == {"checked": 1, "resolved": 0, "pending": 1}
         state.record_outcome.assert_not_called()
         state.clear_verification_issue.assert_not_called()
 
