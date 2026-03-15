@@ -81,6 +81,12 @@ Key rules:
    block that can drift out of sync with the routing logic. See the
    [Stats Counter Placement in Delegating Helpers ADR](0023-stats-counter-placement-in-delegating-helpers.md)
    for the full counter-placement principle.
+6. **Centralise gated routing through a single helper.** All post-council
+   routing decisions (reject, request-changes, no-consensus) must flow
+   through a single method (e.g. `_triage_or_hitl()`) that encapsulates the
+   toggle check, the triage attempt, the stat increment, and the HITL
+   fallback in one place. Individual routing call-sites must not duplicate
+   this logic.
 
 ### Verification checklist
 
@@ -126,6 +132,21 @@ When reviewing any routing method that calls both `_route_to_triage` and
 3. **Remove the toggle and always use triage-then-HITL.**
    Rejected: operators need the ability to force HITL-only routing for
    sensitive repositories or during incident response.
+
+4. **Decorator-based toggle enforcement (`@gated_by("adr_review_auto_triage")`).**
+   Rejected: adds indirection and makes the fallback-to-HITL path harder to
+   follow. The explicit `if` check in the centralised helper is clearer.
+
+5. **Toggle check inside `_route_to_triage()` itself.**
+   Rejected: `_route_to_triage()` is a low-level method that should remain
+   toggle-unaware. The toggle is a policy decision that belongs in the
+   orchestration layer (`_triage_or_hitl()`), not in the action method.
+
+6. **Separate toggle per routing path** (e.g. `adr_auto_triage_pre_review`,
+   `adr_auto_triage_post_council`).
+   Rejected: over-engineering for the current use case. A single toggle with
+   centralised enforcement is sufficient. Can revisit if granular control is
+   needed.
 
 ## Related
 
