@@ -65,24 +65,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
         """Override to drain all queued reports on startup, not just one."""
         if self._run_on_startup:
             self._close_stale_reports()
-            while self._state.peek_report() is not None:
+            while (
+                self._state.peek_report() is not None and not self._stop_event.is_set()
+            ):
                 await self._execute_cycle()
 
-        while not self._stop_event.is_set():
-            interval = self._get_interval()
-            if self._run_on_startup:
-                triggered = await self._sleep_or_trigger(interval)
-                if self._stop_event.is_set():
-                    break
-                if not self._enabled_cb(self._worker_name) and not triggered:
-                    continue
-            elif not self._enabled_cb(self._worker_name):
-                triggered = await self._sleep_or_trigger(interval)
-                if not triggered:
-                    continue
-            await self._execute_cycle()
-            if not self._run_on_startup:
-                await self._sleep_or_trigger(interval)
+        await super().run()
 
     def _close_stale_reports(self) -> None:
         """Auto-close queued reports older than the configured threshold.
