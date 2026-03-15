@@ -2379,3 +2379,135 @@ class TestValidateAndRetryPlan:
         )
         assert result.success is True
         assert result.validation_errors == []
+
+
+# ---------------------------------------------------------------------------
+# _build_issue_body_section — extracted helper
+# ---------------------------------------------------------------------------
+
+from prompt_builder import PromptBuilder
+
+
+class TestBuildIssueBodySection:
+    """Tests for the _build_issue_body_section helper."""
+
+    def test_returns_truncated_body(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        task = Task(id=1, title="T", body="X" * 20_000, comments=[], tags=[])
+        builder = PromptBuilder()
+        body, image_note = runner._build_issue_body_section(task, builder)
+        assert "…(truncated)" in body
+        assert image_note == ""
+
+    def test_detects_markdown_images(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        task = Task(
+            id=1,
+            title="T",
+            body="See ![img](http://example.com/img.png)",
+            comments=[],
+            tags=[],
+        )
+        builder = PromptBuilder()
+        _, image_note = runner._build_issue_body_section(task, builder)
+        assert "image" in image_note.lower()
+
+    def test_detects_html_images(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        task = Task(
+            id=1,
+            title="T",
+            body='<img src="http://example.com/img.png" />',
+            comments=[],
+            tags=[],
+        )
+        builder = PromptBuilder()
+        _, image_note = runner._build_issue_body_section(task, builder)
+        assert "image" in image_note.lower()
+
+    def test_no_image_note_without_images(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        task = Task(id=1, title="T", body="Plain text body", comments=[], tags=[])
+        builder = PromptBuilder()
+        _, image_note = runner._build_issue_body_section(task, builder)
+        assert image_note == ""
+
+    def test_records_builder_stats(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        task = Task(id=1, title="T", body="Some body", comments=[], tags=[])
+        builder = PromptBuilder()
+        runner._build_issue_body_section(task, builder)
+        stats = builder.build_stats()
+        assert stats["context_chars_before"] > 0
+
+
+# ---------------------------------------------------------------------------
+# _build_research_section — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestBuildResearchSection:
+    """Tests for the _build_research_section helper."""
+
+    def test_returns_empty_for_no_research(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        assert runner._build_research_section("") == ""
+
+    def test_returns_section_with_context(self, config, event_bus) -> None:
+        runner = _make_runner(config, event_bus)
+        section = runner._build_research_section("Found relevant code in foo.py")
+        assert "Pre-Plan Research" in section
+        assert "Found relevant code in foo.py" in section
+
+
+# ---------------------------------------------------------------------------
+# _persist_plan_results — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestPersistPlanResults:
+    """Tests for the _persist_plan_results helper."""
+
+    def test_saves_transcript(self, config, event_bus) -> None:
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        runner = _make_runner(config, event_bus)
+        result = PlanResult(issue_number=42)
+        result.transcript = "test transcript"
+        result.success = False
+        runner._persist_plan_results(42, result)
+        log_file = config.repo_root / ".hydraflow" / "logs" / "plan-issue-42.txt"
+        assert log_file.exists()
+        assert log_file.read_text() == "test transcript"
+
+    def test_saves_plan_on_success(self, config, event_bus) -> None:
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        runner = _make_runner(config, event_bus)
+        result = PlanResult(issue_number=42)
+        result.transcript = "t"
+        result.success = True
+        result.plan = "The plan"
+        result.summary = "Summary"
+        runner._persist_plan_results(42, result)
+        plan_file = config.plans_dir / "issue-42.md"
+        assert plan_file.exists()
+        assert "The plan" in plan_file.read_text()
+
+    def test_does_not_save_plan_on_failure(self, config, event_bus) -> None:
+        config.repo_root.mkdir(parents=True, exist_ok=True)
+        runner = _make_runner(config, event_bus)
+        result = PlanResult(issue_number=42)
+        result.transcript = "t"
+        result.success = False
+        result.plan = "Some plan"
+        runner._persist_plan_results(42, result)
+        plan_file = config.plans_dir / "issue-42.md"
+        assert not plan_file.exists()
+
+    def test_handles_transcript_oserror(self, config, event_bus, caplog) -> None:
+        runner = _make_runner(config, event_bus)
+        result = PlanResult(issue_number=42)
+        result.transcript = "t"
+        result.success = False
+        with patch.object(runner, "_save_transcript", side_effect=OSError("disk full")):
+            runner._persist_plan_results(42, result)  # should not raise
+        assert "Failed to save transcript" in caplog.text

@@ -131,26 +131,30 @@ class PlannerRunner(BaseRunner):
             await self._emit_status(task.id, worker_id, PlannerStatus.FAILED)
 
         result.duration_seconds = time.monotonic() - start
+        self._persist_plan_results(task.id, result)
+        return result
+
+    def _persist_plan_results(self, issue_id: int, result: PlanResult) -> None:
+        """Save transcript and plan to disk, logging warnings on failure."""
         try:
-            self._save_transcript("plan-issue", task.id, result.transcript)
+            self._save_transcript("plan-issue", issue_id, result.transcript)
         except OSError:
             logger.warning(
                 "Failed to save transcript for issue #%d",
-                task.id,
+                issue_id,
                 exc_info=True,
-                extra={"issue": task.id},
+                extra={"issue": issue_id},
             )
         if result.success and result.plan:
             try:
-                self._save_plan(task.id, result.plan, result.summary)
+                self._save_plan(issue_id, result.plan, result.summary)
             except OSError:
                 logger.warning(
                     "Failed to save plan for issue #%d",
-                    task.id,
+                    issue_id,
                     exc_info=True,
-                    extra={"issue": task.id},
+                    extra={"issue": issue_id},
                 )
-        return result
 
     def _handle_already_satisfied(
         self,
@@ -172,15 +176,7 @@ class PlannerRunner(BaseRunner):
         result.success = True
         result.summary = explanation[:200]
         result.duration_seconds = time.monotonic() - start
-        try:
-            self._save_transcript("plan-issue", task.id, result.transcript)
-        except OSError:
-            logger.warning(
-                "Failed to save transcript for issue #%d",
-                task.id,
-                exc_info=True,
-                extra={"issue": task.id},
-            )
+        self._persist_plan_results(task.id, result)
         logger.info(
             "Issue #%d already satisfied — no changes needed",
             task.id,
@@ -402,28 +398,21 @@ class PlannerRunner(BaseRunner):
             )
         return section
 
-    def _build_prompt_with_stats(
+    def _build_issue_body_section(
         self,
         issue: Task,
-        *,
-        scale: PlanScale = "full",
-        research_context: str = "",
-    ) -> tuple[str, dict[str, object]]:
-        """Build the planning prompt and pruning stats.
+        builder: PromptBuilder,
+    ) -> tuple[str, str]:
+        """Prepare the issue body and image note for the prompt.
 
-        *scale* is ``"lite"`` or ``"full"``.  The prompt adjusts which
-        sections are required and whether to include the pre-mortem step.
+        Returns ``(body, image_note)``.
         """
-        builder = PromptBuilder()
-        comments_section = self._build_comments_section(issue, builder)
-
         body_raw = issue.body or ""
         body = self._truncate_text(
-            issue.body or "", self._config.max_issue_body_chars, self._MAX_LINE_CHARS
+            body_raw, self._config.max_issue_body_chars, self._MAX_LINE_CHARS
         )
         builder.record_context("Issue body", body_raw, body)
 
-        # Detect attached images and add a note for the planner.
         image_note = ""
         if self._IMAGE_RE.search(issue.body or ""):
             image_note = (
@@ -431,25 +420,37 @@ class PlannerRunner(BaseRunner):
                 "visual context. The images cannot be rendered here, but "
                 "the surrounding text describes what they show."
             )
+        return body, image_note
 
-        manifest_section, memory_section = self._inject_manifest_and_memory()
-
-        find_label = self._config.find_label[0]
-
-        mode_note, schema_section, task_graph_guidance, pre_mortem_section = (
-            self._build_scale_sections(scale)
+    def _build_research_section(self, research_context: str) -> str:
+        """Return the research context prompt section, or empty string."""
+        if not research_context:
+            return ""
+        return (
+            f"\n\n## Pre-Plan Research\n\n"
+            f"A research agent has already explored the codebase for this issue. "
+            f"Use this context to inform your plan — do not repeat this exploration.\n\n"
+            f"{research_context}"
         )
 
-        research_section = ""
-        if research_context:
-            research_section = (
-                f"\n\n## Pre-Plan Research\n\n"
-                f"A research agent has already explored the codebase for this issue. "
-                f"Use this context to inform your plan — do not repeat this exploration.\n\n"
-                f"{research_context}"
-            )
-
-        prompt = f"""You are a planning agent for GitHub issue #{issue.id}.
+    def _assemble_planning_prompt(
+        self,
+        issue: Task,
+        *,
+        body: str,
+        image_note: str,
+        comments_section: str,
+        research_section: str,
+        manifest_section: str,
+        memory_section: str,
+        mode_note: str,
+        schema_section: str,
+        task_graph_guidance: str,
+        pre_mortem_section: str,
+    ) -> str:
+        """Assemble the full planning prompt from prepared sections."""
+        find_label = self._config.find_label[0]
+        return f"""You are a planning agent for GitHub issue #{issue.id}.
 
 ## Issue: {issue.title}
 
@@ -552,6 +553,41 @@ ALREADY_SATISFIED_END
 This closes the issue automatically. False positives waste significant human time.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
+
+    def _build_prompt_with_stats(
+        self,
+        issue: Task,
+        *,
+        scale: PlanScale = "full",
+        research_context: str = "",
+    ) -> tuple[str, dict[str, object]]:
+        """Build the planning prompt and pruning stats.
+
+        *scale* is ``"lite"`` or ``"full"``.  The prompt adjusts which
+        sections are required and whether to include the pre-mortem step.
+        """
+        builder = PromptBuilder()
+        comments_section = self._build_comments_section(issue, builder)
+        body, image_note = self._build_issue_body_section(issue, builder)
+        manifest_section, memory_section = self._inject_manifest_and_memory()
+        mode_note, schema_section, task_graph_guidance, pre_mortem_section = (
+            self._build_scale_sections(scale)
+        )
+        research_section = self._build_research_section(research_context)
+
+        prompt = self._assemble_planning_prompt(
+            issue,
+            body=body,
+            image_note=image_note,
+            comments_section=comments_section,
+            research_section=research_section,
+            manifest_section=manifest_section,
+            memory_section=memory_section,
+            mode_note=mode_note,
+            schema_section=schema_section,
+            task_graph_guidance=task_graph_guidance,
+            pre_mortem_section=pre_mortem_section,
+        )
         return prompt, builder.build_stats()
 
     def _detect_plan_scale(self, issue: Task) -> PlanScale:

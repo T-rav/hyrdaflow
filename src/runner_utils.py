@@ -133,6 +133,59 @@ def resolve_transcript(
     return transcript
 
 
+async def _write_stdin(proc: asyncio.subprocess.Process, prompt: str) -> None:
+    """Write *prompt* to the process's stdin and close it."""
+    assert proc.stdin is not None
+    proc.stdin.write(prompt.encode())
+    await proc.stdin.drain()
+    proc.stdin.close()
+
+
+async def _read_stdout_lines(
+    stdout_stream: asyncio.StreamReader,
+    parser: StreamParser,
+    event_bus: EventBus,
+    event_data: TranscriptEventData,
+    on_output: Callable[[str], bool] | None,
+    proc: asyncio.subprocess.Process,
+) -> tuple[list[str], str, str, bool]:
+    """Read and parse lines from *stdout_stream*.
+
+    Returns ``(raw_lines, result_text, accumulated_text, early_killed)``.
+    """
+    raw_lines: list[str] = []
+    result_text = ""
+    accumulated_text = ""
+    early_killed = False
+
+    async for raw in stdout_stream:
+        line = raw.decode(errors="replace").rstrip("\n")
+        raw_lines.append(line)
+        if not line.strip():
+            continue
+
+        display, result = parser.parse(line)
+        if result is not None:
+            result_text = result
+
+        if display.strip():
+            accumulated_text += display + "\n"
+            line_data: TranscriptLinePayload = {**event_data, "line": display}
+            await event_bus.publish(
+                HydraFlowEvent(
+                    type=EventType.TRANSCRIPT_LINE,
+                    data=line_data,
+                )
+            )
+
+        if on_output is not None and not early_killed and on_output(accumulated_text):
+            early_killed = True
+            proc.kill()
+            break
+
+    return raw_lines, result_text, accumulated_text, early_killed
+
+
 async def stream_claude_process(
     *,
     cmd: list[str],
@@ -150,36 +203,8 @@ async def stream_claude_process(
 ) -> str:
     """Run an agent subprocess and stream its output.
 
-    Parameters
-    ----------
-    cmd:
-        Command to execute (e.g. ``["claude", "-p", ...]`` or ``["codex", "exec", ...]``).
-    prompt:
-        Prompt text for the agent. Passed via stdin for Claude-style commands;
-        passed as a positional argument for Codex `exec`.
-    cwd:
-        Working directory for the subprocess.
-    active_procs:
-        Shared set for tracking active processes (for terminate).
-    event_bus:
-        For publishing ``TRANSCRIPT_LINE`` events.
-    event_data:
-        Base dict for event data (runner-specific keys like ``issue``/``pr``/``source``).
-        ``"line"`` is added automatically per output line.
-    logger:
-        Caller's logger for warnings (preserves per-runner log context).
-    on_output:
-        Optional callback receiving accumulated display text.
-        Return ``True`` to kill the process early.
-    usage_stats:
-        Optional dict populated with normalized usage totals and metadata
-        (availability status, backend, and raw usage blobs when emitted).
-
-    Returns
-    -------
-    str
-        The transcript string, using the fallback chain:
-        result_text → accumulated_text → raw_lines.
+    Returns the transcript string, using the fallback chain:
+    result_text -> accumulated_text -> raw_lines.
     """
     env = make_clean_env(gh_token)
 
@@ -205,59 +230,30 @@ async def stream_claude_process(
         assert proc.stdout is not None
         assert proc.stderr is not None
 
-        stdout_stream = proc.stdout  # capture for nested function
-        use_prompt_arg = stdin_mode == asyncio.subprocess.DEVNULL
-
-        if not use_prompt_arg:
-            assert proc.stdin is not None
-            proc.stdin.write(prompt.encode())
-            await proc.stdin.drain()
-            proc.stdin.close()
+        if stdin_mode != asyncio.subprocess.DEVNULL:
+            await _write_stdin(proc, prompt)
 
         # Drain stderr in background to prevent deadlock
         stderr_task = asyncio.create_task(proc.stderr.read())
-
         parser = StreamParser()
-        raw_lines: list[str] = []
-        result_text = ""
-        accumulated_text = ""
-        early_killed = False
 
         async def _stream_body() -> str:
-            nonlocal result_text, accumulated_text, early_killed
-
-            async for raw in stdout_stream:
-                line = raw.decode(errors="replace").rstrip("\n")
-                raw_lines.append(line)
-                if not line.strip():
-                    continue
-
-                display, result = parser.parse(line)
-                if result is not None:
-                    result_text = result
-
-                if display.strip():
-                    accumulated_text += display + "\n"
-                    line_data: TranscriptLinePayload = {**event_data, "line": display}
-                    await event_bus.publish(
-                        HydraFlowEvent(
-                            type=EventType.TRANSCRIPT_LINE,
-                            data=line_data,
-                        )
-                    )
-
-                if (
-                    on_output is not None
-                    and not early_killed
-                    and on_output(accumulated_text)
-                ):
-                    early_killed = True
-                    proc.kill()
-                    break
+            (
+                raw_lines,
+                result_text,
+                accumulated_text,
+                early_killed,
+            ) = await _read_stdout_lines(
+                proc.stdout,  # type: ignore[arg-type]
+                parser,
+                event_bus,
+                event_data,
+                on_output,
+                proc,
+            )
 
             stderr_bytes = await stderr_task
             await proc.wait()
-
             stderr_text = stderr_bytes.decode(errors="replace").strip()
 
             check_post_stream_errors(

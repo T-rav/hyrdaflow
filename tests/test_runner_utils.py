@@ -1034,3 +1034,162 @@ class TestResolveTranscript:
                 caller_logger=test_logger,
             )
         assert "empty stdout" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _write_stdin — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestWriteStdin:
+    """Tests for the _write_stdin helper extracted from stream_claude_process."""
+
+    @pytest.mark.asyncio
+    async def test_writes_prompt_to_stdin(self) -> None:
+        """_write_stdin should encode and write the prompt, then close stdin."""
+        from runner_utils import _write_stdin
+
+        proc = AsyncMock()
+        proc.stdin = MagicMock()
+        proc.stdin.drain = AsyncMock()
+
+        await _write_stdin(proc, "hello")
+
+        proc.stdin.write.assert_called_once_with(b"hello")
+        proc.stdin.drain.assert_awaited_once()
+        proc.stdin.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_stdin_is_none(self) -> None:
+        """_write_stdin should raise AssertionError when stdin is None."""
+        from runner_utils import _write_stdin
+
+        proc = AsyncMock()
+        proc.stdin = None
+
+        with pytest.raises(AssertionError):
+            await _write_stdin(proc, "hello")
+
+
+# ---------------------------------------------------------------------------
+# _read_stdout_lines — extracted helper
+# ---------------------------------------------------------------------------
+
+
+class TestReadStdoutLines:
+    """Tests for the _read_stdout_lines helper extracted from stream_claude_process."""
+
+    @pytest.mark.asyncio
+    async def test_collects_raw_lines(self, event_bus) -> None:
+        """_read_stdout_lines should collect all raw stdout lines."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Line one\n", b"Line two\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        parser = StreamParser()
+
+        raw_lines, result_text, accumulated, early_killed = await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            None,
+            proc,
+        )
+
+        assert len(raw_lines) == 2
+        assert "Line one" in raw_lines[0]
+        assert "Line two" in raw_lines[1]
+        assert early_killed is False
+
+    @pytest.mark.asyncio
+    async def test_early_kill_on_callback(self, event_bus) -> None:
+        """_read_stdout_lines should kill process when on_output returns True."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Line one\n", b"Line two\n", b"Line three\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        proc.kill = MagicMock()
+        parser = StreamParser()
+
+        raw_lines, _, _, early_killed = await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            lambda _: True,  # Kill on first output
+            proc,
+        )
+
+        assert early_killed is True
+        proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_blank_lines(self, event_bus) -> None:
+        """_read_stdout_lines should not accumulate blank lines."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Line one\n", b"\n", b"   \n", b"Line two\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        parser = StreamParser()
+
+        raw_lines, _, accumulated, _ = await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            None,
+            proc,
+        )
+
+        # Raw lines include all lines, accumulated skips blanks
+        assert len(raw_lines) == 4
+        assert "Line one" in accumulated
+        assert "Line two" in accumulated
+
+    @pytest.mark.asyncio
+    async def test_publishes_transcript_events(self, event_bus) -> None:
+        """_read_stdout_lines should publish TRANSCRIPT_LINE events."""
+        from runner_utils import _read_stdout_lines
+        from stream_parser import StreamParser
+
+        lines_data = [b"Hello world\n"]
+
+        async def async_iter():
+            for line in lines_data:
+                yield line
+
+        proc = AsyncMock()
+        parser = StreamParser()
+
+        await _read_stdout_lines(
+            async_iter(),
+            parser,
+            event_bus,
+            {"issue": 1},
+            None,
+            proc,
+        )
+
+        events = event_bus.get_history()
+        transcript_events = [e for e in events if e.type == EventType.TRANSCRIPT_LINE]
+        assert len(transcript_events) == 1
+        assert transcript_events[0].data["line"] == "Hello world"
