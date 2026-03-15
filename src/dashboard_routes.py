@@ -3852,9 +3852,8 @@ def create_router(
             environment=request.environment,
             reporter_id=request.reporter_id,
         )
-        state.enqueue_report(report)
-
-        # Create a tracked report for the reporter if a reporter_id is provided
+        # Create a tracked report before enqueuing so the worker always
+        # finds an existing tracked entry if it starts processing immediately.
         if request.reporter_id:
             tracked = TrackedReport(
                 id=report.id,
@@ -3869,6 +3868,14 @@ def create_router(
                 ],
             )
             state.add_tracked_report(tracked)
+
+        state.enqueue_report(report)
+
+        # Trigger the report-issue worker so it processes immediately
+        # instead of waiting for the next polling interval.
+        orch = get_orchestrator()
+        if orch:
+            orch.trigger_bg_worker("report_issue")
 
         title = f"[Bug Report] {request.description[:100]}"
         response = ReportIssueResponse(
