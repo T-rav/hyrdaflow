@@ -31,6 +31,14 @@ triage — creating follow-up issues, calling the GitHub API, and only reaching
 HITL if triage happens to fail. The toggle does not actually gate the behavior
 it claims to control.
 
+Three routing paths required audit for toggle consistency:
+
+| Method                         | Purpose                                          |
+|--------------------------------|--------------------------------------------------|
+| `_handle_pre_review_failure()` | Routes ADRs that fail structural validation      |
+| `_triage_or_hitl()`           | Routes post-council rejected/changes-requested   |
+| `_handle_duplicate()`          | Always escalates duplicates to HITL (correct)    |
+
 This bug class is subtle because it only manifests when:
 - The toggle is explicitly disabled, AND
 - The triage call succeeds (which it usually does).
@@ -65,6 +73,9 @@ Key rules:
 4. **Apply consistently.** Every code path in `_route_result` that calls both
    `_route_to_triage` and `_escalate_to_hitl` must follow this pattern
    (REJECT, REQUEST_CHANGES, and the default/deadlock branch).
+5. **Include pre-review paths.** `_handle_pre_review_failure()` must also
+   check the toggle before attempting triage — it is a routing path that
+   can bypass the toggle if not explicitly gated.
 
 ### Verification checklist
 
@@ -110,8 +121,10 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
+- Supersedes: [ADR-0023 (auto-triage-toggle-must-gate-routing)](0023-auto-triage-toggle-must-gate-routing.md)
+- See also: [ADR-0023 (stats-counter-placement-in-delegating-helpers)](0023-stats-counter-placement-in-delegating-helpers.md) — stats-coupling rule for delegating helpers
 - Source memory: #2345
 - Issue: #2355
 - Related learning: #2346, #2350
-- `src/adr_reviewer.py` — `_route_result`, `_route_to_triage`, `_escalate_to_hitl`
+- `src/adr_reviewer.py` — `_route_result`, `_route_to_triage`, `_escalate_to_hitl`, `_handle_pre_review_failure`
 - `src/config.py` — `HydraFlowConfig` (toggle definition)
