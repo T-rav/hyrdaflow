@@ -371,6 +371,19 @@ class ConfigFactory:
         adr_review_model: str = "sonnet",
         adr_auto_triage: bool = False,
         adr_pre_review: bool = True,
+        # Prompt budget configuration
+        max_discussion_comment_chars: int = 500,
+        max_common_feedback_chars: int = 2_000,
+        max_impl_plan_chars: int = 6_000,
+        max_review_feedback_chars: int = 2_000,
+        max_planner_comment_chars: int = 1_000,
+        max_planner_line_chars: int = 500,
+        max_planner_failed_plan_chars: int = 4_000,
+        max_hitl_correction_chars: int = 4_000,
+        max_hitl_cause_chars: int = 2_000,
+        max_ci_log_prompt_chars: int = 6_000,
+        max_unsticker_cause_chars: int = 3_000,
+        max_verification_instructions_chars: int = 50_000,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -591,6 +604,18 @@ class ConfigFactory:
                 adr_review_model=adr_review_model,
                 adr_auto_triage=adr_auto_triage,
                 adr_pre_review=adr_pre_review,
+                max_discussion_comment_chars=max_discussion_comment_chars,
+                max_common_feedback_chars=max_common_feedback_chars,
+                max_impl_plan_chars=max_impl_plan_chars,
+                max_review_feedback_chars=max_review_feedback_chars,
+                max_planner_comment_chars=max_planner_comment_chars,
+                max_planner_line_chars=max_planner_line_chars,
+                max_planner_failed_plan_chars=max_planner_failed_plan_chars,
+                max_hitl_correction_chars=max_hitl_correction_chars,
+                max_hitl_cause_chars=max_hitl_cause_chars,
+                max_ci_log_prompt_chars=max_ci_log_prompt_chars,
+                max_unsticker_cause_chars=max_unsticker_cause_chars,
+                max_verification_instructions_chars=max_verification_instructions_chars,
             )
 
 

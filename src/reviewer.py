@@ -49,7 +49,6 @@ class ReviewRunner(BaseRunner):
     """
 
     _log = logger
-    _MAX_CI_LOG_PROMPT_CHARS = 6_000
 
     @staticmethod
     def _format_code_scanning_alerts(
@@ -390,9 +389,9 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         """Build a focused prompt for fixing CI failures."""
         raw_ci_logs = ci_logs or ""
         compact_ci_logs = raw_ci_logs
-        if len(compact_ci_logs) > self._MAX_CI_LOG_PROMPT_CHARS:
+        if len(compact_ci_logs) > self._config.max_ci_log_prompt_chars:
             compact_ci_logs = (
-                compact_ci_logs[: self._MAX_CI_LOG_PROMPT_CHARS]
+                compact_ci_logs[: self._config.max_ci_log_prompt_chars]
                 + f"\n\n[CI logs truncated from {len(raw_ci_logs):,} chars]"
             )
 

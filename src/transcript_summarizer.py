@@ -258,18 +258,12 @@ class TranscriptSummarizer:
 
         Returns the created issue number, or ``None`` if skipped/failed.
         Never raises — all errors are logged and swallowed.
+
+        .. deprecated::
+            The ``transcript_summary_as_issue`` feature was removed. This method
+            is now a permanent no-op and always returns ``None``.
         """
-        try:
-            return await self._summarize_and_publish_inner(
-                transcript, issue_number, phase, issue_title, duration_seconds
-            )
-        except Exception:
-            logger.exception(
-                "Transcript summarization failed for issue #%d (%s phase)",
-                issue_number,
-                phase,
-            )
-            return None
+        return None
 
     async def _summarize_and_publish_inner(
         self,
