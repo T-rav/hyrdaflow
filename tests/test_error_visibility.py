@@ -69,14 +69,17 @@ class TestMilestoneFetchLogLevel:
 
     def test_source_uses_warning_not_debug(self) -> None:
         """Verify the except block uses logger.warning for milestone fetch."""
-        import inspect
+        from pathlib import Path
 
-        import dashboard_routes
-
-        source = inspect.getsource(dashboard_routes.create_router)
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "dashboard_routes"
+            / "_issue_routes.py"
+        ).read_text()
         # Find the milestone fetch handler
         idx = source.find("Failed to fetch milestones for crate titles")
-        assert idx != -1, "Expected log message not found in create_router"
+        assert idx != -1, "Expected log message not found in _issue_routes.py"
         # Check that the preceding logger call is .warning, not .debug
         context = source[max(0, idx - 80) : idx]
         assert "logger.warning" in context, (
@@ -134,7 +137,7 @@ class TestHitlSummaryFailureMessage:
 
         state.set_hitl_summary_failure = tracking_set
 
-        with patch("dashboard_routes.IssueFetcher") as mock_fetcher_cls:
+        with patch("dashboard_routes._context.IssueFetcher") as mock_fetcher_cls:
             mock_fetcher = MagicMock()
             # Raise from fetch_issue_by_number so the exception propagates to
             # _warm_hitl_summary's except block (not caught inside _compute_hitl_summary).
@@ -192,13 +195,16 @@ class TestHistoryCacheWarmUpLogLevel:
 
     def test_source_uses_warning_not_debug(self) -> None:
         """Verify the except block uses logger.warning for history cache warm-up."""
-        import inspect
+        from pathlib import Path
 
-        import dashboard_routes
-
-        source = inspect.getsource(dashboard_routes.create_router)
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "dashboard_routes"
+            / "_context.py"
+        ).read_text()
         idx = source.find("History cache warm-up failed")
-        assert idx != -1, "Expected log message not found in create_router"
+        assert idx != -1, "Expected log message not found in _context.py"
         context = source[max(0, idx - 80) : idx]
         assert "logger.warning" in context, (
             f"Expected logger.warning before cache warm-up message, got: {context!r}"

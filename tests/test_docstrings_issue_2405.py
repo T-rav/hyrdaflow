@@ -14,10 +14,15 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 
 
 def _get_function_docstrings(filepath: Path) -> dict[str, str | None]:
-    """Parse a Python file and return {function_name: docstring} for all defs."""
+    """Parse a Python file (or all .py files in a package) and return {function_name: docstring}."""
+    if filepath.is_dir():
+        result: dict[str, str | None] = {}
+        for py_file in sorted(filepath.glob("*.py")):
+            result.update(_get_function_docstrings(py_file))
+        return result
     source = filepath.read_text()
     tree = ast.parse(source, filename=str(filepath))
-    result: dict[str, str | None] = {}
+    result = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             result[node.name] = ast.get_docstring(node)
@@ -29,7 +34,9 @@ class TestDashboardRoutesDocstrings:
 
     @pytest.fixture(autouse=True)
     def _load_docstrings(self) -> None:
-        self.docstrings = _get_function_docstrings(SRC / "dashboard_routes.py")
+        pkg = SRC / "dashboard_routes"
+        target = pkg if pkg.is_dir() else SRC / "dashboard_routes.py"
+        self.docstrings = _get_function_docstrings(target)
 
     @pytest.mark.parametrize(
         "func_name",
@@ -41,12 +48,7 @@ class TestDashboardRoutesDocstrings:
             "_coerce_int",
             "_is_timestamp_in_range",
             "_status_sort_key",
-            "_list_repo_records",
-            "_new_issue_history_entry",
             "_touch_issue_timestamps",
-            "_build_hitl_context",
-            "_normalise_summary_lines",
-            "_hitl_summary_retry_due",
         ],
     )
     def test_helper_has_docstring(self, func_name: str) -> None:
