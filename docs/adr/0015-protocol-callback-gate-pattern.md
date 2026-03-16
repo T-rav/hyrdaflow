@@ -46,7 +46,10 @@ for all merge-phase gates in HydraFlow. Specifically:
 
 3. **Guard every gate with a config boolean or threshold**. Disabled gates
    return immediately with no side effects. Zero-cap thresholds
-   (`max_ci_fix_attempts == 0`) bypass execution entirely.
+   (`max_ci_fix_attempts == 0`) bypass execution entirely. Exception:
+   mandatory infrastructure callbacks (e.g., `PublishFn`) that serve as
+   cross-cutting concerns are always active — see footnote [^1] for the
+   documented exception criteria.
 
 4. **Use decision objects for multi-factor gates**. Where a gate's outcome
    depends on multiple inputs (file patterns, labels, overrides), return a
