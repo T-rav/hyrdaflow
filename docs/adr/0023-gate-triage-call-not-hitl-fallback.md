@@ -36,7 +36,7 @@ Three routing paths required audit for toggle consistency:
 | Method                         | Purpose                                          |
 |--------------------------------|--------------------------------------------------|
 | `_handle_pre_review_failure()` | Routes ADRs that fail structural validation      |
-| `_triage_or_hitl()`           | Routes post-council rejected/changes-requested   |
+| `_execute_triage_or_hitl()`   | Routes post-council rejected/changes-requested   |
 | `_handle_duplicate()`          | Always escalates duplicates to HITL (correct)    |
 
 This bug class is subtle because it only manifests when:
@@ -126,5 +126,5 @@ When reviewing any routing method that calls both `_route_to_triage` and
 - Source memory: #2345
 - Issue: #2355
 - Related learning: #2346, #2350
-- `src/adr_reviewer.py` — `_route_result`, `_route_to_triage`, `_escalate_to_hitl`, `_handle_pre_review_failure`
+- `src/adr_reviewer.py` — `_route_result`, `_execute_triage_or_hitl`, `_route_to_triage`, `_escalate_to_hitl`, `_handle_pre_review_failure`
 - `src/config.py` — `HydraFlowConfig` (toggle definition)
