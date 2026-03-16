@@ -1,6 +1,6 @@
 # ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
-**Status:** Accepted
+**Status:** Proposed
 **Date:** 2026-03-15
 
 ## Context
@@ -9,28 +9,37 @@ HydraFlow's ADR review pipeline includes an `adr_auto_triage` config toggle
 that controls whether fixable issues are routed back through the triage pipeline
 (creating a follow-up issue) or escalated to HITL for human intervention.
 
-A bug was discovered where the toggle was not consistently enforced across all
-routing paths.  Specifically, a routing method would unconditionally call
-`_route_to_triage()` and only conditionally increment the `auto_triaged` stat
-counter based on the toggle value.  This meant:
+> **Note:** The `adr_auto_triage` toggle is not yet defined in `config.py` or
+> enforced in `adr_reviewer.py`. This ADR describes the intended design for
+> when the toggle is implemented. The canonical toggle name is
+> `adr_auto_triage` (not `adr_review_auto_triage`).
 
-- When `adr_auto_triage = False`, the system still routed issues to triage
-  (creating follow-up issues and bypassing HITL), but simply did not count them
+A bug pattern was identified where a routing method unconditionally calls
+`_route_to_triage()` and only conditionally increments the `auto_triaged` stat
+counter based on a toggle value.  This means:
+
+- When the toggle is disabled, the system still routes issues to triage
+  (creating follow-up issues and bypassing HITL), but simply does not count them
   in the `auto_triaged` metric.
-- The operator believed HITL escalation was active, but issues were silently
+- The operator believes HITL escalation is active, but issues are silently
   being auto-triaged — a correctness bug masked as a stats-only difference.
 
-Three routing paths required audit for toggle consistency:
+This pattern follows the same config-guard principle established in
+[ADR-0015 (Protocol-Based Callback Injection Gate Pattern)](0015-protocol-callback-gate-pattern.md),
+which defines a four-phase protocol where the **config guard** is always the
+first step: check the feature flag and return early if disabled.
 
-| Method                         | Purpose                                          |
-|--------------------------------|--------------------------------------------------|
-| `_handle_pre_review_failure()` | Routes ADRs that fail structural validation      |
-| `_triage_or_hitl()`           | Routes post-council rejected/changes-requested   |
-| `_handle_duplicate()`          | Always escalates duplicates to HITL (correct)    |
+Three routing paths require audit for toggle consistency:
 
-The fix unified post-council routing through `_triage_or_hitl()`, which gates
-the `_route_to_triage()` call on the toggle before any action is taken.
-`_handle_pre_review_failure()` was also corrected to check the toggle before
+| Method                              | Purpose                                          |
+|-------------------------------------|--------------------------------------------------|
+| `_route_pre_validation_failure()`   | Routes ADRs that fail structural validation      |
+| `_execute_triage_or_hitl()`         | Routes post-council rejected/changes-requested   |
+| `_handle_duplicate()`               | Always escalates duplicates to HITL (correct)    |
+
+The fix will unify post-council routing through `_execute_triage_or_hitl()`,
+which gates the `_route_to_triage()` call on the toggle before any action is
+taken.  `_route_pre_validation_failure()` must also check the toggle before
 attempting triage.
 
 ## Decision
@@ -43,7 +52,7 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
    The toggle must be the first condition checked, before any issue creation or
    API call occurs.
 
-   Anti-pattern versus correct toggle-first guard pattern (applied in `_triage_or_hitl`):
+   Anti-pattern versus correct toggle-first guard pattern (applied in `_execute_triage_or_hitl`):
 
    ```python
    # Anti-pattern: triage call is unconditional
@@ -62,8 +71,8 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
 
 2. **Centralise gated routing through a single helper.**  All post-council
    routing decisions (reject, changes requested, no consensus) must flow
-   through `_triage_or_hitl()`, which encapsulates the toggle check, the
-   triage attempt, the stat increment, and the HITL fallback in one place.
+   through `_execute_triage_or_hitl()`, which encapsulates the toggle check,
+   the triage attempt, the stat increment, and the HITL fallback in one place.
    Individual routing call-sites must not duplicate this logic.
 
 3. **Audit all routing paths when adding or modifying a routing toggle.**
@@ -72,10 +81,12 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
    grep for the routing target (e.g. `_route_to_triage`) is the minimum
    verification step.
 
-4. **Stats must be coupled to the action, not to the toggle check.**  The
-   `auto_triaged` counter should increment when triage actually occurs (i.e.
-   inside the success branch of the helper), not in a separate conditional
-   block that can drift out of sync with the routing logic.
+4. **Stats must be coupled to the action, not to the toggle check.**  See
+   [ADR-0023 (Stats Counter Placement in Delegating Helpers)](0023-stats-counter-placement-in-delegating-helpers.md)
+   for the full treatment of this principle.  In brief: the `auto_triaged`
+   counter increments inside the helper's success branch, and `escalated`
+   increments inside the fallback branch — never unconditionally at the
+   call site.
 
 ### Verification checklist
 
@@ -93,8 +104,8 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 - Eliminates silent toggle bypass — operators can trust that disabling
   auto-triage actually disables it across all code paths.
-- Centralised routing helper (`_triage_or_hitl`) reduces duplication and
-  makes the routing logic auditable from a single location.
+- Centralised routing helper (`_execute_triage_or_hitl`) reduces duplication
+  and makes the routing logic auditable from a single location.
 - Stats accurately reflect system behaviour, improving observability and
   debugging.
 - Establishes a review checklist item: "does every call-site for the gated
@@ -116,13 +127,13 @@ When reviewing any routing method that calls both `_route_to_triage` and
    A `@gated_by("adr_auto_triage")` decorator that wraps `_route_to_triage()`
    and short-circuits when the toggle is off.
    Rejected: adds indirection and makes the fallback-to-HITL path harder to
-   follow.  The explicit `if` check in `_triage_or_hitl()` is clearer.
+   follow.  The explicit `if` check in `_execute_triage_or_hitl()` is clearer.
 
 2. **Toggle check inside `_route_to_triage()` itself.**
    Move the toggle check into the routing method so callers cannot forget it.
    Rejected: `_route_to_triage()` is a low-level method that should remain
    toggle-unaware.  The toggle is a policy decision that belongs in the
-   orchestration layer (`_triage_or_hitl`), not in the action method.
+   orchestration layer (`_execute_triage_or_hitl`), not in the action method.
 
 3. **Separate toggle per routing path.**
    E.g. `adr_auto_triage_pre_review`, `adr_auto_triage_post_council`.
@@ -133,11 +144,14 @@ When reviewing any routing method that calls both `_route_to_triage` and
 ## Related
 
 - **Supersedes:** [ADR-0023 (Gate Triage Call on Config Toggle, Not Just HITL Fallback)](0023-gate-triage-call-not-hitl-fallback.md)
-  - Absorbed: toggle-first guard pattern code samples and verification checklist
+  - Absorbed: toggle-first guard pattern code samples (Decision §1) and verification checklist
+- **Cross-references:**
+  - [ADR-0015 (Protocol-Based Callback Injection Gate Pattern)](0015-protocol-callback-gate-pattern.md) — Rule 1 (config-guard-first) is a specific application of ADR-0015's four-phase protocol (config guard → bypass → execute → telemetry)
+  - [ADR-0023 (Stats Counter Placement in Delegating Helpers)](0023-stats-counter-placement-in-delegating-helpers.md) — Rule 4 (stats coupled to action) defers to this ADR for the full counter-placement principle
 - Council resolution: #2755
 - Source memory: #2327
 - Source issue: #2341
 - Related: #2345, #2355, #2346, #2350
 - Duplicate resolution: #2757
-- `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
-- `src/config.py` — `adr_auto_triage` toggle definition
+- `src/adr_reviewer.py` — `_execute_triage_or_hitl()`, `_route_to_triage()`, `_route_pre_validation_failure()`, `_handle_duplicate()`
+- `src/config.py` — `adr_auto_triage` toggle (planned, not yet implemented)
