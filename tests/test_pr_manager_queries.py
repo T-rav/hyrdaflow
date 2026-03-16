@@ -451,7 +451,7 @@ class TestRetryWrapperUsage:
 
     @pytest.mark.asyncio
     async def test_merge_pr_does_not_use_retry(self, config, event_bus):
-        """merge_pr must use run_subprocess (not retry) to avoid race conditions."""
+        """merge_pr must use run_subprocess (not retry) for the merge command."""
         mgr = make_pr_manager(config, event_bus)
         with (
             patch("pr_manager.run_subprocess", new_callable=AsyncMock) as mock_plain,
@@ -459,11 +459,15 @@ class TestRetryWrapperUsage:
                 "pr_manager.run_subprocess_with_retry", new_callable=AsyncMock
             ) as mock_retry,
         ):
+            # get_pr_title_and_body uses _run_gh → run_subprocess_with_retry
+            mock_retry.return_value = '{"title":"Fix","body":""}'
             mock_plain.return_value = ""
             await mgr.merge_pr(101)
 
+        # The merge itself uses run_subprocess (not retry)
         mock_plain.assert_awaited_once()
-        mock_retry.assert_not_awaited()
+        # get_pr_title_and_body goes through _run_gh → run_subprocess_with_retry
+        mock_retry.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_add_labels_uses_retry(self, config, event_bus):

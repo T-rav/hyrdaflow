@@ -218,6 +218,9 @@ class HITLRunner(BaseRunner):
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
 - Ensure `make quality` passes before committing.
+- Do NOT bundle unrelated refactoring with the assigned fix. For example, do not
+  migrate raw model constructors to factories, rename variables, or reformat code
+  in files you are not otherwise changing for the issue. Each concern is a separate PR.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="correction")}"""
         stats = builder.build_stats()

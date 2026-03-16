@@ -396,6 +396,35 @@ class TestGenerateChangelog:
         assert "No changes recorded." in result
 
     @pytest.mark.asyncio
+    async def test_continues_after_pr_lookup_exception(self) -> None:
+        """First sub-issue PR lookup raises; second sub-issue still included."""
+        pr_manager = AsyncMock()
+
+        async def _get_pr_side_effect(issue_number: int) -> int:
+            if issue_number == 1:
+                raise RuntimeError("API timeout")
+            return 102
+
+        pr_manager.get_pr_for_issue = AsyncMock(side_effect=_get_pr_side_effect)
+        pr_manager.get_pr_title_and_body = AsyncMock(
+            return_value=("feat: second feature", "## Summary\n- Second change\n")
+        )
+
+        result = await generate_changelog(
+            pr_manager=pr_manager,
+            sub_issues=[1, 2],
+            version="1.0.0",
+            date="2026-02-28",
+        )
+
+        # Both sub-issues were attempted (first raised, second succeeded)
+        assert pr_manager.get_pr_for_issue.await_count == 2
+        # First sub-issue was skipped due to exception; second included
+        assert "second feature" in result
+        # get_pr_title_and_body only called for the successful issue
+        pr_manager.get_pr_title_and_body.assert_called_once_with(102)
+
+    @pytest.mark.asyncio
     async def test_handles_empty_sub_issues(self) -> None:
         pr_manager = AsyncMock()
 

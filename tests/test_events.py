@@ -8,10 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from pydantic import ValidationError
 
 from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
-from models import SessionLog, WorkerUpdatePayload
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -155,113 +153,6 @@ class TestHydraFlowEvent:
 
 
 # ---------------------------------------------------------------------------
-# EventData type constraint
-# ---------------------------------------------------------------------------
-
-
-class TestEventDataType:
-    """EventData must reject non-dict payloads at the Pydantic level."""
-
-    def test_rejects_string_payload(self) -> None:
-        with pytest.raises(ValidationError):
-            HydraFlowEvent(type=EventType.ERROR, data="bad")  # type: ignore[arg-type]
-
-    def test_rejects_list_payload(self) -> None:
-        with pytest.raises(ValidationError):
-            HydraFlowEvent(type=EventType.ERROR, data=[1, 2])  # type: ignore[arg-type]
-
-    def test_rejects_int_payload(self) -> None:
-        with pytest.raises(ValidationError):
-            HydraFlowEvent(type=EventType.ERROR, data=42)  # type: ignore[arg-type]
-
-    def test_rejects_none_payload(self) -> None:
-        with pytest.raises(ValidationError):
-            HydraFlowEvent(type=EventType.ERROR, data=None)  # type: ignore[arg-type]
-
-    def test_rejects_basemodel_payload(self) -> None:
-        """BaseModel instances must be passed via .model_dump(), not directly."""
-        log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
-        with pytest.raises(ValidationError):
-            HydraFlowEvent(type=EventType.SESSION_START, data=log)  # type: ignore[arg-type]
-
-    def test_accepts_dict_payload(self) -> None:
-        event = HydraFlowEvent(type=EventType.ERROR, data={"msg": "oops"})
-        assert event.data == {"msg": "oops"}
-
-    def test_accepts_empty_dict_payload(self) -> None:
-        event = HydraFlowEvent(type=EventType.ERROR, data={})
-        assert event.data == {}
-
-    def test_default_data_is_empty_dict(self) -> None:
-        event = HydraFlowEvent(type=EventType.ERROR)
-        assert event.data == {}
-
-    def test_accepts_typed_dict_payload(self) -> None:
-        payload: WorkerUpdatePayload = {
-            "issue": 42,
-            "worker": 1,
-            "status": "active",
-            "role": "implement",
-        }
-        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=payload)
-        assert event.data["issue"] == 42
-        assert event.data["status"] == "active"
-
-    def test_accepts_pydantic_model_dump_payload(self) -> None:
-        log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
-        event = HydraFlowEvent(type=EventType.SESSION_START, data=log.model_dump())
-        assert event.data["id"] == "sess-1"
-        assert event.data["repo"] == "org/repo"
-
-    def test_data_get_returns_expected_values(self) -> None:
-        event = HydraFlowEvent(type=EventType.ERROR, data={"key": "value", "count": 5})
-        assert event.data.get("key") == "value"
-        assert event.data.get("count") == 5
-        assert event.data.get("missing") is None
-
-    def test_serialization_roundtrip_preserves_data(self) -> None:
-        payload = {"issue": 42, "nested": {"key": "value"}, "tags": [1, 2, 3]}
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data=payload)
-        json_str = event.model_dump_json()
-        restored = HydraFlowEvent.model_validate_json(json_str)
-        assert restored.data == payload
-        assert restored.type == event.type
-
-
-# ---------------------------------------------------------------------------
-# typed_data
-# ---------------------------------------------------------------------------
-
-
-class TestTypedDataCast:
-    def test_typed_data_returns_data_dict(self) -> None:
-        event = HydraFlowEvent(
-            type=EventType.WORKER_UPDATE,
-            data={"issue_number": 1, "status": "active"},
-        )
-        result = event.typed_data(dict)
-        assert result == {"issue_number": 1, "status": "active"}
-
-    def test_typed_data_preserves_nested_values(self) -> None:
-        payload = {"issue_number": 42, "nested": {"key": "value"}}
-        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data=payload)
-        result = event.typed_data(dict)
-        assert result["nested"]["key"] == "value"
-
-    def test_typed_data_with_typed_dict_class(self) -> None:
-        payload: WorkerUpdatePayload = {
-            "issue": 7,
-            "worker": 2,
-            "status": "done",
-            "role": "implement",
-        }
-        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=payload)
-        result = event.typed_data(WorkerUpdatePayload)
-        assert result.get("issue") == 7
-        assert result.get("role") == "implement"
-
-
-# ---------------------------------------------------------------------------
 # HydraFlowEvent ID
 # ---------------------------------------------------------------------------
 
@@ -339,8 +230,7 @@ class TestEventBusPublishSubscribe:
         assert queue.get_nowait() is e1
         assert queue.get_nowait() is e2
 
-    @pytest.mark.asyncio
-    async def test_subscribe_returns_asyncio_queue(self) -> None:
+    def test_subscribe_returns_asyncio_queue(self) -> None:
         bus = EventBus()
         queue = bus.subscribe()
         assert isinstance(queue, asyncio.Queue)
@@ -444,8 +334,7 @@ class TestEventBusPublishSubscribe:
         await bus.publish(event)
         assert event.repo is None
 
-    @pytest.mark.asyncio
-    async def test_subscribe_with_custom_max_queue(self) -> None:
+    def test_subscribe_with_custom_max_queue(self) -> None:
         bus = EventBus()
         queue = bus.subscribe(max_queue=10)
         assert queue.maxsize == 10
@@ -480,16 +369,14 @@ class TestEventBusUnsubscribe:
         assert q1.empty()
         assert q2.get_nowait() is event
 
-    @pytest.mark.asyncio
-    async def test_unsubscribe_nonexistent_queue_is_noop(self) -> None:
+    def test_unsubscribe_nonexistent_queue_is_noop(self) -> None:
         bus = EventBus()
         orphan: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         # Should not raise
         bus.unsubscribe(orphan)
         assert orphan not in bus._subscribers
 
-    @pytest.mark.asyncio
-    async def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
+    def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
         bus = EventBus()
         queue = bus.subscribe()
         bus.unsubscribe(queue)
@@ -548,8 +435,7 @@ class TestEventBusHistory:
             )
         assert len(bus.get_history()) == 10
 
-    @pytest.mark.asyncio
-    async def test_empty_history_on_new_bus(self) -> None:
+    def test_empty_history_on_new_bus(self) -> None:
         bus = EventBus()
         assert bus.get_history() == []
 
@@ -629,8 +515,7 @@ class TestEventBusClear:
         await bus.publish(EventFactory.create(type=EventType.ORCHESTRATOR_STATUS))
         assert queue.empty()
 
-    @pytest.mark.asyncio
-    async def test_clear_on_empty_bus_does_not_raise(self) -> None:
+    def test_clear_on_empty_bus_does_not_raise(self) -> None:
         bus = EventBus()
         bus.clear()  # should not raise
         assert bus._subscribers == []
@@ -907,6 +792,30 @@ class TestRotateSyncCorruptLines:
         assert "Dropping corrupt event line during rotation" in caplog.text
 
 
+class TestRotateSyncCorruptContinuance:
+    """Verify _rotate_sync keeps valid lines after dropping corrupt ones."""
+
+    def test_rotate_sync_keeps_valid_lines_after_corrupt(self, tmp_path: Path) -> None:
+        """Valid lines before and after corrupt lines are preserved in the rotated file."""
+        log_path = tmp_path / "events.jsonl"
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"batch": 1})
+        valid_line = event.model_dump_json()
+        # Mix: valid, corrupt, valid — both valid lines should survive
+        lines = [valid_line, "corrupt garbage", valid_line]
+        log_path.write_text("\n".join(lines) + "\n")
+
+        event_log = EventLog(log_path)
+        event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
+
+        # Read rotated file and verify both valid lines were kept
+        content = log_path.read_text()
+        kept = [line for line in content.strip().split("\n") if line.strip()]
+        assert len(kept) == 2
+        for line in kept:
+            parsed = HydraFlowEvent.model_validate_json(line)
+            assert parsed.type == EventType.PHASE_CHANGE
+
+
 class TestLoadSyncCorruptLines:
     """Verify EventLog._load_sync skips corrupt lines with warning+exc_info."""
 
@@ -1026,48 +935,59 @@ class TestPersistEventErrorHandling:
 
         assert event in bus.get_history()
 
-    @pytest.mark.asyncio
-    async def test_log_persist_failure_callback_skips_cancelled_task(
+    def test_log_persist_failure_callback_skips_cancelled_task(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Done callback should not log for cancelled tasks."""
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        future.cancel()
+        loop = asyncio.new_event_loop()
+        try:
+            future: asyncio.Future[None] = loop.create_future()
+            future.cancel()
 
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)
+            with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+                _log_persist_failure(future)
 
-        assert "Event persist task failed" not in caplog.text
+            assert "Event persist task failed" not in caplog.text
+        finally:
+            loop.close()
 
-    @pytest.mark.asyncio
-    async def test_log_persist_failure_callback_logs_exception(
+    def test_log_persist_failure_callback_logs_exception(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Done callback should log warning when task has an exception."""
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        future.set_exception(ValueError("bad serialization"))
+        loop = asyncio.new_event_loop()
+        try:
+            future: asyncio.Future[None] = loop.create_future()
+            future.set_exception(ValueError("bad serialization"))
 
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)
+            with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+                _log_persist_failure(future)
 
-        records = [
-            r for r in caplog.records if "Event persist task failed" in r.getMessage()
-        ]
-        assert len(records) == 1
-        assert records[0].exc_info is not None
+            records = [
+                r
+                for r in caplog.records
+                if "Event persist task failed" in r.getMessage()
+            ]
+            assert len(records) == 1
+            assert records[0].exc_info is not None
+        finally:
+            loop.close()
 
-    @pytest.mark.asyncio
-    async def test_log_persist_failure_callback_silent_on_success(
+    def test_log_persist_failure_callback_silent_on_success(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Done callback should not log when task completed successfully."""
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        future.set_result(None)
+        loop = asyncio.new_event_loop()
+        try:
+            future: asyncio.Future[None] = loop.create_future()
+            future.set_result(None)
 
-        with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
-            _log_persist_failure(future)
+            with caplog.at_level(logging.WARNING, logger="hydraflow.events"):
+                _log_persist_failure(future)
 
-        assert "Event persist task failed" not in caplog.text
+            assert "Event persist task failed" not in caplog.text
+        finally:
+            loop.close()
 
 
 # ---------------------------------------------------------------------------

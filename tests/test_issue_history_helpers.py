@@ -309,6 +309,54 @@ class TestProcessEventsIntoRows:
         assert item["prs"][0]["merged"] is True
 
     @pytest.mark.asyncio
+    async def test_pr_created_title_stored_in_history(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """PR_CREATED event with title populates prs[].title in issue history."""
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                timestamp="2026-01-01T00:00:00+00:00",
+                data={"issue": 71, "pr": 810, "title": "Fixes #71: Add feature"},
+            )
+        )
+
+        router = _make_router(config, event_bus, state, tmp_path)
+        endpoint = _get_endpoint(router)
+        resp = await endpoint(limit=100)
+        payload = json.loads(resp.body)
+        item = next(x for x in payload["items"] if x["issue_number"] == 71)
+        assert item["prs"][0]["title"] == "Fixes #71: Add feature"
+
+    @pytest.mark.asyncio
+    async def test_merge_update_title_stored_in_history(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """MERGE_UPDATE event with title populates prs[].title in issue history."""
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                timestamp="2026-01-01T00:00:00+00:00",
+                data={"issue": 72, "pr": 820},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                timestamp="2026-01-01T00:01:00+00:00",
+                data={"pr": 820, "status": "merged", "title": "Fixes #72: Fix bug"},
+            )
+        )
+
+        router = _make_router(config, event_bus, state, tmp_path)
+        endpoint = _get_endpoint(router)
+        resp = await endpoint(limit=100)
+        payload = json.loads(resp.body)
+        item = next(x for x in payload["items"] if x["issue_number"] == 72)
+        assert item["prs"][0]["merged"] is True
+        assert item["prs"][0]["title"] == "Fixes #72: Fix bug"
+
+    @pytest.mark.asyncio
     async def test_issue_created_sets_epic_and_title(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:

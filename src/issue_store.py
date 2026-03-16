@@ -31,6 +31,7 @@ class IssueStoreStage(StrEnum):
     READY = "ready"
     REVIEW = "review"
     HITL = "hitl"
+    MERGED = "merged"
 
 
 # Backward-compatible module-level aliases
@@ -39,6 +40,7 @@ STAGE_PLAN = IssueStoreStage.PLAN
 STAGE_READY = IssueStoreStage.READY
 STAGE_REVIEW = IssueStoreStage.REVIEW
 STAGE_HITL = IssueStoreStage.HITL
+STAGE_MERGED = IssueStoreStage.MERGED
 
 # Priority order — higher index = further along in the pipeline.
 # When an issue has multiple HydraFlow labels, it is routed to the
@@ -86,6 +88,9 @@ class IssueStore:
         }
         # HITL issues are tracked as a set (display only, not consumed)
         self._hitl_numbers: set[int] = set()
+
+        # Merged issues — populated by mark_merged(), used by pipeline snapshot
+        self._merged_numbers: set[int] = set()
 
         # Task cache: retains title/url for tasks seen during routing
         self._issue_cache: dict[int, Task] = {}
@@ -480,6 +485,15 @@ class IssueStore:
             self._processed_count[stage] += 1
         self._publish_queue_update_nowait()
 
+    def mark_merged(self, issue_number: int) -> None:
+        """Record an issue as merged so it appears in the pipeline snapshot."""
+        self._merged_numbers.add(issue_number)
+        self._publish_queue_update_nowait()
+
+    def get_merged_numbers(self) -> frozenset[int]:
+        """Return the set of issue numbers that have been merged."""
+        return frozenset(self._merged_numbers)
+
     def is_active(self, issue_number: int) -> bool:
         """Return True if the task is currently being processed."""
         return issue_number in self._active
@@ -616,6 +630,24 @@ class IssueStore:
             hitl_list.append(entry)
         return hitl_list
 
+    def _snapshot_merged(self) -> list[PipelineSnapshotEntry]:
+        """Return merged issues as a flat list."""
+        merged_list: list[PipelineSnapshotEntry] = []
+        for issue_number in self._merged_numbers:
+            cached = self._issue_cache.get(issue_number)
+            entry = PipelineSnapshotEntry(
+                issue_number=issue_number,
+                title=cached.title if cached else f"Issue #{issue_number}",
+                url=cached.source_url if cached else "",
+                status="merged",
+            )
+            if cached:
+                epic_meta = self._epic_metadata(cached)
+                if epic_meta:
+                    entry.update(epic_meta)  # type: ignore[typeddict-item]
+            merged_list.append(entry)
+        return merged_list
+
     def _snapshot_in_flight(self) -> dict[str, list[PipelineSnapshotEntry]]:
         """Return in-flight tasks grouped by their origin stage.
 
@@ -651,6 +683,7 @@ class IssueStore:
         for stage, entries in self._snapshot_active().items():
             snapshot.setdefault(stage, []).extend(entries)
         snapshot[STAGE_HITL] = self._snapshot_hitl()
+        snapshot[STAGE_MERGED] = self._snapshot_merged()
         return snapshot
 
     def get_queue_stats(self) -> QueueStats:
@@ -659,6 +692,7 @@ class IssueStore:
         for stage, q in self._queues.items():
             queue_depth[stage] = len({task.id for task in q})
         queue_depth[STAGE_HITL] = len(self._hitl_numbers)
+        queue_depth[STAGE_MERGED] = len(self._merged_numbers)
 
         active_count: dict[str, int] = {}
         for stage in [STAGE_FIND, STAGE_PLAN, STAGE_READY, STAGE_REVIEW, STAGE_HITL]:

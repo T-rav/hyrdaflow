@@ -36,6 +36,7 @@ def _make_handler(
     verification_judge=None,
     epic_checker=None,
     update_bg_worker_status=None,
+    store=None,
 ) -> PostMergeHandler:
     """Build a PostMergeHandler with standard mock dependencies."""
     state = StateTracker(config.state_file)
@@ -49,6 +50,7 @@ def _make_handler(
         verification_judge=verification_judge,
         epic_checker=epic_checker,
         update_bg_worker_status=update_bg_worker_status,
+        store=store,
     )
 
 
@@ -134,6 +136,58 @@ class TestPostMergeHandler:
         )
 
         handler._prs.close_issue.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_calls_store_mark_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Successful merge must call IssueStore.mark_merged for pipeline snapshot."""
+        mock_store = MagicMock()
+        handler = _make_handler(config, store=mock_store)
+        pr = PRInfoFactory.create(number=99, issue_number=55)
+        issue = TaskFactory.create(id=55)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        mock_store.mark_merged.assert_called_once_with(55)
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_merge_failure_does_not_call_store_mark_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Failed merge must NOT call mark_merged on the issue store."""
+        mock_store = MagicMock()
+        handler = _make_handler(config, store=mock_store)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=False)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        mock_store.mark_merged.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handle_approved_posts_inference_totals_comment(
@@ -324,8 +378,7 @@ class TestPostMergeHandler:
         esc = escalate_fn.await_args.args[0]
         assert esc.cause == "PR merge failed on GitHub: merge conflict"
 
-    @pytest.mark.asyncio
-    async def test_get_judge_result_none(self, config: HydraFlowConfig) -> None:
+    def test_get_judge_result_none(self, config: HydraFlowConfig) -> None:
         """When verdict is None, should return None."""
         handler = _make_handler(config)
         issue = TaskFactory.create()
@@ -334,10 +387,7 @@ class TestPostMergeHandler:
         result = handler._get_judge_result(issue, pr, None)
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_get_judge_result_converts_verdict(
-        self, config: HydraFlowConfig
-    ) -> None:
+    def test_get_judge_result_converts_verdict(self, config: HydraFlowConfig) -> None:
         """Should convert JudgeVerdict into JudgeResult."""
         handler = _make_handler(config)
         issue = TaskFactory.create()
@@ -1343,6 +1393,28 @@ class TestNarrowedExceptionHandling:
         # Should not raise — RuntimeError is caught
         await handler._notify_epic_approval(42)
         mock_epic_manager.on_child_approved.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_notify_epic_approval_continues_after_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """First parent epic raises RuntimeError; second is still notified."""
+        handler = _make_handler(config)
+        mock_epic_manager = AsyncMock()
+        mock_epic_manager.find_parent_epics = MagicMock(return_value=[100, 200])
+
+        async def _approval_side_effect(epic_num: int, _issue: int) -> None:
+            if epic_num == 100:
+                raise RuntimeError("API down")
+
+        mock_epic_manager.on_child_approved = AsyncMock(
+            side_effect=_approval_side_effect
+        )
+        handler._epic_manager = mock_epic_manager
+
+        await handler._notify_epic_approval(42)
+        # Both parent epics were attempted
+        assert mock_epic_manager.on_child_approved.await_count == 2
 
     @pytest.mark.asyncio
     async def test_notify_epic_approval_catches_os_error(

@@ -438,6 +438,7 @@ class TestPipelineIssueStatusEnum:
             (PipelineIssueStatus.ACTIVE, "active"),
             (PipelineIssueStatus.PROCESSING, "processing"),
             (PipelineIssueStatus.HITL, "hitl"),
+            (PipelineIssueStatus.MERGED, "merged"),
         ],
         ids=[m.name for m in PipelineIssueStatus],
     )
@@ -445,7 +446,7 @@ class TestPipelineIssueStatusEnum:
         assert member == expected
 
     def test_member_count(self) -> None:
-        assert len(PipelineIssueStatus) == 4
+        assert len(PipelineIssueStatus) == 5
 
 
 class TestBGWorkerHealthEnum:

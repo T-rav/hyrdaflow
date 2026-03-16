@@ -248,6 +248,7 @@ def build_services(
         stop_event=stop_event,
         resolver=conflict_resolver,
         troubleshooting_store=troubleshooting_store,
+        store=store,
     )
     memory_sync = MemorySyncWorker(
         config,
@@ -278,6 +279,7 @@ def build_services(
         epic_checker=epic_checker,
         update_bg_worker_status=callbacks.update_bg_worker_status,
         epic_manager=epic_manager,
+        store=store,
     )
     reviewer = ReviewPhase(
         config,

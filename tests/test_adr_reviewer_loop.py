@@ -78,8 +78,7 @@ class TestADRReviewerLoopRun:
         assert result["reviewed"] == 2
         assert result["accepted"] == 1
 
-    @pytest.mark.asyncio
-    async def test_get_default_interval(self, tmp_path: Path) -> None:
+    def test_get_default_interval(self, tmp_path: Path) -> None:
         """The default interval comes from config."""
         loop, _stop = _make_loop(tmp_path, interval=43200)
         assert loop._get_default_interval() == 43200

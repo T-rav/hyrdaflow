@@ -1398,10 +1398,14 @@ class HydraFlowConfig(BaseModel):
     def resolve_defaults(self) -> HydraFlowConfig:
         """Resolve paths, repo slug, and apply env var overrides.
 
-        Resolution order (two-phase path resolution):
+        Resolution order (seven steps):
           1. ``_resolve_base_paths`` — repo_root, worktree_base, data_root
           2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
           3. ``_resolve_repo_scoped_paths`` — state_file, event_log_path, config_file
+          4. ``_apply_env_overrides`` — env-var overrides for labels, tokens, etc.
+          5. ``_apply_profile_overrides`` — grouped tool/model defaults for profiles
+          6. ``_harmonize_tool_model_defaults`` — tool and model consistency
+          7. ``_validate_docker`` — Docker configuration validation
 
         Base paths are resolved first because repo detection depends on repo_root,
         and repo-scoped paths depend on both data_root and the repo slug.

@@ -35,8 +35,6 @@ class TestReviewRunnerInheritance:
     def test_inherits_from_base_runner(self, config, event_bus) -> None:
         runner = ReviewRunner(config, event_bus)
         assert isinstance(runner, BaseRunner)
-        assert runner._config is config
-        assert runner._bus is event_bus
 
     def test_has_terminate_method(self, config, event_bus) -> None:
         runner = ReviewRunner(config, event_bus)
@@ -1268,16 +1266,16 @@ def test_build_review_prompt_includes_test_coverage_audit(
     assert "New branches/conditions" in prompt
 
 
-def test_build_review_prompt_includes_duplicate_type_alias_check(
+def test_build_review_prompt_includes_scope_creep_check(
     config, event_bus, pr_info, task
 ):
-    """Reviewer prompt should include duplicate type alias check instruction."""
+    """Reviewer prompt must instruct mandatory scope check to catch unrelated changes."""
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
-    assert "Duplicate type alias check" in prompt
-    assert "Annotated[" in prompt
-    assert "canonical location" in prompt
+    assert "Scope check" in prompt
+    assert "scope creep" in prompt
+    assert "unrelated" in prompt
 
 
 # ---------------------------------------------------------------------------

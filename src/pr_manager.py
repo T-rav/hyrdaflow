@@ -331,6 +331,7 @@ class PRManager:
                         branch=branch,
                         draft=draft,
                         url=pr_url,
+                        title=title,
                     ),
                 )
             )
@@ -432,6 +433,19 @@ class PRManager:
             logger.info("[dry-run] Would merge PR #%d", pr_number)
             return True
 
+        # Fetch title before merging so we can include it in the event.
+        # Isolated from the merge try/except so a title-fetch failure
+        # cannot prevent the merge itself.
+        pr_title = ""
+        try:
+            pr_title, _ = await self.get_pr_title_and_body(pr_number)
+        except Exception:
+            logger.debug(
+                "Could not fetch title for PR #%d before merge",
+                pr_number,
+                exc_info=True,
+            )
+
         try:
             await run_subprocess(
                 "gh",
@@ -446,10 +460,13 @@ class PRManager:
                 gh_token=self._config.gh_token,
             )
 
+            payload = MergeUpdatePayload(pr=pr_number, status="merged")
+            if pr_title:
+                payload["title"] = pr_title
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.MERGE_UPDATE,
-                    data=MergeUpdatePayload(pr=pr_number, status="merged"),
+                    data=payload,
                 )
             )
             return True

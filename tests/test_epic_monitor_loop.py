@@ -61,12 +61,10 @@ class TestEpicMonitorLoop:
 
         mgr.check_stale_epics.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_default_interval(self, tmp_path: Path) -> None:
+    def test_default_interval(self, tmp_path: Path) -> None:
         loop, _, _ = _make_loop(tmp_path, interval=900)
         assert loop._get_default_interval() == 900
 
-    @pytest.mark.asyncio
-    async def test_worker_name(self, tmp_path: Path) -> None:
+    def test_worker_name(self, tmp_path: Path) -> None:
         loop, _, _ = _make_loop(tmp_path)
         assert loop._worker_name == "epic_monitor"

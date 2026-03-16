@@ -28,7 +28,6 @@ const STATUS_OPTIONS = [
 const OUTCOME_TYPES = [
   'all', 'merged', 'already_satisfied', 'hitl_closed',
   'hitl_skipped', 'hitl_approved', 'failed', 'manual_close',
-  'verify_pending', 'verify_resolved',
 ]
 
 const OUTCOME_COLORS = {
@@ -39,8 +38,6 @@ const OUTCOME_COLORS = {
   failed: { color: theme.red, bg: theme.redSubtle },
   hitl_approved: { color: theme.green, bg: theme.greenSubtle },
   manual_close: { color: theme.textMuted, bg: theme.surfaceInset },
-  verify_pending: { color: theme.accent, bg: theme.accentSubtle },
-  verify_resolved: { color: theme.green, bg: theme.greenSubtle },
   pending: { color: theme.textMuted, bg: theme.surfaceInset },
 }
 

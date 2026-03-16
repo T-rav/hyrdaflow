@@ -230,8 +230,7 @@ class TestGetProgress:
         progress = mgr.get_progress(100)
         assert progress.status == "blocked"
 
-    @pytest.mark.asyncio
-    async def test_stale_status(self, tmp_path: Path) -> None:
+    def test_stale_status(self, tmp_path: Path) -> None:
         mgr, state, _, _, _ = _make_manager(tmp_path, epic_stale_days=1)
         old_time = (datetime.now(UTC) - timedelta(days=2)).isoformat()
         es = EpicState(
@@ -1113,10 +1112,7 @@ class TestCacheInvalidation:
         assert 100 not in mgr._detail_cache
         assert 100 not in mgr._cache_timestamps
 
-    @pytest.mark.asyncio
-    async def test_cache_invalidation_no_op_for_unknown_epic(
-        self, tmp_path: Path
-    ) -> None:
+    def test_cache_invalidation_no_op_for_unknown_epic(self, tmp_path: Path) -> None:
         mgr, state, bus, prs, fetcher = _make_manager(tmp_path)
         # Should not raise even if epic doesn't exist in cache
         mgr._invalidate_cache(999)

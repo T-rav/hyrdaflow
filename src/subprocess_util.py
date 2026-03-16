@@ -150,6 +150,45 @@ def is_credit_exhaustion(text: str) -> bool:
     return any(p in text_lower for p in _CREDIT_PATTERNS)
 
 
+async def probe_credit_availability() -> bool:
+    """Make a lightweight Anthropic API call to check if credits are available.
+
+    Returns ``True`` if credits appear available (or if the check cannot be
+    performed), ``False`` if the API responds with a credit-exhaustion error.
+    """
+    import os
+
+    import httpx
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        # No API key configured — cannot probe, assume available.
+        return True
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+            if resp.status_code == 200:
+                return True
+            # Check response body for credit exhaustion patterns
+            return not is_credit_exhaustion(resp.text)
+    except Exception:  # noqa: BLE001
+        # Network or other transient error — don't block resume.
+        return True
+
+
 def parse_credit_resume_time(text: str) -> datetime | None:
     """Extract the credit reset time from an error message.
 

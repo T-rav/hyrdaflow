@@ -624,10 +624,6 @@ def create_router(
     def _list_repo_records() -> list[RepoRecord]:
         return ctx.list_repo_records()
 
-    IssueFetcher(config)
-    TranscriptSummarizer(config, pr_manager, event_bus, state)
-    asyncio.Semaphore(3)
-
     def _repo_roots_fn() -> tuple[str, ...]:
         return ctx.repo_roots_fn()
 
@@ -762,6 +758,7 @@ def create_router(
                     number=int(pr_data["number"]),
                     url=str(pr_data.get("url", "")),
                     merged=bool(pr_data.get("merged", False)),
+                    title=str(pr_data.get("title", "")),
                 )
                 for pr_data in prs_map.values()
                 if isinstance(pr_data, dict) and _coerce_int(pr_data.get("number")) > 0
@@ -895,6 +892,9 @@ def create_router(
                     url = str(event.data.get("url", "")).strip()
                     if url.startswith(("http://", "https://")):
                         payload["url"] = url
+                    pr_title = str(event.data.get("title", "")).strip()
+                    if pr_title:
+                        payload["title"] = pr_title
                     prs[pr_number] = payload
 
             if event.type == EventType.MERGE_UPDATE:
@@ -907,6 +907,9 @@ def create_router(
                     )
                     if str(event.data.get("status", "")).lower() == "merged":
                         payload["merged"] = True
+                    merge_title = str(event.data.get("title", "")).strip()
+                    if merge_title:
+                        payload["title"] = merge_title
                     prs[pr_number] = payload
 
             normalised = _normalise_event_status(event.type, event.data)
@@ -1382,6 +1385,14 @@ def create_router(
             }
         )
         items = await manager.list_open_prs(all_labels)
+        # Overlay merged flag from IssueStore so the frontend has
+        # authoritative merged state instead of session-volatile flags.
+        orch = _get_orch()
+        if orch:
+            merged_numbers = orch.issue_store.get_merged_numbers()
+            for item in items:
+                if item.issue in merged_numbers:
+                    item.merged = True
         return JSONResponse([item.model_dump() for item in items])
 
     @router.get("/api/epics")
@@ -1981,6 +1992,17 @@ def create_router(
         await orch.request_stop()
         return JSONResponse({"status": "stopping"})
 
+    @router.post("/api/control/clear-credit-pause")
+    async def clear_credit_pause() -> JSONResponse:
+        """Clear an active credit pause, waking any sleeping loops."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        if orch.credits_paused_until is None:
+            return JSONResponse({"error": "not paused"}, status_code=400)
+        orch.clear_credit_pause()
+        return JSONResponse({"status": "cleared"})
+
     @router.get("/api/control/status")
     async def get_control_status(
         repo: RepoSlugParam = None,
@@ -2040,6 +2062,33 @@ def create_router(
         data = response.model_dump()
         data["current_session_id"] = current_session
         return JSONResponse(data)
+
+    @router.post("/api/control/credit-refresh")
+    async def credit_refresh(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Attempt to clear credit pause and resume processing.
+
+        Probes the Anthropic API first.  If credits are still exhausted the
+        pause is kept and the client receives ``{"status": "still_exhausted"}``
+        so the UI can display immediate feedback.
+        """
+        from subprocess_util import probe_credit_availability
+
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        if orch.credits_paused_until is None:
+            return JSONResponse({"status": "not_paused"})
+        # Probe the API to see if credits are actually available now.
+        credits_available = await probe_credit_availability()
+        if not credits_available:
+            return JSONResponse({"status": "still_exhausted"})
+        cleared = orch.try_clear_credit_pause()
+        if not cleared:
+            return JSONResponse({"status": "not_paused"})
+        return JSONResponse({"status": "resuming"})
 
     @router.post("/api/admin/prep")
     async def admin_prep(

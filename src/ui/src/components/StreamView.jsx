@@ -419,29 +419,9 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
 
   // Build stage groups from pipelineIssues
   const stageGroups = useMemo(() => {
-    // Build merged issues from PRs that are merged
-    const mergedFromPrs = (prs || [])
-      .filter(p => p.merged && p.issue)
-      .map(p => toStreamIssue(
-        { issue_number: p.issue, title: p.title || `Issue #${p.issue}`, url: null, status: 'done' },
-        'merged',
-        prs,
-      ))
     return PIPELINE_STAGES.map(stage => {
-      let stageIssues
-      if (stage.key === 'merged') {
-        // Combine pipelineIssues.merged (if any) + merged PRs
-        const pipelineMerged = (pipelineIssues.merged || []).map(pi => toStreamIssue(pi, 'merged', prs))
-        const combined = [...pipelineMerged]
-        for (const m of mergedFromPrs) {
-          if (!combined.some(i => i.issueNumber === m.issueNumber)) {
-            combined.push(m)
-          }
-        }
-        stageIssues = combined
-      } else {
-        stageIssues = (pipelineIssues[stage.key] || []).map(pi => toStreamIssue(pi, stage.key, prs))
-      }
+      const stageIssues = (pipelineIssues[stage.key] || [])
+        .map(pi => toStreamIssue(pi, stage.key, prs))
       // Sort active-first
       stageIssues.sort((a, b) => {
         const aActive = a.overallStatus === 'active' ? 1 : 0

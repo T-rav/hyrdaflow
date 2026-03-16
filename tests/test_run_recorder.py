@@ -144,6 +144,31 @@ class TestRunRecorder:
         assert runs[0].timestamp == "20260101T100000Z"
         assert runs[1].timestamp == "20260101T200000Z"
 
+    def test_list_runs_skips_corrupt_manifest_and_continues(
+        self, tmp_path: Path
+    ) -> None:
+        """A corrupt manifest is skipped; valid manifests still returned."""
+        recorder = self._make_recorder(tmp_path)
+        runs_dir = tmp_path / "repo" / ".hydraflow" / "runs" / "42"
+
+        # First run — corrupt manifest
+        corrupt_dir = runs_dir / "20260101T100000Z"
+        corrupt_dir.mkdir(parents=True)
+        (corrupt_dir / "manifest.json").write_text("NOT VALID JSON!!!")
+
+        # Second run — valid manifest
+        valid_dir = runs_dir / "20260101T200000Z"
+        valid_dir.mkdir(parents=True)
+        manifest = RunManifest(
+            issue_number=42, timestamp="20260101T200000Z", outcome="success"
+        )
+        (valid_dir / "manifest.json").write_text(manifest.model_dump_json())
+
+        runs = recorder.list_runs(42)
+        # Corrupt one skipped, valid one returned
+        assert len(runs) == 1
+        assert runs[0].timestamp == "20260101T200000Z"
+
     def test_get_latest_returns_most_recent(self, tmp_path: Path) -> None:
         recorder = self._make_recorder(tmp_path)
 

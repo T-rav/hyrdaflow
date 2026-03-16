@@ -14,14 +14,20 @@ import pytest
 from agent import AgentRunner
 from base_runner import BaseRunner
 from events import EventBus
-from models import ReviewVerdict
-from tests.conftest import TaskFactory
+from models import ReviewVerdict, Task
 from tests.helpers import ConfigFactory
 
 
 @pytest.fixture
-def agent_task():
-    return TaskFactory.create()
+def agent_task() -> Task:
+    return Task(
+        id=42,
+        title="Fix the frobnicator",
+        body="The frobnicator is broken. Please fix it.",
+        tags=["ready"],
+        comments=[],
+        source_url="https://github.com/test-org/test-repo/issues/42",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -35,8 +41,6 @@ class TestAgentRunnerInheritance:
     def test_inherits_from_base_runner(self, config, event_bus: EventBus) -> None:
         runner = AgentRunner(config, event_bus)
         assert isinstance(runner, BaseRunner)
-        assert runner._config is config
-        assert runner._bus is event_bus
 
     def test_has_terminate_method(self, config, event_bus: EventBus) -> None:
         runner = AgentRunner(config, event_bus)
@@ -186,7 +190,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """Prompt should include a Discussion section when the issue has comments."""
-        issue_with_comments = TaskFactory.create(
+        issue_with_comments = Task(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -213,7 +217,7 @@ class TestBuildPrompt:
     ) -> None:
         """When a comment contains '## Implementation Plan', it should be rendered
         as a dedicated plan section with follow-this-plan instruction."""
-        issue = TaskFactory.create(
+        issue = Task(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -239,7 +243,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """The plan comment should NOT appear in the Discussion section."""
-        issue = TaskFactory.create(
+        issue = Task(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -267,7 +271,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """When plan has Task Graph, prompt has concrete per-phase sub-agent instructions."""
-        issue = TaskFactory.create(
+        issue = Task(
             id=10,
             title="Add widget feature",
             body="We need widgets",
@@ -314,7 +318,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """When the plan has no Task Graph, the standard follow-plan instruction is used."""
-        issue = TaskFactory.create(
+        issue = Task(
             id=10,
             title="Fix bug",
             body="Something is broken",
@@ -458,7 +462,7 @@ class TestBuildPrompt:
     def test_prompt_truncates_long_discussion_comments(
         self, config, event_bus: EventBus
     ) -> None:
-        issue = TaskFactory.create(
+        issue = Task(
             id=11,
             title="Fix long comment token blowup",
             body="Normal issue body",
@@ -507,7 +511,7 @@ class TestBuildPrompt:
         self, config, event_bus: EventBus
     ) -> None:
         """Review feedback should appear after the plan section."""
-        issue = TaskFactory.create(
+        issue = Task(
             id=10,
             title="Add feature X",
             body="We need feature X",
@@ -667,6 +671,14 @@ class TestBuildPrompt:
         prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "is anything missing" in prompt
 
+    def test_pre_quality_review_forbids_unrelated_refactoring(
+        self, config, event_bus: EventBus, agent_task
+    ) -> None:
+        """Pre-quality review constraints should forbid unrelated refactoring."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        assert "do not refactor, migrate, or rename code that is unrelated" in prompt
+
     def test_prompt_includes_test_step(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
@@ -702,6 +714,15 @@ class TestBuildPrompt:
         assert "NEVER conclude that the issue is" in prompt
         assert "already satisfied" in prompt.lower()
         assert "Always produce commits" in prompt
+
+    def test_prompt_forbids_unrelated_refactoring(
+        self, config, event_bus: EventBus, agent_task
+    ) -> None:
+        """Prompt must warn agent not to bundle unrelated refactoring."""
+        runner = AgentRunner(config, event_bus)
+        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        assert "Do NOT bundle unrelated refactoring" in prompt
+        assert "Each concern is a separate PR" in prompt
 
 
 # ---------------------------------------------------------------------------

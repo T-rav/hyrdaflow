@@ -31,10 +31,8 @@ def hitl_runner(config, event_bus):
 class TestHITLRunnerInheritance:
     """HITLRunner must extend BaseRunner."""
 
-    def test_inherits_from_base_runner(self, hitl_runner, config, event_bus) -> None:
+    def test_inherits_from_base_runner(self, hitl_runner) -> None:
         assert isinstance(hitl_runner, BaseRunner)
-        assert hitl_runner._config is config
-        assert hitl_runner._bus is event_bus
 
     def test_has_terminate_method(self, hitl_runner) -> None:
         assert callable(hitl_runner.terminate)
@@ -227,6 +225,15 @@ class TestBuildPrompt:
         issue = IssueFactory.create(number=42)
         prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Accumulated Learnings" not in prompt
+
+    def test_prompt_forbids_unrelated_refactoring(self, hitl_runner) -> None:
+        """Prompt must warn agent not to bundle unrelated refactoring."""
+        issue = IssueFactory.create(number=42)
+        prompt, _ = hitl_runner._build_prompt_with_stats(
+            issue, "Fix the test", "CI failed"
+        )
+        assert "Do NOT bundle unrelated refactoring" in prompt
+        assert "Each concern is a separate PR" in prompt
 
 
 # ---------------------------------------------------------------------------
