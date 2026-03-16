@@ -405,7 +405,7 @@ class TestOrchestratorResume:
 
 
 class TestOrchestratorReset:
-    """Tests for reset() clearing interrupted issues."""
+    """Tests for reset() clearing interrupted issues and asyncio.Event state."""
 
     def test_reset_clears_interrupted_issues(self, tmp_path: Path) -> None:
         orch = _make_orchestrator(tmp_path)
@@ -414,6 +414,47 @@ class TestOrchestratorReset:
         orch.reset()
 
         assert orch._state.get_interrupted_issues() == {}
+
+    def test_reset_clears_all_asyncio_events(self, tmp_path: Path) -> None:
+        """After setting all asyncio.Event fields and calling reset(), none remain set.
+
+        Events retain their set state across stop/start cycles — failing to
+        clear them causes waiters to return immediately on restart.
+        See #3119 / #3123.
+        """
+        orch = _make_orchestrator(tmp_path)
+
+        # Discover all asyncio.Event attributes via introspection
+        event_attrs = [
+            name
+            for name in dir(orch)
+            if not name.startswith("__")
+            and isinstance(getattr(orch, name, None), asyncio.Event)
+        ]
+        assert event_attrs, "Expected at least one asyncio.Event on the orchestrator"
+
+        # Set every event
+        for name in event_attrs:
+            getattr(orch, name).set()
+
+        orch.reset()
+
+        still_set = [name for name in event_attrs if getattr(orch, name).is_set()]
+        assert still_set == [], (
+            f"asyncio.Event fields still set after reset(): {still_set}. "
+            "All events must be .clear()'d in reset() to prevent stale state "
+            "across stop/start cycles."
+        )
+
+    def test_reset_clears_stop_event_specifically(self, tmp_path: Path) -> None:
+        """reset() clears _stop_event so the orchestrator can restart."""
+        orch = _make_orchestrator(tmp_path)
+        orch._stop_event.set()
+        assert orch._stop_event.is_set()
+
+        orch.reset()
+
+        assert not orch._stop_event.is_set()
 
 
 # ---------------------------------------------------------------------------
