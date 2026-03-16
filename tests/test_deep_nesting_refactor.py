@@ -76,8 +76,13 @@ class TestValidateFieldBounds:
 
     def test_field_without_constraints_passes(self) -> None:
         """A field with no ge/le metadata passes any numeric value."""
-        # repo (str field) has no ge/le bounds — any int value passes
-        assert _validate_field_bounds("repo", "HF_REPO", 42) is True
+        # epic_monitor_interval is an int field with no ge/le bounds
+        assert (
+            _validate_field_bounds(
+                "epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 42
+            )
+            is True
+        )
 
 
 # ---------------------------------------------------------------------------
