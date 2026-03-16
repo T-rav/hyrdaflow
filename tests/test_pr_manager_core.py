@@ -16,6 +16,7 @@ from models import CodeScanningAlert, ReviewVerdict
 from pr_manager import PRManager
 from tests.conftest import PRInfoFactory, SubprocessMockBuilder
 from tests.helpers import ConfigFactory
+from tests.helpers import make_pr_manager as _make_manager
 
 # ---------------------------------------------------------------------------
 # _chunk_body (static method)
@@ -92,13 +93,6 @@ class TestCapBody:
         marker_len = len(PRManager._TRUNCATION_MARKER)
         assert result[: 1000 - marker_len] == body[: 1000 - marker_len]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-from tests.helpers import make_pr_manager as _make_manager
 
 # ---------------------------------------------------------------------------
 # post_comment
