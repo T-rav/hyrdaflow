@@ -2004,6 +2004,22 @@ async def test_get_changed_files_empty_on_timeout(config, event_bus, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_get_changed_files_empty_on_file_not_found(config, event_bus, tmp_path):
+    """_get_changed_files returns empty list when git binary is not found."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="def456")),
+        patch.object(
+            runner._runner, "run_simple", AsyncMock(side_effect=FileNotFoundError)
+        ),
+    ):
+        result = await runner._get_changed_files(tmp_path, before_sha="abc123")
+
+    assert result == []
+
+
+@pytest.mark.asyncio
 async def test_get_changed_files_empty_when_head_sha_none(config, event_bus, tmp_path):
     """_get_changed_files returns empty list when _get_head_sha returns None."""
     runner = _make_runner(config, event_bus)
@@ -2165,6 +2181,31 @@ async def test_fix_review_findings_warns_when_fixes_made_but_no_files_changed(
         caplog.at_level("WARNING", logger="hydraflow.reviewer"),
     ):
         await runner.fix_review_findings(pr_info, task, tmp_path, "Missing null check")
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "fixes_made is True but no committed file changes" in r.message
+        for r in warning_records
+    )
+
+
+@pytest.mark.asyncio
+async def test_fix_ci_warns_when_fixes_made_but_no_files_changed(
+    config, event_bus, pr_info, task, tmp_path, caplog
+):
+    """fix_ci warns when fixes_made but files_changed is empty."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed CI.\nVERDICT: APPROVE\nSUMMARY: Done"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+        caplog.at_level("WARNING", logger="hydraflow.reviewer"),
+    ):
+        await runner.fix_ci(pr_info, task, tmp_path, "Failed: ci", attempt=1)
 
     warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
     assert any(
