@@ -12,7 +12,7 @@ from agent_cli import build_agent_command
 from execution import get_default_runner
 from models import VerificationCriteria
 from precheck import run_precheck_context
-from runner_utils import stream_claude_process
+from runner_utils import stream_claude_process, terminate_processes
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -366,6 +366,4 @@ Diff summary:
 
     def terminate(self) -> None:
         """Kill any active AC generation processes."""
-        from runner_utils import terminate_processes
-
         terminate_processes(self._active_procs)

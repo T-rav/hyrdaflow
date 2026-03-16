@@ -83,7 +83,7 @@ HydraFlow creates isolated git worktrees for each issue. **Always clean up workt
 - Never commit untested code
 - Coverage threshold: 70%
 - **Never write tests for ADR markdown content.** ADRs are documentation, not code. Do not create `test_adr_NNNN_*.py` files that assert on markdown headings, status fields, or prose content — these break whenever the document is edited and provide no value. Only test ADR-related *code* (e.g., `test_adr_reviewer.py` tests the reviewer logic).
-- **Never include line numbers in ADR source citations.** Throughout ADR documents (Related, Context, Decision, Consequences sections), cite source files by function or class name only (e.g., `src/config.py:_resolve_paths`). Do NOT add `(line 42)` or similar anywhere — line numbers drift as the source file is edited and council reviews will flag them as stale.
+- **Never include line numbers in ADR source citations.** Throughout ADR documents (Related, Context, Decision, Consequences sections), cite source files by function or class name only (e.g., `src/config.py:_resolve_base_paths`). Do NOT add `(line 42)` or similar anywhere — line numbers drift as the source file is edited and council reviews will flag them as stale.
 
 ## Quality Before Completion
 

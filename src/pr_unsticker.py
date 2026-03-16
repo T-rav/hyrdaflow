@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_cli import build_lightweight_command
-from models import ConflictResolutionResult, HITLUpdatePayload
+from models import ConflictResolutionResult, HITLUpdatePayload, PRInfo
 from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
 
@@ -369,8 +369,6 @@ class PRUnsticker:
                     issue_number,
                 )
                 return ConflictResolutionResult(success=False, used_rebuild=False)
-            from models import PRInfo
-
             pr = PRInfo(
                 number=pr_number,
                 issue_number=issue_number,

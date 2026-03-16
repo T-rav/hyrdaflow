@@ -41,6 +41,14 @@ _LINE_CITATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Matches "requires amending ADR-NNNN" notes that reference another ADR.
+# These notes become stale once the referenced ADR's amendment is completed.
+# Group 1 = the 4-digit ADR number.
+_REQUIRES_AMENDING_ADR_RE = re.compile(
+    r"requires\s+amending\s+ADR[- ]?(\d{4})",
+    re.IGNORECASE,
+)
+
 # Matches ADR-NNNN references. Group 1 = the 4-digit number.
 _ADR_REF_RE = re.compile(r"ADR[- ](\d{4})")
 
@@ -83,6 +91,7 @@ class ADRPreValidator:
         self._check_empty_sections(content, result)
         self._check_supersession(content, all_adrs or [], result)
         self._check_volatile_line_citations(content, result)
+        self._check_stale_amending_notes(content, all_adrs or [], result)
         self._check_bare_adr_references(content, all_adrs or [], result)
         return result
 
@@ -151,6 +160,53 @@ class ADRPreValidator:
                     fixable=True,
                 )
             )
+
+    def _check_stale_amending_notes(
+        self,
+        content: str,
+        all_adrs: list[tuple[int, str, str, str]],
+        result: ADRValidationResult,
+    ) -> None:
+        """Flag 'requires amending ADR-NNNN' notes where the amendment is already done.
+
+        Uses **Status: Accepted** on the referenced ADR as a heuristic for
+        "the amendment was completed."  This is reliable when the workflow
+        transitions a referenced ADR from Proposed → Accepted after applying
+        the mandated changes.  It will not fire for referenced ADRs that remain
+        Proposed even after being content-amended (a false negative), and may
+        fire prematurely if a note is written pointing at an ADR that was
+        already Accepted before the amendment was applied (a false positive).
+        """
+        # Build a lookup: ADR number → status extracted from content
+        adr_status: dict[int, str] = {}
+        for num, _title, adr_content, _filename in all_adrs:
+            status_match = _STATUS_RE.search(adr_content)
+            if status_match:
+                adr_status[num] = status_match.group(1)
+
+        seen: set[int] = set()
+        for match in _REQUIRES_AMENDING_ADR_RE.finditer(content):
+            ref_num = int(match.group(1))
+            # Skip if the referenced ADR doesn't exist in the index
+            if ref_num not in adr_status:
+                continue
+            # Deduplicate: one issue per ADR number, even if mentioned multiple times
+            if ref_num in seen:
+                continue
+            # Only flag if the referenced ADR is Accepted (amendment completed)
+            if adr_status[ref_num].lower() == "accepted":
+                seen.add(ref_num)
+                result.issues.append(
+                    ADRValidationIssue(
+                        code="stale_amendment_note",
+                        message=(
+                            f"'Requires amending ADR-{ref_num:04d}' is stale — "
+                            f"ADR-{ref_num:04d} already has Status: Accepted. "
+                            f"Update or remove the note."
+                        ),
+                        fixable=True,
+                    )
+                )
 
     def _check_supersession(
         self,

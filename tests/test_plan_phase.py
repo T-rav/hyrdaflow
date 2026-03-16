@@ -1130,3 +1130,140 @@ class TestPlanPhaseResearch:
         # Planner called with empty research_context
         call_kwargs = planners.plan.call_args
         assert call_kwargs.kwargs.get("research_context") == ""
+
+
+# ---------------------------------------------------------------------------
+# Error paths and edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestPlanPhaseErrorPaths:
+    """Tests for planner timeout/crash and empty/None plan text edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_planner_crash_with_retry_escalates_to_hitl(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When planner crashes after retry, issue escalates to HITL."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+        issue = TaskFactory.create(id=42)
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=False,
+            plan="",
+            error="Agent process crashed unexpectedly",
+            retry_attempted=True,
+            validation_errors=["Agent process crashed unexpectedly"],
+            use_defaults=True,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        # Should post a failure comment and escalate to HITL
+        comments = [call.args[1] for call in prs.post_comment.call_args_list]
+        hitl_comment = [c for c in comments if "Plan Validation Failed" in c]
+        assert len(hitl_comment) == 1
+        assert "Agent process crashed unexpectedly" in hitl_comment[0]
+
+    @pytest.mark.asyncio
+    async def test_empty_plan_text_with_success_skips_success_handler(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When planner returns success=True but plan='', success path is NOT taken."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+        issue = TaskFactory.create(id=42)
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=True,
+            plan="",
+            summary="Plan done",
+            use_defaults=True,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        # Empty plan text: success path guarded by `result.success and result.plan`
+        prs.transition.assert_not_awaited()
+        prs.post_comment.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_plan_text_triggers_success_handler(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Whitespace-only plan is truthy in Python, so it enters the success path."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+        issue = TaskFactory.create(id=42)
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=True,
+            plan="   \n\t  ",
+            summary="Plan done",
+            use_defaults=True,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        # Non-empty strings are truthy in Python even if whitespace-only, so
+        # `result.plan` passes the truthiness check and the success path IS entered.
+        # This test documents this current behavior (potential bug: whitespace-only
+        # plans are treated as valid and trigger a label swap).
+        prs.transition.assert_awaited_once_with(42, "ready")
+
+    @pytest.mark.asyncio
+    async def test_planner_failure_without_retry_logs_warning(
+        self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When planner fails without retry, no escalation — just logs warning."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+        issue = TaskFactory.create(id=42)
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=False,
+            plan="",
+            error="Something went wrong",
+            retry_attempted=False,
+            use_defaults=True,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        with caplog.at_level("WARNING", logger="hydraflow.plan_phase"):
+            await phase.plan_issues()
+
+        # No label swap, no HITL escalation, no comment
+        prs.transition.assert_not_awaited()
+        prs.post_comment.assert_not_awaited()
+        assert "skipping label swap" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_issue_with_empty_body_plans_normally(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """An issue with empty body should still go through planning."""
+        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
+        issue = TaskFactory.create(id=42, title="Fix bug", body="")
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=True,
+            plan="## Plan\n\n1. Investigate the bug",
+            summary="Plan done",
+            use_defaults=True,
+        )
+
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        prs.transition.assert_awaited_once_with(42, "ready")
+        assert prs.post_comment.await_count >= 1
