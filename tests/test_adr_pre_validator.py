@@ -392,6 +392,28 @@ class TestCheckStaleAmendmentNotes:
         codes = [i.code for i in result.issues]
         assert "stale_amendment_note" not in codes
 
+    def test_no_issue_when_referenced_adr_superseded(self) -> None:
+        """'requires amending ADR-0021' is NOT flagged when ADR-0021 is Superseded."""
+        content = _valid_adr(
+            consequences="Accepting this ADR requires amending ADR-0021.\n"
+        )
+        all_adrs = [self._adr_entry(21, "Persistence", status="Superseded")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "stale_amendment_note" not in codes
+
+    def test_no_issue_when_referenced_adr_deprecated(self) -> None:
+        """'requires amending ADR-0021' is NOT flagged when ADR-0021 is Deprecated."""
+        content = _valid_adr(
+            consequences="Accepting this ADR requires amending ADR-0021.\n"
+        )
+        all_adrs = [self._adr_entry(21, "Persistence", status="Deprecated")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "stale_amendment_note" not in codes
+
 
 class TestCheckBareADRReferences:
     def test_bare_reference_detected(self) -> None:

@@ -169,9 +169,13 @@ class ADRPreValidator:
     ) -> None:
         """Flag 'requires amending ADR-NNNN' notes where the amendment is already done.
 
-        A note is stale when the referenced ADR has **Status: Accepted** —
-        meaning its amendment has been completed and the forward-pointing note
-        should be updated to reflect that.
+        Uses **Status: Accepted** on the referenced ADR as a heuristic for
+        "the amendment was completed."  This is reliable when the workflow
+        transitions a referenced ADR from Proposed → Accepted after applying
+        the mandated changes.  It will not fire for referenced ADRs that remain
+        Proposed even after being content-amended (a false negative), and may
+        fire prematurely if a note is written pointing at an ADR that was
+        already Accepted before the amendment was applied (a false positive).
         """
         # Build a lookup: ADR number → status extracted from content
         adr_status: dict[int, str] = {}
