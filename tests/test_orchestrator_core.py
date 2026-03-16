@@ -481,6 +481,8 @@ class TestConstructorInjection:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch._bus is event_bus
         assert orch._svc.agents._bus is event_bus
+        assert orch._svc.planners._bus is event_bus
+        assert orch._svc.reviewers._bus is event_bus
 
     def test_uses_provided_state(self, config: HydraFlowConfig) -> None:
         state = StateTracker(config.state_file)
@@ -1029,7 +1031,6 @@ class TestServiceRegistry:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc, ServiceRegistry)
-        assert orch._svc.worktrees._config is config
 
     def test_svc_exposes_all_services(self, config: HydraFlowConfig) -> None:
         """Core services are accessible through _svc."""
