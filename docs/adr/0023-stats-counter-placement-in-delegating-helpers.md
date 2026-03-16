@@ -1,7 +1,7 @@
 # ADR-0023: Stats Counter Placement When Delegating to Conditional Helpers
 
 **Status:** Rejected
-**Date:** 2026-03-08
+**Date:** 2026-03-16
 
 ## Context
 
@@ -83,7 +83,7 @@ returns `False`), not unconditionally after the call. A separate
 
 ## Related
 
-- Council resolution: #3013
+- Duplicate resolution: #3013
 - Source memory: #2298
 - Issue: #2306
 - ADR-0017 (Auto-Decompose Triage Counter Exclusion) — establishes the
