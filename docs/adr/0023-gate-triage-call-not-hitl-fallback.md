@@ -3,6 +3,9 @@
 **Status:** Superseded
 **Date:** 2026-03-08
 
+> **Superseded by [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md).**
+> That ADR covers the same toggle-bypass bug with broader scope: centralized helper, stats coupling, and pre-review failure paths.
+
 ## Context
 
 HydraFlow's ADR review pipeline routes council results through `_route_result`
@@ -13,7 +16,7 @@ deadlocked, the system must choose between two paths:
    plan → implement → review pipeline (`_route_to_triage`).
 2. **HITL** — escalate to a human-in-the-loop issue (`_escalate_to_hitl`).
 
-A config toggle (e.g., `adr_review_auto_triage`) is intended to control whether
+A config toggle (e.g., `adr_auto_triage`) is intended to control whether
 the system uses automatic triage or always escalates to HITL. The current
 implementation in `_route_result` always calls `_route_to_triage` first and only
 falls back to `_escalate_to_hitl` when triage fails (returns `False`):
@@ -45,8 +48,7 @@ between triage and HITL based on a config toggle. The correct structure is:
 
 ```python
 # Correct pattern: gate triage on the toggle
-# Note: adr_review_auto_triage was the draft toggle name; actual field is adr_auto_triage
-if not self._config.adr_review_auto_triage:
+if not self._config.adr_auto_triage:
     await self._escalate_to_hitl(result, reason=reason)
     return
 
