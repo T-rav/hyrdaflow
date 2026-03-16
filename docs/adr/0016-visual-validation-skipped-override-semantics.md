@@ -29,7 +29,7 @@ a skip label fully suppresses verification issue creation. It has been a recurri
 source of confusion when debugging why verification issues appear despite a skip
 label.
 
-Related code: `src/post_merge_handler.py`, lines 417–481.
+Related code: `src/post_merge_handler.py:_run_post_merge_hooks`, `src/post_merge_handler.py:_should_create_verification_issue`.
 
 ## Decision
 

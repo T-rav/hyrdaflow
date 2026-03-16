@@ -461,31 +461,67 @@ describe('getPipelineAction', () => {
   })
 })
 
-describe('Merged state persistence', () => {
-  it('PIPELINE_SNAPSHOT preserves session merged items', () => {
+describe('Merged state from backend', () => {
+  it('PIPELINE_SNAPSHOT uses backend merged data authoritatively', () => {
     const state = {
       ...initialState,
       pipelineIssues: {
         ...emptyPipeline,
         merged: [
-          { issue_number: 10, title: 'Merged PR', url: '', status: 'done' },
-          { issue_number: 11, title: 'Another Merged', url: '', status: 'done' },
+          { issue_number: 10, title: 'Stale Merged', url: '', status: 'done' },
         ],
       },
     }
-    // Server data never includes merged
+    const serverData = {
+      triage: [{ issue_number: 20, title: 'New', url: '', status: 'queued' }],
+      merged: [{ issue_number: 30, title: 'Real Merged', url: '', status: 'done' }],
+    }
+    const next = reducer(state, { type: 'PIPELINE_SNAPSHOT', data: serverData })
+    // Backend merged data replaces stale session merged
+    expect(next.pipelineIssues.merged).toHaveLength(1)
+    expect(next.pipelineIssues.merged[0].issue_number).toBe(30)
+    expect(next.pipelineIssues.triage).toHaveLength(1)
+  })
+
+  it('PIPELINE_SNAPSHOT clears merged when backend sends empty', () => {
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        merged: [
+          { issue_number: 10, title: 'Stale', url: '', status: 'done' },
+        ],
+      },
+    }
+    const serverData = {
+      triage: [],
+      merged: [],
+    }
+    const next = reducer(state, { type: 'PIPELINE_SNAPSHOT', data: serverData })
+    expect(next.pipelineIssues.merged).toHaveLength(0)
+  })
+
+  it('PIPELINE_SNAPSHOT preserves session merged when backend omits merged key', () => {
+    const state = {
+      ...initialState,
+      pipelineIssues: {
+        ...emptyPipeline,
+        merged: [
+          { issue_number: 10, title: 'WS Merged', url: '', status: 'done' },
+        ],
+      },
+    }
+    // Server data does not include merged key at all
     const serverData = {
       triage: [{ issue_number: 20, title: 'New', url: '', status: 'queued' }],
     }
     const next = reducer(state, { type: 'PIPELINE_SNAPSHOT', data: serverData })
-    // Merged items from session should survive
-    expect(next.pipelineIssues.merged).toHaveLength(2)
+    // When backend omits merged key, preserve session state (WS events)
+    expect(next.pipelineIssues.merged).toHaveLength(1)
     expect(next.pipelineIssues.merged[0].issue_number).toBe(10)
-    // Server data should be applied
-    expect(next.pipelineIssues.triage).toHaveLength(1)
   })
 
-  it('EXISTING_PRS preserves merged PRs from session', () => {
+  it('EXISTING_PRS replaces PRs with server data only', () => {
     const state = {
       ...initialState,
       prs: [
@@ -493,34 +529,13 @@ describe('Merged state persistence', () => {
         { pr: 101, issue: 11, merged: false, title: 'Open PR' },
       ],
     }
-    // Server returns only open PRs (merged PR 100 is gone)
     const openPrs = [
       { pr: 102, issue: 12, merged: false, title: 'New Open PR' },
     ]
     const next = reducer(state, { type: 'EXISTING_PRS', data: openPrs })
-    // Should have the new open PR plus the preserved merged PR
-    expect(next.prs).toHaveLength(2)
-    expect(next.prs.find(p => p.pr === 100)?.merged).toBe(true)
-    expect(next.prs.find(p => p.pr === 102)).toBeDefined()
-    // Non-merged PR 101 should be gone (replaced by server data)
-    expect(next.prs.find(p => p.pr === 101)).toBeUndefined()
-  })
-
-  it('EXISTING_PRS does not duplicate if merged PR reappears in server data', () => {
-    const state = {
-      ...initialState,
-      prs: [
-        { pr: 100, issue: 10, merged: true, title: 'Merged PR' },
-      ],
-    }
-    // Server returns the same PR as open (unlikely but possible)
-    const openPrs = [
-      { pr: 100, issue: 10, merged: false, title: 'Merged PR' },
-    ]
-    const next = reducer(state, { type: 'EXISTING_PRS', data: openPrs })
-    // Server version should win — only 1 entry
+    // Only server data — no session-merged preservation
     expect(next.prs).toHaveLength(1)
-    expect(next.prs[0].pr).toBe(100)
+    expect(next.prs[0].pr).toBe(102)
   })
 })
 

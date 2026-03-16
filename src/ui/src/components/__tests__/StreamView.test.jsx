@@ -580,20 +580,24 @@ describe('PipelineFlow visualization', () => {
 })
 
 describe('Merged stage rendering', () => {
-  it('renders merged PR issues in the merged stage section', () => {
-      mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
-      prs: [{ pr: 42, issue: 10, title: 'Fix bug', merged: true, url: 'https://github.com/test/pr/42' }],
+  it('renders merged issues from pipeline snapshot in the merged stage section', () => {
+    mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
+      pipelineIssues: {
+        triage: [], plan: [], implement: [], review: [],
+        merged: [{ issue_number: 10, title: 'Fix bug', url: '', status: 'done' }],
+      },
     }))
     render(<StreamView {...defaultProps} />)
     expect(screen.getByText('#10')).toBeInTheDocument()
     expect(screen.getByText('Fix bug')).toBeInTheDocument()
-    // Merged-from-PR cards should NOT use the PR url as an issue link
-    expect(screen.getByText('#10').tagName).toBe('SPAN')
   })
 
-  it('renders merged PR issue as a dot in PipelineFlow', () => {
+  it('renders merged issue as a dot in PipelineFlow', () => {
     mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
-      prs: [{ pr: 42, issue: 10, title: 'Fix bug', merged: true, url: 'https://github.com/test/pr/42' }],
+      pipelineIssues: {
+        triage: [], plan: [], implement: [], review: [],
+        merged: [{ issue_number: 10, title: 'Fix bug', url: '', status: 'done' }],
+      },
     }))
     render(<StreamView {...defaultProps} />)
     expect(screen.getByTestId('pipeline-flow')).toBeInTheDocument()
@@ -602,8 +606,7 @@ describe('Merged stage rendering', () => {
     expect(dot.style.animation).toBe('')
   })
 
-  it('does not set issueUrl from PR url for merged-from-PR cards', () => {
-    // PRData.url is a PR URL, not an issue URL — merged cards should have issueUrl null
+  it('does not set issueUrl when url is null for merged cards', () => {
     const result = toStreamIssue(
       { issue_number: 10, title: 'Fix bug', url: null, status: 'done' },
       'merged',
@@ -616,7 +619,10 @@ describe('Merged stage rendering', () => {
 describe('Merged stage count display', () => {
   it('shows merged item count instead of worker metrics', () => {
     mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
-      prs: [{ pr: 42, issue: 10, title: 'Fix bug', merged: true, url: 'https://github.com/test/pr/42' }],
+      pipelineIssues: {
+        triage: [], plan: [], implement: [], review: [],
+        merged: [{ issue_number: 10, title: 'Fix bug', url: '', status: 'done' }],
+      },
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-merged')
@@ -628,11 +634,14 @@ describe('Merged stage count display', () => {
 
   it('shows correct count with multiple merged items', () => {
     mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
-      prs: [
-        { pr: 42, issue: 10, title: 'Fix bug', merged: true, url: 'https://github.com/test/pr/42' },
-        { pr: 43, issue: 11, title: 'Add feature', merged: true, url: 'https://github.com/test/pr/43' },
-        { pr: 44, issue: 12, title: 'Refactor', merged: true, url: 'https://github.com/test/pr/44' },
-      ],
+      pipelineIssues: {
+        triage: [], plan: [], implement: [], review: [],
+        merged: [
+          { issue_number: 10, title: 'Fix bug', url: '', status: 'done' },
+          { issue_number: 11, title: 'Add feature', url: '', status: 'done' },
+          { issue_number: 12, title: 'Refactor', url: '', status: 'done' },
+        ],
+      },
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-merged')
@@ -677,25 +686,6 @@ describe('Merged stage count display', () => {
     }))
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-merged')
-    expect(section.textContent).toContain('2 merged')
-  })
-
-  it('deduplicates items present in both pipelineIssues.merged and prs', () => {
-    mockUseHydraFlow.mockReturnValue(defaultHydraFlowContext({
-      pipelineIssues: {
-        triage: [], plan: [], implement: [], review: [],
-        merged: [
-          { issue_number: 10, title: 'Shared issue', status: 'done' },
-        ],
-      },
-      prs: [
-        { pr: 42, issue: 10, title: 'Shared issue', merged: true, url: 'https://github.com/test/pr/42' },
-        { pr: 43, issue: 11, title: 'PR-only issue', merged: true, url: 'https://github.com/test/pr/43' },
-      ],
-    }))
-    render(<StreamView {...defaultProps} />)
-    const section = screen.getByTestId('stage-section-merged')
-    // issue 10 appears in both sources — should count once; issue 11 from prs only
     expect(section.textContent).toContain('2 merged')
   })
 })
@@ -798,11 +788,11 @@ describe('PipelineFlow summary counts', () => {
           { issue_number: 1, title: 'Failed', status: 'failed' },
         ],
         review: [],
+        merged: [
+          { issue_number: 10, title: 'Fix bug', url: '', status: 'done' },
+          { issue_number: 11, title: 'Add feature', url: '', status: 'done' },
+        ],
       },
-      prs: [
-        { pr: 42, issue: 10, title: 'Fix bug', merged: true, url: 'https://github.com/test/pr/42' },
-        { pr: 43, issue: 11, title: 'Add feature', merged: true, url: 'https://github.com/test/pr/43' },
-      ],
     }))
     render(<StreamView {...defaultProps} />)
     const summary = screen.getByTestId('flow-summary')
@@ -818,10 +808,10 @@ describe('PipelineFlow summary counts', () => {
         plan: [],
         implement: [],
         review: [],
+        merged: [
+          { issue_number: 10, title: 'Fix bug', url: '', status: 'done' },
+        ],
       },
-      prs: [
-        { pr: 42, issue: 10, title: 'Fix bug', merged: true, url: 'https://github.com/test/pr/42' },
-      ],
     }))
     render(<StreamView {...defaultProps} />)
     const summary = screen.getByTestId('flow-summary')

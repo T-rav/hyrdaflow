@@ -36,6 +36,7 @@ def _make_handler(
     verification_judge=None,
     epic_checker=None,
     update_bg_worker_status=None,
+    store=None,
 ) -> PostMergeHandler:
     """Build a PostMergeHandler with standard mock dependencies."""
     state = StateTracker(config.state_file)
@@ -49,6 +50,7 @@ def _make_handler(
         verification_judge=verification_judge,
         epic_checker=epic_checker,
         update_bg_worker_status=update_bg_worker_status,
+        store=store,
     )
 
 
@@ -134,6 +136,58 @@ class TestPostMergeHandler:
         )
 
         handler._prs.close_issue.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_calls_store_mark_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Successful merge must call IssueStore.mark_merged for pipeline snapshot."""
+        mock_store = MagicMock()
+        handler = _make_handler(config, store=mock_store)
+        pr = PRInfoFactory.create(number=99, issue_number=55)
+        issue = TaskFactory.create(id=55)
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        mock_store.mark_merged.assert_called_once_with(55)
+
+    @pytest.mark.asyncio
+    async def test_handle_approved_merge_failure_does_not_call_store_mark_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Failed merge must NOT call mark_merged on the issue store."""
+        mock_store = MagicMock()
+        handler = _make_handler(config, store=mock_store)
+        pr = PRInfoFactory.create()
+        issue = TaskFactory.create()
+        result = ReviewResultFactory.create()
+
+        handler._prs.merge_pr = AsyncMock(return_value=False)
+
+        await handler.handle_approved(
+            pr,
+            issue,
+            result,
+            "diff",
+            0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        mock_store.mark_merged.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handle_approved_posts_inference_totals_comment(

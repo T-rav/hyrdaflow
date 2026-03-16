@@ -41,6 +41,7 @@ def _make_unsticker(
     stop_event=None,
     resolver=None,
     troubleshooting_store=None,
+    store=None,
     **config_overrides,
 ):
     cfg = config or _make_config(tmp_path, **config_overrides)
@@ -70,6 +71,7 @@ def _make_unsticker(
             stop_event=se,
             resolver=rs,
             troubleshooting_store=troubleshooting_store,
+            store=store,
         ),
         st,
         prs,
@@ -531,6 +533,69 @@ class TestAutoMerge:
         # State should be cleaned up
         assert state.get_hitl_origin(42) is None
         assert state.get_hitl_cause(42) is None
+
+    @pytest.mark.asyncio
+    async def test_auto_merge_calls_store_mark_merged(self, tmp_path: Path) -> None:
+        """Successful merge must call IssueStore.mark_merged for pipeline snapshot."""
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
+        )
+        mock_store = MagicMock()
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=True, store=mock_store
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        prs.push_branch = AsyncMock(return_value=True)
+        prs.wait_for_ci = AsyncMock(return_value=(True, "All checks passed"))
+        prs.merge_pr = AsyncMock(return_value=True)
+        prs.pull_main = AsyncMock(return_value=True)
+
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = unsticker._config.worktree_path_for_issue(42)
+        wt_dir.mkdir(parents=True)
+
+        await unsticker.unstick([_make_hitl_item(42, pr=100)])
+
+        mock_store.mark_merged.assert_called_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_auto_merge_failure_does_not_call_store_mark_merged(
+        self, tmp_path: Path
+    ) -> None:
+        """Failed merge must NOT call mark_merged on the issue store."""
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
+        )
+        mock_store = MagicMock()
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=True, store=mock_store
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        prs.push_branch = AsyncMock(return_value=True)
+        prs.wait_for_ci = AsyncMock(return_value=(True, "All checks passed"))
+        prs.merge_pr = AsyncMock(return_value=False)
+
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = unsticker._config.worktree_path_for_issue(42)
+        wt_dir.mkdir(parents=True)
+
+        await unsticker.unstick([_make_hitl_item(42, pr=100)])
+
+        mock_store.mark_merged.assert_not_called()
 
 
 class TestAutoMergeDisabled:

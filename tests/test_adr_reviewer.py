@@ -2147,6 +2147,43 @@ class TestPreValidationGate:
         assert stats["pre_validation_skipped"] == 0
 
     @pytest.mark.asyncio
+    async def test_phantom_source_symbol_caught_via_repo_root(
+        self, tmp_path: Path
+    ) -> None:
+        """Phantom source symbol in ADR is caught when reviewer passes repo_root."""
+        reviewer = _make_reviewer(tmp_path)
+        repo_root = Path(reviewer._config.repo_root)
+        adr_dir = repo_root / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        # Create a real source file that does NOT contain the cited symbol
+        src_dir = repo_root / "src"
+        src_dir.mkdir()
+        (src_dir / "config.py").write_text("def real_function():\n    pass\n")
+        # Write an ADR citing a phantom function name
+        path = adr_dir / "0001-phantom.md"
+        path.write_text(
+            "# ADR-0001: Phantom\n\n"
+            "**Status:** Proposed\n\n"
+            "## Context\n\nSee `src/config.py:_namespace_repo_paths` for details.\n\n"
+            "## Decision\n\nWe decided.\n\n"
+            "## Consequences\n\nSome consequences.\n"
+        )
+        with (
+            patch.object(
+                reviewer, "_run_council_session", new_callable=AsyncMock
+            ) as mock_council,
+            patch.object(
+                reviewer, "_route_pre_validation_failure", new_callable=AsyncMock
+            ) as mock_route,
+        ):
+            stats = await reviewer.review_proposed_adrs()
+            # Phantom symbol should trigger pre-validation failure, not council
+            mock_council.assert_not_awaited()
+            mock_route.assert_awaited_once()
+
+        assert stats["pre_validation_skipped"] == 1
+
+    @pytest.mark.asyncio
     async def test_pre_validation_failure_routes_to_triage(
         self, tmp_path: Path
     ) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -34,6 +35,9 @@ _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
 _SUPERSEDE_RE = re.compile(
     r"supersed(?:es?|ed|ing)\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE
 )
+_SUPERSEDED_BY_RE = re.compile(r"superseded\s+by\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE)
+# Statuses that require the superseding ADR to be at least Accepted
+_SETTLED_STATUSES = frozenset({"accepted", "superseded", "deprecated", "rejected"})
 _REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
 # Matches patterns like "(line 42)", "(line 1122)", "(lines 10-20)", "(lines 51 and 127)"
 _LINE_CITATION_RE = re.compile(
@@ -67,6 +71,16 @@ _ADR_PAREN_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*\(([^()]*(?:\([^()]*\)[^()]*)*
 # titles that contain dots (e.g. "Pi.dev" in ADR-0004's title).
 _ADR_EMDASH_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*—\s*(.+?)(?:\.\s|,|;|$)")
 
+# Matches source file + symbol citations like `src/config.py:_resolve_paths` or
+# `src/config.py:HydraFlowConfig`.  Group 1 = file path, Group 2 = symbol name.
+# Symbol must start with a letter or underscore (not a digit) to exclude line numbers.
+_SOURCE_SYMBOL_RE = re.compile(r"`(src/[^`:\s]+\.py):([A-Za-z_]\w*)`")
+
+# Matches inline line-number citations in the `src/file.py:DIGITS` format.
+# These are a variant of volatile line citations that embed the number in the
+# symbol position of a source reference.  Group 1 = file path, Group 2 = digits.
+_INLINE_LINE_NUM_RE = re.compile(r"`(src/[^`:\s]+\.py):(\d[\d,]*)`")
+
 
 class ADRPreValidator:
     """Validates ADR structure before sending to the council."""
@@ -75,12 +89,15 @@ class ADRPreValidator:
         self,
         content: str,
         all_adrs: list[tuple[int, str, str, str]] | None = None,
+        *,
+        repo_root: Path | None = None,
     ) -> ADRValidationResult:
         """Run all validation checks on an ADR.
 
         Args:
             content: The full markdown content of the ADR.
             all_adrs: Optional list of (number, title, content, filename) for cross-reference checks.
+            repo_root: Optional repo root path for verifying source symbol references.
 
         Returns:
             ADRValidationResult with any issues found.
@@ -93,6 +110,7 @@ class ADRPreValidator:
         self._check_volatile_line_citations(content, result)
         self._check_stale_amending_notes(content, all_adrs or [], result)
         self._check_bare_adr_references(content, all_adrs or [], result)
+        self._check_source_function_refs(content, repo_root, result)
         self._check_cross_reference_titles(content, all_adrs or [], result)
         return result
 
@@ -148,13 +166,15 @@ class ADRPreValidator:
         self, content: str, result: ADRValidationResult
     ) -> None:
         """Flag line-number citations that become stale as source files change."""
-        matches = _LINE_CITATION_RE.findall(content)
-        if matches:
+        paren_matches = _LINE_CITATION_RE.findall(content)
+        inline_matches = _INLINE_LINE_NUM_RE.findall(content)
+        total = len(paren_matches) + len(inline_matches)
+        if total:
             result.issues.append(
                 ADRValidationIssue(
                     code="volatile_line_citation",
                     message=(
-                        f"ADR contains {len(matches)} line-number citation(s) "
+                        f"ADR contains {total} line-number citation(s) "
                         f"that will become stale as source files change — "
                         f"use function/class names only"
                     ),
@@ -215,13 +235,31 @@ class ADRPreValidator:
         all_adrs: list[tuple[int, str, str, str]],
         result: ADRValidationResult,
     ) -> None:
-        """Check that supersession references point to existing ADRs."""
-        matches = _SUPERSEDE_RE.findall(content)
-        if not matches:
+        """Check supersession references for existence, reciprocity, and status coherence."""
+        supersedes_refs = _SUPERSEDE_RE.findall(content)
+        superseded_by_refs = _SUPERSEDED_BY_RE.findall(content)
+
+        # De-conflict: if the same number appears in both directions (circular reference),
+        # only process it via the "superseded by" path to avoid double-reporting.
+        # Deduplicate both lists so repeated mentions don't generate duplicate issues.
+        superseded_by_refs = list(dict.fromkeys(superseded_by_refs))
+        supersedes_only = list(
+            dict.fromkeys(r for r in supersedes_refs if r not in superseded_by_refs)
+        )
+
+        if not supersedes_only and not superseded_by_refs:
             return
 
         existing_numbers = {num for num, *_ in all_adrs}
-        for ref_str in matches:
+        adr_contents: dict[int, str] = {num: c for num, _, c, _ in all_adrs}
+
+        # Extract this ADR's number and status
+        heading_match = re.search(r"^#\s+ADR[- ](\d{4})", content, re.MULTILINE)
+        self_number = int(heading_match.group(1)) if heading_match else None
+        status_match = _STATUS_RE.search(content)
+        self_status = status_match.group(1).lower() if status_match else None
+
+        for ref_str in supersedes_only:
             ref_num = int(ref_str)
             if ref_num not in existing_numbers:
                 result.issues.append(
@@ -234,6 +272,100 @@ class ADRPreValidator:
                         fixable=False,
                     )
                 )
+                continue
+
+            # Bidirectional check: target must say "Superseded by <self>"
+            if self_number is not None and ref_num in adr_contents:
+                target_content = adr_contents[ref_num]
+                target_back_refs = _SUPERSEDED_BY_RE.findall(target_content)
+                if str(self_number).zfill(4) not in target_back_refs:
+                    result.issues.append(
+                        ADRValidationIssue(
+                            code="missing_reciprocal_supersession",
+                            message=(
+                                f"ADR supersedes ADR-{ref_num:04d} but "
+                                f"ADR-{ref_num:04d} does not contain a reciprocal "
+                                f"'Superseded by ADR-{self_number:04d}' reference"
+                            ),
+                            fixable=True,
+                        )
+                    )
+
+            # Status coherence: Proposed cannot supersede a settled ADR
+            if self_status == "proposed" and ref_num in adr_contents:
+                target_status_match = _STATUS_RE.search(adr_contents[ref_num])
+                if target_status_match:
+                    target_status = target_status_match.group(1).lower()
+                    if target_status in _SETTLED_STATUSES:
+                        result.issues.append(
+                            ADRValidationIssue(
+                                code="status_incoherent_supersession",
+                                message=(
+                                    f"A Proposed ADR cannot supersede "
+                                    f"ADR-{ref_num:04d} which has "
+                                    f"{target_status_match.group(1)} status — "
+                                    f"use 'Will supersede (pending acceptance)' "
+                                    f"or accept this ADR first"
+                                ),
+                                fixable=True,
+                            )
+                        )
+
+        for ref_str in superseded_by_refs:
+            ref_num = int(ref_str)
+            if ref_num not in existing_numbers:
+                result.issues.append(
+                    ADRValidationIssue(
+                        code="invalid_supersession",
+                        message=(
+                            f"ADR references superseded by ADR-{ref_num:04d} "
+                            f"but that ADR does not exist"
+                        ),
+                        fixable=False,
+                    )
+                )
+                continue
+
+            # Bidirectional check: superseding ADR must say "Supersedes <self>"
+            if self_number is not None and ref_num in adr_contents:
+                target_content = adr_contents[ref_num]
+                target_supersedes = _SUPERSEDE_RE.findall(target_content)
+                target_superseded_by = _SUPERSEDED_BY_RE.findall(target_content)
+                target_supersedes_only = [
+                    r for r in target_supersedes if r not in target_superseded_by
+                ]
+                if str(self_number).zfill(4) not in target_supersedes_only:
+                    result.issues.append(
+                        ADRValidationIssue(
+                            code="missing_reciprocal_supersession",
+                            message=(
+                                f"ADR is superseded by ADR-{ref_num:04d} but "
+                                f"ADR-{ref_num:04d} does not contain a reciprocal "
+                                f"'Supersedes ADR-{self_number:04d}' reference"
+                            ),
+                            fixable=True,
+                        )
+                    )
+
+                # Status coherence: superseding ADR should not be Proposed
+                # when this ADR is already settled
+                if self_status in _SETTLED_STATUSES:
+                    target_status_match = _STATUS_RE.search(target_content)
+                    if target_status_match:
+                        target_status = target_status_match.group(1).lower()
+                        if target_status == "proposed":
+                            result.issues.append(
+                                ADRValidationIssue(
+                                    code="status_incoherent_supersession",
+                                    message=(
+                                        f"ADR-{ref_num:04d} is Proposed but claims "
+                                        f"to supersede this {self_status.capitalize()}-status ADR — "
+                                        f"ADR-{ref_num:04d} must be at least Accepted "
+                                        f"before supersession takes effect"
+                                    ),
+                                    fixable=True,
+                                )
+                            )
 
     def _check_bare_adr_references(
         self,
@@ -332,6 +464,59 @@ class ADRPreValidator:
                     fixable=True,
                 )
             )
+
+    def _check_source_function_refs(
+        self,
+        content: str,
+        repo_root: Path | None,
+        result: ADRValidationResult,
+    ) -> None:
+        """Verify that function/class names cited in source references actually exist.
+
+        Scans for backtick-quoted references like `src/config.py:_resolve_paths`
+        and greps the referenced file for a matching ``def`` or ``class`` definition.
+        Skips gracefully when *repo_root* is None or the referenced file doesn't exist.
+        """
+        if repo_root is None:
+            return
+
+        # Collect unique (file, symbol) pairs
+        refs: dict[tuple[str, str], None] = {}
+        for match in _SOURCE_SYMBOL_RE.finditer(content):
+            file_path, symbol = match.group(1), match.group(2)
+            refs[(file_path, symbol)] = None
+
+        # Cache file contents to avoid re-reading
+        file_cache: dict[str, str | None] = {}
+
+        for file_path, symbol in refs:
+            if file_path not in file_cache:
+                full_path = repo_root / file_path
+                try:
+                    file_cache[file_path] = full_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    file_cache[file_path] = None
+
+            source = file_cache[file_path]
+            if source is None:
+                # File doesn't exist or is unreadable — skip silently
+                continue
+
+            # Match both top-level and indented definitions (class methods, async defs)
+            pattern = re.compile(
+                rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(symbol)}\b", re.MULTILINE
+            )
+            if not pattern.search(source):
+                result.issues.append(
+                    ADRValidationIssue(
+                        code="phantom_source_symbol",
+                        message=(
+                            f"`{file_path}:{symbol}` is cited but "
+                            f"`{symbol}` is not defined as a function or class in `{file_path}`"
+                        ),
+                        fixable=False,
+                    )
+                )
 
     @staticmethod
     def _word_prefix_overlap(cited: str, real: str, min_words: int = 3) -> bool:

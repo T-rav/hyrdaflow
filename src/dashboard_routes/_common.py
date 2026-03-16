@@ -50,6 +50,7 @@ _STAGE_NAME_MAP: dict[str, str] = {
     IssueStoreStage.READY: "implement",
     IssueStoreStage.REVIEW: "review",
     IssueStoreStage.HITL: "hitl",
+    IssueStoreStage.MERGED: "merged",
 }
 
 # Frontend stage key → config label field name (for request-changes)

@@ -7,7 +7,7 @@
 
 HydraFlow's orchestrator spans five asynchronous phases that all rely on a shared
 `IssueStore`, persistent `StateTracker`, and in-process `EventBus`. Individual test
-modules cover each phase in isolation (see `tests/helpers.py:586` for the
+modules cover each phase in isolation (see `tests/helpers.py` `make_plan_phase`, `make_implement_phase`, etc. for the
 single-phase factories), but regressions have started to appear when changes alter
 how queues, runners, and GitHub labels interact across phase boundaries. Issue
 #1953 captured the lesson learned while debugging those regressions: integration
@@ -26,7 +26,7 @@ Several concrete requirements flow from today's code:
   logic in `IssueStore` will route nothing to downstream phases, so integration tests
   would give false confidence.
 - Queue updates are published via `_publish_queue_update_nowait()`, which calls
-  `loop.create_task()` on the running loop (`src/issue_store.py:494`). Tests must run
+  `loop.create_task()` on the running loop (`src/issue_store.py:_publish_queue_update_nowait`). Tests must run
   under `pytest-asyncio` (or an equivalent running event loop) and often need
   `await asyncio.sleep(0)` so those fire-and-forget `EventBus.publish()` tasks drain
   before making assertions.

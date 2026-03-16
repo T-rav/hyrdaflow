@@ -11,6 +11,7 @@ from events import EventBus, EventType
 from issue_store import (
     STAGE_FIND,
     STAGE_HITL,
+    STAGE_MERGED,
     STAGE_PLAN,
     STAGE_READY,
     STAGE_REVIEW,
@@ -729,6 +730,7 @@ class TestPipelineSnapshot:
         for stage in [STAGE_FIND, STAGE_PLAN, STAGE_READY, STAGE_REVIEW]:
             assert snapshot[stage] == []
         assert snapshot[STAGE_HITL] == []
+        assert snapshot[STAGE_MERGED] == []
 
     def test_queued_issues_appear_in_snapshot(self) -> None:
         store = _make_store()
@@ -1380,3 +1382,73 @@ class TestEnrichWithComments:
         enriched = await store.enrich_with_comments(task)
 
         assert enriched is task
+
+
+# ── Merged tracking ──────────────────────────────────────────────────
+
+
+class TestMergedTracking:
+    """Tests for mark_merged() and merged snapshot integration."""
+
+    def test_mark_merged_adds_to_merged_set(self) -> None:
+        store = _make_store()
+        store.mark_merged(42)
+        assert 42 in store._merged_numbers
+
+    def test_mark_merged_idempotent(self) -> None:
+        store = _make_store()
+        store.mark_merged(42)
+        store.mark_merged(42)
+        assert len(store._merged_numbers) == 1
+
+    def test_get_merged_numbers_returns_frozenset(self) -> None:
+        store = _make_store()
+        store.mark_merged(1)
+        store.mark_merged(2)
+        result = store.get_merged_numbers()
+        assert isinstance(result, frozenset)
+        assert result == frozenset({1, 2})
+
+    def test_get_merged_numbers_empty_by_default(self) -> None:
+        store = _make_store()
+        assert store.get_merged_numbers() == frozenset()
+
+    def test_snapshot_merged_status_is_merged(self) -> None:
+        """Verify _snapshot_merged uses status='merged', not 'done'."""
+        store = _make_store()
+        store.mark_merged(99)
+        snapshot = store.get_pipeline_snapshot()
+        merged_entries = snapshot[STAGE_MERGED]
+        assert len(merged_entries) == 1
+        assert merged_entries[0]["issue_number"] == 99
+        assert merged_entries[0]["status"] == "merged"
+        assert merged_entries[0]["title"] == "Issue #99"
+
+    def test_snapshot_merged_uses_cached_details(self) -> None:
+        store = _make_store()
+        task = TaskFactory.create(
+            id=42,
+            title="Fix the widget",
+            source_url="https://github.com/org/repo/issues/42",
+            tags=["hydraflow-ready"],
+        )
+        store._route_issues([task])
+        store.mark_merged(42)
+
+        snapshot = store.get_pipeline_snapshot()
+        merged_entries = snapshot[STAGE_MERGED]
+        assert len(merged_entries) == 1
+        assert merged_entries[0]["title"] == "Fix the widget"
+        assert merged_entries[0]["url"] == "https://github.com/org/repo/issues/42"
+
+    def test_queue_stats_include_merged_depth(self) -> None:
+        store = _make_store()
+        store.mark_merged(1)
+        store.mark_merged(2)
+        stats = store.get_queue_stats()
+        assert stats.queue_depth[STAGE_MERGED] == 2
+
+    def test_queue_stats_merged_zero_by_default(self) -> None:
+        store = _make_store()
+        stats = store.get_queue_stats()
+        assert stats.queue_depth[STAGE_MERGED] == 0

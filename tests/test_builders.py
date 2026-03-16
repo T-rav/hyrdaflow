@@ -270,9 +270,17 @@ class TestReviewResultBuilder:
         assert result.success is True
         assert result.error == "oops"
 
+    def test_with_commit_stat(self):
+        result = ReviewResultBuilder().with_commit_stat("1 file changed").build()
+        assert result.commit_stat == "1 file changed"
+
     def test_with_visual_passed(self):
         result = ReviewResultBuilder().with_visual_passed(False).build()
         assert result.visual_passed is False
+
+    def test_with_files_changed(self):
+        result = ReviewResultBuilder().with_files_changed(["src/foo.py"]).build()
+        assert result.files_changed == ["src/foo.py"]
 
     def test_model_defaults_uses_pydantic_defaults(self):
         """with_model_defaults() uses Pydantic model defaults, not factory hardcoded values."""

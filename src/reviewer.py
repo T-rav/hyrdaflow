@@ -164,7 +164,23 @@ class ReviewRunner(BaseRunner):
             result.summary = self._extract_summary(transcript)
 
             # Check if the reviewer made any commits or left uncommitted changes
+            result.files_changed = await self._get_changed_files(
+                worktree_path, before_sha
+            )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
+            if result.fixes_made and result.files_changed:
+                result.commit_stat = await self._get_commit_stat(worktree_path)
+                logger.info(
+                    "Review fix for PR #%d changed files: %s",
+                    pr.number,
+                    result.files_changed,
+                )
+            elif result.fixes_made and not result.files_changed:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— review commit may not have persisted all intended changes",
+                    pr.number,
+                )
 
             # Persist to disk
             self._save_transcript("review-pr", pr.number, transcript)
@@ -258,7 +274,23 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
+            result.files_changed = await self._get_changed_files(
+                worktree_path, before_sha
+            )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
+            if result.fixes_made and result.files_changed:
+                result.commit_stat = await self._get_commit_stat(worktree_path)
+                logger.info(
+                    "CI fix for PR #%d changed files: %s",
+                    pr.number,
+                    result.files_changed,
+                )
+            elif result.fixes_made and not result.files_changed:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— CI fix commit may not have persisted all intended changes",
+                    pr.number,
+                )
             self._save_transcript("review-pr", pr.number, transcript)
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -335,7 +367,24 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
+            result.files_changed = await self._get_changed_files(
+                worktree_path, before_sha
+            )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
+            if result.fixes_made and result.files_changed:
+                result.commit_stat = await self._get_commit_stat(worktree_path)
+                logger.info(
+                    "Review-fix for PR #%d changed files: %s",
+                    pr.number,
+                    result.files_changed,
+                )
+            elif result.fixes_made and not result.files_changed:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— review-fix commit may not have persisted all intended changes",
+                    pr.number,
+                )
+
             self._save_transcript("review-fix", pr.number, transcript)
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -709,6 +758,7 @@ If you find issues that you can fix:
 1. Make the fixes directly.
 {fix_verify}
 3. Commit with message: "review: fix <description> (PR #{pr.number})"
+4. **Post-commit verification (mandatory for scope-creep removals):** After committing a scope-creep removal, run `git diff --stat HEAD~1` and verify that every file you intended to fix appears in the stat output. If a file is missing from the stat, your commit did NOT actually revert changes in that file — go back and fix it before proceeding. For factory migrations specifically, grep for the old pattern (e.g., `TaskFactory.create()`) in all test files that were supposed to be reverted.
 
 ## Findings Format
 
@@ -847,6 +897,47 @@ Diff snippet:
         if result.returncode == 0:
             return result.stdout
         return None
+
+    async def _get_commit_stat(self, worktree_path: Path) -> str:
+        """Run ``git diff --stat HEAD~1`` and return the output for audit trail."""
+        try:
+            result = await self._runner.run_simple(
+                ["git", "diff", "--stat", "HEAD~1"],
+                cwd=str(worktree_path),
+                timeout=self._config.git_command_timeout,
+            )
+        except (TimeoutError, FileNotFoundError):
+            return ""
+        if result.returncode == 0 and result.stdout:
+            stat = result.stdout.strip()
+            logger.info("Commit stat for %s:\n%s", worktree_path.name, stat)
+            return stat
+        return ""
+
+    async def _get_changed_files(
+        self, worktree_path: Path, before_sha: str | None
+    ) -> list[str]:
+        """Return list of files changed between *before_sha* and current HEAD.
+
+        Returns an empty list when HEAD hasn't moved, *before_sha* is ``None``,
+        or the git command fails.
+        """
+        if before_sha is None:
+            return []
+        try:
+            current_sha = await self._get_head_sha(worktree_path)
+            if not current_sha or current_sha == before_sha:
+                return []
+            result = await self._runner.run_simple(
+                ["git", "diff", "--name-only", before_sha, current_sha],
+                cwd=str(worktree_path),
+                timeout=self._config.git_command_timeout,
+            )
+            if result.returncode != 0:
+                return []
+            return [f for f in result.stdout.splitlines() if f.strip()]
+        except (TimeoutError, FileNotFoundError):
+            return []
 
     async def _has_changes(self, worktree_path: Path, before_sha: str | None) -> bool:
         """Check if the agent made commits or left uncommitted changes."""
