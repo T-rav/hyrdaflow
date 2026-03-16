@@ -1,6 +1,6 @@
 # ADR-0023: Stats Counter Placement When Delegating to Conditional Helpers
 
-**Status:** Proposed
+**Status:** Rejected
 **Date:** 2026-03-08
 
 ## Context
@@ -83,10 +83,12 @@ returns `False`), not unconditionally after the call. A separate
 
 ## Related
 
+- Council resolution: #3013
 - Source memory: #2298
 - Issue: #2306
 - ADR-0017 (Auto-Decompose Triage Counter Exclusion) — establishes the
   counter-placement principle for triage paths
+- [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md) — canonical ADR whose Rule 4 already covers this counter-placement principle
 - ADR-0014 (Session Counter Forward-Progression Semantics) — defines
   counter semantics across the pipeline
 - `src/adr_reviewer.py` — `_route_result()`, `_route_to_triage()`,
