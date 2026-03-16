@@ -958,7 +958,7 @@ def make_orchestrator_mock(
 ) -> MagicMock:
     """Return a minimal orchestrator mock."""
     orch = MagicMock()
-    orch.human_input_requests = requests or {}
+    orch.human_input_requests = requests if requests is not None else {}
     orch.provide_human_input = MagicMock()
     orch.running = running
     orch.run_status = run_status
