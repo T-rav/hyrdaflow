@@ -741,6 +741,10 @@ class ReviewResult(BaseModel):
     fixes_made: bool = Field(
         default=False, description="Whether the reviewer applied fixes to the PR"
     )
+    files_changed: list[str] = Field(
+        default_factory=list,
+        description="Files changed by the reviewer during fix commits",
+    )
     transcript: str = Field(default="", description="Raw agent transcript")
     merged: bool = Field(
         default=False, description="Whether the PR was merged after review"

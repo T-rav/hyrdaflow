@@ -274,6 +274,10 @@ class TestReviewResultBuilder:
         result = ReviewResultBuilder().with_visual_passed(False).build()
         assert result.visual_passed is False
 
+    def test_with_files_changed(self):
+        result = ReviewResultBuilder().with_files_changed(["src/foo.py"]).build()
+        assert result.files_changed == ["src/foo.py"]
+
     def test_model_defaults_uses_pydantic_defaults(self):
         """with_model_defaults() uses Pydantic model defaults, not factory hardcoded values."""
         from models import ReviewVerdict

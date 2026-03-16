@@ -430,6 +430,7 @@ async def test_review_success_path(config, event_bus, pr_info, task, tmp_path):
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", mock_execute),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", mock_has_changes),
         patch.object(runner, "_save_transcript"),
     ):
@@ -458,6 +459,9 @@ async def test_review_success_path_with_fixes(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", mock_execute),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/foo.py"])
+        ),
         patch.object(runner, "_has_changes", mock_has_changes),
         patch.object(runner, "_save_transcript"),
     ):
@@ -567,6 +571,7 @@ async def test_review_events_include_reviewer_role(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -605,6 +610,7 @@ async def test_review_publishes_review_update_events(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -631,6 +637,7 @@ async def test_review_start_event_includes_worker_id(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -658,6 +665,7 @@ async def test_review_done_event_includes_verdict_and_duration(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1005,6 +1013,9 @@ async def test_fix_ci_success_path(config, event_bus, pr_info, task, tmp_path):
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", mock_execute),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/foo.py"])
+        ),
         patch.object(runner, "_has_changes", mock_has_changes),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1070,6 +1081,9 @@ async def test_fix_ci_publishes_ci_check_events(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/foo.py"])
+        ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1098,6 +1112,7 @@ async def test_review_success_records_duration(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1140,6 +1155,9 @@ async def test_fix_ci_records_duration(config, event_bus, pr_info, task, tmp_pat
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/foo.py"])
+        ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
         patch.object(runner, "_save_transcript"),
     ):
@@ -1905,3 +1923,274 @@ async def test_fix_review_findings_still_catches_runtime_errors(
 
     assert result.verdict == ReviewVerdict.REQUEST_CHANGES
     assert "Review fix failed" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# _get_changed_files
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_changed_files_returns_file_list(config, event_bus, tmp_path):
+    """_get_changed_files returns list of file paths when HEAD has moved."""
+    runner = _make_runner(config, event_bus)
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = "src/foo.py\ntests/test_foo.py\n"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="def456")),
+        patch.object(runner._runner, "run_simple", AsyncMock(return_value=mock_result)),
+    ):
+        result = await runner._get_changed_files(tmp_path, before_sha="abc123")
+
+    assert result == ["src/foo.py", "tests/test_foo.py"]
+
+
+@pytest.mark.asyncio
+async def test_get_changed_files_empty_when_head_unchanged(config, event_bus, tmp_path):
+    """_get_changed_files returns empty list when HEAD hasn't moved."""
+    runner = _make_runner(config, event_bus)
+
+    with patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")):
+        result = await runner._get_changed_files(tmp_path, before_sha="abc123")
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_changed_files_empty_on_git_failure(config, event_bus, tmp_path):
+    """_get_changed_files returns empty list on git command failure."""
+    runner = _make_runner(config, event_bus)
+
+    mock_result = MagicMock()
+    mock_result.returncode = 128
+    mock_result.stdout = ""
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="def456")),
+        patch.object(runner._runner, "run_simple", AsyncMock(return_value=mock_result)),
+    ):
+        result = await runner._get_changed_files(tmp_path, before_sha="abc123")
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_changed_files_empty_when_before_sha_none(
+    config, event_bus, tmp_path
+):
+    """_get_changed_files returns empty list when before_sha is None."""
+    runner = _make_runner(config, event_bus)
+
+    result = await runner._get_changed_files(tmp_path, before_sha=None)
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_changed_files_empty_on_timeout(config, event_bus, tmp_path):
+    """_get_changed_files returns empty list on timeout."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="def456")),
+        patch.object(runner._runner, "run_simple", AsyncMock(side_effect=TimeoutError)),
+    ):
+        result = await runner._get_changed_files(tmp_path, before_sha="abc123")
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_changed_files_empty_when_head_sha_none(config, event_bus, tmp_path):
+    """_get_changed_files returns empty list when _get_head_sha returns None."""
+    runner = _make_runner(config, event_bus)
+
+    with patch.object(runner, "_get_head_sha", AsyncMock(return_value=None)):
+        result = await runner._get_changed_files(tmp_path, before_sha="abc123")
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# files_changed integration — review()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_populates_files_changed(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """After review() with agent commits, result.files_changed contains the changed file list."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed it.\nVERDICT: APPROVE\nSUMMARY: All good"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner,
+            "_get_changed_files",
+            AsyncMock(return_value=["src/bar.py", "tests/test_bar.py"]),
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.review(pr_info, task, tmp_path, "some diff")
+
+    assert result.files_changed == ["src/bar.py", "tests/test_bar.py"]
+
+
+@pytest.mark.asyncio
+async def test_review_empty_files_changed_when_no_commits(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """After review() with no changes, result.files_changed is empty."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Looks fine.\nVERDICT: APPROVE\nSUMMARY: No issues"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.review(pr_info, task, tmp_path, "some diff")
+
+    assert result.files_changed == []
+
+
+# ---------------------------------------------------------------------------
+# files_changed integration — fix_review_findings()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_populates_files_changed(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """After fix_review_findings() with agent commits, result.files_changed is populated."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed null check.\nVERDICT: APPROVE\nSUMMARY: Fixed"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.files_changed == ["src/fix.py"]
+
+
+# ---------------------------------------------------------------------------
+# Scope-creep verification logging
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_logs_changed_files_when_fixes_made(
+    config, event_bus, pr_info, task, tmp_path, caplog
+):
+    """When reviewer makes fix commits and files_changed is non-empty, log lists changed files."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Done"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner,
+            "_get_changed_files",
+            AsyncMock(return_value=["src/reviewer.py"]),
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+        caplog.at_level("INFO", logger="hydraflow.reviewer"),
+    ):
+        await runner.review(pr_info, task, tmp_path, "diff")
+
+    assert any("changed files" in r.message for r in caplog.records)
+    assert any("src/reviewer.py" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_review_warns_when_fixes_made_but_no_files_changed(
+    config, event_bus, pr_info, task, tmp_path, caplog
+):
+    """When fixes_made is True but files_changed is empty, a WARNING is logged."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Done"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+        caplog.at_level("WARNING", logger="hydraflow.reviewer"),
+    ):
+        await runner.review(pr_info, task, tmp_path, "diff")
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "fixes_made is True but no committed file changes" in r.message
+        for r in warning_records
+    )
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_warns_when_fixes_made_but_no_files_changed(
+    config, event_bus, pr_info, task, tmp_path, caplog
+):
+    """fix_review_findings warns when fixes_made but files_changed is empty."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Done"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+        caplog.at_level("WARNING", logger="hydraflow.reviewer"),
+    ):
+        await runner.fix_review_findings(pr_info, task, tmp_path, "Missing null check")
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "fixes_made is True but no committed file changes" in r.message
+        for r in warning_records
+    )
+
+
+# ---------------------------------------------------------------------------
+# ReviewResult.files_changed model tests
+# ---------------------------------------------------------------------------
+
+
+def test_review_result_files_changed_defaults_to_empty_list():
+    """ReviewResult() with no files_changed argument defaults to empty list."""
+    from models import ReviewResult
+
+    result = ReviewResult(pr_number=1, issue_number=1)
+    assert result.files_changed == []
+
+
+def test_review_result_files_changed_round_trips():
+    """ReviewResult(files_changed=[...]) round-trips through serialization."""
+    from models import ReviewResult
+
+    result = ReviewResult(pr_number=1, issue_number=1, files_changed=["src/foo.py"])
+    data = result.model_dump()
+    restored = ReviewResult(**data)
+    assert restored.files_changed == ["src/foo.py"]

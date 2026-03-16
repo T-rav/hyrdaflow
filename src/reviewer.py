@@ -164,7 +164,23 @@ class ReviewRunner(BaseRunner):
             result.summary = self._extract_summary(transcript)
 
             # Check if the reviewer made any commits or left uncommitted changes
+            result.files_changed = await self._get_changed_files(
+                worktree_path, before_sha
+            )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
+
+            if result.fixes_made and result.files_changed:
+                logger.info(
+                    "Review fix for PR #%d changed files: %s",
+                    pr.number,
+                    result.files_changed,
+                )
+            elif result.fixes_made and not result.files_changed:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— review commit may not have persisted all intended changes",
+                    pr.number,
+                )
 
             # Persist to disk
             self._save_transcript("review-pr", pr.number, transcript)
@@ -258,6 +274,9 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
+            result.files_changed = await self._get_changed_files(
+                worktree_path, before_sha
+            )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             self._save_transcript("review-pr", pr.number, transcript)
         except Exception as exc:
@@ -335,7 +354,24 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
+            result.files_changed = await self._get_changed_files(
+                worktree_path, before_sha
+            )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
+
+            if result.fixes_made and result.files_changed:
+                logger.info(
+                    "Review-fix for PR #%d changed files: %s",
+                    pr.number,
+                    result.files_changed,
+                )
+            elif result.fixes_made and not result.files_changed:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— review-fix commit may not have persisted all intended changes",
+                    pr.number,
+                )
+
             self._save_transcript("review-fix", pr.number, transcript)
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -848,6 +884,31 @@ Diff snippet:
         if result.returncode == 0:
             return result.stdout
         return None
+
+    async def _get_changed_files(
+        self, worktree_path: Path, before_sha: str | None
+    ) -> list[str]:
+        """Return list of files changed between *before_sha* and current HEAD.
+
+        Returns an empty list when HEAD hasn't moved, *before_sha* is ``None``,
+        or the git command fails.
+        """
+        if before_sha is None:
+            return []
+        try:
+            current_sha = await self._get_head_sha(worktree_path)
+            if not current_sha or current_sha == before_sha:
+                return []
+            result = await self._runner.run_simple(
+                ["git", "diff", "--name-only", before_sha, current_sha],
+                cwd=str(worktree_path),
+                timeout=self._config.git_command_timeout,
+            )
+            if result.returncode != 0:
+                return []
+            return [f for f in result.stdout.splitlines() if f.strip()]
+        except (TimeoutError, FileNotFoundError):
+            return []
 
     async def _has_changes(self, worktree_path: Path, before_sha: str | None) -> bool:
         """Check if the agent made commits or left uncommitted changes."""

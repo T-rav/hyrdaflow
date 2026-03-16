@@ -626,6 +626,7 @@ class ReviewResultFactory:
         ci_fix_attempts: int | None = None,
         error: str | None = None,
         visual_passed: bool | None = None,
+        files_changed: list[str] | None = None,
         use_defaults: bool = False,
     ) -> ReviewResult:
         """Create a ReviewResult instance.
@@ -668,6 +669,8 @@ class ReviewResultFactory:
                 kwargs["error"] = error
             if visual_passed is not None:
                 kwargs["visual_passed"] = visual_passed
+            if files_changed is not None:
+                kwargs["files_changed"] = files_changed
             return RR(**kwargs)
 
         return RR(
@@ -688,6 +691,7 @@ class ReviewResultFactory:
             ci_passed=ci_passed,
             ci_fix_attempts=(ci_fix_attempts if ci_fix_attempts is not None else 0),
             visual_passed=visual_passed,
+            files_changed=files_changed if files_changed is not None else [],
         )
 
 
@@ -753,6 +757,10 @@ class ReviewResultBuilder:
 
     def with_visual_passed(self, value: bool) -> ReviewResultBuilder:
         self._kwargs["visual_passed"] = value
+        return self
+
+    def with_files_changed(self, value: list[str]) -> ReviewResultBuilder:
+        self._kwargs["files_changed"] = value
         return self
 
     def build(self) -> ReviewResult:
